@@ -1,0 +1,7 @@
+# Default owners for everything
+* @sciEasy/maintainers
+
+# CI and repo config
+/.github/ @sciEasy/maintainers
+pyproject.toml @sciEasy/maintainers
+.pre-commit-config.yaml @sciEasy/maintainers

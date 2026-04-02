@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+*.whl
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.conda/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Environment
+.env
+*.env.local
+
+# Data (local working data, not tracked)
+data/local/
+data/cache/
+data/artifacts/
+data/previews/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Node (frontend)
+node_modules/
+.next/

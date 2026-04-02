@@ -1,0 +1,46 @@
+name: Architecture Decision
+description: Propose or discuss an architectural decision
+labels: [architecture]
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What is the situation that requires a decision?
+    validations:
+      required: true
+  - type: textarea
+    id: options
+    attributes:
+      label: Options Considered
+      description: List the alternatives and their tradeoffs
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed Decision
+      description: Which option do you recommend and why?
+    validations:
+      required: true
+  - type: textarea
+    id: consequences
+    attributes:
+      label: Consequences
+      description: What are the implications of this decision?
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Affected Boundary
+      options:
+        - Core
+        - Runtime
+        - Storage
+        - Plugin System
+        - Frontend / Backend
+        - AI
+        - Cross-cutting
+    validations:
+      required: true

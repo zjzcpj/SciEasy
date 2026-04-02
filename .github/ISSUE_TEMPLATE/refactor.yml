@@ -1,0 +1,32 @@
+name: Refactor
+description: Propose a code refactor
+labels: [refactor]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What to Refactor
+      description: What code or module needs refactoring?
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: Why is this refactor needed?
+    validations:
+      required: true
+  - type: textarea
+    id: approach
+    attributes:
+      label: Proposed Approach
+      description: How should the refactor be done?
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Scope Confirmation
+      options:
+        - label: This refactor does not change external behavior
+        - label: This refactor requires an ADR

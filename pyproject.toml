@@ -1,0 +1,62 @@
+[project]
+name = "sciEasy"
+version = "0.0.0"
+requires-python = ">=3.11"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+src = ["packages", "apps"]
+
+[tool.ruff.lint]
+select = [
+  "E",   # pycodestyle errors
+  "W",   # pycodestyle warnings
+  "F",   # pyflakes
+  "I",   # isort
+  "N",   # pep8-naming
+  "UP",  # pyupgrade
+  "B",   # flake8-bugbear
+  "SIM", # flake8-simplify
+  "RUF", # ruff-specific
+]
+ignore = [
+  "E501", # line too long (handled by formatter)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["core", "runtime", "storage", "sdk", "plugin_host", "ai"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[tool.importlinter]
+root_packages = ["core", "runtime", "storage", "sdk", "plugin_host", "ai"]
+
+[[tool.importlinter.contracts]]
+name = "Core must not depend on runtime or storage"
+type = "forbidden"
+source_modules = ["core"]
+forbidden_modules = ["runtime", "storage", "plugin_host"]
+
+[[tool.importlinter.contracts]]
+name = "Runtime must not depend on storage internals"
+type = "forbidden"
+source_modules = ["runtime"]
+forbidden_modules = ["storage.array_store", "storage.table_store", "storage.artifact_store", "storage.metadata_store"]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "0.0.0"
+tag_format = "v$version"
