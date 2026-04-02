@@ -57,8 +57,10 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: uv pip install --system pytest
       - name: Run tests
+        shell: bash {0}
         run: |
-          pytest; rc=$?
+          pytest
+          rc=$?
           if [ $rc -eq 5 ]; then
             echo "No tests collected — skipping"
             exit 0
