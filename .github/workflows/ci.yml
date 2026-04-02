@@ -34,7 +34,13 @@ jobs:
         with:
           python-version: "3.13"
       - run: uv pip install --system mypy
-      - run: mypy packages/ --ignore-missing-imports
+      - name: Run mypy
+        run: |
+          if [ -d packages ]; then
+            mypy packages/ --ignore-missing-imports
+          else
+            echo "No packages/ directory yet — skipping"
+          fi
 
   test:
     name: Test (Python ${{ matrix.python-version }})
@@ -50,7 +56,14 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: uv pip install --system pytest
-      - run: pytest
+      - name: Run tests
+        run: |
+          pytest; rc=$?
+          if [ $rc -eq 5 ]; then
+            echo "No tests collected — skipping"
+            exit 0
+          fi
+          exit $rc
 
   import-lint:
     name: Import Contracts
@@ -62,4 +75,10 @@ jobs:
         with:
           python-version: "3.13"
       - run: uv pip install --system import-linter
-      - run: lint-imports
+      - name: Run import linter
+        run: |
+          if [ -d packages ]; then
+            lint-imports
+          else
+            echo "No packages/ directory yet — skipping"
+          fi

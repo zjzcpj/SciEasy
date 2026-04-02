@@ -2,6 +2,6 @@
 * @zjzcpj
 
 # CI and repo config
-/.github/ @sciEasy/maintainers
-pyproject.toml @sciEasy/maintainers
-.pre-commit-config.yaml @sciEasy/maintainers
+/.github/ @zjzcpj
+pyproject.toml @zjzcpj
+.pre-commit-config.yaml @zjzcpj
