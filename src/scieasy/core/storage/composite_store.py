@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 from scieasy.core.storage.ref import StorageReference
@@ -11,25 +13,112 @@ from scieasy.core.storage.ref import StorageReference
 class CompositeStore:
     """Storage backend for :class:`CompositeData`, persisting each slot independently.
 
-    All methods raise :class:`NotImplementedError` in Phase 1.
+    Each slot is stored in a sub-directory, and a manifest.json records the
+    mapping of slot names to their backend types and paths.
     """
 
+    _MANIFEST_NAME = "manifest.json"
+
+    def _get_backend_for(self, backend_name: str) -> Any:
+        """Return the appropriate backend instance for *backend_name*."""
+        from scieasy.core.storage.arrow_backend import ArrowBackend
+        from scieasy.core.storage.filesystem import FilesystemBackend
+        from scieasy.core.storage.zarr_backend import ZarrBackend
+
+        backends: dict[str, Any] = {
+            "zarr": ZarrBackend(),
+            "arrow": ArrowBackend(),
+            "filesystem": FilesystemBackend(),
+        }
+        if backend_name not in backends:
+            raise ValueError(f"Unknown backend: {backend_name}")
+        return backends[backend_name]
+
     def read(self, ref: StorageReference) -> Any:
-        """Read a composite directory structure from *ref*."""
-        raise NotImplementedError
+        """Read a composite directory structure from *ref*.
+
+        Returns a dict of ``{slot_name: data}`` by reading each slot
+        according to the manifest.
+        """
+        base = Path(ref.path)
+        manifest_path = base / self._MANIFEST_NAME
+        manifest: dict[str, Any] = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+        result: dict[str, Any] = {}
+        for slot_name, slot_info in manifest["slots"].items():
+            backend = self._get_backend_for(slot_info["backend"])
+            slot_ref = StorageReference(
+                backend=slot_info["backend"],
+                path=slot_info["path"],
+                format=slot_info.get("format"),
+            )
+            result[slot_name] = backend.read(slot_ref)
+        return result
 
     def write(self, data: Any, ref: StorageReference) -> StorageReference:
-        """Write composite slots to a directory at *ref*."""
-        raise NotImplementedError
+        """Write composite slots to a directory at *ref*.
+
+        *data* must be a dict of ``{slot_name: (backend_name, slot_data)}``.
+        Each slot is stored in a subdirectory using the appropriate backend.
+        """
+        if not isinstance(data, dict):
+            raise TypeError("CompositeStore.write expects a dict of {slot_name: (backend, data)}.")
+
+        base = Path(ref.path)
+        base.mkdir(parents=True, exist_ok=True)
+
+        manifest_slots: dict[str, Any] = {}
+        for slot_name, (backend_name, slot_data) in data.items():
+            backend = self._get_backend_for(backend_name)
+            if backend_name == "zarr":
+                slot_path = str(base / slot_name / "data.zarr")
+                Path(slot_path).parent.mkdir(parents=True, exist_ok=True)
+            elif backend_name == "arrow":
+                slot_path = str(base / slot_name / "data.parquet")
+                Path(slot_path).parent.mkdir(parents=True, exist_ok=True)
+            else:
+                slot_path = str(base / slot_name / "data.bin")
+                Path(slot_path).parent.mkdir(parents=True, exist_ok=True)
+
+            slot_ref = StorageReference(backend=backend_name, path=slot_path)
+            result_ref = backend.write(slot_data, slot_ref)
+            manifest_slots[slot_name] = {
+                "backend": backend_name,
+                "path": result_ref.path,
+                "format": result_ref.format,
+            }
+
+        manifest = {"slots": manifest_slots}
+        manifest_path = base / self._MANIFEST_NAME
+        manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+        metadata = dict(ref.metadata) if ref.metadata else {}
+        metadata["slot_names"] = list(manifest_slots.keys())
+        return StorageReference(
+            backend="composite", path=ref.path, format="composite", metadata=metadata,
+        )
 
     def slice(self, ref: StorageReference, *args: Any) -> Any:
-        """Return a subset of slots from the composite at *ref*."""
-        raise NotImplementedError
+        """Return a subset of slots from the composite at *ref*.
+
+        *args* should be slot names to select.
+        """
+        all_data = self.read(ref)
+        if not args:
+            return all_data
+        return {k: v for k, v in all_data.items() if k in args}
 
     def iter_chunks(self, ref: StorageReference, chunk_size: int) -> Iterator[Any]:
-        """Yield slots from the composite at *ref*."""
-        raise NotImplementedError
+        """Yield slots one at a time from the composite at *ref*."""
+        all_data = self.read(ref)
+        yield from all_data.items()
 
     def get_metadata(self, ref: StorageReference) -> dict[str, Any]:
         """Return metadata for the composite directory at *ref*."""
-        raise NotImplementedError
+        base = Path(ref.path)
+        manifest_path = base / self._MANIFEST_NAME
+        manifest: dict[str, Any] = json.loads(manifest_path.read_text(encoding="utf-8"))
+        return {
+            "slot_names": list(manifest["slots"].keys()),
+            "slot_backends": {k: v["backend"] for k, v in manifest["slots"].items()},
+        }
