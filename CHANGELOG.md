@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Phase 4 — Block system implementation:
+  - Port system: type matching (isinstance-based, inheritance-aware), constraint validation, connection validation (source→target compatibility)
+  - Block lifecycle: validate() with port type/constraint checking, postprocess() pass-through, state machine with transition()
+  - IOBlock: read/write via AdapterRegistry with direction config
+  - ProcessBlock: base with algorithm ClassVar; MergeBlock (Arrow concat), SplitBlock (head/ratio/filter)
+  - CodeBlock: inline and script modes with MEMORY/PROXY/CHUNKED delivery
+  - PythonRunner: exec() for inline, importlib for script with mtime-based hot-reload safety
+  - introspect_script(): AST-based run() signature and configure() schema extraction
+  - R/Julia runners: helpful NotImplementedError stubs
+  - AppBlock: full lifecycle with RUNNING→PAUSED→RUNNING→DONE state transitions
+  - FileExchangeBridge: prepare (JSON manifest), launch (subprocess), watch, collect
+  - FileWatcher: polling-based output detection with timeout and glob patterns
+  - SubWorkflowBlock: input/output mapping with sequential executor stub (real DAG scheduler in Phase 5)
+  - BlockRegistry: Tier 1 (drop-in .py scan) + Tier 2 (entry_points) discovery, instantiate(), hot_reload()
+  - AdapterRegistry: extension→adapter mapping with register_defaults() and entry_point scan
+  - RunnerRegistry: language→runner mapping with register_defaults()
+  - Format adapters: CSV (PyArrow), Parquet (PyArrow), TIFF (tifffile), generic binary (Artifact)
+  - Stub adapters: mzXML, H5AD, FCS with NotImplementedError
+  - 69 new tests across 7 test files covering ports, IO, process, code, app, registry, and subworkflow blocks
 - CI: test coverage enforcement at 65% minimum via pytest-cov (will increase to 85% as test suite grows)
 - CI: PR gate check requiring tests/ updates when src/ changes
 
