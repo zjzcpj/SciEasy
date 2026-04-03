@@ -608,7 +608,17 @@ python .workflow/gate.py advance $TASK_ID update_docs \
 
 ```bash
 # 6a. Add changelog entry under [Unreleased]
-# Format: - [#ISSUE_NUMBER] Brief description (@agent-name)
+# Format (ALL fields mandatory):
+#   - [#ISSUE] Description (@agent, YYYY-MM-DD, branch: BRANCH_NAME, session: TASK_ID)
+#
+# Example:
+#   - [#42] Add TIFF loader to pipeline (@claude, 2026-04-03, branch: feat/issue-42/tiff-loader, session: 20260403-013918-add-tiff-loader)
+#
+# Fields:
+#   @agent     — who made this change (e.g. @claude, @human)
+#   YYYY-MM-DD — date of the change
+#   branch:    — the git branch name
+#   session:   — the workflow gate TASK_ID (from gate.py start output)
 
 # 6b. Commit
 git add CHANGELOG.md
@@ -617,7 +627,7 @@ git push
 
 # 6c. Record gate completion
 python .workflow/gate.py advance $TASK_ID update_changelog \
-  --data '{"changelog_entry": "[#42] Add TIFF loader to pipeline (@claude)"}'
+  --data '{"changelog_entry": "[#42] Add TIFF loader to pipeline (@claude, 2026-04-03, branch: feat/issue-42/tiff-loader, session: 20260403-013918-add-tiff-loader)"}'
 ```
 
 ---
