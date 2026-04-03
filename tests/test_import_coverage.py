@@ -99,14 +99,18 @@ class TestImportAPIModules:
         from scieasy.api import ws  # noqa: F401
 
     def test_import_routes(self) -> None:
-        pytest.importorskip("multipart", reason="python-multipart not installed")
-        from scieasy.api.routes import (
-            ai,  # noqa: F401
-            blocks,  # noqa: F401
-            data,  # noqa: F401
-            projects,  # noqa: F401
-            workflows,  # noqa: F401
-        )
+        try:
+            from scieasy.api.routes import (
+                ai,  # noqa: F401
+                blocks,  # noqa: F401
+                data,  # noqa: F401
+                projects,  # noqa: F401
+                workflows,  # noqa: F401
+            )
+        except RuntimeError as exc:
+            if "python-multipart" in str(exc):
+                pytest.skip("python-multipart not installed")
+            raise
 
     def test_instantiate_workflow_create(self) -> None:
         from scieasy.api.schemas import WorkflowCreate
