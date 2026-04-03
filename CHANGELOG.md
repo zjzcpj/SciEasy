@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- [#32] Add code audit agent prompt for automated PR review (@claude, 2026-04-03, branch: feat/issue-32/code-audit-agent-prompt, session: 20260403-160517-add-code-audit-agent-prompt-for-automate)
+
 - Phase 4 — Block system implementation:
   - Port system: type matching (isinstance-based, inheritance-aware), constraint validation, connection validation (source→target compatibility)
   - Block lifecycle: validate() with port type/constraint checking, postprocess() pass-through, state machine with transition()
