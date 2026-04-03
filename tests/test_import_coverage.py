@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import pytest
+
 
 class TestImportEngineModules:
     """Engine modules — import and instantiate key types."""
@@ -97,6 +99,7 @@ class TestImportAPIModules:
         from scieasy.api import ws  # noqa: F401
 
     def test_import_routes(self) -> None:
+        pytest.importorskip("multipart", reason="python-multipart not installed")
         from scieasy.api.routes import (
             ai,  # noqa: F401
             blocks,  # noqa: F401
