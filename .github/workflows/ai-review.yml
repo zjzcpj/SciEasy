@@ -35,10 +35,12 @@ jobs:
       - name: Install Codex CLI
         run: npm install -g @openai/codex
 
-      - name: Authenticate Codex
-        run: codex login --api-key "$CODEX_API_KEY"
+      - name: Configure Codex subscription auth
+        run: |
+          mkdir -p ~/.codex
+          echo "$CODEX_AUTH_JSON" > ~/.codex/auth.json
         env:
-          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
 
       - name: Run AI review
         env:
