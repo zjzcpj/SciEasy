@@ -72,15 +72,19 @@ class CompositeStore:
             backend = self._get_backend_for(backend_name)
             if backend_name == "zarr":
                 slot_path = str(base / slot_name / "data.zarr")
-                Path(slot_path).parent.mkdir(parents=True, exist_ok=True)
+                slot_format = None
             elif backend_name == "arrow":
                 slot_path = str(base / slot_name / "data.parquet")
-                Path(slot_path).parent.mkdir(parents=True, exist_ok=True)
+                slot_format = "parquet"
+            elif isinstance(slot_data, str):
+                slot_path = str(base / slot_name / "data.txt")
+                slot_format = "plain"
             else:
                 slot_path = str(base / slot_name / "data.bin")
-                Path(slot_path).parent.mkdir(parents=True, exist_ok=True)
+                slot_format = "binary"
+            Path(slot_path).parent.mkdir(parents=True, exist_ok=True)
 
-            slot_ref = StorageReference(backend=backend_name, path=slot_path)
+            slot_ref = StorageReference(backend=backend_name, path=slot_path, format=slot_format)
             result_ref = backend.write(slot_data, slot_ref)
             manifest_slots[slot_name] = {
                 "backend": backend_name,

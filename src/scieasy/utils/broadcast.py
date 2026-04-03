@@ -108,8 +108,8 @@ def broadcast_apply(
     # Use np.ndindex to iterate over the over_axes dimensions
     for idx in np.ndindex(*over_axis_sizes):
         slicing: list[Any] = [slice(None)] * target_data.ndim
-        for axis_pos, axis_idx in zip(idx, over_axis_indices, strict=True):
-            slicing[axis_pos] = axis_idx
+        for value, dim_idx in zip(idx, over_axis_indices, strict=True):
+            slicing[dim_idx] = value
         target_slice = target_data[tuple(slicing)]
         results.append(func(source_data, target_slice))
 
