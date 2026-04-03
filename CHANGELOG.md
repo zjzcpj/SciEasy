@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- [#35] Add AI PR review workflow with Codex agent (@claude, 2026-04-03, branch: feat/ai-pr-review, session: 20260403-162720-add-ai-pr-review-workflow-with-codex-age)
+
 - Phase 4 — Block system implementation:
   - Port system: type matching (isinstance-based, inheritance-aware), constraint validation, connection validation (source→target compatibility)
   - Block lifecycle: validate() with port type/constraint checking, postprocess() pass-through, state machine with transition()
