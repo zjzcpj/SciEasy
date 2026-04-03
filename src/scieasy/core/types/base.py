@@ -1,0 +1,85 @@
+"""DataObject ABC, TypeSignature, and metadata containers."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from scieasy.core.storage.ref import StorageReference
+
+if TYPE_CHECKING:
+    from scieasy.core.proxy import ViewProxy
+
+
+@dataclass
+class TypeSignature:
+    """Describes the semantic type of a DataObject via a chain of type names.
+
+    Attributes:
+        type_chain: Ordered list of type names from most general to most specific,
+            e.g. ``["DataObject", "Array", "Image"]``.
+        slot_schema: Optional mapping of slot names to type names (for composites).
+    """
+
+    type_chain: list[str]
+    slot_schema: dict[str, str] | None = field(default=None)
+
+    def matches(self, other: TypeSignature) -> bool:
+        """Return ``True`` if *other* is compatible with this signature.
+
+        Compatibility is not yet defined; Phase 2 will implement the semantics.
+        """
+        raise NotImplementedError
+
+    @classmethod
+    def from_type(cls, data_type: type) -> TypeSignature:
+        """Build a :class:`TypeSignature` from a Python class's MRO.
+
+        This walks the MRO up to (but not including) ``object`` and records
+        the class names.
+        """
+        raise NotImplementedError
+
+
+class DataObject:
+    """Base class for all first-class data objects in SciEasy.
+
+    Subclasses represent concrete scientific data kinds (arrays, series,
+    dataframes, text, artifacts, composites).  All method bodies raise
+    :class:`NotImplementedError` in Phase 1; implementations arrive in Phase 2.
+    """
+
+    def __init__(
+        self,
+        metadata: dict[str, Any] | None = None,
+        storage_ref: StorageReference | None = None,
+    ) -> None:
+        self._metadata: dict[str, Any] = metadata or {}
+        self._storage_ref: StorageReference | None = storage_ref
+
+    # -- properties ----------------------------------------------------------
+
+    @property
+    def dtype_info(self) -> TypeSignature:
+        """Return the :class:`TypeSignature` describing this object's type."""
+        raise NotImplementedError
+
+    @property
+    def storage_ref(self) -> StorageReference | None:
+        """Return the :class:`StorageReference` if the object is persisted."""
+        return self._storage_ref
+
+    # -- data access ---------------------------------------------------------
+
+    def view(self) -> ViewProxy:
+        """Return a lazy :class:`ViewProxy` for this object's data."""
+        raise NotImplementedError
+
+    def to_memory(self) -> Any:
+        """Materialise the full data into an in-memory representation."""
+        raise NotImplementedError
+
+    def save(self, path: str | Path) -> None:
+        """Persist the data object to *path*."""
+        raise NotImplementedError
