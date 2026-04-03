@@ -30,6 +30,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "pytest-cov>=6.0",
     "ruff>=0.11",
     "mypy>=1.15",
     "import-linter>=2.0",
@@ -107,7 +108,7 @@ packages = ["scieasy"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra -q"
+addopts = "-ra -q --cov=scieasy --cov-report=term-missing --cov-fail-under=85"
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
@@ -137,3 +138,20 @@ forbidden_modules = ["scieasy.api", "scieasy.ai"]
 name = "cz_conventional_commits"
 version = "0.1.0-dev"
 tag_format = "v$version"
+
+[tool.coverage.run]
+source = ["scieasy"]
+omit = [
+    "*/tests/*",
+    "*/__init__.py",
+]
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]

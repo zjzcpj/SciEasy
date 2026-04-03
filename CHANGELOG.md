@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- CI: test coverage enforcement at 85% minimum via pytest-cov
+- CI: PR gate check requiring tests/ updates when src/ changes
+
 - Phase 3 — Core data layer implementation:
   - DataObject metadata handling, TypeSignature auto-generation from class MRO
   - TypeSignature.matches() for inheritance-aware type compatibility
