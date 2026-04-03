@@ -54,7 +54,7 @@
       "completed_at": "2026-04-03T20:28:00.570763+00:00",
       "artifacts": {
         "docs_updated": [
-          "N/A ¡ª CI/infra change, no docs affected"
+          "N/A - CI/infra change, no docs affected"
         ]
       }
     },
@@ -122,7 +122,7 @@
       "timestamp": "2026-04-03T20:28:00.570779+00:00",
       "artifacts": {
         "docs_updated": [
-          "N/A ¡ª CI/infra change, no docs affected"
+          "N/A - CI/infra change, no docs affected"
         ]
       }
     },
