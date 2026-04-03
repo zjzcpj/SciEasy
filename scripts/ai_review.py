@@ -6,7 +6,7 @@ sends it to the Codex CLI agent with the review prompt, and posts
 the review as a PR comment.
 
 Requires:
-    - Codex CLI installed and authenticated via subscription
+    - Codex CLI installed with subscription auth (~/.codex/auth.json)
     - GITHUB_TOKEN env var for posting comments
     - PR_NUMBER and REPO_NAME env vars (set by GitHub Actions)
 """
@@ -17,6 +17,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 REVIEW_PROMPT_PATH = Path(__file__).parent / "prompts" / "review_agent_prompt.md"
@@ -62,12 +63,11 @@ def load_review_prompt() -> str:
 
 
 def run_codex_review(prompt: str, diff: str, metadata: dict) -> str:
-    """Invoke the Codex CLI agent in headless mode and return its output."""
+    """Invoke the Codex CLI in non-interactive mode and return its output."""
     title = metadata.get("title", "Untitled")
     body = metadata.get("body") or "No description provided."
     number = metadata.get("number", "?")
 
-    # Truncate diff if needed
     if len(diff) > MAX_DIFF_CHARS:
         diff = diff[:MAX_DIFF_CHARS] + "\n\n... [diff truncated] ..."
 
@@ -75,25 +75,41 @@ def run_codex_review(prompt: str, diff: str, metadata: dict) -> str:
         f"{prompt}\n\n---\n\n# PR #{number}: {title}\n\n## Description\n{body}\n\n## Diff\n```diff\n{diff}\n```\n"
     )
 
-    result = subprocess.run(
-        [
-            "codex",
-            "--approval-mode",
-            "full-auto",
-            "--quiet",
-            full_prompt,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
+        f.write(full_prompt)
+        prompt_file = f.name
 
-    if result.returncode != 0:
-        stderr_snippet = result.stderr[:500] if result.stderr else "(no stderr)"
-        print(f"Codex agent failed (rc={result.returncode}): {stderr_snippet}", file=sys.stderr)
-        return f"**Codex review agent encountered an error.**\n\n```\n{stderr_snippet}\n```"
+    output_file = tempfile.mktemp(suffix=".md")
 
-    return result.stdout.strip()
+    try:
+        result = subprocess.run(
+            [
+                "codex",
+                "exec",
+                "--full-auto",
+                "-o",
+                output_file,
+                f"@{prompt_file}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+
+        if result.returncode != 0:
+            stderr_snippet = result.stderr[:500] if result.stderr else "(no stderr)"
+            print(f"Codex agent failed (rc={result.returncode}): {stderr_snippet}", file=sys.stderr)
+            return f"**Codex review agent encountered an error.**\n\n```\n{stderr_snippet}\n```"
+
+        if os.path.exists(output_file):
+            return Path(output_file).read_text(encoding="utf-8").strip()
+
+        return result.stdout.strip() if result.stdout else "(no output)"
+
+    finally:
+        for path in (prompt_file, output_file):
+            if os.path.exists(path):
+                os.unlink(path)
 
 
 def post_review_comment(repo: str, pr_number: int, body: str) -> None:
@@ -126,16 +142,12 @@ def main() -> None:
     diff = get_pr_diff(repo, pr_number)
 
     if not diff.strip():
-        print("Empty diff — skipping review.")
+        print("Empty diff -- skipping review.")
         return
 
-    # 2. Load review prompt
     prompt = load_review_prompt()
-
-    # 3. Run Codex agent
     review = run_codex_review(prompt, diff, metadata)
 
-    # 4. Post review comment
     comment = f"## Codex AI Review\n\n{review}\n\n---\n*Automated review by Codex agent*"
     post_review_comment(repo, pr_number, comment)
     print(f"Review posted on PR #{pr_number}.")
