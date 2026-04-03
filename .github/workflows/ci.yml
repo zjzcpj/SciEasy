@@ -98,3 +98,15 @@ jobs:
           else
             echo "No src/scieasy/ directory yet — skipping"
           fi
+
+  # frontend:
+  #   name: Frontend Build
+  #   runs-on: ubuntu-latest
+  #   # Not yet implemented — frontend/src/ does not exist.
+  #   # Enable this job when frontend development begins.
+  #   steps:
+  #     - uses: actions/checkout@v6
+  #     - uses: actions/setup-node@v4
+  #       with:
+  #         node-version: "20"
+  #     - run: cd frontend && npm ci && npm run build

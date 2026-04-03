@@ -8,7 +8,7 @@ from scieasy.core.types.artifact import Artifact
 from scieasy.core.types.base import DataObject, TypeSignature
 from scieasy.core.types.composite import AnnData, CompositeData, SpatialData
 from scieasy.core.types.dataframe import DataFrame, MetabPeakTable, PeakTable
-from scieasy.core.types.registry import TypeRegistry
+from scieasy.core.types.registry import TypeRegistry, TypeSpec
 from scieasy.core.types.series import MassSpectrum, RamanSpectrum, Series, Spectrum
 from scieasy.core.types.text import Text
 
@@ -34,4 +34,5 @@ __all__ = [
     "Text",
     "TypeRegistry",
     "TypeSignature",
+    "TypeSpec",
 ]
