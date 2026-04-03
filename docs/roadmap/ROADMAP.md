@@ -293,70 +293,70 @@ full = proxy.to_memory()                  # loads everything (with warning if >2
 
 ---
 
-## Phase 4 — Block system implementation
+## Phase 4 — Block system implementation ✅
 
 **Goal**: blocks can be instantiated, validated, and executed in isolation (no DAG, no scheduler). Port type checking works. Registry discovers blocks.
 
 ### 4.1 Port system
 
-- [ ] Implement port type matching (isinstance-based, inheritance-aware)
-- [ ] Implement port constraint validation (call constraint function, report constraint_description on failure)
-- [ ] Implement connection validation endpoint (source port → target port compatibility check)
+- [x] Implement port type matching (isinstance-based, inheritance-aware)
+- [x] Implement port constraint validation (call constraint function, report constraint_description on failure)
+- [x] Implement connection validation endpoint (source port → target port compatibility check)
 
 ### 4.2 Block lifecycle
 
-- [ ] Implement `Block.__init__`, `BlockConfig` validation, `BlockState` transitions
-- [ ] Implement `IOBlock` — load via FormatAdapter, save via FormatAdapter
-- [ ] Implement `ProcessBlock` base — pass-through validate/postprocess, subclass implements run
-- [ ] Implement 2-3 built-in ProcessBlocks (merge, split) as proof-of-concept
+- [x] Implement `Block.__init__`, `BlockConfig` validation, `BlockState` transitions
+- [x] Implement `IOBlock` — load via FormatAdapter, save via FormatAdapter
+- [x] Implement `ProcessBlock` base — pass-through validate/postprocess, subclass implements run
+- [x] Implement 2-3 built-in ProcessBlocks (merge, split) as proof-of-concept
 
 ### 4.3 CodeBlock
 
-- [ ] Implement inline mode (MEMORY delivery only)
-- [ ] Implement script mode with MEMORY delivery
-- [ ] Implement PROXY delivery mode
-- [ ] Implement CHUNKED delivery mode with iteration + result concatenation
-- [ ] Implement `PythonRunner` (exec for inline, importlib for script)
-- [ ] Implement `introspect.py` — parse run() signature, read configure() return value
-- [ ] Stub `RRunner` and `JuliaRunner` (just raise NotImplementedError with helpful message)
+- [x] Implement inline mode (MEMORY delivery only)
+- [x] Implement script mode with MEMORY delivery
+- [x] Implement PROXY delivery mode
+- [x] Implement CHUNKED delivery mode with iteration + result concatenation
+- [x] Implement `PythonRunner` (exec for inline, importlib for script)
+- [x] Implement `introspect.py` — parse run() signature, read configure() return value
+- [x] Stub `RRunner` and `JuliaRunner` (just raise NotImplementedError with helpful message)
 
 ### 4.4 AppBlock
 
-- [ ] Implement file-exchange bridge — serialise to exchange dir, launch subprocess
-- [ ] Implement `FileWatcher` — watchdog-based output detection
-- [ ] Implement pause/resume protocol (block state RUNNING → PAUSED → DONE)
+- [x] Implement file-exchange bridge — serialise to exchange dir, launch subprocess
+- [x] Implement `FileWatcher` — polling-based output detection
+- [x] Implement pause/resume protocol (block state RUNNING → PAUSED → DONE)
 
 ### 4.5 SubWorkflowBlock
 
-- [ ] Implement child workflow loading
-- [ ] Implement input injection + output extraction mapping
-- [ ] (Depends on Phase 5 engine — mark as blocked, use a simple sequential executor stub for now)
+- [x] Implement child workflow loading
+- [x] Implement input injection + output extraction mapping
+- [x] (Depends on Phase 5 engine — uses simple sequential executor stub for now)
 
 ### 4.6 Registry
 
-- [ ] Implement `BlockRegistry.scan()` — Tier 1 (directory scan) + Tier 2 (entry_points)
-- [ ] Implement `BlockRegistry.instantiate()` — fresh import with mtime-based module name
-- [ ] Implement `BlockRegistry.hot_reload()` — re-scan Tier 1 dirs, diff specs
-- [ ] Implement `TypeRegistry` with same two-tier scan
-- [ ] Implement `AdapterRegistry` — extension → adapter mapping
+- [x] Implement `BlockRegistry.scan()` — Tier 1 (directory scan) + Tier 2 (entry_points)
+- [x] Implement `BlockRegistry.instantiate()` — fresh import with mtime-based module name
+- [x] Implement `BlockRegistry.hot_reload()` — re-scan Tier 1 dirs, diff specs
+- [x] Implement `TypeRegistry` with same two-tier scan
+- [x] Implement `AdapterRegistry` — extension → adapter mapping
 
 ### 4.7 Format adapters
 
-- [ ] Implement CSV adapter
-- [ ] Implement TIFF adapter
-- [ ] Implement Parquet adapter
-- [ ] Implement generic (binary → Artifact) adapter
-- [ ] Stub remaining adapters (mzXML, h5ad, fcs) with NotImplementedError
+- [x] Implement CSV adapter
+- [x] Implement TIFF adapter
+- [x] Implement Parquet adapter
+- [x] Implement generic (binary → Artifact) adapter
+- [x] Stub remaining adapters (mzXML, h5ad, fcs) with NotImplementedError
 
 ### 4.8 Tests
 
-- [ ] `tests/blocks/test_ports.py` — type matching, constraint pass/fail, CompositeData slot constraints
-- [ ] `tests/blocks/test_io_block.py` — load CSV → DataFrame, save DataFrame → Parquet
-- [ ] `tests/blocks/test_process_block.py` — merge two DataFrames
-- [ ] `tests/blocks/test_code_block.py` — inline Python, script Python, PROXY mode, CHUNKED mode
-- [ ] `tests/blocks/test_app_block.py` — mock subprocess + file watcher (write output file → block resumes)
-- [ ] `tests/blocks/test_registry.py` — Tier 1 scan discovers drop-in .py, hot reload picks up changes
-- [ ] `tests/blocks/test_subworkflow.py` — stub test with sequential executor
+- [x] `tests/blocks/test_ports.py` — type matching, constraint pass/fail, CompositeData slot constraints
+- [x] `tests/blocks/test_io_block.py` — load CSV → DataFrame, save DataFrame → Parquet
+- [x] `tests/blocks/test_process_block.py` — merge two DataFrames
+- [x] `tests/blocks/test_code_block.py` — inline Python, script Python, PROXY mode, CHUNKED mode
+- [x] `tests/blocks/test_app_block.py` — mock subprocess + file watcher (write output file → block resumes)
+- [x] `tests/blocks/test_registry.py` — Tier 1 scan discovers drop-in .py, hot reload picks up changes
+- [x] `tests/blocks/test_subworkflow.py` — stub test with sequential executor
 
 ### Deliverable
 
