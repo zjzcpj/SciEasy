@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-"""AI-powered PR review using Codex agent.
+"""AI-powered PR review using Codex CLI (subscription).
 
 Triggered by GitHub Actions on new/updated PRs. Fetches the PR diff,
-sends it to a Codex agent with the review prompt, and posts the
-review as a PR comment.
+sends it to the Codex CLI agent with the review prompt, and posts
+the review as a PR comment.
 
-Environment variables (set by GitHub Actions):
-    GITHUB_TOKEN   - GitHub token for API access
-    OPENAI_API_KEY - OpenAI API key for Codex agent
-    PR_NUMBER      - Pull request number
-    REPO_NAME      - Repository in owner/repo format
+Requires:
+    - Codex CLI installed and authenticated via subscription
+    - GITHUB_TOKEN env var for posting comments
+    - PR_NUMBER and REPO_NAME env vars (set by GitHub Actions)
 """
 
 from __future__ import annotations
@@ -30,9 +29,11 @@ def get_pr_diff(repo: str, pr_number: int) -> str:
     """Fetch PR diff via gh CLI."""
     result = subprocess.run(
         [
-            "gh", "api",
+            "gh",
+            "api",
             f"repos/{repo}/pulls/{pr_number}",
-            "-H", "Accept: application/vnd.github.diff",
+            "-H",
+            "Accept: application/vnd.github.diff",
         ],
         capture_output=True,
         text=True,
@@ -56,10 +57,7 @@ def load_review_prompt() -> str:
     """Load the review agent prompt template."""
     if not REVIEW_PROMPT_PATH.exists():
         print(f"Warning: {REVIEW_PROMPT_PATH} not found, using default prompt")
-        return (
-            "Review this pull request for correctness, style, and potential issues. "
-            "Be concise and actionable."
-        )
+        return "Review this pull request for correctness, style, and potential issues. Be concise and actionable."
     return REVIEW_PROMPT_PATH.read_text(encoding="utf-8")
 
 
@@ -74,17 +72,14 @@ def run_codex_review(prompt: str, diff: str, metadata: dict) -> str:
         diff = diff[:MAX_DIFF_CHARS] + "\n\n... [diff truncated] ..."
 
     full_prompt = (
-        f"{prompt}\n\n"
-        f"---\n\n"
-        f"# PR #{number}: {title}\n\n"
-        f"## Description\n{body}\n\n"
-        f"## Diff\n```diff\n{diff}\n```\n"
+        f"{prompt}\n\n---\n\n# PR #{number}: {title}\n\n## Description\n{body}\n\n## Diff\n```diff\n{diff}\n```\n"
     )
 
     result = subprocess.run(
         [
             "codex",
-            "--approval-mode", "full-auto",
+            "--approval-mode",
+            "full-auto",
             "--quiet",
             full_prompt,
         ],
@@ -96,10 +91,7 @@ def run_codex_review(prompt: str, diff: str, metadata: dict) -> str:
     if result.returncode != 0:
         stderr_snippet = result.stderr[:500] if result.stderr else "(no stderr)"
         print(f"Codex agent failed (rc={result.returncode}): {stderr_snippet}", file=sys.stderr)
-        return (
-            "**Codex review agent encountered an error.**\n\n"
-            f"```\n{stderr_snippet}\n```"
-        )
+        return f"**Codex review agent encountered an error.**\n\n```\n{stderr_snippet}\n```"
 
     return result.stdout.strip()
 
@@ -108,9 +100,11 @@ def post_review_comment(repo: str, pr_number: int, body: str) -> None:
     """Post the review as a PR issue comment via gh CLI."""
     subprocess.run(
         [
-            "gh", "api",
+            "gh",
+            "api",
             f"repos/{repo}/issues/{pr_number}/comments",
-            "-f", f"body={body}",
+            "-f",
+            f"body={body}",
         ],
         check=True,
     )
@@ -142,12 +136,7 @@ def main() -> None:
     review = run_codex_review(prompt, diff, metadata)
 
     # 4. Post review comment
-    comment = (
-        "## Codex AI Review\n\n"
-        f"{review}\n\n"
-        "---\n"
-        "*Automated review by Codex agent*"
-    )
+    comment = f"## Codex AI Review\n\n{review}\n\n---\n*Automated review by Codex agent*"
     post_review_comment(repo, pr_number, comment)
     print(f"Review posted on PR #{pr_number}.")
 

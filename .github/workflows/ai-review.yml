@@ -35,10 +35,14 @@ jobs:
       - name: Install Codex CLI
         run: npm install -g @openai/codex
 
+      - name: Authenticate Codex
+        run: codex login --api-key "$CODEX_API_KEY"
+        env:
+          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+
       - name: Run AI review
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO_NAME: ${{ github.repository }}
         run: python scripts/ai_review.py
