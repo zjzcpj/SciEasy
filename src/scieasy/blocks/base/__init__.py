@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from scieasy.blocks.base.block import Block
 from scieasy.blocks.base.config import BlockConfig
-from scieasy.blocks.base.ports import InputPort, OutputPort, Port
+from scieasy.blocks.base.ports import (
+    InputPort,
+    OutputPort,
+    Port,
+    port_accepts_signature,
+    port_accepts_type,
+    validate_connection,
+    validate_port_constraint,
+)
 from scieasy.blocks.base.result import BatchResult, BlockResult
 from scieasy.blocks.base.state import (
     BatchErrorStrategy,
@@ -27,4 +35,8 @@ __all__ = [
     "InputPort",
     "OutputPort",
     "Port",
+    "port_accepts_signature",
+    "port_accepts_type",
+    "validate_connection",
+    "validate_port_constraint",
 ]
