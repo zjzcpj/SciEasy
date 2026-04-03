@@ -72,7 +72,8 @@ jobs:
           CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
           if echo "$CHANGED" | grep -q "^src/\|^packages/"; then
             if ! echo "$CHANGED" | grep -q "CHANGELOG.md"; then
-              echo "::warning::Source changed but CHANGELOG.md not updated"
+              echo "::error::Source changed but CHANGELOG.md not updated"
+              exit 1
             else
               echo "CHANGELOG.md updated"
             fi
