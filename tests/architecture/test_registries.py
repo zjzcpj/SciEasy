@@ -2,20 +2,73 @@
 
 Validates that:
 
-* ``BlockRegistry`` stores ``BlockSpec`` instances (not raw classes).
-* ``TypeRegistry`` stores types (not arbitrary objects).
-* ``pyproject.toml`` entry-points reference importable modules.
+* ``BlockSpec`` stores descriptors (module path, class name) — not class objects (ADR-009).
+* ``TypeSpec`` stores descriptors — not raw ``type`` references (ADR-009).
+* ``BlockRegistry`` stores ``BlockSpec`` instances.
+* ``TypeRegistry`` stores ``TypeSpec`` instances.
+* ``pyproject.toml`` entry-points reference importable modules **and** resolvable classes.
 """
 
 from __future__ import annotations
 
 import importlib
+from dataclasses import fields
 from pathlib import Path
 
 import pytest
 
 from scieasy.blocks.registry import BlockRegistry, BlockSpec
-from scieasy.core.types.registry import TypeRegistry
+from scieasy.core.types.registry import TypeRegistry, TypeSpec
+
+# ---------------------------------------------------------------------------
+# ADR-009: BlockSpec must NOT hold class references
+# ---------------------------------------------------------------------------
+
+
+def test_block_spec_does_not_store_class_object() -> None:
+    """``BlockSpec`` must not have a ``block_class`` field (ADR-009)."""
+    field_names = {f.name for f in fields(BlockSpec)}
+    assert "block_class" not in field_names, (
+        "BlockSpec contains a 'block_class' field — ADR-009 requires storing "
+        "module_path + class_name descriptors, not class object references."
+    )
+
+
+def test_block_spec_has_descriptor_fields() -> None:
+    """``BlockSpec`` must store module_path and class_name for deferred import."""
+    required = {"name", "module_path", "class_name", "category", "source"}
+    spec = BlockSpec(name="example", module_path="scieasy.blocks.io.io_block", class_name="IOBlock")
+    actual = set(vars(spec).keys())
+    assert required.issubset(actual), f"BlockSpec is missing fields: {required - actual}"
+
+
+def test_block_spec_has_reload_metadata() -> None:
+    """``BlockSpec`` must carry file_path and file_mtime for hot-reload detection."""
+    spec = BlockSpec(name="t", file_path="/some/path.py", file_mtime=1234567890.0)
+    assert spec.file_path == "/some/path.py"
+    assert spec.file_mtime == 1234567890.0
+
+
+# ---------------------------------------------------------------------------
+# ADR-009: TypeSpec must NOT hold class references
+# ---------------------------------------------------------------------------
+
+
+def test_type_spec_does_not_store_class_object() -> None:
+    """``TypeSpec`` must not have a field holding a ``type`` object (ADR-009)."""
+    for f in fields(TypeSpec):
+        assert f.type != "type", (
+            f"TypeSpec field '{f.name}' has type annotation 'type' — ADR-009 "
+            "requires storing module_path + class_name, not class references."
+        )
+
+
+def test_type_spec_has_descriptor_fields() -> None:
+    """``TypeSpec`` must store module_path and class_name for deferred import."""
+    spec = TypeSpec(name="Image", module_path="scieasy.core.types.array", class_name="Image")
+    assert spec.module_path == "scieasy.core.types.array"
+    assert spec.class_name == "Image"
+
 
 # ---------------------------------------------------------------------------
 # BlockRegistry
@@ -25,33 +78,10 @@ from scieasy.core.types.registry import TypeRegistry
 def test_block_registry_internal_storage_type() -> None:
     """``BlockRegistry._registry`` values must be ``BlockSpec`` instances."""
     reg = BlockRegistry()
-    assert isinstance(reg._registry, dict), (
-        f"BlockRegistry._registry should be a dict, got {type(reg._registry).__name__}"
-    )
-    # The empty registry should accept BlockSpec values (verify the type
-    # annotation / initial value is dict[str, BlockSpec]).
-    # We insert a value to verify the structure accepts BlockSpec.
-    spec = BlockSpec(name="test_block", description="unit test")
+    assert isinstance(reg._registry, dict)
+    spec = BlockSpec(name="test_block", module_path="some.module", class_name="SomeBlock")
     reg._registry["test"] = spec
     assert isinstance(reg._registry["test"], BlockSpec)
-
-
-def test_block_spec_has_required_fields() -> None:
-    """``BlockSpec`` exposes the fields needed by the runtime."""
-    required_fields = {
-        "name",
-        "description",
-        "version",
-        "block_class",
-        "category",
-        "input_ports",
-        "output_ports",
-        "config_schema",
-        "source",
-    }
-    spec = BlockSpec(name="example")
-    actual_fields = set(vars(spec).keys())
-    assert required_fields.issubset(actual_fields), f"BlockSpec is missing fields: {required_fields - actual_fields}"
 
 
 # ---------------------------------------------------------------------------
@@ -60,14 +90,12 @@ def test_block_spec_has_required_fields() -> None:
 
 
 def test_type_registry_internal_storage_type() -> None:
-    """``TypeRegistry._registry`` values must be types (classes)."""
+    """``TypeRegistry._registry`` values must be ``TypeSpec`` instances."""
     reg = TypeRegistry()
-    assert isinstance(reg._registry, dict), (
-        f"TypeRegistry._registry should be a dict, got {type(reg._registry).__name__}"
-    )
-    # Verify the dict can hold ``type`` values.
-    reg._registry["DataObject"] = object
-    assert reg._registry["DataObject"] is object
+    assert isinstance(reg._registry, dict)
+    spec = TypeSpec(name="Image", module_path="scieasy.core.types.array", class_name="Image")
+    reg._registry["Image"] = spec
+    assert isinstance(reg._registry["Image"], TypeSpec)
 
 
 def test_type_registry_has_required_interface() -> None:
@@ -79,7 +107,7 @@ def test_type_registry_has_required_interface() -> None:
 
 
 # ---------------------------------------------------------------------------
-# pyproject.toml entry-points → importable modules
+# pyproject.toml entry-points → importable modules AND resolvable classes
 # ---------------------------------------------------------------------------
 
 
@@ -112,21 +140,20 @@ ENTRY_POINTS = _parse_entry_points()
     ENTRY_POINTS,
     ids=[f"{g}:{n}" for g, n, _ in ENTRY_POINTS],
 )
-def test_entry_point_module_is_importable(
+def test_entry_point_resolves_to_class(
     group: str,
     ep_name: str,
     ep_ref: str,
 ) -> None:
-    """Every entry-point in ``pyproject.toml`` must reference an importable module.
+    """Every entry-point must reference an importable module AND an existing class.
 
-    We only check that the *module* part (before ``:``) is importable.
-    The *attribute* part (after ``:``) may not exist yet in Phase 1 stubs,
-    so we do not check it.
+    Both the module (before ``:``) and the attribute (after ``:``) must resolve.
     """
-    module_path = ep_ref.split(":")[0]
+    module_path, attr_name = ep_ref.split(":")
     try:
-        importlib.import_module(module_path)
+        mod = importlib.import_module(module_path)
     except ImportError as exc:
-        pytest.fail(
-            f"Entry-point [{group}] {ep_name} = '{ep_ref}' references non-importable module '{module_path}': {exc}"
-        )
+        pytest.fail(f"Entry-point [{group}] {ep_name} = '{ep_ref}': module '{module_path}' is not importable: {exc}")
+    assert hasattr(mod, attr_name), (
+        f"Entry-point [{group}] {ep_name} = '{ep_ref}': module '{module_path}' has no attribute '{attr_name}'"
+    )

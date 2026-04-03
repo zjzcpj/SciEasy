@@ -1,4 +1,10 @@
-"""BlockRegistry — discovers blocks from drop-in files and entry_points."""
+"""BlockRegistry — discovers blocks from drop-in files and entry_points.
+
+Per ADR-009, the registry stores :class:`BlockSpec` descriptors (module path,
+class name, metadata, file mtime) — never the class object itself.  This
+ensures hot-reload safety: a reload updates specs without affecting running
+workflow instances.
+"""
 
 from __future__ import annotations
 
@@ -8,12 +14,19 @@ from typing import Any
 
 @dataclass
 class BlockSpec:
-    """Metadata descriptor for a registered block type."""
+    """Metadata descriptor for a registered block type.
+
+    Stores the *location* of the block class (module path + class name)
+    rather than holding a reference to the class object.  See ADR-009.
+    """
 
     name: str
     description: str = ""
     version: str = "0.1.0"
-    block_class: type = object  # type: ignore[assignment]
+    module_path: str = ""
+    class_name: str = ""
+    file_path: str | None = None
+    file_mtime: float | None = None
     category: str = ""
     input_ports: list[Any] = field(default_factory=list)
     output_ports: list[Any] = field(default_factory=list)

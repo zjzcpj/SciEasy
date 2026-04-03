@@ -13,4 +13,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Align BlockSpec and TypeRegistry with ADR-009 descriptor pattern
+
 ### Removed
