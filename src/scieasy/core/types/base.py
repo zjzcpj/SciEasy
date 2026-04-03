@@ -28,26 +28,43 @@ class TypeSignature:
     def matches(self, other: TypeSignature) -> bool:
         """Return ``True`` if *other* is compatible with this signature.
 
-        Compatibility is not yet defined; Phase 2 will implement the semantics.
+        Compatibility means that *other*'s type chain is a prefix of or equal
+        to this signature's type chain (i.e. this type is a subtype of other).
         """
-        raise NotImplementedError
+        if len(other.type_chain) > len(self.type_chain):
+            return False
+        return self.type_chain[: len(other.type_chain)] == other.type_chain
 
     @classmethod
     def from_type(cls, data_type: type) -> TypeSignature:
         """Build a :class:`TypeSignature` from a Python class's MRO.
 
         This walks the MRO up to (but not including) ``object`` and records
-        the class names.
+        the class names, filtered to only include ``DataObject`` and its
+        subclasses.
         """
-        raise NotImplementedError
+        chain: list[str] = []
+        for klass in reversed(data_type.__mro__):
+            if klass is object:
+                continue
+            # Only include DataObject and its subclasses in the chain.
+            if klass.__name__ == "DataObject" or (
+                isinstance(klass, type) and issubclass(klass, DataObject)
+            ):
+                chain.append(klass.__name__)
+
+        slot_schema: dict[str, str] | None = None
+        if hasattr(data_type, "expected_slots") and data_type.expected_slots:
+            slot_schema = {name: t.__name__ for name, t in data_type.expected_slots.items()}
+
+        return cls(type_chain=chain, slot_schema=slot_schema)
 
 
 class DataObject:
     """Base class for all first-class data objects in SciEasy.
 
     Subclasses represent concrete scientific data kinds (arrays, series,
-    dataframes, text, artifacts, composites).  All method bodies raise
-    :class:`NotImplementedError` in Phase 1; implementations arrive in Phase 2.
+    dataframes, text, artifacts, composites).
     """
 
     def __init__(
@@ -61,24 +78,38 @@ class DataObject:
     # -- properties ----------------------------------------------------------
 
     @property
+    def metadata(self) -> dict[str, Any]:
+        """Return the metadata dict."""
+        return self._metadata
+
+    @property
     def dtype_info(self) -> TypeSignature:
         """Return the :class:`TypeSignature` describing this object's type."""
-        raise NotImplementedError
+        return TypeSignature.from_type(type(self))
 
     @property
     def storage_ref(self) -> StorageReference | None:
         """Return the :class:`StorageReference` if the object is persisted."""
         return self._storage_ref
 
+    @storage_ref.setter
+    def storage_ref(self, ref: StorageReference | None) -> None:
+        """Set the storage reference."""
+        self._storage_ref = ref
+
     # -- data access ---------------------------------------------------------
 
     def view(self) -> ViewProxy:
         """Return a lazy :class:`ViewProxy` for this object's data."""
-        raise NotImplementedError
+        from scieasy.core.proxy import ViewProxy
+
+        if self._storage_ref is None:
+            raise ValueError("Cannot create ViewProxy without a storage reference.")
+        return ViewProxy(storage_ref=self._storage_ref, dtype_info=self.dtype_info)
 
     def to_memory(self) -> Any:
         """Materialise the full data into an in-memory representation."""
-        raise NotImplementedError
+        return self.view().to_memory()
 
     def save(self, path: str | Path) -> None:
         """Persist the data object to *path*."""
