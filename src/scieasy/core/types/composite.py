@@ -32,20 +32,27 @@ class CompositeData(DataObject):
 
     def get(self, slot_name: str) -> DataObject:
         """Retrieve the :class:`DataObject` stored in *slot_name*."""
-        raise NotImplementedError
+        if slot_name not in self._slots:
+            raise KeyError(f"Slot '{slot_name}' is not populated.")
+        return self._slots[slot_name]
 
     def set(self, slot_name: str, data: DataObject) -> None:
-        """Store *data* in *slot_name*."""
-        raise NotImplementedError
+        """Store *data* in *slot_name*, validating against expected_slots if defined."""
+        expected = self.slot_types()
+        if expected and slot_name in expected:
+            expected_type = expected[slot_name]
+            if not isinstance(data, expected_type):
+                raise TypeError(f"Slot '{slot_name}' expects {expected_type.__name__}, got {type(data).__name__}.")
+        self._slots[slot_name] = data
 
     def slot_types(self) -> dict[str, type]:
         """Return the expected slot-type mapping declared on this class."""
-        raise NotImplementedError
+        return dict(self.expected_slots)
 
     @property
     def slot_names(self) -> list[str]:
         """Return the names of all currently populated slots."""
-        raise NotImplementedError
+        return list(self._slots.keys())
 
 
 class AnnData(CompositeData):

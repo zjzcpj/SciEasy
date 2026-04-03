@@ -2,29 +2,151 @@
 
 from __future__ import annotations
 
+import json
+import sqlite3
+from pathlib import Path
 from typing import Any
 
+from scieasy.core.lineage.environment import EnvironmentSnapshot
 from scieasy.core.lineage.record import LineageRecord
+
+_CREATE_TABLE = """
+CREATE TABLE IF NOT EXISTS lineage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    block_id TEXT NOT NULL,
+    block_version TEXT NOT NULL,
+    block_config TEXT NOT NULL,
+    input_hashes TEXT NOT NULL,
+    output_hashes TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    duration_ms INTEGER NOT NULL,
+    environment TEXT,
+    batch_info TEXT
+);
+"""
+
+_CREATE_INDEX_BLOCK = """
+CREATE INDEX IF NOT EXISTS idx_lineage_block_id ON lineage (block_id);
+"""
+
+_CREATE_INDEX_OUTPUT = """
+CREATE INDEX IF NOT EXISTS idx_lineage_output_hashes ON lineage (output_hashes);
+"""
 
 
 class LineageStore:
-    """Persistent store for :class:`LineageRecord` instances.
+    """Persistent SQLite-backed store for :class:`LineageRecord` instances."""
 
-    Phase 1 stub — all methods raise :class:`NotImplementedError`.
-    """
+    def __init__(self, db_path: str | Path = ":memory:") -> None:
+        self._db_path = str(db_path)
+        self._conn = sqlite3.connect(self._db_path)
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute(_CREATE_TABLE)
+        self._conn.execute(_CREATE_INDEX_BLOCK)
+        self._conn.execute(_CREATE_INDEX_OUTPUT)
+        self._conn.commit()
+
+    def close(self) -> None:
+        """Close the database connection."""
+        self._conn.close()
 
     def write(self, record: LineageRecord) -> None:
         """Persist a single :class:`LineageRecord`."""
-        raise NotImplementedError
+        env_json: str | None = None
+        if record.environment is not None:
+            env_json = json.dumps(
+                {
+                    "python_version": record.environment.python_version,
+                    "platform": record.environment.platform,
+                    "key_packages": record.environment.key_packages,
+                    "full_freeze": record.environment.full_freeze,
+                    "conda_env": record.environment.conda_env,
+                }
+            )
+        self._conn.execute(
+            "INSERT INTO lineage (block_id, block_version, block_config, "
+            "input_hashes, output_hashes, timestamp, duration_ms, environment, batch_info) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                record.block_id,
+                record.block_version,
+                json.dumps(record.block_config),
+                json.dumps(record.input_hashes),
+                json.dumps(record.output_hashes),
+                record.timestamp,
+                record.duration_ms,
+                env_json,
+                json.dumps(record.batch_info) if record.batch_info else None,
+            ),
+        )
+        self._conn.commit()
+
+    def _row_to_record(self, row: tuple[Any, ...]) -> LineageRecord:
+        """Convert a database row to a :class:`LineageRecord`."""
+        env: EnvironmentSnapshot | None = None
+        if row[7] is not None:
+            env_data = json.loads(row[7])
+            env = EnvironmentSnapshot(**env_data)
+        return LineageRecord(
+            block_id=row[0],
+            block_version=row[1],
+            block_config=json.loads(row[2]),
+            input_hashes=json.loads(row[3]),
+            output_hashes=json.loads(row[4]),
+            timestamp=row[5],
+            duration_ms=row[6],
+            environment=env,
+            batch_info=json.loads(row[7 + 1]) if row[8] is not None else None,
+        )
 
     def query(
         self,
         block_id: str | None = None,
         **filters: Any,
     ) -> list[LineageRecord]:
-        """Query records, optionally filtered by *block_id* and extra criteria."""
-        raise NotImplementedError
+        """Query records, optionally filtered by *block_id*."""
+        if block_id is not None:
+            cursor = self._conn.execute(
+                "SELECT block_id, block_version, block_config, input_hashes, "
+                "output_hashes, timestamp, duration_ms, environment, batch_info "
+                "FROM lineage WHERE block_id = ? ORDER BY id",
+                (block_id,),
+            )
+        else:
+            cursor = self._conn.execute(
+                "SELECT block_id, block_version, block_config, input_hashes, "
+                "output_hashes, timestamp, duration_ms, environment, batch_info "
+                "FROM lineage ORDER BY id",
+            )
+        return [self._row_to_record(row) for row in cursor.fetchall()]
 
     def ancestors(self, output_hash: str) -> list[LineageRecord]:
-        """Return all records in the ancestor chain of *output_hash*."""
-        raise NotImplementedError
+        """Return all records in the ancestor chain of *output_hash*.
+
+        Traces backwards: finds the record that produced *output_hash*,
+        then recursively finds records that produced each of its inputs.
+        """
+        visited: set[str] = set()
+        result: list[LineageRecord] = []
+        queue = [output_hash]
+
+        while queue:
+            current_hash = queue.pop(0)
+            if current_hash in visited:
+                continue
+            visited.add(current_hash)
+
+            cursor = self._conn.execute(
+                "SELECT block_id, block_version, block_config, input_hashes, "
+                "output_hashes, timestamp, duration_ms, environment, batch_info "
+                "FROM lineage WHERE output_hashes LIKE ? ORDER BY id",
+                (f'%"{current_hash}"%',),
+            )
+            for row in cursor.fetchall():
+                record = self._row_to_record(row)
+                result.append(record)
+                for inp in record.input_hashes:
+                    if inp not in visited:
+                        queue.append(inp)
+
+        return result
