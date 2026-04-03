@@ -14,8 +14,9 @@ jobs:
           fetch-depth: 0
 
       - name: Check linked issue
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          PR_BODY="${{ github.event.pull_request.body }}"
           if ! echo "$PR_BODY" | grep -qiE "(closes|fixes|resolves)\s+#[0-9]+"; then
             echo "::error::PR must link an issue (e.g. 'Closes #42')"
             exit 1

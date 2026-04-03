@@ -1,12 +1,81 @@
 [project]
-name = "sciEasy"
-version = "0.0.0"
+name = "scieasy"
+version = "0.1.0-dev"
+description = "AI-native, inclusive workflow runtime for multimodal scientific data"
+readme = "README.md"
+license = {text = "MIT"}
 requires-python = ">=3.11"
+authors = [
+    {name = "Jiazhen Zhang"},
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "pydantic>=2.0",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "zarr>=3.0",
+    "pyarrow>=15.0",
+    "watchdog>=4.0",
+    "typer>=0.12",
+    "xxhash>=3.4",
+    "httpx>=0.27",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.11",
+    "mypy>=1.15",
+    "import-linter>=2.0",
+    "pre-commit>=4.0",
+]
+
+[project.scripts]
+scieasy = "scieasy.cli.main:app"
+
+[project.entry-points."scieasy.blocks"]
+io_block = "scieasy.blocks.io:IOBlock"
+process_merge = "scieasy.blocks.process.builtins.merge:MergeBlock"
+process_split = "scieasy.blocks.process.builtins.split:SplitBlock"
+code_block = "scieasy.blocks.code:CodeBlock"
+app_block = "scieasy.blocks.app:AppBlock"
+ai_block = "scieasy.blocks.ai:AIBlock"
+subworkflow_block = "scieasy.blocks.subworkflow:SubWorkflowBlock"
+
+[project.entry-points."scieasy.adapters"]
+csv = "scieasy.blocks.io.adapters.csv_adapter:CSVAdapter"
+tiff = "scieasy.blocks.io.adapters.tiff_adapter:TIFFAdapter"
+mzxml = "scieasy.blocks.io.adapters.mzxml_adapter:MzXMLAdapter"
+h5ad = "scieasy.blocks.io.adapters.h5ad_adapter:H5ADAdapter"
+parquet = "scieasy.blocks.io.adapters.parquet_adapter:ParquetAdapter"
+
+[project.entry-points."scieasy.types"]
+image = "scieasy.core.types.array:Image"
+spectrum = "scieasy.core.types.series:Spectrum"
+peak_table = "scieasy.core.types.dataframe:PeakTable"
+
+[project.entry-points."scieasy.runners"]
+python = "scieasy.blocks.code.runners.python_runner:PythonRunner"
+r = "scieasy.blocks.code.runners.r_runner:RRunner"
+julia = "scieasy.blocks.code.runners.julia_runner:JuliaRunner"
+
+[build-system]
+requires = ["setuptools>=68.0", "setuptools-scm>=8.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.ruff]
 target-version = "py311"
 line-length = 120
-src = ["packages", "apps"]
+src = ["src"]
 
 [tool.ruff.lint]
 select = [
@@ -25,14 +94,16 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["core", "runtime", "storage", "sdk", "plugin_host", "ai"]
+known-first-party = ["scieasy"]
 
 [tool.mypy]
 python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
-disallow_untyped_defs = false
+disallow_untyped_defs = true
 ignore_missing_imports = true
+mypy_path = "src"
+packages = ["scieasy"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -42,21 +113,27 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 
 [tool.importlinter]
-root_packages = ["core", "runtime", "storage", "sdk", "plugin_host", "ai"]
+root_packages = ["scieasy"]
 
 [[tool.importlinter.contracts]]
-name = "Core must not depend on runtime or storage"
+name = "Core must not depend on blocks, engine, api, ai, or workflow"
 type = "forbidden"
-source_modules = ["core"]
-forbidden_modules = ["runtime", "storage", "plugin_host"]
+source_modules = ["scieasy.core"]
+forbidden_modules = ["scieasy.blocks", "scieasy.engine", "scieasy.api", "scieasy.ai", "scieasy.workflow"]
 
 [[tool.importlinter.contracts]]
-name = "Runtime must not depend on storage internals"
+name = "Blocks must not depend on engine, api, or ai services"
 type = "forbidden"
-source_modules = ["runtime"]
-forbidden_modules = ["storage.array_store", "storage.table_store", "storage.artifact_store", "storage.metadata_store"]
+source_modules = ["scieasy.blocks"]
+forbidden_modules = ["scieasy.engine", "scieasy.api", "scieasy.ai"]
+
+[[tool.importlinter.contracts]]
+name = "Engine must not depend on api or ai services"
+type = "forbidden"
+source_modules = ["scieasy.engine"]
+forbidden_modules = ["scieasy.api", "scieasy.ai"]
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.0.0"
+version = "0.1.0-dev"
 tag_format = "v$version"

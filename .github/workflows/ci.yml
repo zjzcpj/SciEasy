@@ -33,17 +33,31 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
-      - run: uv pip install --system mypy
+      - run: uv pip install --system -e ".[dev]"
       - name: Run mypy
         run: |
-          if [ -d packages ]; then
-            mypy packages/ --ignore-missing-imports
+          if [ -d src/scieasy ]; then
+            mypy src/scieasy/ --ignore-missing-imports
           else
-            echo "No packages/ directory yet — skipping"
+            echo "No src/scieasy/ directory yet — skipping"
           fi
+
+  architecture:
+    name: Architecture Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - run: uv pip install --system -e ".[dev]"
+      - name: Run architecture tests
+        run: pytest tests/architecture/ -v
 
   test:
     name: Test (Python ${{ matrix.python-version }})
+    needs: [architecture]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -55,7 +69,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
-      - run: uv pip install --system pytest
+      - run: uv pip install --system -e ".[dev]"
       - name: Run tests
         shell: bash {0}
         run: |
@@ -76,11 +90,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
-      - run: uv pip install --system import-linter
+      - run: uv pip install --system -e ".[dev]"
       - name: Run import linter
         run: |
-          if [ -d packages ]; then
+          if [ -d src/scieasy ]; then
             lint-imports
           else
-            echo "No packages/ directory yet — skipping"
+            echo "No src/scieasy/ directory yet — skipping"
           fi

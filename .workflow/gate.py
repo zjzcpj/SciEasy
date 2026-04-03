@@ -21,10 +21,9 @@ import argparse
 import json
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-
 
 # ─── Paths ──────────────────────────────────────────────────────────────────
 
@@ -34,6 +33,7 @@ ACTIVE_DIR = WORKFLOW_DIR / "active"
 
 
 # ─── Schema Loading ─────────────────────────────────────────────────────────
+
 
 def load_schema() -> dict:
     """Load and validate the workflow schema."""
@@ -56,6 +56,7 @@ def get_stage_order(schema: dict) -> list[str]:
 
 # ─── State File Operations ──────────────────────────────────────────────────
 
+
 def state_path(task_id: str) -> Path:
     return ACTIVE_DIR / f"{task_id}.json"
 
@@ -65,7 +66,7 @@ def load_state(task_id: str) -> dict:
     path = state_path(task_id)
     if not path.exists():
         print(f"ERROR: No active workflow found for '{task_id}'.", file=sys.stderr)
-        print(f"  Run `python gate.py list` to see active workflows.", file=sys.stderr)
+        print("  Run `python gate.py list` to see active workflows.", file=sys.stderr)
         sys.exit(1)
     with open(path) as f:
         return json.load(f)
@@ -81,8 +82,9 @@ def save_state(task_id: str, state: dict) -> None:
 
 # ─── Core Logic ─────────────────────────────────────────────────────────────
 
+
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def generate_task_id(title: str) -> str:
@@ -93,9 +95,7 @@ def generate_task_id(title: str) -> str:
     return f"{ts}-{slug}"
 
 
-def check_prerequisites(
-    schema: dict, state: dict, target_stage: str
-) -> tuple[bool, list[str]]:
+def check_prerequisites(schema: dict, state: dict, target_stage: str) -> tuple[bool, list[str]]:
     """
     Check if all prerequisites for target_stage are satisfied.
     Returns (can_proceed, list_of_blocking_reasons).
@@ -112,9 +112,7 @@ def check_prerequisites(
     for req in stage_def["requires"]:
         if req not in completed:
             req_name = stage_map.get(req, {}).get("name", req)
-            blockers.append(
-                f"BLOCKED: Stage '{req_name}' ({req}) must be completed first."
-            )
+            blockers.append(f"BLOCKED: Stage '{req_name}' ({req}) must be completed first.")
 
     if target_stage in completed:
         blockers.append(f"Stage '{stage_def['name']}' is already completed.")
@@ -144,9 +142,7 @@ def format_status(schema: dict, state: dict) -> str:
     for stage_id in stage_order:
         stage = stage_map[stage_id]
         if stage_id in completed:
-            comp = next(
-                s for s in state["completed_stages"] if s["stage_id"] == stage_id
-            )
+            comp = next(s for s in state["completed_stages"] if s["stage_id"] == stage_id)
             marker = "[DONE]"
             extra = f"  (at {comp['completed_at'][:19]})"
         elif not current_found:
@@ -165,9 +161,10 @@ def format_status(schema: dict, state: dict) -> str:
 
 # ─── Commands ───────────────────────────────────────────────────────────────
 
+
 def cmd_start(args: argparse.Namespace) -> None:
     """Start a new workflow."""
-    schema = load_schema()
+    load_schema()
     title = " ".join(args.title)
     task_id = generate_task_id(title)
 
@@ -188,13 +185,13 @@ def cmd_start(args: argparse.Namespace) -> None:
     }
 
     save_state(task_id, state)
-    print(f"Workflow started.")
+    print("Workflow started.")
     print(f"  Task ID: {task_id}")
     print(f"  Title:   {title}")
     print()
-    print(f"Next step: complete 'create_issue' stage by running:")
+    print("Next step: complete 'create_issue' stage by running:")
     print(f"  python .workflow/gate.py advance {task_id} create_issue \\")
-    print(f'    --data \'{{"issue_number": 42, "issue_url": "https://..."}}\'')
+    print('    --data \'{"issue_number": 42, "issue_url": "https://..."}\'')
 
 
 def cmd_advance(args: argparse.Namespace) -> None:
@@ -263,9 +260,7 @@ def cmd_advance(args: argparse.Namespace) -> None:
     if all_stages == completed:
         state["status"] = "completed"
         state["completed_at"] = now_iso()
-        state["history"].append(
-            {"event": "workflow_completed", "timestamp": now_iso()}
-        )
+        state["history"].append({"event": "workflow_completed", "timestamp": now_iso()})
 
     save_state(args.task_id, state)
 
@@ -280,7 +275,7 @@ def cmd_advance(args: argparse.Namespace) -> None:
         next_name = stage_map[next_stage]["name"]
         print(f"Next step: {next_name} ({next_stage})")
         print(f"  python .workflow/gate.py advance {args.task_id} {next_stage} \\")
-        print(f"    --data '{{...}}'")
+        print("    --data '{...}'")
     else:
         print("All stages completed! Workflow finished.")
 
@@ -311,41 +306,7 @@ def cmd_list(args: argparse.Namespace) -> None:
             state = json.load(fh)
         done = len(state.get("completed_stages", []))
         progress = f"{done}/{stage_count}"
-        print(
-            f"{state['task_id']:<35} {state['status']:<12} {progress:<12} {state['title']}"
-        )
-
-
-def generate_task_id(title: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
-    slug = slug[:40].rstrip("-")
-    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-    return f"{ts}-{slug}"
-
-
-def check_prerequisites(
-    schema: dict, state: dict, target_stage: str
-) -> tuple[bool, list[str]]:
-    """Check if all prerequisites for target_stage are satisfied."""
-    stage_map = get_stage_map(schema)
-    if target_stage not in stage_map:
-        return False, [f"Unknown stage: {target_stage}"]
-
-    stage_def = stage_map[target_stage]
-    completed = {s["stage_id"] for s in state.get("completed_stages", [])}
-    blockers: list[str] = []
-
-    for req in stage_def["requires"]:
-        if req not in completed:
-            req_name = stage_map.get(req, {}).get("name", req)
-            blockers.append(
-                f"BLOCKED: Stage '{req_name}' ({req}) must be completed first."
-            )
-    if target_stage in completed:
-        blockers.append(f"Stage '{stage_def['name']}' is already completed.")
-    if state.get("status") == "aborted":
-        blockers.append("This workflow has been aborted.")
-    return len(blockers) == 0, blockers
+        print(f"{state['task_id']:<35} {state['status']:<12} {progress:<12} {state['title']}")
 
 
 def cmd_validate(args: argparse.Namespace) -> None:
@@ -380,6 +341,7 @@ def cmd_abort(args: argparse.Namespace) -> None:
 
 
 # ─── CLI ────────────────────────────────────────────────────────────────────
+
 
 def main():
     parser = argparse.ArgumentParser(

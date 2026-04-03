@@ -175,7 +175,19 @@ Main branch must be protected.
 
 All changes go through PR.
 
-## 6.2 Every meaningful change must be attributable
+## 6.2 MUST create a branch before any changes
+
+Before making any code or documentation changes, MUST create a feature branch first. Never commit directly on main. Branch naming should follow the convention: `feat/issue-N/short-description`, `fix/issue-N/short-description`, or `docs/short-description`.
+
+## 6.3 MUST create a PR to GitHub
+
+Every change MUST be published to GitHub via a pull request. After committing to a feature branch, push the branch and create a PR. Changes are not considered delivered until a PR exists on GitHub.
+
+## 6.4 MUST verify PR CI passes
+
+After creating a PR, MUST check whether all CI checks pass. If any check fails, diagnose and fix the issues, push fixes, and repeat until all checks are green. A PR with failing CI is not ready for review. Do not leave failing checks unaddressed.
+
+## 6.5 Every meaningful change must be attributable
 
 Every meaningful change should be traceable to:
 - an issue
@@ -184,7 +196,7 @@ Every meaningful change should be traceable to:
 - a review
 - a test outcome
 
-## 6.3 Use focused commits
+## 6.6 Use focused commits
 
 Do not create vague commits like:
 - fix
@@ -200,7 +212,7 @@ Preferred style:
 - fix(storage): avoid eager loading of array preview
 - docs(adr): record external app block design
 
-## 6.4 Tests are part of the change
+## 6.7 Tests are part of the change
 
 A bug fix should ideally include a regression test.
 
@@ -208,7 +220,7 @@ A new contract should include validation or integration tests.
 
 A major runtime behavior change should include integration coverage.
 
-## 6.5 Documentation is part of the product
+## 6.8 Documentation is part of the product
 
 Docs are not optional.
 
