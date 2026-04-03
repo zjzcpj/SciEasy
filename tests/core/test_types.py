@@ -17,6 +17,7 @@ from scieasy.core.types.text import Text
 # TypeSignature.from_type
 # ---------------------------------------------------------------------------
 
+
 class TestTypeSignatureFromType:
     """Verify auto-generation of TypeSignature from class MRO."""
 
@@ -101,6 +102,7 @@ class TestTypeSignatureFromType:
 # TypeSignature.matches
 # ---------------------------------------------------------------------------
 
+
 class TestTypeSignatureMatches:
     """Verify inheritance-aware type matching."""
 
@@ -140,6 +142,7 @@ class TestTypeSignatureMatches:
 # DataObject.dtype_info property
 # ---------------------------------------------------------------------------
 
+
 class TestDataObjectDtypeInfo:
     """Verify dtype_info auto-generation on instances."""
 
@@ -164,6 +167,7 @@ class TestDataObjectDtypeInfo:
 # DataObject metadata
 # ---------------------------------------------------------------------------
 
+
 class TestDataObjectMetadata:
     """Verify metadata handling."""
 
@@ -181,6 +185,7 @@ class TestDataObjectMetadata:
 # DataObject.view raises without storage_ref
 # ---------------------------------------------------------------------------
 
+
 class TestDataObjectView:
     """Verify view() requires a storage reference."""
 
@@ -193,6 +198,7 @@ class TestDataObjectView:
 # ---------------------------------------------------------------------------
 # TypeRegistry
 # ---------------------------------------------------------------------------
+
 
 class TestTypeRegistry:
     """Verify TypeRegistry registration, lookup, and scanning."""

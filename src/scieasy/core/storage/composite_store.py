@@ -99,7 +99,10 @@ class CompositeStore:
         metadata = dict(ref.metadata) if ref.metadata else {}
         metadata["slot_names"] = list(manifest_slots.keys())
         return StorageReference(
-            backend="composite", path=ref.path, format="composite", metadata=metadata,
+            backend="composite",
+            path=ref.path,
+            format="composite",
+            metadata=metadata,
         )
 
     def slice(self, ref: StorageReference, *args: Any) -> Any:

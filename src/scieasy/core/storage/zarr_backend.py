@@ -30,7 +30,10 @@ class ZarrBackend:
         metadata = dict(ref.metadata) if ref.metadata else {}
         metadata.update({"shape": list(arr.shape), "dtype": str(arr.dtype)})
         return StorageReference(
-            backend="zarr", path=ref.path, format=ref.format, metadata=metadata,
+            backend="zarr",
+            path=ref.path,
+            format=ref.format,
+            metadata=metadata,
         )
 
     def slice(self, ref: StorageReference, *args: Any) -> Any:

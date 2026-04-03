@@ -38,6 +38,7 @@ class Cube3D(NamedArray):
 # iter_axis_slices
 # ---------------------------------------------------------------------------
 
+
 class TestIterAxisSlices:
     """Test named-axis-aware slice generation."""
 
@@ -66,6 +67,7 @@ class TestIterAxisSlices:
 # ---------------------------------------------------------------------------
 # broadcast_apply: 2D mask x 3D cube
 # ---------------------------------------------------------------------------
+
 
 class TestBroadcastApply:
     """Test broadcast_apply with named-axis arrays."""

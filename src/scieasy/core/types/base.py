@@ -48,9 +48,7 @@ class TypeSignature:
             if klass is object:
                 continue
             # Only include DataObject and its subclasses in the chain.
-            if klass.__name__ == "DataObject" or (
-                isinstance(klass, type) and issubclass(klass, DataObject)
-            ):
+            if klass.__name__ == "DataObject" or (isinstance(klass, type) and issubclass(klass, DataObject)):
                 chain.append(klass.__name__)
 
         slot_schema: dict[str, str] | None = None

@@ -114,12 +114,12 @@ class ViewProxy:
             shape = meta.get("shape")
             if shape is not None:
                 import math
+
                 # Rough estimate: 8 bytes per element (float64)
                 size = math.prod(shape) * 8
         if size is not None and size > _SIZE_WARNING_THRESHOLD:
             warnings.warn(
-                f"Loading {size / (1024**3):.1f} GB into memory. "
-                f"Consider using .slice() or .iter_chunks() instead.",
+                f"Loading {size / (1024**3):.1f} GB into memory. Consider using .slice() or .iter_chunks() instead.",
                 ResourceWarning,
                 stacklevel=2,
             )

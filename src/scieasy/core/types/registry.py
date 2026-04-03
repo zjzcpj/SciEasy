@@ -75,10 +75,24 @@ class TypeRegistry:
         from scieasy.core.types.text import Text
 
         builtins: list[type] = [
-            DataObject, Array, Image, MSImage, SRSImage, FluorImage,
-            Series, Spectrum, RamanSpectrum, MassSpectrum,
-            DataFrame, PeakTable, MetabPeakTable,
-            Text, Artifact, CompositeData, AnnData, SpatialData,
+            DataObject,
+            Array,
+            Image,
+            MSImage,
+            SRSImage,
+            FluorImage,
+            Series,
+            Spectrum,
+            RamanSpectrum,
+            MassSpectrum,
+            DataFrame,
+            PeakTable,
+            MetabPeakTable,
+            Text,
+            Artifact,
+            CompositeData,
+            AnnData,
+            SpatialData,
         ]
         for cls in builtins:
             base = cls.__mro__[1].__name__ if len(cls.__mro__) > 2 else ""

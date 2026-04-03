@@ -54,13 +54,15 @@ class LineageStore:
         """Persist a single :class:`LineageRecord`."""
         env_json: str | None = None
         if record.environment is not None:
-            env_json = json.dumps({
-                "python_version": record.environment.python_version,
-                "platform": record.environment.platform,
-                "key_packages": record.environment.key_packages,
-                "full_freeze": record.environment.full_freeze,
-                "conda_env": record.environment.conda_env,
-            })
+            env_json = json.dumps(
+                {
+                    "python_version": record.environment.python_version,
+                    "platform": record.environment.platform,
+                    "key_packages": record.environment.key_packages,
+                    "full_freeze": record.environment.full_freeze,
+                    "conda_env": record.environment.conda_env,
+                }
+            )
         self._conn.execute(
             "INSERT INTO lineage (block_id, block_version, block_config, "
             "input_hashes, output_hashes, timestamp, duration_ms, environment, batch_info) "

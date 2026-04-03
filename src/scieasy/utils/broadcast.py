@@ -28,9 +28,7 @@ def iter_axis_slices(
         BroadcastError: If *over_axis* is not found in *axes*.
     """
     if over_axis not in axes:
-        raise BroadcastError(
-            f"Axis '{over_axis}' not found in axes {axes}."
-        )
+        raise BroadcastError(f"Axis '{over_axis}' not found in axes {axes}.")
     axis_idx = axes.index(over_axis)
     for i in range(data.shape[axis_idx]):
         idx: list[Any] = [slice(None)] * data.ndim
@@ -76,16 +74,13 @@ def broadcast_apply(
 
     if len(target_axes) != target_data.ndim:
         raise BroadcastError(
-            f"Target axes length ({len(target_axes)}) does not match "
-            f"target ndim ({target_data.ndim})."
+            f"Target axes length ({len(target_axes)}) does not match target ndim ({target_data.ndim})."
         )
 
     # Validate over_axes exist in target
     for ax in over_axes:
         if ax not in target_axes:
-            raise BroadcastError(
-                f"over_axis '{ax}' not found in target axes {target_axes}."
-            )
+            raise BroadcastError(f"over_axis '{ax}' not found in target axes {target_axes}.")
 
     # The remaining axes after removing over_axes
     remaining_axes = [ax for ax in target_axes if ax not in over_axes]
@@ -96,8 +91,7 @@ def broadcast_apply(
         remaining_set = set(remaining_axes)
         if not source_set.issubset(remaining_set):
             raise BroadcastError(
-                f"Source axes {source_axes} are not a subset of "
-                f"target axes minus over_axes {remaining_axes}."
+                f"Source axes {source_axes} are not a subset of target axes minus over_axes {remaining_axes}."
             )
 
     # Build iteration: iterate over all combinations of over_axes

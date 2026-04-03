@@ -39,7 +39,10 @@ class FilesystemBackend:
         metadata = dict(ref.metadata) if ref.metadata else {}
         metadata["size"] = path.stat().st_size
         return StorageReference(
-            backend="filesystem", path=ref.path, format=ref.format, metadata=metadata,
+            backend="filesystem",
+            path=ref.path,
+            format=ref.format,
+            metadata=metadata,
         )
 
     def slice(self, ref: StorageReference, *args: Any) -> Any:

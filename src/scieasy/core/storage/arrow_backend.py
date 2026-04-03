@@ -31,12 +31,17 @@ class ArrowBackend:
             raise TypeError(f"ArrowBackend.write expects dict or pa.Table, got {type(data).__name__}")
         pq.write_table(table, ref.path)
         metadata = dict(ref.metadata) if ref.metadata else {}
-        metadata.update({
-            "columns": table.column_names,
-            "num_rows": table.num_rows,
-        })
+        metadata.update(
+            {
+                "columns": table.column_names,
+                "num_rows": table.num_rows,
+            }
+        )
         return StorageReference(
-            backend="arrow", path=ref.path, format="parquet", metadata=metadata,
+            backend="arrow",
+            path=ref.path,
+            format="parquet",
+            metadata=metadata,
         )
 
     def slice(self, ref: StorageReference, *args: Any) -> Any:

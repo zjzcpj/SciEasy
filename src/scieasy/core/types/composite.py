@@ -42,10 +42,7 @@ class CompositeData(DataObject):
         if expected and slot_name in expected:
             expected_type = expected[slot_name]
             if not isinstance(data, expected_type):
-                raise TypeError(
-                    f"Slot '{slot_name}' expects {expected_type.__name__}, "
-                    f"got {type(data).__name__}."
-                )
+                raise TypeError(f"Slot '{slot_name}' expects {expected_type.__name__}, got {type(data).__name__}.")
         self._slots[slot_name] = data
 
     def slot_types(self) -> dict[str, type]:
