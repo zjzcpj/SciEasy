@@ -123,7 +123,17 @@ consistent and correct?
   protocol (`read() -> DataObject`, `write(obj, path) -> None`)?
 
 - **State machine**: Do block state transitions follow the valid transition
-  graph (IDLE -> RUNNING -> DONE/FAILED, with PAUSED for AppBlock)?
+  graph? The canonical transitions (from `_VALID_TRANSITIONS` in
+  `blocks/base/block.py`) are:
+  ```
+  IDLE -> READY | ERROR
+  READY -> RUNNING | ERROR
+  RUNNING -> DONE | PAUSED | ERROR
+  PAUSED -> RUNNING | ERROR
+  DONE -> IDLE
+  ERROR -> IDLE
+  ```
+  Any transition not in this table is invalid.
 
 **Severity guide**:
 | Finding | Priority |
