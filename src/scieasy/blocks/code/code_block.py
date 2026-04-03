@@ -71,7 +71,7 @@ class CodeBlock(Block):
                 raise ValueError(f"Unknown CodeBlock mode: {self.mode}")
 
             self.transition(BlockState.DONE)
-            return result
+            return dict(result)
         except Exception:
             self.transition(BlockState.ERROR)
             raise

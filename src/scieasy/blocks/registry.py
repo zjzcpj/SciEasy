@@ -107,7 +107,7 @@ class BlockRegistry:
         except Exception:
             return
 
-        block_eps = eps.select(group="scieasy.blocks") if hasattr(eps, "select") else eps.get("scieasy.blocks", [])
+        block_eps: Any = eps.select(group="scieasy.blocks") if hasattr(eps, "select") else eps.get("scieasy.blocks", [])
 
         for ep in block_eps:
             try:

@@ -65,12 +65,14 @@ def _extract_params(func_node: ast.FunctionDef) -> list[dict[str, Any]]:
         if arg.annotation is not None:
             param["annotation"] = ast.dump(arg.annotation)
         if i < len(args.args):
-            if i < len(defaults) and defaults[i] is not None:
-                param["default"] = ast.dump(defaults[i])
+            default_node = defaults[i] if i < len(defaults) else None
+            if default_node is not None:
+                param["default"] = ast.dump(default_node)
         else:
             kw_idx = i - len(args.args)
-            if kw_idx < len(kw_defaults) and kw_defaults[kw_idx] is not None:
-                param["default"] = ast.dump(kw_defaults[kw_idx])
+            kw_default_node = kw_defaults[kw_idx] if kw_idx < len(kw_defaults) else None
+            if kw_default_node is not None:
+                param["default"] = ast.dump(kw_default_node)
         params.append(param)
 
     return params
@@ -89,7 +91,8 @@ def _extract_configure_return(func_node: ast.FunctionDef, source: str) -> dict[s
         ret_value = stmts[0].value
         if isinstance(ret_value, ast.Dict):
             try:
-                return ast.literal_eval(ret_value)
+                result: dict[str, Any] = ast.literal_eval(ret_value)
+                return result
             except (ValueError, TypeError):
                 return None
     return None

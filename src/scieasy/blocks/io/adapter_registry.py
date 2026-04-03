@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.metadata
+from typing import Any
 
 
 class AdapterRegistry:
@@ -65,7 +66,7 @@ class AdapterRegistry:
         except Exception:
             return
 
-        adapter_eps = (
+        adapter_eps: Any = (
             eps.select(group="scieasy.adapters") if hasattr(eps, "select") else eps.get("scieasy.adapters", [])
         )
 
