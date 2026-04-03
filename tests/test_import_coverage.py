@@ -219,4 +219,3 @@ class TestImportCLI:
 
     def test_import_cli_main(self) -> None:
         from scieasy.cli import main  # noqa: F401
-
