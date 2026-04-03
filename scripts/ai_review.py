@@ -79,7 +79,8 @@ def run_codex_review(prompt: str, diff: str, metadata: dict) -> str:
         f.write(full_prompt)
         prompt_file = f.name
 
-    output_file = tempfile.mktemp(suffix=".md")
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8") as out:
+        output_file = out.name
 
     try:
         result = subprocess.run(
