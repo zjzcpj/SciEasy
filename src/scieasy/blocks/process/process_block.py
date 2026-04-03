@@ -6,7 +6,6 @@ from typing import Any, ClassVar
 
 from scieasy.blocks.base.block import Block
 from scieasy.blocks.base.config import BlockConfig
-from scieasy.blocks.base.state import BlockState
 
 
 class ProcessBlock(Block):

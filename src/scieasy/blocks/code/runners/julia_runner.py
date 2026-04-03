@@ -15,8 +15,7 @@ class JuliaRunner:
 
     def execute_inline(self, script: str, namespace: dict[str, Any]) -> dict[str, Any]:
         raise NotImplementedError(
-            "Julia inline execution is not yet implemented. "
-            "Install juliacall and contribute an implementation."
+            "Julia inline execution is not yet implemented. Install juliacall and contribute an implementation."
         )
 
     def execute_script(
@@ -27,6 +26,5 @@ class JuliaRunner:
         config: dict[str, Any],
     ) -> dict[str, Any]:
         raise NotImplementedError(
-            "Julia script execution is not yet implemented. "
-            "Install juliacall and contribute an implementation."
+            "Julia script execution is not yet implemented. Install juliacall and contribute an implementation."
         )

@@ -50,7 +50,6 @@ class SubWorkflowBlock(Block):
         """
         self.transition(BlockState.RUNNING)
         try:
-            workflow_ref = config.get("workflow_ref") or self.workflow_ref
             child_blocks = config.get("child_blocks") or []
             in_map = config.get("input_mapping") or self.input_mapping or {}
             out_map = config.get("output_mapping") or self.output_mapping or {}

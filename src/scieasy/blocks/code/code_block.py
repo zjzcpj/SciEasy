@@ -38,7 +38,6 @@ class CodeBlock(Block):
     def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
         """Execute the code block via the appropriate language runner."""
         from scieasy.blocks.code.runner_registry import RunnerRegistry
-        from scieasy.blocks.code.runners.python_runner import PythonRunner
 
         self.transition(BlockState.RUNNING)
         try:

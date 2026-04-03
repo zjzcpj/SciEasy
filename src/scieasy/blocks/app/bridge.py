@@ -78,7 +78,7 @@ class FileExchangeBridge:
         The exchange directory is passed as the first argument.
         Returns the :class:`subprocess.Popen` handle.
         """
-        return subprocess.Popen(  # noqa: S603
+        return subprocess.Popen(
             [command, str(exchange_dir)],
             cwd=str(exchange_dir),
             stdout=subprocess.PIPE,

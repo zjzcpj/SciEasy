@@ -13,15 +13,10 @@ class H5ADAdapter:
     """
 
     def read(self, path: str | Path, **kwargs: Any) -> Any:
-        raise NotImplementedError(
-            "H5ADAdapter is not yet implemented. "
-            "Planned for Phase 10 with anndata backend."
-        )
+        raise NotImplementedError("H5ADAdapter is not yet implemented. Planned for Phase 10 with anndata backend.")
 
     def write(self, data: Any, path: str | Path, **kwargs: Any) -> Path:
-        raise NotImplementedError(
-            "H5ADAdapter write is not yet implemented."
-        )
+        raise NotImplementedError("H5ADAdapter write is not yet implemented.")
 
     def supported_extensions(self) -> list[str]:
         return [".h5ad"]

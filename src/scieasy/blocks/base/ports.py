@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from scieasy.core.types.base import DataObject, TypeSignature
+from scieasy.core.types.base import TypeSignature
 
 
 @dataclass(kw_only=True)

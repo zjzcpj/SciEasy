@@ -24,7 +24,7 @@ class PythonRunner:
         stripped from the namespace.  The caller should look for the expected
         output keys.
         """
-        exec(script, namespace)  # noqa: S102
+        exec(script, namespace)
 
         # Strip private/internal keys.
         result: dict[str, Any] = {}

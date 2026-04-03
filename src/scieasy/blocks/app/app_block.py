@@ -65,16 +65,14 @@ class AppBlock(Block):
             timeout = int(config.get("watch_timeout", self.watch_timeout))
 
             # Create exchange directory.
-            exchange_dir = Path(
-                config.get("exchange_dir") or tempfile.mkdtemp(prefix="scieasy_app_")
-            )
+            exchange_dir = Path(config.get("exchange_dir") or tempfile.mkdtemp(prefix="scieasy_app_"))
 
             # Step 1: Prepare inputs.
             bridge.prepare(inputs, exchange_dir)
 
             # Step 2: Launch and pause (waiting for external interaction).
             self.transition(BlockState.PAUSED)
-            process = bridge.launch(command, exchange_dir)
+            bridge.launch(command, exchange_dir)
 
             # Step 3: Watch for outputs.
             from scieasy.blocks.app.watcher import FileWatcher

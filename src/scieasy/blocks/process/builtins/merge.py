@@ -10,8 +10,22 @@ from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.base.state import BlockState
 from scieasy.blocks.process.process_block import ProcessBlock
-from scieasy.core.types.base import DataObject
 from scieasy.core.types.dataframe import DataFrame
+
+
+def _to_arrow(obj: Any) -> pa.Table:
+    """Extract an Arrow Table from a DataFrame, ViewProxy, or raw Table."""
+    from scieasy.core.proxy import ViewProxy
+
+    if isinstance(obj, ViewProxy):
+        obj = obj.to_memory()
+    if isinstance(obj, pa.Table):
+        return obj
+    if isinstance(obj, DataFrame) and hasattr(obj, "_arrow_table"):
+        return obj._arrow_table  # type: ignore[attr-defined]
+    if isinstance(obj, DataFrame) and obj.storage_ref is not None:
+        return obj.to_memory()
+    raise TypeError(f"Cannot extract Arrow Table from {type(obj).__name__}")
 
 
 class MergeBlock(ProcessBlock):
@@ -42,17 +56,8 @@ class MergeBlock(ProcessBlock):
             left_obj = inputs["left"]
             right_obj = inputs["right"]
 
-            # Materialise if ViewProxy.
-            from scieasy.core.proxy import ViewProxy
-
-            left_data = left_obj.to_memory() if isinstance(left_obj, ViewProxy) else left_obj
-            right_data = right_obj.to_memory() if isinstance(right_obj, ViewProxy) else right_obj
-
-            # Ensure we have Arrow tables.
-            if isinstance(left_data, DataFrame):
-                left_data = left_data.to_memory()
-            if isinstance(right_data, DataFrame):
-                right_data = right_data.to_memory()
+            left_data = _to_arrow(left_obj)
+            right_data = _to_arrow(right_obj)
 
             if not isinstance(left_data, pa.Table):
                 raise TypeError(f"Expected Arrow Table, got {type(left_data).__name__}")

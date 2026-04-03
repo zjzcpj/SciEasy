@@ -9,7 +9,6 @@ from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort, port_accepts_type, validate_port_constraint
 from scieasy.blocks.base.state import BatchErrorStrategy, BatchMode, BlockState, ExecutionMode
 
-
 # Valid state transitions.
 _VALID_TRANSITIONS: dict[BlockState, set[BlockState]] = {
     BlockState.IDLE: {BlockState.READY, BlockState.ERROR},
@@ -73,9 +72,8 @@ class Block(ABC):
 
         # Check required ports are present.
         for port in self.input_ports:
-            if port.required and port.name not in inputs:
-                if port.default is None:
-                    raise ValueError(f"Required input port '{port.name}' is missing.")
+            if port.required and port.name not in inputs and port.default is None:
+                raise ValueError(f"Required input port '{port.name}' is missing.")
 
         # Check types and constraints for supplied inputs.
         for key, value in inputs.items():
@@ -100,10 +98,7 @@ class Block(ABC):
             else:
                 if port.accepted_types and not port_accepts_type(port, actual_type):
                     accepted = [t.__name__ for t in port.accepted_types]
-                    raise ValueError(
-                        f"Port '{port.name}': got {actual_type.__name__}, "
-                        f"expected one of {accepted}"
-                    )
+                    raise ValueError(f"Port '{port.name}': got {actual_type.__name__}, expected one of {accepted}")
 
             # Constraint check.
             ok, desc = validate_port_constraint(port, value)

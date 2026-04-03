@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 
 class RunnerRegistry:
     """Registry that maps language identifiers to :class:`CodeRunner` classes."""

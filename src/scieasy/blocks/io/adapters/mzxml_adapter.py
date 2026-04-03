@@ -14,14 +14,11 @@ class MzXMLAdapter:
 
     def read(self, path: str | Path, **kwargs: Any) -> Any:
         raise NotImplementedError(
-            "MzXMLAdapter is not yet implemented. "
-            "Planned for Phase 10 with pyteomics or pyopenms backend."
+            "MzXMLAdapter is not yet implemented. Planned for Phase 10 with pyteomics or pyopenms backend."
         )
 
     def write(self, data: Any, path: str | Path, **kwargs: Any) -> Path:
-        raise NotImplementedError(
-            "MzXMLAdapter write is not yet implemented."
-        )
+        raise NotImplementedError("MzXMLAdapter write is not yet implemented.")
 
     def supported_extensions(self) -> list[str]:
         return [".mzxml", ".mzXML"]

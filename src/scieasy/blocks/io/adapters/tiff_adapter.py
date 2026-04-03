@@ -58,7 +58,4 @@ def _import_tifffile() -> Any:
 
         return tifffile
     except ImportError as exc:
-        raise ImportError(
-            "TIFFAdapter requires the 'tifffile' package. "
-            "Install it with: pip install tifffile"
-        ) from exc
+        raise ImportError("TIFFAdapter requires the 'tifffile' package. Install it with: pip install tifffile") from exc

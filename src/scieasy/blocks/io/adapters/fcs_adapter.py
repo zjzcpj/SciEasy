@@ -13,15 +13,10 @@ class FCSAdapter:
     """
 
     def read(self, path: str | Path, **kwargs: Any) -> Any:
-        raise NotImplementedError(
-            "FCSAdapter is not yet implemented. "
-            "Planned for Phase 10 with fcsparser backend."
-        )
+        raise NotImplementedError("FCSAdapter is not yet implemented. Planned for Phase 10 with fcsparser backend.")
 
     def write(self, data: Any, path: str | Path, **kwargs: Any) -> Path:
-        raise NotImplementedError(
-            "FCSAdapter write is not yet implemented."
-        )
+        raise NotImplementedError("FCSAdapter write is not yet implemented.")
 
     def supported_extensions(self) -> list[str]:
         return [".fcs"]

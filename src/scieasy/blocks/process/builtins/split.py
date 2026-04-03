@@ -10,8 +10,22 @@ from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.base.state import BlockState
 from scieasy.blocks.process.process_block import ProcessBlock
-from scieasy.core.types.base import DataObject
 from scieasy.core.types.dataframe import DataFrame
+
+
+def _to_arrow(obj: Any) -> pa.Table:
+    """Extract an Arrow Table from a DataFrame, ViewProxy, or raw Table."""
+    from scieasy.core.proxy import ViewProxy
+
+    if isinstance(obj, ViewProxy):
+        obj = obj.to_memory()
+    if isinstance(obj, pa.Table):
+        return obj
+    if isinstance(obj, DataFrame) and hasattr(obj, "_arrow_table"):
+        return obj._arrow_table  # type: ignore[attr-defined]
+    if isinstance(obj, DataFrame) and obj.storage_ref is not None:
+        return obj.to_memory()
+    raise TypeError(f"Cannot extract Arrow Table from {type(obj).__name__}")
 
 
 class SplitBlock(ProcessBlock):
@@ -43,12 +57,7 @@ class SplitBlock(ProcessBlock):
         self.transition(BlockState.RUNNING)
         try:
             data_obj = inputs["data"]
-
-            from scieasy.core.proxy import ViewProxy
-
-            data = data_obj.to_memory() if isinstance(data_obj, ViewProxy) else data_obj
-            if isinstance(data, DataFrame):
-                data = data.to_memory()
+            data = _to_arrow(data_obj)
 
             if not isinstance(data, pa.Table):
                 raise TypeError(f"Expected Arrow Table, got {type(data).__name__}")
