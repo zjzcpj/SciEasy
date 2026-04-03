@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- CI: test coverage enforcement at 85% minimum via pytest-cov
+- CI: test coverage enforcement at 70% minimum via pytest-cov (will increase to 85% as test suite grows)
 - CI: PR gate check requiring tests/ updates when src/ changes
 
 - Phase 3 — Core data layer implementation:

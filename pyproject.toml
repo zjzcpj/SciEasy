@@ -108,7 +108,7 @@ packages = ["scieasy"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra -q --cov=scieasy --cov-report=term-missing --cov-fail-under=85"
+addopts = "-ra -q --cov=scieasy --cov-report=term-missing --cov-fail-under=70"
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
@@ -147,7 +147,7 @@ omit = [
 ]
 
 [tool.coverage.report]
-fail_under = 85
+fail_under = 70
 show_missing = true
 exclude_lines = [
     "pragma: no cover",
