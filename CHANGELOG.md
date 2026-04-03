@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Phase 5 — Execution engine:
+  - DAG construction: build_dag() from WorkflowDefinition with port-level edge mapping and dependency tracking
+  - Topological sort: Kahn's algorithm with cycle detection for execution ordering
+  - DAGScheduler: walks topo-order, gathers inputs from upstream outputs, dispatches to LocalRunner, manages pause/resume
+  - LocalRunner: in-process block execution with full state machine transitions (IDLE→READY→RUNNING→DONE/ERROR)
+  - BatchExecutor: serial, parallel (ThreadPoolExecutor), and adaptive dispatch with all four BatchErrorStrategy modes (STOP, SKIP, RETRY, PAUSE)
+  - ResourceManager: GPU slot counting, CPU workers, memory budget tracking with thread-safe acquire/release
+  - Checkpoint serialization: JSON-based save/load with ISO-8601 timestamps for workflow state persistence
+  - EventBus: in-process pub/sub with wildcard subscriptions, event history tracking
+  - SubWorkflowBlock: upgraded from sequential stub to real DAGScheduler-based execution (backward-compatible fallback preserved)
+  - Engine __init__.py: exports all Phase 5 public API
+  - 57 new tests: DAG (15), scheduler (6), batch (11), resources (12), events (9), checkpoint (3), multimodal integration (1)
 - Phase 4 — Block system implementation:
   - Port system: type matching (isinstance-based, inheritance-aware), constraint validation, connection validation (source→target compatibility)
   - Block lifecycle: validate() with port type/constraint checking, postprocess() pass-through, state machine with transition()
