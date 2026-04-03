@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
+import platform as platform_mod
+import sys
 from dataclasses import dataclass, field
+from importlib.metadata import PackageNotFoundError, version
 
 
 @dataclass
@@ -29,6 +33,18 @@ class EnvironmentSnapshot:
 
         Args:
             key_dependencies: Package names whose versions should be recorded
-                in :attr:`key_packages`.
+                in :attr:`key_packages`. Defaults to core SciEasy dependencies.
         """
-        raise NotImplementedError
+        if key_dependencies is None:
+            key_dependencies = ["scieasy", "numpy", "zarr", "pyarrow", "pydantic"]
+
+        key_packages: dict[str, str] = {}
+        for pkg in key_dependencies:
+            with contextlib.suppress(PackageNotFoundError):
+                key_packages[pkg] = version(pkg)
+
+        return cls(
+            python_version=sys.version,
+            platform=platform_mod.platform(),
+            key_packages=key_packages,
+        )
