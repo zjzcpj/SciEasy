@@ -88,87 +88,7 @@ AI must never bypass contracts, lineage, or execution policies.
 
 ---
 
-# 3. Architectural Boundaries
-
-These boundaries must be respected unless a formal architecture decision explicitly changes them.
-
-## 3.1 Backend / Runtime boundary
-
-The backend/runtime owns:
-
-- workflow definitions
-- block registry
-- state machine
-- run history
-- lineage and provenance
-- object registry
-- cache manifests
-- plugin registration
-- execution policies
-
-The frontend must not become the place where execution truth is stored.
-
-## 3.2 Frontend boundary
-
-The frontend is responsible for:
-
-- workflow editing
-- parameter editing
-- execution triggering
-- state visualization
-- object inspection
-- artifact preview
-- manual task handling
-
-The frontend must not silently invent workflow semantics that do not exist in the backend.
-
-## 3.3 Core boundary
-
-Core should contain:
-
-- primitive object contracts
-- graph models
-- block specifications
-- runtime state definitions
-- lineage/audit primitives
-- serialization and validation
-
-Core should not directly own:
-- modality-specific analysis logic
-- vendor-specific application logic
-- heavy UI concerns
-- experimental agent behavior
-
-## 3.4 Plugin boundary
-
-Plugin packages are the correct place for:
-
-- modality-specific logic
-- block families
-- external app adapters
-- specialized data types
-- optional integrations
-
-Do not push plugin/domain logic into core without strong reason and formal approval.
-
-## 3.5 AI boundary
-
-AI modules may:
-- compile natural language into workflow proposals
-- suggest blocks and parameters
-- scaffold plugins
-- propose workflow optimizations
-- explain outputs
-
-AI modules must not:
-- execute uncontrolled code by default
-- bypass schemas
-- mutate user data silently
-- modify architecture without documentation
-
----
-
-# 4. Repository Working Model
+# 3. Repository Working Model
 
 All meaningful work should be traceable through the following chain:
 
@@ -178,9 +98,9 @@ If this chain is broken, traceability is broken.
 
 ---
 
-# 5. Standard Development Workflow
+# 4. Standard Development Workflow
 
-## 5.1 Before coding
+## 4.1 Before coding
 
 Before starting implementation:
 
@@ -190,7 +110,7 @@ Before starting implementation:
 4. determine whether a spec is required
 5. determine whether an ADR is required
 
-## 5.2 When a Spec is required
+## 4.2 When a Spec is required
 
 A spec is required when work changes any of the following:
 
@@ -255,7 +175,19 @@ Main branch must be protected.
 
 All changes go through PR.
 
-## 6.2 Every meaningful change must be attributable
+## 6.2 MUST create a branch before any changes
+
+Before making any code or documentation changes, MUST create a feature branch first. Never commit directly on main. Branch naming should follow the convention: `feat/issue-N/short-description`, `fix/issue-N/short-description`, or `docs/short-description`.
+
+## 6.3 MUST create a PR to GitHub
+
+Every change MUST be published to GitHub via a pull request. After committing to a feature branch, push the branch and create a PR. Changes are not considered delivered until a PR exists on GitHub.
+
+## 6.4 MUST verify PR CI passes
+
+After creating a PR, MUST check whether all CI checks pass. If any check fails, diagnose and fix the issues, push fixes, and repeat until all checks are green. A PR with failing CI is not ready for review. Do not leave failing checks unaddressed.
+
+## 6.5 Every meaningful change must be attributable
 
 Every meaningful change should be traceable to:
 - an issue
@@ -264,7 +196,7 @@ Every meaningful change should be traceable to:
 - a review
 - a test outcome
 
-## 6.3 Use focused commits
+## 6.6 Use focused commits
 
 Do not create vague commits like:
 - fix
@@ -280,7 +212,7 @@ Preferred style:
 - fix(storage): avoid eager loading of array preview
 - docs(adr): record external app block design
 
-## 6.4 Tests are part of the change
+## 6.7 Tests are part of the change
 
 A bug fix should ideally include a regression test.
 
@@ -288,7 +220,7 @@ A new contract should include validation or integration tests.
 
 A major runtime behavior change should include integration coverage.
 
-## 6.5 Documentation is part of the product
+## 6.8 Documentation is part of the product
 
 Docs are not optional.
 
@@ -339,50 +271,6 @@ Choose clarity first for the initial implementation of a subsystem, unless perfo
 ## 7.5 No architecture drift through convenience hacks
 
 Do not introduce temporary shortcuts that contradict the intended architecture unless they are explicitly documented as temporary and tracked by an issue.
-
----
-
-# 8. Data and Runtime Rules
-
-## 8.1 Treat large data as normal
-
-The system must assume that users may work with:
-- 100GB+ imaging data
-- chunked hyperspectral arrays
-- large tables
-- large collections of artifacts
-
-Therefore:
-- avoid eager loading
-- prefer lazy references
-- prefer chunked/persisted representations
-- design previews separately from full payloads
-
-## 8.2 Runtime states must remain explicit
-
-Do not hide execution transitions.
-
-Manual review, waiting for external apps, pause, retry, failure, and completion must all be represented clearly in runtime state.
-
-## 8.3 External applications are formal runtime participants
-
-Do not treat external tools as informal side paths.
-
-If a block launches Fiji, ElMAVEN, napari, or another application, that behavior must be:
-- explicit
-- documented
-- resumable if possible
-- lineage-aware
-
-## 8.4 Batch execution must remain mode-aware
-
-Do not assume all batch work should be parallel.
-
-Some blocks must support:
-- serial single-item review
-- parallel map execution
-- hybrid behavior
-- runtime barriers before manual intervention
 
 ---
 
@@ -599,3 +487,280 @@ Therefore:
 - traceability matters
 
 Claude and all contributors must work in a way that keeps the system understandable, extensible, and auditable over time.
+
+---
+
+# Appendix A: Mandatory Workflow Gate Protocol
+
+> **This protocol is NON-NEGOTIABLE.** Every implementation task must pass through
+> the gate system. Skipping steps is a protocol violation equivalent to pushing
+> directly to main.
+
+## The Gate System
+
+This project uses `.workflow/gate.py` as a state machine that enforces the
+development pipeline. The gate CLI is the **single source of truth** for whether
+a step has been completed. You cannot self-attest completion — only the gate
+records count.
+
+## Required Execution Sequence
+
+For **every** implementation task (feature, bugfix, refactor), execute these
+steps **in exact order**. Each step requires the previous step's gate to be
+recorded.
+
+### Step 1: Start Workflow + Create Issue
+
+```bash
+# 1a. Initialize workflow tracking
+python .workflow/gate.py start "Brief description of the task"
+# Note the TASK_ID from output
+
+# 1b. Create the GitHub issue
+gh issue create --template feature.md --title "..." --body "..."
+# Note the ISSUE_NUMBER and ISSUE_URL
+
+# 1c. Record gate completion
+python .workflow/gate.py advance $TASK_ID create_issue \
+  --data '{"issue_number": 42, "issue_url": "https://github.com/.../issues/42"}'
+```
+
+**You CANNOT proceed to Step 2 until `create_issue` gate is recorded.**
+
+### Step 2: Write Change Plan
+
+```bash
+# 2a. Write the change plan as an issue comment
+gh issue comment $ISSUE_NUMBER --body "## Change Plan for #$ISSUE_NUMBER
+### Approach
+...
+### Files to Modify
+| File | Action | Rationale |
+|------|--------|-----------|
+| ... | ... | ... |
+### Risk Assessment
+..."
+
+# 2b. Record gate completion
+python .workflow/gate.py advance $TASK_ID write_change_plan \
+  --data '{"change_plan_comment_url": "https://...", "files_to_modify": ["src/..."]}'
+```
+
+**You CANNOT proceed to Step 3 until `write_change_plan` gate is recorded.**
+
+### Step 3: Create Branch + Implement
+
+```bash
+# 3a. Create the branch
+git checkout -b feat/issue-$ISSUE_NUMBER/short-description
+
+# 3b. Implement changes (scoped to change plan!)
+
+# 3c. Commit with conventional format
+git add .
+git commit -m "feat(#$ISSUE_NUMBER): description of change"
+
+# 3d. Record gate completion
+python .workflow/gate.py advance $TASK_ID create_branch \
+  --data '{"branch_name": "feat/issue-42/...", "commit_shas": ["abc1234"]}'
+```
+
+**You CANNOT proceed to Step 4 until `create_branch` gate is recorded.**
+
+### Step 4: Submit PR
+
+```bash
+# 4a. Push and create PR
+git push -u origin HEAD
+gh pr create --title "feat(#$ISSUE_NUMBER): ..." \
+  --body "## Summary\n...\n## Related Issues\nCloses #$ISSUE_NUMBER"
+
+# 4b. Record gate completion
+python .workflow/gate.py advance $TASK_ID submit_pr \
+  --data '{"pr_number": 48, "pr_url": "https://github.com/.../pull/48"}'
+```
+
+**You CANNOT proceed to Step 5 until `submit_pr` gate is recorded.**
+
+### Step 5: Update Documentation
+
+```bash
+# 5a. Update relevant docs
+# - If new public API: update API reference in docs/
+# - If behavior change: update relevant spec in docs/specs/
+# - If architectural decision: write/update ADR in docs/adr/
+
+# 5b. Commit docs changes
+git add docs/
+git commit -m "docs(#$ISSUE_NUMBER): update documentation for ..."
+git push
+
+# 5c. Record gate completion
+python .workflow/gate.py advance $TASK_ID update_docs \
+  --data '{"docs_updated": ["docs/specs/pipeline.md"]}'
+```
+
+**You CANNOT proceed to Step 6 until `update_docs` gate is recorded.**
+
+### Step 6: Update Changelog
+
+```bash
+# 6a. Add changelog entry under [Unreleased]
+# Format: - [#ISSUE_NUMBER] Brief description (@agent-name)
+
+# 6b. Commit
+git add CHANGELOG.md
+git commit -m "chore(#$ISSUE_NUMBER): update changelog"
+git push
+
+# 6c. Record gate completion
+python .workflow/gate.py advance $TASK_ID update_changelog \
+  --data '{"changelog_entry": "[#42] Add TIFF loader to pipeline (@claude)"}'
+```
+
+---
+
+## Self-Check Protocol
+
+Before executing **any** step, run:
+
+```bash
+python .workflow/gate.py status $TASK_ID
+```
+
+Verify that the **previous stage shows [DONE]** before attempting the current one.
+If you see [LOCK] on the stage you are about to attempt, STOP and complete
+the prerequisites first.
+
+## What To Do When Blocked
+
+If `gate.py advance` returns `WORKFLOW GATE: ADVANCEMENT BLOCKED`:
+
+1. **Do not attempt to work around it.**
+2. Run `python .workflow/gate.py status $TASK_ID` to see what is missing.
+3. Complete the missing prerequisite stage.
+4. Then retry.
+
+## Scope Discipline
+
+During implementation (Step 3):
+
+- **Only modify files listed in the Change Plan** (Step 2).
+- If you discover additional files need changing, **update the Change Plan comment first**.
+- Do not smuggle unrelated changes into the PR.
+
+## Small Changes Still Use Gates
+
+If the task seems too small for the full workflow (e.g., a typo fix):
+
+1. Still create an issue.
+2. The change plan can be a single sentence.
+3. Docs update can note "N/A — no docs affected".
+4. Changelog can note "N/A — trivial fix".
+5. **But you still must go through all 6 gates.**
+
+The overhead is intentional. It ensures traceability even for small changes.
+
+## Gate CLI Quick Reference
+
+| Command | Purpose |
+|---------|---------|
+| `python .workflow/gate.py start "title"` | Start new workflow |
+| `python .workflow/gate.py advance TASK STAGE --data '{...}'` | Advance one stage |
+| `python .workflow/gate.py status TASK` | Show progress |
+| `python .workflow/gate.py list` | List all workflows |
+| `python .workflow/gate.py validate TASK STAGE` | Check if stage is reachable |
+| `python .workflow/gate.py abort TASK --reason "..."` | Abort workflow |
+
+
+---
+
+# Appendix B: SpecKit Integration
+
+## What SpecKit Is
+
+This project uses [SpecKit](https://github.com/spec-kit) (`.specify/` directory) as the
+**feature-level design pipeline**. SpecKit converts a natural language feature
+description into structured artifacts (spec, plan, tasks) through a series of
+slash commands in Claude Code.
+
+SpecKit skills are auto-discovered from `.claude/skills/speckit-*`. You do NOT
+need to memorize their internals — just use the slash commands.
+
+## SpecKit vs Workflow Gate: When to Use Which
+
+These two systems operate at **different granularities** and are complementary.
+
+### SpecKit = Feature-level design pipeline
+
+Use SpecKit when starting a **new feature, subsystem, or significant change**
+that needs requirements analysis, design decisions, and task decomposition.
+
+```
+/speckit.specify "Add OME-TIFF support to pipeline loader"
+  → generates spec.md (what & why)
+/speckit.clarify
+  → resolves ambiguities in spec
+/speckit.plan
+  → generates plan.md, data-model.md, contracts/ (how)
+/speckit.tasks
+  → generates tasks.md (ordered, dependency-aware task list)
+/speckit.analyze
+  → cross-artifact consistency check (read-only)
+```
+
+### Workflow Gate = Per-task execution pipeline
+
+Use the Workflow Gate when **executing each individual task** from the task
+list. Every task that touches code must go through the 6-stage gate:
+
+```
+gate.py start → create_issue → write_change_plan → create_branch
+  → submit_pr → update_docs → update_changelog
+```
+
+### Combined Workflow (Standard Operating Procedure)
+
+For any significant feature:
+
+```
+Phase 1: Design (SpecKit)
+  /speckit.specify "..."     → spec.md
+  /speckit.clarify           → refined spec.md
+  /speckit.plan              → plan.md + design artifacts
+  /speckit.tasks             → tasks.md with T001, T002, T003...
+
+Phase 2: Execute (Workflow Gate, per task)
+  For each task in tasks.md:
+    gate.py start "T001: ..."
+    gate.py advance ... create_issue
+    gate.py advance ... write_change_plan
+    gate.py advance ... create_branch
+    [implement the task]
+    gate.py advance ... submit_pr
+    gate.py advance ... update_docs
+    gate.py advance ... update_changelog
+```
+
+### When to Skip SpecKit
+
+For **small, well-understood changes** (typo fixes, config tweaks, simple bug
+fixes), you may skip SpecKit and go directly to the Workflow Gate. The decision
+rule:
+
+- If the change requires **design decisions** → use SpecKit first
+- If the change is **obvious and scoped** → go straight to Workflow Gate
+
+## SpecKit Quick Reference
+
+| Command | Purpose | Output |
+|---------|---------|--------|
+| `/speckit.constitution` | Define project principles | `.specify/memory/constitution.md` |
+| `/speckit.specify "..."` | Generate requirements spec | `specs/<branch>/spec.md` |
+| `/speckit.clarify` | Resolve ambiguities (max 5 questions) | Updated `spec.md` |
+| `/speckit.plan` | Generate implementation plan | `plan.md`, `data-model.md`, `contracts/` |
+| `/speckit.checklist <domain>` | Requirements quality checklist | `checklists/<domain>.md` |
+| `/speckit.tasks` | Generate ordered task list | `tasks.md` |
+| `/speckit.analyze` | Cross-artifact consistency check | Report (read-only) |
+| `/speckit.implement` | Execute tasks from tasks.md | Code changes |
+| `/speckit.taskstoissues` | Convert tasks to GitHub Issues | GitHub Issues |

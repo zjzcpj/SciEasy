@@ -14,7 +14,7 @@ on:
 
 jobs:
   analyze:
-    name: Analyze
+    name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
     permissions:
       security-events: write
@@ -35,13 +35,5 @@ jobs:
             echo "has_python=false" >> "$GITHUB_OUTPUT"
             echo "No Python files found — skipping analysis"
           fi
-      - uses: github/codeql-action/init@v4
-        if: steps.check.outputs.has_python == 'true'
-        with:
-          languages: ${{ matrix.language }}
-      - uses: github/codeql-action/autobuild@v4
-        if: steps.check.outputs.has_python == 'true'
-      - uses: github/codeql-action/analyze@v4
-        if: steps.check.outputs.has_python == 'true'
-        with:
-          category: "/language:${{ matrix.language }}"
+      - name: Skip — Python covered by default CodeQL setup
+        run: echo "Python analysis is handled by GitHub's default CodeQL setup. Skipping advanced config to avoid conflict."

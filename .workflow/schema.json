@@ -1,0 +1,70 @@
+{
+  "version": "1.0.0",
+  "description": "SciEasy gated development workflow",
+  "stages": [
+    {
+      "id": "create_issue",
+      "name": "Create Issue",
+      "description": "Create a GitHub issue with proper template",
+      "requires": [],
+      "artifacts": ["issue_number", "issue_url"],
+      "validations": [
+        "issue_number must be a positive integer",
+        "issue_url must be a valid GitHub URL"
+      ]
+    },
+    {
+      "id": "write_change_plan",
+      "name": "Write Change Plan",
+      "description": "Post a structured change plan as issue comment",
+      "requires": ["create_issue"],
+      "artifacts": ["change_plan_comment_url", "files_to_modify"],
+      "validations": [
+        "change_plan_comment_url must be a valid URL",
+        "files_to_modify must be a non-empty list"
+      ]
+    },
+    {
+      "id": "create_branch",
+      "name": "Create Branch & Implement",
+      "description": "Create feature branch and implement changes",
+      "requires": ["write_change_plan"],
+      "artifacts": ["branch_name", "commit_shas"],
+      "validations": [
+        "branch_name must follow naming convention",
+        "commit_shas must be a non-empty list"
+      ]
+    },
+    {
+      "id": "submit_pr",
+      "name": "Submit PR",
+      "description": "Open a pull request linking the issue",
+      "requires": ["create_branch"],
+      "artifacts": ["pr_number", "pr_url"],
+      "validations": [
+        "pr_number must be a positive integer",
+        "pr_url must be a valid GitHub URL"
+      ]
+    },
+    {
+      "id": "update_docs",
+      "name": "Update Documentation",
+      "description": "Update relevant docs, specs, or ADRs",
+      "requires": ["submit_pr"],
+      "artifacts": ["docs_updated"],
+      "validations": [
+        "docs_updated must be a non-empty list of file paths"
+      ]
+    },
+    {
+      "id": "update_changelog",
+      "name": "Update Changelog",
+      "description": "Add entry to CHANGELOG.md",
+      "requires": ["update_docs"],
+      "artifacts": ["changelog_entry"],
+      "validations": [
+        "changelog_entry must be a non-empty string"
+      ]
+    }
+  ]
+}
