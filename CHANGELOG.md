@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Phase 3 — Core data layer implementation:
+  - DataObject metadata handling, TypeSignature auto-generation from class MRO
+  - TypeSignature.matches() for inheritance-aware type compatibility
+  - CompositeData slot management with type validation (get, set, slot_types)
+  - TypeRegistry with register, resolve, scan_builtins, load_class, is_instance
+  - ZarrBackend — write/read numpy arrays via Zarr, chunk-aware slicing
+  - ArrowBackend — write/read PyArrow Tables via Parquet, column selection
+  - FilesystemBackend — text and binary file storage with byte-range slicing
+  - CompositeStore — directory-of-slots with manifest.json
+  - ViewProxy — lazy loading with shape/axes metadata, size warnings (>2 GB)
+  - LineageStore — SQLite-backed lineage records with ancestor tracing
+  - EnvironmentSnapshot.capture() — Python version and key package versions
+  - ProvenanceGraph — in-memory ancestry, descendant, diff, and audit queries
+  - broadcast_apply() — named-axis-aware broadcasting utility
+  - iter_axis_slices() — axis-aware slice generator for Array types
+  - content_hash() — xxhash-based content hashing for lineage
+  - 102 tests covering types, composites, storage round-trips, proxy lazy loading, lineage, and broadcast
 - [#9] Scaffold repository structure and implement interface skeleton (Phases 0-2)
 - [#7] Add mandatory branch and PR commit rules to CLAUDE.md
 - Workflow gate system (`.workflow/gate.py`) for enforced development pipeline
