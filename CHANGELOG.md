@@ -28,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - Format adapters: CSV (PyArrow), Parquet (PyArrow), TIFF (tifffile), generic binary (Artifact)
   - Stub adapters: mzXML, H5AD, FCS with NotImplementedError
   - 69 new tests across 7 test files covering ports, IO, process, code, app, registry, and subworkflow blocks
+- CI: test coverage enforcement at 65% minimum via pytest-cov (will increase to 85% as test suite grows)
+- CI: PR gate check requiring tests/ updates when src/ changes
+
 - Phase 3 — Core data layer implementation:
   - DataObject metadata handling, TypeSignature auto-generation from class MRO
   - TypeSignature.matches() for inheritance-aware type compatibility

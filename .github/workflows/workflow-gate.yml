@@ -89,3 +89,15 @@ jobs:
               echo "Docs updated"
             fi
           fi
+
+      - name: Check tests updated
+        run: |
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          if echo "$CHANGED" | grep -q "^src/\|^packages/"; then
+            if ! echo "$CHANGED" | grep -q "^tests/"; then
+              echo "::error::Source changed but no tests/ updates. Every code change must include tests."
+              exit 1
+            else
+              echo "Tests updated"
+            fi
+          fi
