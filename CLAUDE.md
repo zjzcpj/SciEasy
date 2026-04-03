@@ -551,7 +551,9 @@ python .workflow/gate.py advance $TASK_ID write_change_plan \
 ### Step 3: Create Branch + Implement
 
 ```bash
-# 3a. Create the branch
+# 3a. ALWAYS sync with latest main first (prevents merge conflicts)
+git checkout main
+git pull origin main
 git checkout -b feat/issue-$ISSUE_NUMBER/short-description
 
 # 3b. Implement changes (scoped to change plan!)
@@ -671,6 +673,86 @@ The overhead is intentional. It ensures traceability even for small changes.
 | `python .workflow/gate.py list` | List all workflows |
 | `python .workflow/gate.py validate TASK STAGE` | Check if stage is reachable |
 | `python .workflow/gate.py abort TASK --reason "..."` | Abort workflow |
+
+## Branch Discipline
+
+**NEVER merge into local main.** The local main branch is a read-only reference.
+The only commands you run on main are:
+
+```bash
+git checkout main       # switch to it
+git pull origin main    # sync it with GitHub
+git checkout -b ...     # branch off it
+```
+
+Merging into main happens **only on GitHub** when the project owner clicks
+"Merge pull request". If you run `git merge ... main` locally, you are doing
+it wrong.
+
+**One branch = one task.** Do not combine unrelated changes (e.g., CI fixes +
+scaffold + registry refactor) in a single branch. Each independent task gets
+its own branch and its own PR.
+
+## Handling Merge Conflicts
+
+If your PR shows conflicts on GitHub, it means `origin/main` changed after you
+created your branch. Fix it like this:
+
+```bash
+git checkout your-branch-name
+git fetch origin
+git merge origin/main
+# Git will show CONFLICT in some files
+# Open the files, resolve the conflict markers (<<<< ==== >>>>)
+# Then:
+git add .
+git commit -m "merge: resolve conflict with main"
+git push
+```
+
+After pushing, the PR on GitHub will update and the conflict will disappear.
+
+**Prevention**: Always create branches from the latest main (see Step 3a above).
+If your branch lives for more than a day, periodically sync:
+
+```bash
+git fetch origin
+git merge origin/main
+```
+
+## Branch Cleanup
+
+After completing a task (PR merged or closed), clean up stale branches.
+
+**How to identify dead branches:**
+
+```bash
+# Show all local branches with tracking status
+# Branches marked "gone" = remote deleted (PR was merged/closed)
+git fetch --prune
+git branch -vv | grep ': gone]'
+
+# Show branches already merged into main (safe to delete)
+git branch --merged main
+```
+
+**How to clean up:**
+
+```bash
+# Delete a single local branch
+git branch -d branch-name
+
+# Delete all local branches whose remote is gone
+git fetch --prune
+git branch -vv | grep ': gone]' | ForEach-Object { ($_ -match '^\s*(\S+)') | Out-Null; git branch -d $Matches[1] }
+```
+
+**Rules:**
+- Never delete `main`
+- Only delete branches that are merged or whose remote is gone
+- Run cleanup at the START of each new task, before creating a new branch
+- If `git branch -d` refuses (unmerged changes), use `git branch -D` only if
+  you are certain the work is no longer needed
 
 
 ---
