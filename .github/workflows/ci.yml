@@ -53,7 +53,7 @@ jobs:
           python-version: "3.13"
       - run: uv pip install --system -e ".[dev]"
       - name: Run architecture tests
-        run: pytest tests/architecture/ -v
+        run: pytest tests/architecture/ -v --no-cov
 
   test:
     name: Test (Python ${{ matrix.python-version }})
