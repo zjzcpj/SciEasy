@@ -1,0 +1,89 @@
+name: Workflow Gate Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, edited]
+
+jobs:
+  workflow-gate:
+    name: Verify Workflow Compliance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check linked issue
+        run: |
+          PR_BODY="${{ github.event.pull_request.body }}"
+          if ! echo "$PR_BODY" | grep -qiE "(closes|fixes|resolves)\s+#[0-9]+"; then
+            echo "::error::PR must link an issue (e.g. 'Closes #42')"
+            exit 1
+          fi
+          echo "Issue linked in PR body"
+
+      - name: Check workflow state file exists
+        run: |
+          BRANCH="${{ github.head_ref }}"
+          echo "Checking workflow state for branch: $BRANCH"
+
+          FOUND=false
+          if [ -d ".workflow/active" ]; then
+            for f in .workflow/active/*.json; do
+              [ -f "$f" ] || continue
+              BRANCH_IN_STATE=$(python3 -c "
+          import json, sys
+          with open('$f') as fh:
+              state = json.load(fh)
+          for s in state.get('completed_stages', []):
+              if s['stage_id'] == 'create_branch':
+                  print(s.get('artifacts', {}).get('branch_name', ''))
+                  sys.exit(0)
+          print('')
+              ")
+              if [ "$BRANCH_IN_STATE" = "$BRANCH" ]; then
+                FOUND=true
+                echo "Found workflow state: $f"
+
+                python3 -c "
+          import json, sys
+          with open('$f') as fh:
+              state = json.load(fh)
+          completed = {s['stage_id'] for s in state.get('completed_stages', [])}
+          required = ['create_issue', 'write_change_plan', 'create_branch']
+          missing = [r for r in required if r not in completed]
+          if missing:
+              print(f'::error::Workflow stages not completed: {missing}')
+              sys.exit(1)
+          print('All pre-PR stages completed')
+                "
+                break
+              fi
+            done
+          fi
+
+          if [ "$FOUND" = "false" ]; then
+            echo "::warning::No workflow state for branch '$BRANCH'"
+          fi
+
+      - name: Check CHANGELOG updated
+        run: |
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          if echo "$CHANGED" | grep -q "^src/\|^packages/"; then
+            if ! echo "$CHANGED" | grep -q "CHANGELOG.md"; then
+              echo "::warning::Source changed but CHANGELOG.md not updated"
+            else
+              echo "CHANGELOG.md updated"
+            fi
+          fi
+
+      - name: Check docs updated
+        run: |
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          if echo "$CHANGED" | grep -q "^src/\|^packages/"; then
+            if ! echo "$CHANGED" | grep -q "^docs/"; then
+              echo "::warning::Source changed but no docs/ updates"
+            else
+              echo "Docs updated"
+            fi
+          fi

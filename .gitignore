@@ -53,3 +53,7 @@ data/previews/
 # Node (frontend)
 node_modules/
 .next/
+
+
+# Workflow gate state files (local per-developer)
+.workflow/active/
