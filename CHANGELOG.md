@@ -9,7 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+<<<<<<< test/issue-40/wave2-edge-cases
 - [#40] Wave 2 tests: edge cases, multi-backend proxy, extended DataObject/lineage/storage (@claude, 2026-04-03, branch: test/issue-40/wave2-edge-cases, session: 20260403-191959-wave-2-tests-edge-cases-and-multi-backen)
+=======
+- [#38] Wave 1 tests: 7 new test files for core and block coverage (~65% -> ~76%) (@claude, 2026-04-03, branch: test/issue-38/wave1-core-block-coverage, session: 20260403-191229-wave-1-tests-achieve-85-coverage-for-pha)
+>>>>>>> main
 - [#35] Add AI PR review workflow with Codex agent (@claude, 2026-04-03, branch: feat/ai-pr-review, session: 20260403-162720-add-ai-pr-review-workflow-with-codex-age)
 - [#32] Add code audit agent prompt for automated PR review (@claude, 2026-04-03, branch: feat/issue-32/code-audit-agent-prompt, session: 20260403-160517-add-code-audit-agent-prompt-for-automate)
 
