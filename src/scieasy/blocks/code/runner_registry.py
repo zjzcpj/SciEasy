@@ -13,12 +13,28 @@ class RunnerRegistry:
 
     def register(self, language: str, runner_class: type) -> None:
         """Register *runner_class* for the given *language*."""
-        raise NotImplementedError
+        self._runners[language.lower()] = runner_class
 
-    def get(self, language: str) -> Any:
-        """Return the runner class registered for *language*."""
-        raise NotImplementedError
+    def get(self, language: str) -> type:
+        """Return the runner class registered for *language*.
+
+        Raises :class:`KeyError` if no runner is registered.
+        """
+        key = language.lower()
+        if key not in self._runners:
+            raise KeyError(f"No runner registered for language '{language}'")
+        return self._runners[key]
 
     def all_runners(self) -> dict[str, type]:
         """Return a copy of the full language-to-runner mapping."""
-        raise NotImplementedError
+        return dict(self._runners)
+
+    def register_defaults(self) -> None:
+        """Register the built-in runners shipped with SciEasy."""
+        from scieasy.blocks.code.runners.julia_runner import JuliaRunner
+        from scieasy.blocks.code.runners.python_runner import PythonRunner
+        from scieasy.blocks.code.runners.r_runner import RRunner
+
+        self.register("python", PythonRunner)
+        self.register("r", RRunner)
+        self.register("julia", JuliaRunner)

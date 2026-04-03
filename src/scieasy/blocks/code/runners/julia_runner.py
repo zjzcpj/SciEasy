@@ -7,10 +7,17 @@ from typing import Any
 
 
 class JuliaRunner:
-    """Julia code execution environment."""
+    """Julia code execution environment.
+
+    Not yet implemented.  Planned backends: juliacall (in-process) or
+    Julia subprocess with JSON serialisation.
+    """
 
     def execute_inline(self, script: str, namespace: dict[str, Any]) -> dict[str, Any]:
-        raise NotImplementedError
+        raise NotImplementedError(
+            "Julia inline execution is not yet implemented. "
+            "Install juliacall and contribute an implementation."
+        )
 
     def execute_script(
         self,
@@ -19,4 +26,7 @@ class JuliaRunner:
         inputs: dict[str, Any],
         config: dict[str, Any],
     ) -> dict[str, Any]:
-        raise NotImplementedError
+        raise NotImplementedError(
+            "Julia script execution is not yet implemented. "
+            "Install juliacall and contribute an implementation."
+        )
