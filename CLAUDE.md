@@ -856,3 +856,148 @@ rule:
 | `/speckit.analyze` | Cross-artifact consistency check | Report (read-only) |
 | `/speckit.implement` | Execute tasks from tasks.md | Code changes |
 | `/speckit.taskstoissues` | Convert tasks to GitHub Issues | GitHub Issues |
+
+
+---
+
+# Appendix C: Bug Fix and Issue Resolution Workflow
+
+> Every bug fix and audit finding follows a structured resolution process.
+> The goal is traceability: from issue → analysis → decision → branch → fix → tests → PR.
+
+## Step 0: Assess the Issue
+
+Before writing any code, determine what kind of change this is:
+
+| Issue type | Needs ADR? | Needs spec? | Example |
+|---|---|---|---|
+| Simple bug (clear fix, no design decision) | No | No | #26 ZarrBackend missing axes metadata |
+| Bug with design choice (multiple valid approaches) | Yes | No | #25 broadcast_apply: redesign vs scope change |
+| Behavior change affecting contracts | Yes | Maybe | #24 CompositeData slot validation |
+| New feature or subsystem | Yes | Yes (use SpecKit) | New storage backend |
+
+## Step 1: Write ADR (if needed)
+
+If the fix involves a design decision, document it BEFORE coding:
+
+```bash
+# Add a new record to docs/adr/ADR.md
+# Format:
+#   ## ADR-NNN: <Title>
+#   **Status**: Proposed | Accepted | Superseded
+#   **Context**: Why this decision is needed
+#   **Decision**: What we decided
+#   **Alternatives considered**: What else we evaluated
+#   **Consequences**: What changes as a result
+```
+
+The ADR must be committed as part of the same PR as the fix.
+
+## Step 2: Write Spec (if needed, use SpecKit)
+
+For larger changes that affect contracts or behavior, use SpecKit in Claude Code:
+
+```
+/speckit.specify "Fix CompositeData slot contract enforcement"
+/speckit.clarify
+/speckit.plan
+```
+
+For simple bug fixes, skip SpecKit — the GitHub Issue IS the spec.
+
+## Step 3: Create Branch and Implement
+
+**One branch per issue. One issue per branch. No exceptions.**
+
+```bash
+git checkout main
+git pull origin main
+git checkout -b fix/issue-$ISSUE_NUMBER/short-description
+```
+
+During implementation:
+- Only modify files relevant to THIS issue
+- Write tests that cover the fix (both positive and negative cases)
+- If you need to update ADR, do it in this branch
+- If fixing the issue reveals a DIFFERENT bug, open a new issue — do not fix it here
+
+## Step 4: Verify Locally
+
+Before pushing, confirm:
+
+```bash
+# All tests pass
+pytest
+
+# Lint clean
+ruff check . && ruff format --check .
+
+# Type check clean
+mypy src/scieasy/ --ignore-missing-imports
+```
+
+## Step 5: Push and Create PR
+
+```bash
+git push origin fix/issue-$ISSUE_NUMBER/short-description
+gh pr create --title "fix(module): brief description (#$ISSUE_NUMBER)" \
+  --body "Closes #$ISSUE_NUMBER
+
+## Summary
+...
+
+## Changes
+- ...
+
+## ADR
+- [ ] ADR updated (if applicable)
+- [ ] No ADR needed (simple fix)
+
+## Checklist
+- [ ] Tests added covering the fix
+- [ ] CHANGELOG updated
+- [ ] CI passes"
+```
+
+## Step 6: CI Must Pass
+
+Do NOT abandon a PR with failing CI. If CI fails:
+
+1. Read the CI error output
+2. Fix the issue locally
+3. Commit and push again
+4. Repeat until ALL checks pass
+
+Only then is the PR ready for review.
+
+## Example: Fixing Audit Finding #26 (Axes Metadata)
+
+This is a simple bug — no ADR needed, no spec needed:
+
+```
+1. Issue #26 already exists on GitHub
+2. git checkout main && git pull origin main
+3. git checkout -b fix/issue-26/zarr-axes-metadata
+4. Edit src/scieasy/core/storage/zarr_backend.py
+   - Add axes to metadata in write()
+5. Add test in tests/core/test_storage.py
+   - Round-trip test: Image with axes → save → load → verify axes preserved
+6. Update CHANGELOG:
+   - [#26] Persist axis metadata in ZarrBackend write (@claude, 2026-04-03, branch: fix/issue-26/zarr-axes-metadata, session: ...)
+7. git push → gh pr create → wait for CI green
+```
+
+## Example: Fixing Audit Finding #25 (broadcast_apply)
+
+This requires a design decision — ADR needed:
+
+```
+1. Issue #25 already exists on GitHub
+2. Write ADR-NNN: broadcast_apply scope decision
+   - Option A: Redesign around ViewProxy (more work, full contract compliance)
+   - Option B: Scope as in-memory utility, update docs (less work, honest contract)
+   - Decision: [whichever is chosen]
+3. git checkout -b fix/issue-25/broadcast-apply-scope
+4. Implement per ADR decision
+5. Update tests, CHANGELOG, push, PR, CI green
+```

@@ -57,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Issue templates (feature, bug, refactor, architecture)
 - PR template with checklist
 - CLAUDE.md governance: branch discipline, merge conflict handling, branch cleanup rules
+- CLAUDE.md Appendix C: bug fix and issue resolution workflow (ADR, spec, SpecKit, branch, PR/CI)
 - Architecture documentation (`docs/architecture/`)
 - ADR documentation (`docs/adr/`)
 
