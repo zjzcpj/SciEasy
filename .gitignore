@@ -37,9 +37,11 @@ htmlcov/
 Thumbs.db
 Desktop.ini
 
-# Environment
+# Environment and auth (keys must be in GitHub Secrets, never committed)
 .env
 *.env.local
+.codex/
+auth.json
 
 # Data (local working data, not tracked)
 data/local/
