@@ -7,7 +7,6 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from scieasy.blocks.base.block import Block
-from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.result import BatchResult
 from scieasy.blocks.base.state import BatchErrorStrategy, BatchMode, BlockState, ExecutionMode
 

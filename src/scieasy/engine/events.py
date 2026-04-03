@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -68,10 +69,8 @@ class EventBus:
         callback: Callable[[EngineEvent], None],
     ) -> None:
         """Remove a previously registered *callback* for *event_type*."""
-        try:
+        with contextlib.suppress(ValueError):
             self._subscribers[event_type].remove(callback)
-        except ValueError:
-            pass
 
     @property
     def history(self) -> list[EngineEvent]:

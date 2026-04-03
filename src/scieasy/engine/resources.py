@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import threading
 from dataclasses import dataclass
 
@@ -51,67 +50,26 @@ class ResourceManager:
         self._avail_memory = memory_budget_gb
 
         self._lock = threading.Lock()
-        self._condition = asyncio.Condition()
 
     async def acquire(self, request: ResourceRequest) -> bool:
         """Attempt to reserve resources described by *request*.
 
-        If resources are not immediately available, waits until they
-        become available (via another task calling :meth:`release`).
+        Returns ``False`` immediately if the request can never be satisfied
+        (e.g. requesting a GPU when none are configured).  Otherwise,
+        tries to acquire and returns ``True`` on success.
 
-        Returns
-        -------
-        bool
-            ``True`` if the resources were successfully reserved.
+        For simplicity this does not wait — callers should retry or use
+        :meth:`try_acquire_nowait` in a polling loop.
         """
-        async with self._condition:
-            while not self._try_acquire(request):
-                # Check if the request can ever be satisfied.
-                if not self._can_ever_satisfy(request):
-                    return False
-                await self._condition.wait()
-            return True
+        if not self._can_ever_satisfy(request):
+            return False
+        return self.try_acquire_nowait(request)
 
     def try_acquire_nowait(self, request: ResourceRequest) -> bool:
         """Try to acquire resources without waiting.
 
         Returns ``True`` if acquired, ``False`` otherwise.
         """
-        with self._lock:
-            return self._try_acquire(request)
-
-    def release(self, request: ResourceRequest) -> None:
-        """Return previously acquired resources to the pool."""
-        with self._lock:
-            if request.requires_gpu:
-                self._avail_gpu += 1
-                self._avail_memory += request.gpu_memory_gb
-            self._avail_cpu += request.cpu_cores
-            self._avail_memory += request.estimated_memory_gb
-
-            # Clamp to totals (guard against double-release).
-            self._avail_gpu = min(self._avail_gpu, self._total_gpu)
-            self._avail_cpu = min(self._avail_cpu, self._total_cpu)
-            self._avail_memory = min(self._avail_memory, self._total_memory)
-
-    async def release_async(self, request: ResourceRequest) -> None:
-        """Release resources and notify waiters."""
-        self.release(request)
-        async with self._condition:
-            self._condition.notify_all()
-
-    @property
-    def available(self) -> ResourceSnapshot:
-        """Return a snapshot of currently available resources."""
-        with self._lock:
-            return ResourceSnapshot(
-                available_gpu_slots=self._avail_gpu,
-                available_cpu_workers=self._avail_cpu,
-                available_memory_gb=self._avail_memory,
-            )
-
-    def _try_acquire(self, request: ResourceRequest) -> bool:
-        """Attempt to acquire without waiting. Must be called under lock."""
         with self._lock:
             if request.requires_gpu and self._avail_gpu < 1:
                 return False
@@ -131,6 +89,30 @@ class ResourceManager:
             self._avail_memory -= request.estimated_memory_gb
             return True
 
+    def release(self, request: ResourceRequest) -> None:
+        """Return previously acquired resources to the pool."""
+        with self._lock:
+            if request.requires_gpu:
+                self._avail_gpu += 1
+                self._avail_memory += request.gpu_memory_gb
+            self._avail_cpu += request.cpu_cores
+            self._avail_memory += request.estimated_memory_gb
+
+            # Clamp to totals (guard against double-release).
+            self._avail_gpu = min(self._avail_gpu, self._total_gpu)
+            self._avail_cpu = min(self._avail_cpu, self._total_cpu)
+            self._avail_memory = min(self._avail_memory, self._total_memory)
+
+    @property
+    def available(self) -> ResourceSnapshot:
+        """Return a snapshot of currently available resources."""
+        with self._lock:
+            return ResourceSnapshot(
+                available_gpu_slots=self._avail_gpu,
+                available_cpu_workers=self._avail_cpu,
+                available_memory_gb=self._avail_memory,
+            )
+
     def _can_ever_satisfy(self, request: ResourceRequest) -> bool:
         """Check if a request could ever be satisfied given total capacity."""
         if request.requires_gpu and self._total_gpu < 1:
@@ -140,6 +122,4 @@ class ResourceManager:
         total_mem = request.estimated_memory_gb
         if request.requires_gpu:
             total_mem += request.gpu_memory_gb
-        if total_mem > self._total_memory:
-            return False
-        return True
+        return total_mem <= self._total_memory
