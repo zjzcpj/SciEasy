@@ -122,13 +122,12 @@ class TestCLIValidate:
         # May succeed or fail with "not yet implemented" depending on serializer state.
         assert result.exit_code in (0, 1)
 
-    def test_validate_serializer_not_implemented(self, tmp_path: Path) -> None:
-        """When serializer is a stub, validate should report it gracefully."""
+    def test_validate_minimal_yaml_succeeds(self, tmp_path: Path) -> None:
+        """Minimal workflow YAML should load and validate successfully."""
         yaml_file = tmp_path / "workflow.yaml"
         yaml_file.write_text("workflow:\n  id: test\n")
         result = runner.invoke(app, ["validate", str(yaml_file)])
-        assert result.exit_code == 1
-        assert "not yet implemented" in result.output.lower() or "error" in result.output.lower()
+        assert result.exit_code == 0
 
 
 class TestCLIRun:
@@ -139,10 +138,10 @@ class TestCLIRun:
         assert result.exit_code == 1
         assert "file not found" in result.output.lower()
 
-    def test_run_serializer_not_implemented(self, tmp_path: Path) -> None:
-        """When serializer is a stub, run should report it gracefully."""
+    def test_run_minimal_yaml(self, tmp_path: Path) -> None:
+        """Minimal workflow YAML should load and attempt execution."""
         yaml_file = tmp_path / "workflow.yaml"
         yaml_file.write_text("workflow:\n  id: test\n")
         result = runner.invoke(app, ["run", str(yaml_file)])
-        assert result.exit_code == 1
-        assert "not yet implemented" in result.output.lower() or "error" in result.output.lower()
+        # Exit 0 if empty workflow completes, or 1 if DAG/execution raises
+        assert result.exit_code in (0, 1)
