@@ -113,6 +113,15 @@ class TestLineageStore:
         ancestors = store.ancestors("nonexistent")
         assert ancestors == []
 
+    def test_store_ancestors_diamond_no_duplicates(self) -> None:
+        """LineageStore ancestors should deduplicate in diamond patterns."""
+        store = LineageStore(":memory:")
+        store.write(_make_record("A", ["raw"], ["h1", "h2"], timestamp="2026-01-01T00:00:00"))
+        store.write(_make_record("B", ["h1", "h2"], ["h3"], timestamp="2026-01-01T00:01:00"))
+        ancestors = store.ancestors("h3")
+        block_ids = [r.block_id for r in ancestors]
+        assert block_ids.count("A") == 1
+
 
 class TestProvenanceGraph:
     """Verify in-memory ProvenanceGraph."""
@@ -156,6 +165,34 @@ class TestProvenanceGraph:
         trail = graph.audit_trail("h3")
         block_ids = [r.block_id for r in trail]
         assert block_ids == ["A", "B", "C"]
+
+    def test_descendants_diamond_no_duplicates(self) -> None:
+        """Diamond DAG: D should appear exactly once in descendants."""
+        records = [
+            _make_record("A", ["raw"], ["h1"], timestamp="2026-01-01T00:00:00"),
+            _make_record("B", ["h1"], ["h2"], timestamp="2026-01-01T00:01:00"),
+            _make_record("C", ["h1"], ["h3"], timestamp="2026-01-01T00:01:00"),
+            _make_record("D", ["h2", "h3"], ["h4"], timestamp="2026-01-01T00:02:00"),
+        ]
+        graph = ProvenanceGraph()
+        graph.build(records)
+        descendants = graph.descendants("h1")
+        block_ids = [r.block_id for r in descendants]
+        assert block_ids.count("D") == 1
+        assert set(block_ids) == {"B", "C", "D"}
+
+    def test_ancestors_multi_output_no_duplicates(self) -> None:
+        """Record with multiple outputs should appear once in ancestors."""
+        records = [
+            _make_record("A", ["raw"], ["h1", "h2"], timestamp="2026-01-01T00:00:00"),
+            _make_record("B", ["h1", "h2"], ["h3"], timestamp="2026-01-01T00:01:00"),
+        ]
+        graph = ProvenanceGraph()
+        graph.build(records)
+        ancestors = graph.ancestors("h3")
+        block_ids = [r.block_id for r in ancestors]
+        assert block_ids.count("A") == 1
+        assert set(block_ids) == {"A", "B"}
 
     def test_diff(self) -> None:
         """Build a diamond: A -> B, A -> C, B+C -> D."""
