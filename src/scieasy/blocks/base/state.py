@@ -29,12 +29,14 @@ class ExecutionMode(Enum):
 # ADR-020: BatchMode enum REMOVED — engine no longer iterates collections.
 # Collection iteration is block-internal (see process_item(), map_items(), parallel_map()).
 
+
 class InputDelivery(Enum):
     """How input data is delivered to the block."""
 
     MEMORY = "memory"
     PROXY = "proxy"
     CHUNKED = "chunked"
+
 
 # ADR-020: BatchErrorStrategy enum REMOVED — block authors handle item-level
 # errors internally. Engine only sees DONE, ERROR, CANCELLED, SKIPPED.

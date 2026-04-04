@@ -54,5 +54,6 @@ class CSVAdapter:
         """Return the list of file extensions this adapter handles."""
         return [".csv"]
 
+
 # TODO(ADR-020-Add2): Implement create_reference(path) -> StorageReference.
 # Build a StorageReference pointing to the file without reading its contents.

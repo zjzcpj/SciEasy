@@ -19,15 +19,15 @@ BLOCK_RUNNING = "block_running"
 BLOCK_PAUSED = "block_paused"
 BLOCK_DONE = "block_done"
 BLOCK_ERROR = "block_error"
-BLOCK_CANCELLED = "block_cancelled"            # ADR-018
-BLOCK_SKIPPED = "block_skipped"                # ADR-018
+BLOCK_CANCELLED = "block_cancelled"  # ADR-018
+BLOCK_SKIPPED = "block_skipped"  # ADR-018
 CANCEL_BLOCK_REQUEST = "cancel_block_request"  # ADR-018
 CANCEL_WORKFLOW_REQUEST = "cancel_workflow_request"  # ADR-018
-PROCESS_SPAWNED = "process_spawned"            # ADR-017/019
-PROCESS_EXITED = "process_exited"              # ADR-017/019
-WORKFLOW_STARTED = "workflow_started"           # ADR-018
-WORKFLOW_COMPLETED = "workflow_completed"       # ADR-018
-CHECKPOINT_SAVED = "checkpoint_saved"          # ADR-018
+PROCESS_SPAWNED = "process_spawned"  # ADR-017/019
+PROCESS_EXITED = "process_exited"  # ADR-017/019
+WORKFLOW_STARTED = "workflow_started"  # ADR-018
+WORKFLOW_COMPLETED = "workflow_completed"  # ADR-018
+CHECKPOINT_SAVED = "checkpoint_saved"  # ADR-018
 
 
 @dataclass
