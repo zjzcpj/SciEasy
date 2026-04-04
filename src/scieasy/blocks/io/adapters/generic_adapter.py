@@ -5,19 +5,20 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from scieasy.core.storage.ref import StorageReference
 from scieasy.core.types.artifact import Artifact
 
 
 class GenericAdapter:
-    """Fallback adapter that treats any file as an opaque :class:`Artifact`.
+    """Fallback adapter that treats any file as an opaque Artifact.
 
     This adapter handles file extensions that are not covered by more
     specific adapters.  It reads files as binary blobs and wraps them
-    in an :class:`Artifact` data object.
+    in an Artifact data object.
     """
 
     def read(self, path: str | Path, **kwargs: Any) -> Artifact:
-        """Read a file and return it as an :class:`Artifact`."""
+        """Read a file and return it as an Artifact."""
         path = Path(path)
         return Artifact(
             file_path=path,
@@ -26,11 +27,7 @@ class GenericAdapter:
         )
 
     def write(self, data: Any, path: str | Path, **kwargs: Any) -> Path:
-        """Write data to a file.
-
-        *data* can be an :class:`Artifact` (copies the source file),
-        bytes, or a string.
-        """
+        """Write data to a file."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -50,6 +47,14 @@ class GenericAdapter:
         """Return the list of file extensions this adapter handles."""
         return [".bin", ".dat", ".pdf", ".png", ".jpg", ".jpeg"]
 
+    def create_reference(self, path: str | Path) -> StorageReference:
+        """Build a StorageReference for a generic file without reading data."""
+        return StorageReference(
+            backend="filesystem",
+            path=str(Path(path)),
+            format=Path(path).suffix.lstrip("."),
+        )
+
 
 def _guess_mime(path: Path) -> str:
     """Guess MIME type from file extension."""
@@ -67,7 +72,3 @@ def _guess_mime(path: Path) -> str:
         ".dat": "application/octet-stream",
     }
     return mapping.get(path.suffix.lower(), "application/octet-stream")
-
-
-# TODO(ADR-020-Add2): Implement create_reference(path) -> StorageReference.
-# Build a StorageReference pointing to the file without reading its contents.

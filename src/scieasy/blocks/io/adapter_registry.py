@@ -1,4 +1,4 @@
-"""AdapterRegistry — maps file extensions to FormatAdapter classes."""
+"""AdapterRegistry -- maps file extensions to FormatAdapter classes."""
 
 from __future__ import annotations
 
@@ -7,25 +7,13 @@ from typing import Any
 
 
 class AdapterRegistry:
-    """Registry that maps file extensions to :class:`FormatAdapter` classes.
-
-    Extensions are normalised to lower-case with a leading dot
-    (e.g. ``".csv"``).
-
-    Supports two discovery mechanisms:
-    - Manual registration via :meth:`register`.
-    - Entry-point scan via ``scieasy.adapters`` group.
-    """
+    """Registry that maps file extensions to FormatAdapter classes."""
 
     def __init__(self) -> None:
         self._adapters: dict[str, type] = {}
 
     def register(self, adapter_class: type, extensions: list[str] | None = None) -> None:
-        """Register *adapter_class* for the given *extensions*.
-
-        If *extensions* is ``None``, calls ``adapter_class().supported_extensions()``
-        to discover them automatically.
-        """
+        """Register *adapter_class* for the given *extensions*."""
         if extensions is None:
             instance = adapter_class()
             extensions = instance.supported_extensions()
@@ -34,13 +22,10 @@ class AdapterRegistry:
             self._adapters[key] = adapter_class
 
     def get_for_extension(self, extension: str) -> type:
-        """Return the adapter class registered for *extension*.
-
-        Raises :class:`KeyError` if no adapter is registered.
-        """
+        """Return the adapter class registered for *extension*."""
         key = self._normalise(extension)
         if key not in self._adapters:
-            raise KeyError(f"No adapter registered for extension '{extension}'")
+            raise KeyError(f"No adapter registered for extension \x27{extension}\x27")
         return self._adapters[key]
 
     def all_adapters(self) -> dict[str, type]:
@@ -53,14 +38,16 @@ class AdapterRegistry:
         from scieasy.blocks.io.adapters.generic_adapter import GenericAdapter
         from scieasy.blocks.io.adapters.parquet_adapter import ParquetAdapter
         from scieasy.blocks.io.adapters.tiff_adapter import TIFFAdapter
+        from scieasy.blocks.io.adapters.zarr_adapter import ZarrAdapter
 
         self.register(CSVAdapter)
         self.register(TIFFAdapter)
         self.register(ParquetAdapter)
+        self.register(ZarrAdapter)
         self.register(GenericAdapter)
 
     def scan_entry_points(self) -> None:
-        """Discover adapters from ``scieasy.adapters`` entry-points."""
+        """Discover adapters from scieasy.adapters entry-points."""
         try:
             eps = importlib.metadata.entry_points()
         except Exception:

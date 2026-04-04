@@ -8,18 +8,19 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.csv as pcsv
 
+from scieasy.core.storage.ref import StorageReference
 from scieasy.core.types.dataframe import DataFrame
 
 
 class CSVAdapter:
     """Format adapter for CSV files.
 
-    Reads CSV into an Arrow Table wrapped in a :class:`DataFrame`.
-    Writes a :class:`DataFrame` (with ``_arrow_table`` or storage ref) to CSV.
+    Reads CSV into an Arrow Table wrapped in a DataFrame.
+    Writes a DataFrame (with _arrow_table or storage ref) to CSV.
     """
 
     def read(self, path: str | Path, **kwargs: Any) -> DataFrame:
-        """Read a CSV file and return a :class:`DataFrame`."""
+        """Read a CSV file and return a DataFrame."""
         path = Path(path)
         table = pcsv.read_csv(str(path), **kwargs)
         df = DataFrame(
@@ -30,11 +31,7 @@ class CSVAdapter:
         return df
 
     def write(self, data: Any, path: str | Path, **kwargs: Any) -> Path:
-        """Write data to a CSV file.
-
-        *data* can be a :class:`DataFrame` (with ``_arrow_table``),
-        a PyArrow Table, or a dict of columns.
-        """
+        """Write data to a CSV file."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -54,6 +51,6 @@ class CSVAdapter:
         """Return the list of file extensions this adapter handles."""
         return [".csv"]
 
-
-# TODO(ADR-020-Add2): Implement create_reference(path) -> StorageReference.
-# Build a StorageReference pointing to the file without reading its contents.
+    def create_reference(self, path: str | Path) -> StorageReference:
+        """Build a StorageReference for a CSV file without reading data."""
+        return StorageReference(backend="arrow", path=str(Path(path)), format="csv")
