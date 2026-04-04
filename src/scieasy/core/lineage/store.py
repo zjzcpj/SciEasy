@@ -148,6 +148,7 @@ class LineageStore:
         then recursively finds records that produced each of its inputs.
         """
         visited: set[str] = set()
+        visited_records: set[tuple[str, str]] = set()
         result: list[LineageRecord] = []
         queue = [output_hash]
 
@@ -166,9 +167,12 @@ class LineageStore:
             )
             for row in cursor.fetchall():
                 record = self._row_to_record(row)
-                result.append(record)
-                for inp in record.input_hashes:
-                    if inp not in visited:
-                        queue.append(inp)
+                record_key = (record.block_id, record.timestamp)
+                if record_key not in visited_records:
+                    visited_records.add(record_key)
+                    result.append(record)
+                    for inp in record.input_hashes:
+                        if inp not in visited:
+                            queue.append(inp)
 
         return result
