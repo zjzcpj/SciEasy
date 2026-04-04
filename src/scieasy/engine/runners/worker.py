@@ -6,61 +6,109 @@ is the entry point for those subprocesses.
 Protocol:
     1. Receives serialized payload via stdin:
        - block_class: str (dotted module path + class name)
-       - inputs_refs: dict[str, StorageReference serialization]
+       - inputs: dict[str, Any] (input references)
        - config: dict[str, Any]
-    2. Reconstructs ViewProxy instances from StorageReferences.
+       - output_dir: str (optional, for persisting outputs)
+    2. Reconstructs inputs from payload.
     3. Imports block class, instantiates, calls block.run(inputs, config).
-    4. Performs final force-write scan (_auto_flush) on all outputs.
-    5. Returns output StorageReference pointers via stdout (JSON).
-    6. On error: serializes traceback, returns error payload.
+    4. Serializes outputs and writes JSON result to stdout.
+    5. On error: serializes traceback, returns error payload, exits with code 1.
 """
 
 from __future__ import annotations
 
+import importlib
+import json
+import sys
+import traceback
 from typing import Any
+
+
+def reconstruct_inputs(payload: dict[str, Any]) -> dict[str, Any]:
+    """Reconstruct inputs from serialized payload.
+
+    TODO(ADR-017): Full ViewProxy reconstruction from StorageReference
+    pointers will be implemented in a future phase. For now, inputs
+    are passed through as-is from the payload.
+    """
+    return dict(payload.get("inputs", {}))
+
+
+def serialise_outputs(outputs: dict[str, Any], output_dir: str) -> dict[str, Any]:
+    """Serialize block outputs to JSON-compatible format.
+
+    TODO(ADR-017, ADR-020-Add5): Full output serialization with
+    StorageReference persistence and _auto_flush will be implemented
+    in a future phase. For now, outputs with storage_ref are serialized
+    to their reference dicts, and other values are stringified.
+
+    Parameters
+    ----------
+    outputs:
+        Mapping of port names to output data objects.
+    output_dir:
+        Directory for writing output artifacts (unused in basic mode).
+    """
+    result: dict[str, Any] = {}
+    for key, value in outputs.items():
+        if hasattr(value, "storage_ref") and value.storage_ref is not None:
+            ref = value.storage_ref
+            result[key] = {
+                "backend": ref.backend,
+                "path": ref.path,
+                "format": ref.format,
+            }
+        else:
+            result[key] = str(value)
+    return result
 
 
 def main() -> None:
     """Subprocess entry point.
 
-    TODO(ADR-017): Implement the subprocess worker protocol.
-
     Steps:
         1. Read JSON payload from stdin.
-        2. Parse block_class path, inputs_refs, config.
+        2. Parse block_class path, inputs, config.
         3. Import the block class via importlib.
-        4. For each input ref, construct a ViewProxy from StorageReference.
+        4. Reconstruct inputs from payload.
         5. Instantiate block, call block.run(inputs, config).
-        6. For each output DataObject:
-           - If it has no StorageReference, call _auto_flush() to persist it
-             (ADR-020-Add5: final force-write scan).
-           - Collect output StorageReference pointers.
-        7. Write JSON result to stdout: {"outputs": {port: ref_dict, ...}}.
-        8. On exception: write {"error": traceback_str} to stdout.
+        6. Serialize outputs and write JSON to stdout.
+        7. On exception: write {"error": traceback_str} to stdout, exit 1.
     """
-    raise NotImplementedError
+    try:
+        raw = sys.stdin.read()
+        payload = json.loads(raw)
 
+        block_class_path: str = payload["block_class"]
+        config: dict[str, Any] = payload.get("config", {})
+        output_dir: str = payload.get("output_dir", "")
 
-def reconstruct_inputs(payload: dict[str, Any]) -> dict[str, Any]:
-    """Reconstruct ViewProxy instances from serialized StorageReferences.
+        # Import block class
+        module_path, class_name = block_class_path.rsplit(".", 1)
+        module = importlib.import_module(module_path)
+        block_cls = getattr(module, class_name)
 
-    TODO(ADR-017): For each input in payload["inputs_refs"]:
-        - Deserialize StorageReference
-        - Build TypeSignature from metadata
-        - Create ViewProxy(storage_ref, dtype_info)
-    """
-    raise NotImplementedError
+        # Reconstruct inputs
+        inputs = reconstruct_inputs(payload)
 
+        # Instantiate block
+        block = block_cls()
 
-def serialise_outputs(outputs: dict[str, Any], output_dir: str) -> dict[str, Any]:
-    """Serialize block outputs to StorageReference pointers.
+        # Build config object
+        from scieasy.blocks.base.config import BlockConfig
 
-    TODO(ADR-017, ADR-020-Add5): For each output DataObject:
-        - If it has a StorageReference, use it directly.
-        - Otherwise, call _auto_flush() to write to output_dir.
-        - Return dict of port_name → serialized StorageReference.
-    """
-    raise NotImplementedError
+        block_config = BlockConfig(**config)
+
+        # Execute
+        outputs = block.run(inputs, block_config)
+
+        # Serialize outputs
+        result = serialise_outputs(outputs, output_dir) if isinstance(outputs, dict) else {"_result": str(outputs)}
+
+        print(json.dumps({"outputs": result}))
+    except Exception:
+        print(json.dumps({"error": traceback.format_exc()}))
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -19,14 +19,17 @@ from typing import Any
 class RunHandle:
     """Handle for a single block execution in progress.
 
-    TODO(ADR-018): Fields:
-        run_id: str — unique identifier for this run
-        process_handle: ProcessHandle — from engine.runners.process_handle
-        result: asyncio.Future[dict[str, Any]] — resolves on subprocess exit
+    Fields:
+        run_id: str -- unique identifier for this run.
+        process_handle: ProcessHandle | None -- from engine.runners.process_handle.
+            None when the run has not yet been dispatched.
+        result: Any | None -- asyncio.Future[dict[str, Any]] or resolved dict.
+            Resolves when the subprocess exits with output references.
     """
 
     run_id: str = ""
-    # TODO(ADR-018): Add process_handle and result fields.
+    process_handle: Any = None
+    result: Any = None
 
 
 class DAGScheduler:
