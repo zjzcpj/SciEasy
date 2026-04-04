@@ -25,6 +25,8 @@ def content_hash(data: Any) -> str:
             import numpy as np
 
             if isinstance(data, np.ndarray):
+                hasher.update(np.array(data.shape, dtype=np.int64).tobytes())
+                hasher.update(data.dtype.str.encode("utf-8"))
                 hasher.update(data.tobytes())
                 return hasher.hexdigest()
         except ImportError:

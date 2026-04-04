@@ -249,3 +249,61 @@ class TestTypeRegistry:
         assert registry.is_instance(img, "Array")
         assert registry.is_instance(img, "DataObject")
         assert not registry.is_instance(img, "Series")
+
+
+# ---------------------------------------------------------------------------
+# TypeSignature slot_schema comparison
+# ---------------------------------------------------------------------------
+
+
+class TestTypeSignatureSlotSchema:
+    """Verify slot_schema comparison in TypeSignature.matches()."""
+
+    def test_matching_slot_schema(self) -> None:
+        sig_a = TypeSignature(
+            type_chain=["DataObject", "CompositeData", "AnnData"],
+            slot_schema={"X": "Array", "obs": "DataFrame", "var": "DataFrame", "uns": "Artifact"},
+        )
+        sig_b = TypeSignature(
+            type_chain=["DataObject", "CompositeData"],
+            slot_schema={"X": "Array", "obs": "DataFrame"},
+        )
+        assert sig_a.matches(sig_b)
+
+    def test_mismatched_slot_type_rejects(self) -> None:
+        sig_a = TypeSignature(
+            type_chain=["DataObject", "CompositeData", "AnnData"],
+            slot_schema={"X": "Array", "obs": "DataFrame", "var": "DataFrame", "uns": "Artifact"},
+        )
+        sig_b = TypeSignature(
+            type_chain=["DataObject", "CompositeData"],
+            slot_schema={"X": "DataFrame"},
+        )
+        assert not sig_a.matches(sig_b)
+
+    def test_missing_slot_rejects(self) -> None:
+        sig_a = TypeSignature(
+            type_chain=["DataObject", "CompositeData"],
+            slot_schema={"X": "Array"},
+        )
+        sig_b = TypeSignature(
+            type_chain=["DataObject", "CompositeData"],
+            slot_schema={"X": "Array", "Y": "DataFrame"},
+        )
+        assert not sig_a.matches(sig_b)
+
+    def test_no_slot_schema_on_other_passes(self) -> None:
+        sig_a = TypeSignature(
+            type_chain=["DataObject", "CompositeData", "AnnData"],
+            slot_schema={"X": "Array"},
+        )
+        sig_b = TypeSignature(type_chain=["DataObject", "CompositeData"])
+        assert sig_a.matches(sig_b)
+
+    def test_slot_schema_on_other_but_not_self_rejects(self) -> None:
+        sig_a = TypeSignature(type_chain=["DataObject", "CompositeData"])
+        sig_b = TypeSignature(
+            type_chain=["DataObject", "CompositeData"],
+            slot_schema={"X": "Array"},
+        )
+        assert not sig_a.matches(sig_b)
