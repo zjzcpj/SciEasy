@@ -17,6 +17,49 @@ from scieasy.core.types.series import Series
 from scieasy.core.types.text import Text
 
 
+class TestMetadataValidation:
+    """ADR-017: metadata must be JSON-serializable for subprocess transport."""
+
+    def test_valid_json_primitives(self) -> None:
+        obj = DataObject(metadata={"str": "hello", "int": 42, "float": 3.14, "bool": True, "none": None})
+        assert obj.metadata["str"] == "hello"
+
+    def test_valid_nested_structures(self) -> None:
+        obj = DataObject(metadata={"list": [1, 2, 3], "nested": {"a": {"b": [1]}}})
+        assert obj.metadata["list"] == [1, 2, 3]
+
+    def test_empty_metadata_passes(self) -> None:
+        obj = DataObject(metadata={})
+        assert obj.metadata == {}
+
+    def test_none_metadata_defaults_to_empty(self) -> None:
+        obj = DataObject(metadata=None)
+        assert obj.metadata == {}
+
+    def test_no_metadata_arg(self) -> None:
+        obj = DataObject()
+        assert obj.metadata == {}
+
+    def test_set_raises(self) -> None:
+        with pytest.raises(TypeError, match="JSON-serializable"):
+            DataObject(metadata={"bad": {1, 2, 3}})
+
+    def test_lambda_raises(self) -> None:
+        with pytest.raises(TypeError, match="JSON-serializable"):
+            DataObject(metadata={"fn": lambda x: x})
+
+    def test_custom_object_raises(self) -> None:
+        class Custom:
+            pass
+
+        with pytest.raises(TypeError, match="JSON-serializable"):
+            DataObject(metadata={"obj": Custom()})
+
+    def test_bytes_raises(self) -> None:
+        with pytest.raises(TypeError, match="JSON-serializable"):
+            DataObject(metadata={"data": b"\x00\x01"})
+
+
 class TestDataObjectStorageRef:
     """DataObject.storage_ref — getter and setter."""
 

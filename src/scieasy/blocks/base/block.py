@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
+
+if TYPE_CHECKING:
+    from scieasy.core.types.collection import Collection
 
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort, port_accepts_type, validate_port_constraint
@@ -115,9 +118,11 @@ class Block(ABC):
         """Execute the block's main logic and return output mapping."""
         ...
 
-    def postprocess(self, outputs: dict[str, Any]) -> dict[str, Any]:
+    def postprocess(self, outputs: dict[str, Collection]) -> dict[str, Collection]:
         """Optional post-processing of *outputs* before downstream delivery.
 
+        ADR-020: Outputs are ``dict[str, Collection]`` — each value is a
+        Collection wrapping the block's output DataObjects for that port.
         Default implementation passes outputs through unchanged.
         """
         return outputs

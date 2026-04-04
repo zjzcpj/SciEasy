@@ -21,11 +21,6 @@ class CodeBlock(Block):
 
     *language* selects the runner; *mode* is ``"inline"`` or ``"script"``.
 
-    Delivery modes (per-port or block-level):
-        MEMORY  -- ``to_memory()`` is called, block receives raw data.
-        PROXY   -- block receives :class:`ViewProxy` instances directly.
-        CHUNKED -- ``iter_chunks()`` is called, results are concatenated.
-
     Auto-unpack/repack layer (ADR-020-Add4):
         Before user code runs, ``_unpack_inputs()`` converts Collection
         inputs so that user scripts never see Collection objects directly:
@@ -36,8 +31,9 @@ class CodeBlock(Block):
 
     Note (ADR-017): All execution is delegated to subprocess-based runner
         via spawn_block_process(). No in-process exec() or importlib.
-    Note (ADR-017): _prepare_inputs() moves to subprocess worker
-        (engine/runners/worker.py). Input preparation happens in child process.
+    Note (ADR-020): InputDelivery enum removed. PROXY and CHUNKED delivery
+        modes are superseded by ProcessBlock for framework-aware code.
+        CodeBlock always delivers data as native in-memory objects.
     """
 
     language: ClassVar[str] = "python"
@@ -109,9 +105,8 @@ class CodeBlock(Block):
         Steps:
             1. Resolve language runner from RunnerRegistry.
             2. Unpack Collection inputs for user scripts (ADR-020-Add4).
-            3. Apply delivery mode (MEMORY/PROXY/CHUNKED) to ViewProxy inputs.
-            4. Dispatch to runner (inline or script mode).
-            5. Repack outputs into Collections (ADR-020-Add4).
+            3. Dispatch to runner (inline or script mode).
+            4. Repack outputs into Collections (ADR-020-Add4).
         """
         from scieasy.blocks.base.state import BlockState
         from scieasy.blocks.code.runner_registry import RunnerRegistry
@@ -120,7 +115,6 @@ class CodeBlock(Block):
         try:
             language = config.get("language") or self.language
             mode = config.get("mode") or self.mode
-            delivery = config.get("delivery", "memory")
 
             # Step 1: Get runner
             registry = RunnerRegistry()
@@ -130,25 +124,22 @@ class CodeBlock(Block):
             # Step 2: Unpack Collection inputs
             unpacked = self._unpack_inputs(inputs)
 
-            # Step 3: Apply delivery mode to ViewProxy inputs
-            prepared = self._apply_delivery(unpacked, delivery, config)
-
-            # Step 4: Dispatch to runner
+            # Step 3: Dispatch to runner
             if mode == "inline":
                 script = config.get("script", "")
                 if not script:
                     raise ValueError("Inline mode requires 'script' in config")
-                raw_outputs = runner.execute_inline(script, prepared)
+                raw_outputs = runner.execute_inline(script, unpacked)
             elif mode == "script":
                 script_path = config.get("script_path", "")
                 if not script_path:
                     raise ValueError("Script mode requires 'script_path' in config")
                 entry = config.get("entry_function", "run")
-                raw_outputs = runner.execute_script(script_path, entry, prepared, dict(config.params))
+                raw_outputs = runner.execute_script(script_path, entry, unpacked, dict(config.params))
             else:
                 raise ValueError(f"Unknown CodeBlock mode: '{mode}'")
 
-            # Step 5: Repack outputs
+            # Step 4: Repack outputs
             result = self._repack_outputs(raw_outputs)
 
             self.transition(BlockState.DONE)
@@ -156,28 +147,3 @@ class CodeBlock(Block):
         except Exception:
             self.transition(BlockState.ERROR)
             raise
-
-    @staticmethod
-    def _apply_delivery(inputs: dict[str, Any], delivery: str, config: BlockConfig) -> dict[str, Any]:
-        """Apply delivery mode to ViewProxy inputs.
-
-        MEMORY:  call to_memory() -- block receives raw data.
-        PROXY:   pass through -- block receives ViewProxy directly.
-        CHUNKED: call iter_chunks() -- block receives list of chunks.
-        """
-        from scieasy.core.proxy import ViewProxy
-
-        prepared: dict[str, Any] = {}
-        for key, value in inputs.items():
-            if not isinstance(value, ViewProxy):
-                prepared[key] = value
-                continue
-
-            if delivery == "proxy":
-                prepared[key] = value
-            elif delivery == "chunked":
-                chunk_size = int(config.get("chunk_size", 1024))
-                prepared[key] = list(value.iter_chunks(chunk_size))
-            else:  # "memory" (default)
-                prepared[key] = value.to_memory()
-        return prepared

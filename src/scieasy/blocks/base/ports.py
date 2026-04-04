@@ -74,6 +74,15 @@ def port_accepts_signature(port: Port, signature: TypeSignature) -> bool:
 def validate_port_constraint(port: InputPort, value: Any) -> tuple[bool, str]:
     """Validate *value* against the input port's constraint function.
 
+    ADR-020: *value* is a :class:`Collection` (not an individual DataObject).
+    Constraint functions should iterate over the Collection if they need
+    per-item checks::
+
+        constraint=lambda col: all(
+            item.axes is not None and {"y", "x"}.issubset(set(item.axes))
+            for item in col
+        )
+
     Returns ``(True, "")`` if valid or no constraint is set.
     Returns ``(False, description)`` on constraint failure.
     """
