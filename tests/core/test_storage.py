@@ -305,3 +305,20 @@ class TestCompositeStore:
         assert len(slots) == 2
         slot_names = {s[0] for s in slots}
         assert slot_names == {"s1", "s2"}
+
+    def test_slice_loads_only_requested_slots(self, tmp_path: Path) -> None:
+        """slice() should only load data for requested slots."""
+        store = CompositeStore()
+        composite_data = {
+            "a": ("filesystem", "slot_a_data"),
+            "b": ("filesystem", "slot_b_data"),
+            "c": ("filesystem", "slot_c_data"),
+        }
+        ref = StorageReference(backend="composite", path=str(tmp_path / "lazy_comp"))
+        result_ref = store.write(composite_data, ref)
+
+        subset = store.slice(result_ref, "a")
+        assert list(subset.keys()) == ["a"]
+        assert subset["a"] == "slot_a_data"
+        assert "b" not in subset
+        assert "c" not in subset
