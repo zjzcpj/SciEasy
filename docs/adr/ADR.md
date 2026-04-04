@@ -2046,3 +2046,165 @@ These blocks preserve the static port contract — no dynamic ports. Users who n
 - Collection operations are composable utility blocks, not special engine features.
 - Users who need multi-source data merge add a `MergeCollection` node to the canvas — one extra node, zero framework complexity.
 - Future Collection operations (sort, deduplicate, sample) can be added as new blocks without engine changes.
+
+---
+
+## ADR-022: OS-level memory monitoring replaces estimated memory budget
+
+**Status**: proposed
+**Date**: 2026-04-04
+
+### Context
+
+The original `ResourceManager` used a pre-allocated memory budget model: each block declared `estimated_memory_gb` in its `ResourceRequest`, and the manager maintained a ledger of allocated vs. available memory. This model worked for the per-item batch architecture where the engine controlled concurrency and each subprocess had a predictable memory footprint.
+
+ADR-020 (Collection-based transport) fundamentally changed the memory model:
+
+1. **Collection size is unknown at class definition time.** A `CellposeSegment` block might process 10 images or 10,000 images. `estimated_memory_gb` as a static ClassVar cannot represent this.
+
+2. **Block-internal memory behaviour is variable.** The same block class can have vastly different peak memory depending on which Tier it uses: `process_item()` + auto_flush = O(1 item), `parallel_map(max_workers=4)` = O(4 items), manual loop without flush = O(N items).
+
+3. **Multiple independent memory mechanisms now exist.** `_auto_flush` (ADR-020 Addendum 5), `LazyList` (Addendum 4), and `parallel_map` max_workers all control memory at the block level, but `ResourceManager` knows nothing about them. The manager's estimate-based budget is disconnected from actual runtime behaviour.
+
+4. **Static estimates are either too conservative or too aggressive.** A block declaring `estimated_memory_gb=8.0` blocks concurrent execution of other blocks even when auto_flush keeps actual usage at 2GB. A block declaring `estimated_memory_gb=2.0` may actually use 50GB with a large Collection and no flush.
+
+### Decision
+
+Replace the estimated memory budget model with a three-layer defence based on **OS-level monitoring** for system memory, while retaining **declaration-based counting** for discrete resources (GPU, CPU).
+
+#### Layer 1: ResourceManager — dispatch gating
+
+ResourceManager checks actual system memory usage (via `psutil`) before dispatching each block. If usage exceeds the high watermark, dispatch is paused until running blocks complete and memory drops.
+
+```python
+@dataclass
+class ResourceRequest:
+    """Declared by each block: what discrete resources does it need?"""
+    requires_gpu: bool = False
+    gpu_memory_gb: float = 0.0      # GPU VRAM — still declared (not monitorable via psutil)
+    cpu_cores: int = 1
+    # estimated_memory_gb: REMOVED — replaced by OS monitoring
+
+@dataclass
+class ResourceSnapshot:
+    """Read-only view of currently available resources."""
+    available_gpu_slots: int = 0
+    available_cpu_workers: int = 4
+    system_memory_percent: float = 0.0   # actual OS memory usage (0.0–1.0)
+
+class ResourceManager:
+    """Dispatch gating based on discrete resources + OS memory monitoring."""
+
+    def __init__(
+        self,
+        gpu_slots: int = 0,
+        cpu_workers: int = 4,
+        memory_high_watermark: float = 0.80,    # pause dispatch above 80%
+        memory_critical: float = 0.95,           # never dispatch above 95%
+    ) -> None: ...
+
+    async def can_dispatch(self, request: ResourceRequest) -> bool:
+        """Check if resources are available for dispatching a block.
+
+        GPU: discrete slot counting (declaration-based, predictive).
+        CPU: discrete core counting (declaration-based, predictive).
+        Memory: OS-level check (monitoring-based, reactive).
+        """
+        # GPU check
+        if request.requires_gpu and self._gpu_in_use >= self.gpu_slots:
+            return False
+
+        # CPU check
+        if self._cpu_in_use + request.cpu_cores > self.max_cpu_workers:
+            return False
+
+        # Memory check — actual OS usage, not estimates
+        import psutil
+        mem_percent = psutil.virtual_memory().percent / 100.0
+        if mem_percent > self.memory_high_watermark:
+            return False
+
+        return True
+
+    def release(self, request: ResourceRequest) -> None:
+        """Release discrete resources (GPU slots, CPU cores).
+        Memory is not 'released' — it drops naturally when subprocess exits."""
+        self._gpu_in_use -= (1 if request.requires_gpu else 0)
+        self._cpu_in_use -= request.cpu_cores
+
+    @property
+    def available(self) -> ResourceSnapshot:
+        import psutil
+        return ResourceSnapshot(
+            available_gpu_slots=self.gpu_slots - self._gpu_in_use,
+            available_cpu_workers=self.max_cpu_workers - self._cpu_in_use,
+            system_memory_percent=psutil.virtual_memory().percent / 100.0,
+        )
+```
+
+#### Layer 2: Block-internal memory control (unchanged)
+
+`_auto_flush`, `LazyList`, `parallel_map(max_workers)` control per-block memory at runtime. These mechanisms are invisible to ResourceManager and operate independently.
+
+#### Layer 3: OS OOM killer + ProcessMonitor (unchanged)
+
+If a subprocess exceeds available memory despite Layers 1 and 2, the OS kills it. ProcessMonitor detects the death, emits `PROCESS_EXITED`, and the scheduler marks the block as `ERROR`. The engine process is unaffected (ADR-017).
+
+#### Why GPU memory is still declared
+
+System RAM is monitorable via `psutil.virtual_memory()`. GPU VRAM is not reliably monitorable cross-platform:
+- `nvidia-smi` / `pynvml` works for NVIDIA GPUs but requires CUDA toolkit
+- AMD GPUs have different tools
+- Apple Silicon unified memory complicates the model
+
+GPU resource management retains the declaration-based model: `requires_gpu: bool` for slot counting and `gpu_memory_gb: float` for VRAM estimation. This is acceptable because GPU concurrency is low (typically 1-2 slots) and block authors have good estimates for VRAM usage.
+
+### Updates to previous ADRs
+
+| ADR | Section | Update |
+|---|---|---|
+| **ADR-010** (superseded) | References "memory budget" | No change — already superseded by ADR-020 |
+| **ADR-017** | `ProcessHandle.resource_request: ResourceRequest` | **ResourceRequest still exists** but without `estimated_memory_gb`. ProcessHandle records GPU/CPU allocation for release on exit. No structural change. |
+| **ADR-018** | EventBus auto-release on BLOCK_DONE/ERROR/CANCELLED | `release()` still called — releases GPU slots and CPU cores. Memory is not "released" (OS handles it when subprocess exits). **Semantic change**: release is for discrete resources only. |
+| **ADR-019** | `spawn_block_process(resource_request=...)` | Parameter still accepted. ResourceRequest fields reduced but structure unchanged. |
+| **ADR-020 Addendum 3** | `parallel_map` memory warning | **Unchanged** — block author manages internal memory. ResourceManager's OS monitoring provides system-level back-pressure. |
+| **ADR-020 Addendum 5** | Three-tier auto-flush | **Unchanged** — auto_flush is Layer 2, independent of ResourceManager's Layer 1. |
+
+### Alternatives considered
+
+- **Keep static `estimated_memory_gb` with Collection size multiplier (Direction B')**: block declares `estimated_memory_per_item_gb`, framework multiplies by `min(collection_size, max_workers)`. Better than static estimate but still requires block author to predict per-item memory. Rejected because: per-item memory varies by data size (a 100×100 image vs a 10000×10000 image), and the framework still can't verify the estimate at runtime.
+
+- **Dynamic `estimate_memory_gb(inputs)` method (Direction B)**: block implements a method that inspects Collection size and returns an estimate. Most accurate prediction but highest block-author burden. Most authors won't implement it correctly. Rejected as default; could be offered as an optional override for advanced blocks.
+
+- **Remove memory management entirely from ResourceManager (Direction C)**: only manage GPU/CPU. Simple but loses protection against "launch 10 heavy blocks concurrently and OOM the system." Rejected — the OS monitoring approach provides this protection with zero block-author burden.
+
+- **ResourceManager monitors per-subprocess memory via `psutil.Process(pid).memory_info()`**: enables per-block memory tracking and kill-if-over-limit. More granular than system-level watermark but adds complexity (continuous polling per process, deciding limits). Considered as a future enhancement, not v1.
+
+### Consequences
+
+- **Block authors no longer declare memory estimates.** `ResourceRequest` has 3 fields instead of 4. One less thing to get wrong.
+- **ResourceManager is reactive, not predictive** for memory. It observes actual system state rather than trusting declarations. This is more accurate but less precise — it cannot prevent the first heavy block from launching; it can only prevent the second one if the first has already driven memory usage high.
+- **New dependency: `psutil`.** Cross-platform (Windows/macOS/Linux), mature (5B+ downloads), lightweight, no compile dependencies. Already useful for ADR-019 (`ProcessHandle.is_alive()` can use `psutil.pid_exists()`). Single dependency serves both resource monitoring and process lifecycle.
+- **The `release()` method semantics change.** It now only releases discrete resources (GPU, CPU). Memory is not explicitly released — it drops when the subprocess exits and the OS reclaims pages. EventBus auto-release (ADR-018) still calls `release()` for GPU/CPU cleanup.
+- **Watermark thresholds are user-configurable.** `memory_high_watermark=0.80` and `memory_critical=0.95` are defaults. Users on high-memory machines (128GB+) can set higher thresholds; users on constrained machines can set lower ones.
+
+### Detailed impact scope
+
+#### Code files
+
+| File | Change |
+|---|---|
+| `src/scieasy/engine/resources.py` | **Rewrite**: remove `estimated_memory_gb` from `ResourceRequest`, remove `available_memory_gb` from `ResourceSnapshot` (replace with `system_memory_percent`), remove `memory_budget_gb` from `ResourceManager.__init__`, add `memory_high_watermark`/`memory_critical` params, rewrite `acquire()`→`can_dispatch()` with `psutil.virtual_memory()`, simplify `release()` to GPU/CPU only. |
+| `pyproject.toml` | **Add** `psutil` to `[project.dependencies]` |
+
+#### Documentation files
+
+| File | Change |
+|---|---|
+| `docs/architecture/ARCHITECTURE.md` Section 6.4 | **Rewrite** ResourceRequest/ResourceManager code blocks and description. Remove `estimated_memory_gb`, add three-layer defence explanation, add `psutil` monitoring. Update CellposeSegment example. |
+| `docs/architecture/ARCHITECTURE.md` Section 11 | **Add** `psutil` to technology stack table: "System monitoring: `psutil` — cross-platform memory/CPU/process info for ResourceManager and ProcessHandle" |
+| `docs/architecture/PROJECT_TREE.md` | **Update** `engine/resources.py` annotation: replace "memory budget" with "OS memory monitoring via psutil" |
+| `docs/roadmap/ROADMAP.md` Phase 5.3 | **Update**: "Implement `ResourceManager.can_dispatch()` with psutil memory watermark + GPU/CPU slot counting" |
+| `docs/roadmap/ROADMAP_v0.1.md` | **Update** ResourceRequest description |
+| `docs/testing/phase-5-ai-tests.md` | **Rewrite** `test_memory_budget_enforcement()` → `test_memory_watermark_enforcement()`: mock `psutil.virtual_memory()` at different usage levels, verify dispatch gating |
+| `docs/testing/phase-5-human-tests.md` | **Update** ResourceManager test: remove `memory_mb` from ResourceRequest, add watermark check test |

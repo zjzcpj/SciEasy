@@ -183,9 +183,10 @@ scieasy/                               # ← repo root
 │       │   │                           #   Subscribes to EventBus for cancel/error/done events.
 │       │   │                           #   Propagates SKIPPED to unreachable downstream blocks.
 │       │   │
-│       │   ├── resources.py            # ResourceManager: GPU slots, CPU workers, memory budget.
-│       │   │                           #   ResourceRequest dataclass. acquire()/release().
-│       │   │                           #   Auto-release via EventBus on block terminal states (ADR-018).
+│       │   ├── resources.py            # ResourceManager: GPU slots, CPU workers, OS memory
+│       │   │                           #   monitoring via psutil (ADR-022). ResourceRequest
+│       │   │                           #   dataclass (no estimated_memory_gb). can_dispatch()/
+│       │   │                           #   release(). Auto-release via EventBus (ADR-018).
 │       │   │
 │       │   ├── runners/                # BlockRunner protocol + implementations
 │       │   │   ├── __init__.py

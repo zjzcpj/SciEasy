@@ -226,43 +226,41 @@ async def test_batch_result_accumulation():
 def test_acquire_release_cpu():
     """Acquire CPU workers, release them, verify count."""
     from scieasy.engine.resources import ResourceManager, ResourceRequest
-    mgr = ResourceManager(cpu_workers=4, gpu_slots=0, memory_mb=8192)
+    mgr = ResourceManager(cpu_workers=4, gpu_slots=0)
 
-    req = ResourceRequest(cpu=2)
-    token = mgr.acquire(req)
-    assert mgr.available_cpu == 2
+    req = ResourceRequest(cpu_cores=2)
+    assert await mgr.can_dispatch(req)
+    mgr._cpu_in_use += req.cpu_cores  # simulate dispatch
+    assert mgr.available.available_cpu_workers == 2
 
-    mgr.release(token)
-    assert mgr.available_cpu == 4
+    mgr.release(req)
+    assert mgr.available.available_cpu_workers == 4
 
 def test_acquire_release_gpu():
     """Acquire GPU slot, release it."""
-    mgr = ResourceManager(cpu_workers=4, gpu_slots=2, memory_mb=8192)
-    req = ResourceRequest(gpu=1)
-    token = mgr.acquire(req)
-    assert mgr.available_gpu == 1
-    mgr.release(token)
-    assert mgr.available_gpu == 2
+    mgr = ResourceManager(cpu_workers=4, gpu_slots=2)
+    req = ResourceRequest(requires_gpu=True)
+    assert await mgr.can_dispatch(req)
+    mgr._gpu_in_use += 1  # simulate dispatch
+    assert mgr.available.available_gpu_slots == 1
+    mgr.release(req)
+    assert mgr.available.available_gpu_slots == 2
 
-def test_acquire_blocks_when_exhausted():
-    """Acquire blocks or raises when resources exhausted."""
-    mgr = ResourceManager(cpu_workers=1, gpu_slots=1, memory_mb=1024)
-    req = ResourceRequest(gpu=1)
-    token1 = mgr.acquire(req)
-    # Second acquire should block or raise
-    # (depends on implementation: blocking vs. exception)
+def test_dispatch_blocks_when_gpu_exhausted():
+    """can_dispatch returns False when GPU slots exhausted."""
+    mgr = ResourceManager(cpu_workers=4, gpu_slots=1)
+    req = ResourceRequest(requires_gpu=True)
+    mgr._gpu_in_use = 1  # simulate one GPU block running
+    assert not await mgr.can_dispatch(req)
 
-def test_gpu_slot_exhaustion_forces_serial():
-    """When GPU slots are exhausted, parallel dispatch falls back to serial."""
-    # 10 items, 1 GPU slot
-    # Assert items processed one at a time through GPU block
-
-def test_memory_budget_enforcement():
-    """Memory budget prevents over-allocation."""
-    mgr = ResourceManager(cpu_workers=4, gpu_slots=0, memory_mb=100)
-    req = ResourceRequest(memory_mb=60)
-    token1 = mgr.acquire(req)
-    # Second 60 MB request should block (only 40 MB remaining)
+def test_memory_watermark_enforcement():
+    """Dispatch blocked when OS memory exceeds high watermark (ADR-022)."""
+    mgr = ResourceManager(cpu_workers=4, gpu_slots=0, memory_high_watermark=0.80)
+    req = ResourceRequest(cpu_cores=1)
+    # Mock psutil.virtual_memory().percent to return 85%
+    # Assert can_dispatch returns False
+    # Mock to return 60%
+    # Assert can_dispatch returns True
 ```
 
 ### 2.5 `tests/engine/test_checkpoint.py`

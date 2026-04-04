@@ -424,9 +424,11 @@ assert isinstance(result["smoothed"], Spectrum)
 
 ### 5.3 Resource management
 
-- [ ] Implement `ResourceManager.acquire()` / `release()` with GPU slot counting
+- [ ] Implement `ResourceManager.can_dispatch()` with psutil OS memory watermark + GPU/CPU slot counting (ADR-022)
+- [ ] Implement `ResourceManager.release()` for discrete resources (GPU slots, CPU cores only — memory handled by OS)
 - [ ] Implement EventBus auto-release on BLOCK_DONE/ERROR/CANCELLED/PROCESS_EXITED (ADR-018)
-- [ ] Integrate with scheduler — dispatch respects resource limits
+- [ ] Add `psutil` to `pyproject.toml` dependencies
+- [ ] Integrate with scheduler — dispatch respects resource limits and memory watermark
 
 ### 5.4 Checkpoint + pause/resume
 
