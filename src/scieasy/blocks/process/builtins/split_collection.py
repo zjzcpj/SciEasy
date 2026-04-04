@@ -14,16 +14,15 @@ from scieasy.core.types.base import DataObject
 
 
 class SplitCollection(ProcessBlock):
-    """Split Collection by index or condition into 2 Collections.
+    """Split Collection by index into 2 Collections.
 
-    TODO(ADR-021): Implement.
-    - Config: split_index: int or condition: Callable.
-    - Static ports: input (Collection), output_a (Collection), output_b (Collection).
+    ADR-021: Splits at ``config.params["split_index"]`` (defaults to midpoint).
+    Both output Collections preserve the original item_type.
     """
 
     name: ClassVar[str] = "Split Collection"
     algorithm: ClassVar[str] = "split_collection"
-    description: ClassVar[str] = "Split a Collection by index or condition"
+    description: ClassVar[str] = "Split a Collection by index"
 
     input_ports: ClassVar[list[InputPort]] = [
         InputPort(name="input", accepted_types=[DataObject], description="Collection to split"),
@@ -34,5 +33,30 @@ class SplitCollection(ProcessBlock):
     ]
 
     def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
-        # TODO(ADR-021): Split by split_index or condition. Return two Collections.
-        raise NotImplementedError
+        """Split a Collection at ``split_index``.
+
+        Config params:
+            split_index (int): Index to split at. Defaults to ``len(collection) // 2``.
+
+        Raises:
+            TypeError: If input is not a Collection.
+        """
+        from scieasy.blocks.base.state import BlockState
+        from scieasy.core.types.collection import Collection
+
+        self.transition(BlockState.RUNNING)
+        try:
+            collection = inputs["input"]
+            if not isinstance(collection, Collection):
+                raise TypeError("SplitCollection requires a Collection input")
+            items = list(collection)
+            split_index = config.params.get("split_index", len(items) // 2)
+            part_a = items[:split_index]
+            part_b = items[split_index:]
+            output_a = Collection(part_a, item_type=collection.item_type)
+            output_b = Collection(part_b, item_type=collection.item_type)
+            self.transition(BlockState.DONE)
+            return {"output_a": output_a, "output_b": output_b}
+        except Exception:
+            self.transition(BlockState.ERROR)
+            raise

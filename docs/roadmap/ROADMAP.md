@@ -452,8 +452,11 @@ assert isinstance(result["smoothed"], Spectrum)
 
 ### 5.7 SubWorkflowBlock completion
 
-- [ ] Now that the engine exists, implement SubWorkflowBlock with real DAGScheduler (remove sequential stub)
-- [ ] Child workflow runs in its own subprocess with own scheduler, communicates via Collection StorageRefs
+- [x] Add `_scheduler_factory` ClassVar for engine-layer injection (avoids import-linter: blocks cannot import engine)
+- [x] `run()` delegates to `_run_with_scheduler()` when factory is set, else falls back to `_sequential_execute()`
+- [x] Collections (ADR-020) flow through child workflow namespace unchanged
+- [x] Tests: scheduler factory injection, fallback behavior, Collection passthrough
+- [ ] Child workflow runs in its own subprocess with own scheduler, communicates via Collection StorageRefs (Phase 5.2b worker integration)
 
 ### 5.8 Tests
 

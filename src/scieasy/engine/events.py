@@ -99,15 +99,19 @@ class EventBus:
     def subscribe(
         self,
         event_type: str,
-        callback: Callable[[EngineEvent], None],
+        callback: Callable[..., Any],
     ) -> None:
-        """Register *callback* to receive events of the given type."""
+        """Register *callback* to receive events of the given type.
+
+        Accepts both sync and async callables — async coroutines are
+        awaited automatically by :meth:`emit`.
+        """
         self._subscribers[event_type].append(callback)
 
     def unsubscribe(
         self,
         event_type: str,
-        callback: Callable[[EngineEvent], None],
+        callback: Callable[..., Any],
     ) -> None:
         """Remove a previously registered *callback* for *event_type*.
 
