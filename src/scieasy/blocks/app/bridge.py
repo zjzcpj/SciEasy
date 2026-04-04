@@ -19,7 +19,13 @@ class ExternalAppBridge(Protocol):
 
 
 class FileExchangeBridge:
-    """Default bridge that serialises inputs to JSON/files and launches a subprocess."""
+    """Default bridge that serialises inputs to JSON/files and launches a subprocess.
+
+    .. note::
+
+        Engine-level subprocess management (ADR-017 spawn_block_process factory)
+        and ProcessHandle integration (ADR-019) are handled by LocalRunner.
+    """
 
     def prepare(self, inputs: dict[str, Any], exchange_dir: Path) -> None:
         """Serialise *inputs* into *exchange_dir*."""
@@ -42,7 +48,8 @@ class FileExchangeBridge:
                 collection_dir.mkdir(exist_ok=True)
                 item_paths = []
                 for i, item in enumerate(value):
-                    data = item.view().to_memory()
+                    # In-memory DataObject without storage ref — serialize metadata.
+                    data = item.view().to_memory() if item.storage_ref is not None else item.metadata
                     item_path = collection_dir / f"item_{i:04d}.json"
                     item_path.write_text(json.dumps(data, default=str), encoding="utf-8")
                     item_paths.append(str(item_path))
@@ -62,9 +69,6 @@ class FileExchangeBridge:
 
         manifest_path = exchange_dir / "manifest.json"
         manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-
-    # TODO(ADR-017): launch() must use spawn_block_process() factory.
-    # TODO(ADR-019): launch() must return ProcessHandle.
 
     def launch(self, command: str, exchange_dir: Path) -> subprocess.Popen[bytes]:
         """Launch the external application with *command*."""

@@ -12,7 +12,7 @@ from typing import Any
 class RRunner:
     """R code execution environment via Rscript subprocess.
 
-    TODO(ADR-017): Implement using Rscript subprocess.
+    ADR-017: Implement using Rscript subprocess.
 
     Design:
         - Inline mode: write R script to temp file, call Rscript subprocess.
@@ -25,7 +25,7 @@ class RRunner:
     def execute_inline(self, script: str, namespace: dict[str, Any]) -> dict[str, Any]:
         """Execute R script via Rscript subprocess.
 
-        TODO(ADR-017): Write script to temp file, spawn Rscript process,
+        ADR-017: Write script to temp file, spawn Rscript process,
         pass StorageReference pointers via JSON stdin, read output refs.
         """
         raise NotImplementedError
@@ -39,7 +39,7 @@ class RRunner:
     ) -> dict[str, Any]:
         """Execute R script file via Rscript subprocess.
 
-        TODO(ADR-017): Spawn Rscript process with script_path,
+        ADR-017: Spawn Rscript process with script_path,
         pass StorageReference pointers via JSON, read output refs.
         """
         raise NotImplementedError

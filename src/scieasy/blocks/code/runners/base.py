@@ -12,10 +12,13 @@ class CodeRunner(Protocol):
 
     Each runner knows how to execute user code either inline (string) or
     from a script file, returning the output namespace.
-    """
 
-    # TODO(ADR-017): execute_inline() and execute_script() must operate via subprocess,
-    # never in-process. Signature may change to return subprocess handle or output refs.
+    .. note::
+
+        ADR-017 requires that concrete implementations execute code via
+        subprocess isolation, never in-process. The engine's LocalRunner
+        manages subprocess lifecycle and ProcessHandle integration.
+    """
 
     def execute_inline(self, script: str, namespace: dict[str, Any]) -> dict[str, Any]:
         """Execute *script* source code within *namespace* and return results."""

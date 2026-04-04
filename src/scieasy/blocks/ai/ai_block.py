@@ -18,8 +18,10 @@ class AIBlock(Block):
     model: ClassVar[str] = ""
     prompt_template: ClassVar[str] = ""
 
-    # TODO(ADR-020): run() signature: inputs are dict[str, Collection], returns dict[str, Collection].
-
     def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
-        """Run the LLM inference pipeline."""
+        """Run the LLM inference pipeline.
+
+        Not yet implemented — placeholder for AI-powered block execution.
+        Per ADR-020, inputs and outputs will use Collection transport.
+        """
         raise NotImplementedError

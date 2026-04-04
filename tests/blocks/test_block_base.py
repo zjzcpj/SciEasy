@@ -14,11 +14,6 @@ from scieasy.core.types.array import Array, Image
 from scieasy.core.types.base import TypeSignature
 from scieasy.core.types.dataframe import DataFrame
 
-# TODO(ADR-018): Add tests for CANCELLED/SKIPPED transitions.
-# TODO(ADR-019): Add test for terminate_grace_sec ClassVar.
-# TODO(ADR-020): Remove tests referencing batch_mode, on_batch_error.
-# TODO(ADR-020): Add tests for process_item(), pack(), unpack(), unpack_single(), map_items(), parallel_map().
-
 
 class _DummyBlock(Block):
     """Minimal concrete Block subclass for testing."""
@@ -210,3 +205,133 @@ class TestBlockPostprocess:
         block = _DummyBlock()
         outputs = {"result": "value"}
         assert block.postprocess(outputs) is outputs
+
+
+class TestBlockTransitionCancelledSkipped:
+    """ADR-018: CANCELLED and SKIPPED state transitions."""
+
+    def test_running_to_cancelled(self) -> None:
+        block = _DummyBlock()
+        block.transition(BlockState.READY)
+        block.transition(BlockState.RUNNING)
+        block.transition(BlockState.CANCELLED)
+        assert block.state == BlockState.CANCELLED
+
+    def test_paused_to_cancelled(self) -> None:
+        block = _DummyBlock()
+        block.transition(BlockState.READY)
+        block.transition(BlockState.RUNNING)
+        block.transition(BlockState.PAUSED)
+        block.transition(BlockState.CANCELLED)
+        assert block.state == BlockState.CANCELLED
+
+    def test_idle_to_skipped(self) -> None:
+        block = _DummyBlock()
+        block.transition(BlockState.SKIPPED)
+        assert block.state == BlockState.SKIPPED
+
+    def test_ready_to_skipped(self) -> None:
+        block = _DummyBlock()
+        block.transition(BlockState.READY)
+        block.transition(BlockState.SKIPPED)
+        assert block.state == BlockState.SKIPPED
+
+    def test_cancelled_to_idle(self) -> None:
+        block = _DummyBlock()
+        block.transition(BlockState.READY)
+        block.transition(BlockState.RUNNING)
+        block.transition(BlockState.CANCELLED)
+        block.transition(BlockState.IDLE)
+        assert block.state == BlockState.IDLE
+
+    def test_skipped_to_idle(self) -> None:
+        block = _DummyBlock()
+        block.transition(BlockState.SKIPPED)
+        block.transition(BlockState.IDLE)
+        assert block.state == BlockState.IDLE
+
+    def test_done_to_cancelled_invalid(self) -> None:
+        block = _DummyBlock()
+        block.transition(BlockState.READY)
+        block.transition(BlockState.RUNNING)
+        block.transition(BlockState.DONE)
+        with pytest.raises(RuntimeError, match="Invalid state transition"):
+            block.transition(BlockState.CANCELLED)
+
+    def test_idle_to_cancelled_invalid(self) -> None:
+        block = _DummyBlock()
+        with pytest.raises(RuntimeError, match="Invalid state transition"):
+            block.transition(BlockState.CANCELLED)
+
+
+class TestTerminateGraceSec:
+    """ADR-019: terminate_grace_sec ClassVar."""
+
+    def test_default_value(self) -> None:
+        block = _DummyBlock()
+        assert block.terminate_grace_sec == 5.0
+
+    def test_custom_subclass(self) -> None:
+        class CustomBlock(Block):
+            name: ClassVar[str] = "Custom"
+            terminate_grace_sec: ClassVar[float] = 10.0
+
+            def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+                return {}
+
+        block = CustomBlock()
+        assert block.terminate_grace_sec == 10.0
+
+
+class TestCollectionUtilities:
+    """ADR-020: pack(), unpack(), unpack_single(), map_items(), parallel_map()."""
+
+    def test_pack_creates_collection(self) -> None:
+        from scieasy.core.types.collection import Collection
+
+        items = [Image(shape=(10, 10), ndim=2, dtype="float64")]
+        result = Block.pack(items, item_type=Image)
+        assert isinstance(result, Collection)
+        assert result.length == 1
+        assert result.item_type is Image
+
+    def test_unpack_returns_list(self) -> None:
+        from scieasy.core.types.collection import Collection
+
+        img = Image(shape=(5, 5), ndim=2, dtype="uint8")
+        c = Collection([img], item_type=Image)
+        items = Block.unpack(c)
+        assert isinstance(items, list)
+        assert len(items) == 1
+        assert items[0] is img
+
+    def test_unpack_single(self) -> None:
+        from scieasy.core.types.collection import Collection
+
+        img = Image(shape=(5, 5), ndim=2, dtype="uint8")
+        c = Collection([img])
+        result = Block.unpack_single(c)
+        assert result is img
+
+    def test_unpack_single_multi_raises(self) -> None:
+        from scieasy.core.types.collection import Collection
+
+        items = [
+            Image(shape=(5, 5), ndim=2, dtype="uint8"),
+            Image(shape=(3, 3), ndim=2, dtype="uint8"),
+        ]
+        c = Collection(items)
+        with pytest.raises(ValueError, match="single-item"):
+            Block.unpack_single(c)
+
+    def test_map_items(self) -> None:
+        from scieasy.core.types.collection import Collection
+
+        items = [
+            Image(shape=(5, 5), ndim=2, dtype="uint8"),
+            Image(shape=(3, 3), ndim=2, dtype="float32"),
+        ]
+        c = Collection(items)
+        result = Block.map_items(lambda x: x, c)
+        assert isinstance(result, Collection)
+        assert result.length == 2

@@ -14,9 +14,6 @@ from scieasy.blocks.code.introspect import introspect_script
 from scieasy.blocks.code.runners.python_runner import PythonRunner
 from scieasy.core.proxy import ViewProxy
 
-# TODO(ADR-020-Add4): Add tests for Collection auto-unpack/repack:
-#   single item -> native object, multiple items -> LazyList, list output -> Collection.
-
 
 @pytest.mark.skip(reason="ADR-017: PythonRunner rewritten to use subprocess. Tests need update.")
 class TestPythonRunnerInline:

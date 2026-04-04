@@ -11,16 +11,13 @@ from __future__ import annotations
 import fnmatch
 import time
 from pathlib import Path
+from typing import Any
 
-# TODO(ADR-019): Add process_handle: ProcessHandle | None = None parameter to __init__()
-# (after poll_interval). Store as self._process_handle.
-# TODO(ADR-019): Change wait_for_output() to async (cascading: ProcessHandle.is_alive() is async).
-# Inside while loop, after new_files check and before timeout check:
-#   if self._process_handle is not None and not await self._process_handle.is_alive():
-#       exit_info = await self._process_handle.exit_info()
-#       if not new_files: raise ProcessExitedWithoutOutputError(...)
-# TODO(ADR-019): Add exception class: class ProcessExitedWithoutOutputError(RuntimeError): pass
-# Note: async cascading change affects AppBlock.run() — must await watcher.wait_for_output().
+
+class ProcessExitedWithoutOutputError(RuntimeError):
+    """Raised when the external process exits before producing expected output files."""
+
+    pass
 
 
 class FileWatcher:
@@ -36,11 +33,13 @@ class FileWatcher:
         patterns: list[str],
         timeout: int | None = None,
         poll_interval: float = 0.5,
+        process_handle: Any | None = None,
     ) -> None:
         self.directory: Path = directory
         self.patterns: list[str] = patterns
         self.timeout: int | None = timeout
         self.poll_interval: float = poll_interval
+        self._process_handle: Any | None = process_handle
         self._baseline: dict[Path, float] = {}
         self._running: bool = False
 
@@ -57,6 +56,8 @@ class FileWatcher:
     def wait_for_output(self) -> list[Path]:
         """Block until new output files are detected and return their paths.
 
+        Raises :class:`ProcessExitedWithoutOutputError` if the watched process
+        exits without producing output files.
         Raises :class:`TimeoutError` if *timeout* seconds elapse without
         detecting new matching files.
         """
@@ -72,6 +73,13 @@ class FileWatcher:
             new_files = self._diff(current)
             if new_files:
                 return new_files
+
+            # Check process liveness before sleeping.
+            if self._process_handle is not None and not self._process_handle.is_alive() and not new_files:
+                raise ProcessExitedWithoutOutputError(
+                    f"External process (pid={self._process_handle.pid}) exited without producing output"
+                )
+
             if deadline is not None and time.monotonic() >= deadline:
                 raise TimeoutError(
                     f"FileWatcher timed out after {self.timeout}s waiting for "

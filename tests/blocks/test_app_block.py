@@ -12,8 +12,6 @@ from scieasy.blocks.app.bridge import FileExchangeBridge
 from scieasy.blocks.app.watcher import FileWatcher
 from scieasy.core.types.artifact import Artifact
 
-# TODO(ADR-020): Update to pass Collection inputs, verify Collection outputs.
-
 
 class TestFileWatcher:
     """FileWatcher — polling-based output detection."""
@@ -127,3 +125,27 @@ class TestFileExchangeBridge:
         assert isinstance(results["output1"], Artifact)
         assert results["output1"].mime_type == "text/csv"
         assert results["output2"].mime_type == "image/png"
+
+
+class TestFileExchangeBridgeCollection:
+    """ADR-020: Collection handling in bridge.prepare()."""
+
+    def test_prepare_handles_collection(self, tmp_path: Path) -> None:
+        """Bridge should serialize Collection items into a subdirectory."""
+        from scieasy.core.types.array import Image
+        from scieasy.core.types.collection import Collection
+
+        items = [
+            Image(shape=(3, 3), ndim=2, dtype="uint8"),
+            Image(shape=(5, 5), ndim=2, dtype="float32"),
+        ]
+        collection = Collection(items)
+
+        bridge = FileExchangeBridge()
+        bridge.prepare({"images": collection}, tmp_path)
+
+        import json
+
+        manifest = json.loads((tmp_path / "manifest.json").read_text())
+        assert manifest["images"]["type"] == "collection"
+        assert len(manifest["images"]["items"]) == 2

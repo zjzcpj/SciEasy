@@ -27,8 +27,8 @@ from typing import Any
 def reconstruct_inputs(payload: dict[str, Any]) -> dict[str, Any]:
     """Reconstruct inputs from serialized payload.
 
-    TODO(ADR-017): Full ViewProxy reconstruction from StorageReference
-    pointers will be implemented in a future phase. For now, inputs
+    ADR-017: Full ViewProxy reconstruction from StorageReference
+    pointers will be implemented in Phase 5.2. For now, inputs
     are passed through as-is from the payload.
     """
     return dict(payload.get("inputs", {}))
@@ -37,9 +37,9 @@ def reconstruct_inputs(payload: dict[str, Any]) -> dict[str, Any]:
 def serialise_outputs(outputs: dict[str, Any], output_dir: str) -> dict[str, Any]:
     """Serialize block outputs to JSON-compatible format.
 
-    TODO(ADR-017, ADR-020-Add5): Full output serialization with
+    ADR-017, ADR-020-Add5: Full output serialization with
     StorageReference persistence and _auto_flush will be implemented
-    in a future phase. For now, outputs with storage_ref are serialized
+    in Phase 5.2. For now, outputs with storage_ref are serialized
     to their reference dicts, and other values are stringified.
 
     Parameters

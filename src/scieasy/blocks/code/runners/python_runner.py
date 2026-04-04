@@ -12,7 +12,7 @@ from typing import Any
 class PythonRunner:
     """Python code execution environment via subprocess.
 
-    TODO(ADR-017): Implement subprocess-based execution.
+    ADR-017: Implement subprocess-based execution.
 
     Inline mode:
         - Serialize script string + StorageReference pointers to subprocess payload.
@@ -38,7 +38,7 @@ class PythonRunner:
     def execute_inline(self, script: str, namespace: dict[str, Any]) -> dict[str, Any]:
         """Execute *script* via subprocess (NOT in-process exec).
 
-        TODO(ADR-017): Prepare subprocess payload, call spawn_block_process(),
+        ADR-017: Prepare subprocess payload, call spawn_block_process(),
         read output refs from subprocess stdout.
         """
         raise NotImplementedError
@@ -52,7 +52,7 @@ class PythonRunner:
     ) -> dict[str, Any]:
         """Execute *entry_function* via subprocess (NOT in-process importlib).
 
-        TODO(ADR-017): Prepare subprocess payload with script_path,
+        ADR-017: Prepare subprocess payload with script_path,
         call spawn_block_process(), read output refs.
         """
         raise NotImplementedError

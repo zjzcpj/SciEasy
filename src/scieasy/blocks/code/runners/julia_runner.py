@@ -12,7 +12,7 @@ from typing import Any
 class JuliaRunner:
     """Julia code execution environment via julia subprocess.
 
-    TODO(ADR-017): Implement using julia subprocess.
+    ADR-017: Implement using julia subprocess.
 
     Design:
         - Inline mode: write Julia script to temp file, call julia subprocess.
@@ -25,7 +25,7 @@ class JuliaRunner:
     def execute_inline(self, script: str, namespace: dict[str, Any]) -> dict[str, Any]:
         """Execute Julia script via julia subprocess.
 
-        TODO(ADR-017): Write script to temp file, spawn julia process,
+        ADR-017: Write script to temp file, spawn julia process,
         pass StorageReference pointers via JSON stdin, read output refs.
         """
         raise NotImplementedError
@@ -39,7 +39,7 @@ class JuliaRunner:
     ) -> dict[str, Any]:
         """Execute Julia script file via julia subprocess.
 
-        TODO(ADR-017): Spawn julia process with script_path,
+        ADR-017: Spawn julia process with script_path,
         pass StorageReference pointers via JSON, read output refs.
         """
         raise NotImplementedError

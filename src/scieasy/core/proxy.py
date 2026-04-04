@@ -31,12 +31,6 @@ def _get_backend(ref: StorageReference) -> Any:
     return backends[ref.backend]
 
 
-# TODO(ADR-020-Add2): ViewProxy must be constructable from a raw file StorageReference
-# (not just backend-managed refs). When to_memory() or slice() is called, delegate
-# to appropriate FormatAdapter.read() for actual reading. This enables lazy Collection
-# construction where IOBlock creates refs without reading file contents.
-
-
 class ViewProxy:
     """Lazy accessor that wraps a :class:`StorageReference` and defers I/O.
 
@@ -52,6 +46,17 @@ class ViewProxy:
         self._storage_ref = storage_ref
         self._dtype_info = dtype_info
         self._metadata_cache: dict[str, Any] | None = None
+
+    @classmethod
+    def from_file(cls, path: str, format_hint: str | None = None) -> ViewProxy:
+        """Construct a ViewProxy from a raw file path without reading contents.
+
+        ADR-020-Add2: Enables lazy Collection construction where IOBlock
+        creates refs without reading file contents.
+        """
+        ref = StorageReference(backend="filesystem", path=path, format=format_hint)
+        sig = TypeSignature(type_chain=["DataObject"])
+        return cls(storage_ref=ref, dtype_info=sig)
 
     @property
     def storage_ref(self) -> StorageReference:

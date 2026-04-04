@@ -10,8 +10,6 @@ from scieasy.blocks.process.builtins.merge import MergeBlock
 from scieasy.blocks.process.builtins.split import SplitBlock
 from scieasy.core.types.dataframe import DataFrame
 
-# TODO(ADR-020): Update to use pack/unpack in test assertions.
-
 
 def _make_df(data: dict) -> DataFrame:
     """Helper: create a DataFrame with an Arrow table attached."""

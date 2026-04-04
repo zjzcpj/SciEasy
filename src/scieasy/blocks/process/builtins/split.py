@@ -39,13 +39,20 @@ class SplitBlock(ProcessBlock):
     ]
 
     def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
-        """Split the input DataFrame."""
-        # TODO(ADR-020): Input `data` is Collection[DataFrame].
-        # Must unpack Collection, split, pack into output Collections.
-        # Outputs `out` and `remainder` are also Collections.
+        """Split the input DataFrame.
+
+        Accepts both raw DataFrame and Collection[DataFrame] inputs for
+        backward compatibility during the ADR-020 transition.
+        """
         self.transition(BlockState.RUNNING)
         try:
+            from scieasy.core.types.collection import Collection
+
             data_obj = inputs["data"]
+
+            # ADR-020: Unpack Collection input if present.
+            if isinstance(data_obj, Collection):
+                data_obj = self.unpack_single(data_obj)
             data = to_arrow(data_obj)
 
             if not isinstance(data, pa.Table):

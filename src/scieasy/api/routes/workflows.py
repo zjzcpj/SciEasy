@@ -105,8 +105,8 @@ async def cancel_workflow(workflow_id: str) -> dict[str, Any]:
     Terminates all active block subprocesses and propagates SKIPPED
     to downstream blocks with unsatisfiable inputs.
 
-    TODO(ADR-018): Emit CANCEL_WORKFLOW_REQUEST via EventBus.
-    Return CancelPropagationResponse with cancelled/skipped blocks.
+    ADR-018: Will emit CANCEL_WORKFLOW_REQUEST via EventBus when
+    workflow execution infrastructure is wired up (Phase 5.2).
     """
     raise NotImplementedError
 
@@ -118,7 +118,7 @@ async def cancel_block(workflow_id: str, block_id: str) -> dict[str, Any]:
     Terminates the block's subprocess and propagates SKIPPED to
     downstream blocks whose required inputs are now unsatisfiable.
 
-    TODO(ADR-018): Emit CANCEL_BLOCK_REQUEST via EventBus.
-    Return CancelPropagationResponse with cancelled/skipped blocks.
+    ADR-018: Will emit CANCEL_BLOCK_REQUEST via EventBus when
+    workflow execution infrastructure is wired up (Phase 5.2).
     """
     raise NotImplementedError

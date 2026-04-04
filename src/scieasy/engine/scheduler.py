@@ -356,11 +356,22 @@ class DAGScheduler:
         """
         self._block_states[block_id] = state
 
-    def save_checkpoint(self) -> None:
+    def save_checkpoint(self, checkpoint_manager: Any = None) -> None:
         """Persist the current execution state to durable storage.
 
-        TODO(ADR-018): Integrate with CheckpointManager when implemented.
+        ADR-018: Delegates to CheckpointManager if provided.
         """
-        # TODO(ADR-018): Serialize _block_states, _block_outputs, skip_reasons
-        # to durable storage for crash recovery.
-        pass
+        if checkpoint_manager is None:
+            return
+        from datetime import datetime
+
+        from scieasy.engine.checkpoint import WorkflowCheckpoint
+
+        checkpoint = WorkflowCheckpoint(
+            workflow_id=self._workflow.id if hasattr(self._workflow, "id") else "unknown",
+            timestamp=datetime.now(),
+            block_states=dict(self._block_states),
+            intermediate_refs={k: str(v) for k, v in self._block_outputs.items()},
+            skip_reasons=dict(self.skip_reasons),
+        )
+        checkpoint_manager.save(checkpoint)

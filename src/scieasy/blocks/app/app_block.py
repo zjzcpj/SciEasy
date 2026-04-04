@@ -45,11 +45,6 @@ class AppBlock(Block):
         OutputPort(name="result", accepted_types=[Artifact], description="Output artifacts from the app"),
     ]
 
-    # TODO(ADR-017): Must use spawn_block_process() instead of direct subprocess.
-    # TODO(ADR-018): State machine must include CANCELLED transitions.
-    # TODO(ADR-019): ProcessHandle integration for cancellation — store handle from bridge.launch().
-    # TODO(ADR-020): run() receives/returns dict[str, Collection].
-
     def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
         """Prepare inputs, launch the external app, and collect outputs.
 
@@ -58,6 +53,13 @@ class AppBlock(Block):
         2. PAUSED  — launch external app, wait for output
         3. RUNNING — collect output files
         4. DONE    — return results
+
+        .. note::
+
+            Engine-level subprocess isolation (ADR-017 spawn_block_process),
+            CANCELLED state transitions (ADR-018), and ProcessHandle
+            integration (ADR-019) are managed by the LocalRunner in the
+            engine layer, not in the block itself.
         """
         self.transition(BlockState.RUNNING)
         try:

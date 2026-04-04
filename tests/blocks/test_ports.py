@@ -16,10 +16,6 @@ from scieasy.core.types.composite import AnnData, CompositeData
 from scieasy.core.types.dataframe import DataFrame, PeakTable
 from scieasy.core.types.series import Series, Spectrum
 
-# TODO(ADR-020): Add tests for Collection-transparent type checking:
-#   Collection[Image] matches accepted_types=[Image].
-# TODO(ADR-020-Add6): Test Collection[DataFrame] rejected by accepted_types=[Image] port.
-
 
 class TestPortAcceptsType:
     """port_accepts_type — isinstance-based, inheritance-aware matching."""
@@ -159,3 +155,38 @@ class TestValidateConnection:
         tgt = InputPort(name="in", accepted_types=[Array, DataFrame])
         ok, _ = validate_connection(src, tgt)
         assert ok
+
+
+class TestCollectionTransparency:
+    """ADR-020: Collection-transparent type checking."""
+
+    def test_collection_image_matches_image_port(self) -> None:
+        """Collection[Image] should be accepted by a port accepting Image."""
+        from scieasy.core.types.array import Image
+        from scieasy.core.types.collection import Collection
+
+        port = InputPort(name="in", accepted_types=[Image])
+        img = Image(shape=(5, 5), ndim=2, dtype="uint8")
+        c = Collection([img])
+        # Collection-transparent: checks item_type
+        assert port_accepts_type(port, c)
+
+    def test_collection_dataframe_rejected_by_image_port(self) -> None:
+        """ADR-020-Add6: Collection[DataFrame] should NOT match Image port."""
+        from scieasy.core.types.collection import Collection
+        from scieasy.core.types.dataframe import DataFrame
+
+        port = InputPort(name="in", accepted_types=[Image])
+        df = DataFrame(columns=["a"], row_count=1)
+        c = Collection([df])
+        assert not port_accepts_type(port, c)
+
+    def test_collection_subtype_matches(self) -> None:
+        """Collection[Image] (subtype of Array) should match Array port."""
+        from scieasy.core.types.array import Image
+        from scieasy.core.types.collection import Collection
+
+        port = InputPort(name="in", accepted_types=[Array])
+        img = Image(shape=(5, 5), ndim=2, dtype="uint8")
+        c = Collection([img])
+        assert port_accepts_type(port, c)

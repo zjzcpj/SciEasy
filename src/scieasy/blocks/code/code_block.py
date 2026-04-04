@@ -34,9 +34,9 @@ class CodeBlock(Block):
         After user code runs, ``_repack_outputs()`` wraps native outputs
         back into Collection for downstream transport.
 
-    TODO(ADR-017): All execution delegated to subprocess-based runner
+    Note (ADR-017): All execution is delegated to subprocess-based runner
         via spawn_block_process(). No in-process exec() or importlib.
-    TODO(ADR-017): _prepare_inputs() moves to subprocess worker
+    Note (ADR-017): _prepare_inputs() moves to subprocess worker
         (engine/runners/worker.py). Input preparation happens in child process.
     """
 
@@ -103,8 +103,8 @@ class CodeBlock(Block):
     def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
         """Execute the code block via subprocess-based language runner.
 
-        TODO(ADR-017): Delegate to subprocess via spawn_block_process() (Phase 5.2).
-            The subprocess worker will call ``_unpack_inputs()`` before
+        ADR-017: Delegates to subprocess via spawn_block_process() (Phase 5.2).
+            The subprocess worker calls ``_unpack_inputs()`` before
             passing data to the user script, and ``_repack_outputs()``
             after the user script returns.
         """
