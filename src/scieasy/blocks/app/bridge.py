@@ -44,9 +44,7 @@ class FileExchangeBridge:
                 for i, item in enumerate(value):
                     data = item.view().to_memory()
                     item_path = collection_dir / f"item_{i:04d}.json"
-                    item_path.write_text(
-                        json.dumps(data, default=str), encoding="utf-8"
-                    )
+                    item_path.write_text(json.dumps(data, default=str), encoding="utf-8")
                     item_paths.append(str(item_path))
                 manifest[key] = {"type": "collection", "items": item_paths}
                 continue
@@ -59,9 +57,7 @@ class FileExchangeBridge:
                 manifest[key] = {"type": "file", "path": str(file_path)}
             else:
                 file_path = input_dir / f"{key}.json"
-                file_path.write_text(
-                    json.dumps(value, default=str), encoding="utf-8"
-                )
+                file_path.write_text(json.dumps(value, default=str), encoding="utf-8")
                 manifest[key] = {"type": "json", "path": str(file_path)}
 
         manifest_path = exchange_dir / "manifest.json"
@@ -98,9 +94,7 @@ class FileExchangeBridge:
 
         results: dict[str, Any] = {}
         for fp in output_files:
-            artifact = Artifact(
-                file_path=fp, mime_type=_guess_mime(fp), description=fp.name
-            )
+            artifact = Artifact(file_path=fp, mime_type=_guess_mime(fp), description=fp.name)
             results[fp.stem] = artifact
         return results
 

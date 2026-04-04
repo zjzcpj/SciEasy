@@ -17,15 +17,11 @@ class ZarrAdapter:
 
     def read(self, path: str | Path, **kwargs: object) -> object:
         """Read a Zarr array from *path*."""
-        raise NotImplementedError(
-            "ZarrAdapter.read() is not yet implemented -- use ZarrBackend directly."
-        )
+        raise NotImplementedError("ZarrAdapter.read() is not yet implemented -- use ZarrBackend directly.")
 
     def write(self, data: object, path: str | Path, **kwargs: object) -> Path:
         """Write data to a Zarr store at *path*."""
-        raise NotImplementedError(
-            "ZarrAdapter.write() is not yet implemented -- use ZarrBackend directly."
-        )
+        raise NotImplementedError("ZarrAdapter.write() is not yet implemented -- use ZarrBackend directly.")
 
     def supported_extensions(self) -> list[str]:
         """Return the list of file extensions this adapter handles."""

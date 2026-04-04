@@ -98,9 +98,7 @@ class IOBlock(Block):
         self.transition(BlockState.DONE)
         return {"data": collection}
 
-    def _run_output(
-        self, path: Path, registry: Any, inputs: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _run_output(self, path: Path, registry: Any, inputs: dict[str, Any]) -> dict[str, Any]:
         """Write each item in inputs data through the adapter."""
         data = inputs.get("data")
         if data is None:

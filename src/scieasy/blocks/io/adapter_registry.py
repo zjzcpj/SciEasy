@@ -54,9 +54,7 @@ class AdapterRegistry:
             return
 
         adapter_eps: Any = (
-            eps.select(group="scieasy.adapters")
-            if hasattr(eps, "select")
-            else eps.get("scieasy.adapters", [])
+            eps.select(group="scieasy.adapters") if hasattr(eps, "select") else eps.get("scieasy.adapters", [])
         )
 
         for ep in adapter_eps:
