@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- [#108] Phase 6.1: Workflow validator with type checking, cycle detection, dangling port detection — 6 ordered validation checks, 21 tests (@claude, 2026-04-04, branch: phase6/workflow-validator, session: 20260404-052508-phase-6-1-workflow-validator)
 - [#107] Phase 6.1: YAML workflow serializer with Pydantic schema — load_yaml/save_yaml, schema validation, optional layout field, 10 tests (@claude, 2026-04-04, branch: phase6/workflow-serializer, session: 20260404-052427-phase-6-1-yaml-serializer-with-pydantic)
 - [#105] Phase 5.8: Integration tests for execution engine — 23 tests exercising DAG+EventBus+Collection+Scheduler+cancellation+cycle detection end-to-end (@claude, 2026-04-04, branch: feat/issue-105/integration-tests, session: 20260404-051442-phase-5-8-integration-tests)
 - [#102] Phase 5.7: SubWorkflowBlock scheduler factory injection and Collection passthrough — _scheduler_factory ClassVar for engine-layer injection (import-linter safe), fallback to _sequential_execute, Collections flow through unchanged, 3 new tests (@claude, 2026-04-04, branch: feat/issue-102/subworkflow-completion, session: 20260404-050108-phase-5-7-subworkflowblock-completion)
