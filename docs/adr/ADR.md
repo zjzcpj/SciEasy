@@ -1708,6 +1708,313 @@ output_0 = [savgol_filter(s, 11, 3) for s in input_0]
 
 ---
 
+## ADR-020 Addendum: Lazy loading, memory safety, and boundary conversion
+
+**Status**: proposed
+**Date**: 2026-04-03
+
+### Purpose
+
+This addendum addresses five integration concerns discovered during review of ADR-020's interaction with the lazy loading system (ADR-007), subprocess isolation (ADR-017), and external software / user script boundaries.
+
+### Addendum 1: unpack() returns DataObject, not ViewProxy
+
+**Decision**: `Block.unpack(collection)` returns `list[DataObject]`. Block authors call `item.view()` to obtain a `ViewProxy` for lazy access.
+
+**Rationale**: Collection declares that it holds DataObjects. `unpack()` should return exactly what Collection contains — no implicit conversion. The block author explicitly decides when and how to access data:
+
+```python
+images = self.unpack(inputs["images"])   # list[DataObject]
+for img in images:
+    proxy = img.view()                   # explicit: get lazy accessor
+    data = proxy.slice({"y": slice(0, 100)})  # partial read
+    # or
+    data = proxy.to_memory()             # full load — author's choice
+```
+
+**Impact on existing code**:
+
+| File | Change |
+|---|---|
+| `blocks/base/block.py` | `unpack()` return type annotation: `list[DataObject]` (not `list[ViewProxy]`). All other utilities (`map_items`, `parallel_map`, `process_item`) pass DataObjects to the user-provided function. |
+| `blocks/process/process_block.py` | `process_item(self, item: DataObject, config)` — receives DataObject. |
+| All ProcessBlock subclasses | Must call `item.view().to_memory()` or `item.view().slice()` to access data. |
+| Documentation | ARCHITECTURE.md Section 6.2 example patterns must show `.view()` calls. |
+
+### Addendum 2: IOBlock lazy Collection construction
+
+**Decision**: When IOBlock loads a directory of files in `direction="input"`, it creates DataObjects with `StorageReference` pointing to each file on disk. It does **not** call `to_memory()` or read file contents.
+
+**Rationale**: Eager loading N files during Collection construction defeats lazy loading. For 100 × 1GB TIFFs, eager construction = 100GB memory. Lazy construction = 100 × StorageReference ≈ 100KB.
+
+```python
+class IOBlock(Block):
+    def run(self, inputs, config):
+        path = Path(config["path"])
+
+        if path.is_dir():
+            # Lazy: create StorageReference per file, do NOT read data
+            items = []
+            for f in sorted(path.iterdir()):
+                ref = StorageReference(backend="filesystem", path=str(f))
+                obj = DataObject(storage_ref=ref, metadata={"source_file": f.name})
+                items.append(obj)
+            return {"data": self.pack(items)}
+        else:
+            # Single file
+            ref = StorageReference(backend="filesystem", path=str(path))
+            obj = DataObject(storage_ref=ref)
+            return {"data": self.pack([obj])}
+```
+
+**Impact on existing code**:
+
+| File | Change |
+|---|---|
+| `blocks/io/io_block.py` | `direction="input"` path: when `path.is_dir()`, iterate files and create `DataObject(storage_ref=...)` without calling `adapter.read()`. For single files, same pattern. Adapter is invoked lazily by ViewProxy when downstream blocks access data, not at load time. |
+| `blocks/io/adapters/base.py` | `FormatAdapter` protocol may need a `create_reference(path) -> StorageReference` method that builds a ref without reading, in addition to the existing `read(path) -> DataObject` that does read. |
+| `blocks/io/adapters/*.py` | Each adapter adds `create_reference()` implementation. For Zarr: ref points to `.zarr` directory. For Parquet: ref points to `.parquet` file. For TIFF: ref points to `.tif` file. |
+| `core/proxy.py` | `ViewProxy` must be able to construct from a raw file `StorageReference` and delegate to the appropriate adapter for actual reading when `.to_memory()` or `.slice()` is called. |
+
+### Addendum 3: parallel_map memory is block author's responsibility
+
+**Decision**: `parallel_map` does not impose memory limits. Block authors choose `max_workers` based on their knowledge of item size. The framework provides a warning in documentation and docstring.
+
+**Rationale**: 80% of `parallel_map` usage is small items (spectra, small tables) where memory is not a concern. For large items, block authors should use `map_items` (serial) or `map_items_to_storage` (serial + flush), or manage parallelism via domain-specific APIs (e.g., Cellpose's GPU batch size). The framework cannot predict item memory footprint without loading the item.
+
+**Warning text** (in `parallel_map` docstring and developer documentation):
+
+```
+Warning: parallel_map loads `max_workers` items into memory concurrently.
+For large items (images, MSI datasets), set max_workers=1 or use
+map_items_to_storage() which flushes each result to disk immediately.
+```
+
+**Impact on existing code**:
+
+| File | Change |
+|---|---|
+| `blocks/base/block.py` | `parallel_map()` docstring: add memory warning about concurrent item loading. |
+| `docs/block-development.md` (future) | Developer guide must explain when to use `map_items` vs `parallel_map` vs `map_items_to_storage` with clear guidance on item size thresholds. |
+
+### Addendum 4: CodeBlock uses LazyList for Collection length > 1
+
+**Decision**: When auto-unpacking a Collection with length > 1 for user scripts, CodeBlock wraps items in a `LazyList` instead of eagerly loading all items into a Python list.
+
+**Rationale**: Eager `[item.to_memory() for item in coll]` loads all items into memory simultaneously — worse than the old per-item BatchExecutor model. LazyList loads items on demand, bounding memory to the number of items the user's script holds simultaneously.
+
+```python
+class LazyList:
+    """Looks like a list, loads items on demand from storage.
+
+    Supports: len(), indexing, iteration, slicing.
+    Does NOT support: np.array(lazy_list) without full materialisation
+    (which is the user's explicit choice, like Dask's .compute()).
+    """
+
+    def __init__(self, collection: Collection):
+        self._collection = collection
+
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            return [self._collection[i].view().to_memory()
+                    for i in range(*index.indices(len(self)))]
+        return self._collection[index].view().to_memory()
+
+    def __len__(self):
+        return len(self._collection)    # no data loaded
+
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]              # load one, yield, previous can be GC'd
+
+    def __repr__(self):
+        return f"LazyList[{self._collection.item_type.__name__}](length={len(self)})"
+```
+
+**CodeBlock auto-unpack logic:**
+
+```python
+# In CodeBlock.run():
+for name, coll in inputs.items():
+    if len(coll) == 1:
+        user_inputs[name] = coll[0].view().to_memory()   # single native object
+    else:
+        user_inputs[name] = LazyList(coll)                # lazy list
+```
+
+**User script experience:**
+
+```python
+# Iteration — memory safe (1 item at a time):
+output_0 = [savgol_filter(s, 11, 3) for s in input_0]
+
+# Indexing — loads only the requested item:
+first = input_0[0]
+last = input_0[-1]
+
+# Length — no data loaded:
+n = len(input_0)
+
+# Full materialisation — user's explicit choice (may OOM on large data):
+all_data = list(input_0)       # loads everything
+all_data = np.array(input_0)   # loads everything
+```
+
+**Auto-repack output handling:**
+
+When the user script returns a list, the framework repacks it. If the list is large, `pack()` auto-flushes each item to storage (see Addendum 5). A size-threshold warning is emitted if total output exceeds a configurable limit (default 2GB):
+
+```python
+# In CodeBlock auto-repack:
+total_size = sum(estimate_size(v) for v in output_values)
+if total_size > config.get("memory_warning_threshold_gb", 2.0) * 1e9:
+    logger.warning(
+        f"Script output is {total_size / 1e9:.1f} GB in memory. "
+        f"For large collections, consider processing items one at a time "
+        f"or using script mode with PROXY delivery."
+    )
+```
+
+**Impact on existing code**:
+
+| File | Change |
+|---|---|
+| `blocks/code/code_block.py` | Auto-unpack: replace `[item.to_memory() for item in coll]` with `LazyList(coll)` for length > 1. Auto-repack: add size warning. |
+| New file: `blocks/code/lazy_list.py` | `LazyList` class implementation. |
+| `tests/blocks/test_code_block.py` | Add tests: LazyList iteration (memory bounded), LazyList indexing, LazyList len (no load), auto-repack size warning. |
+
+### Addendum 5: Three-tier memory safety with automatic flush-to-storage
+
+**Decision**: The framework provides three tiers of block authoring interface with automatic memory management. All framework-provided utilities (`map_items`, `parallel_map`, `pack`) automatically flush large outputs to storage.
+
+#### Tier 1: `process_item()` — zero memory management (80% of blocks)
+
+Block author overrides a single method. Framework handles iteration, flush, and packing:
+
+```python
+class ProcessBlock(Block):
+    def process_item(self, item: DataObject, config: BlockConfig) -> DataObject:
+        """Override this for per-item processing. Framework handles everything else."""
+        raise NotImplementedError
+
+    def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, Collection]:
+        """Default: iterate primary input, auto-flush each result."""
+        primary = list(inputs.values())[0]
+        refs = []
+        for item in primary:
+            result = self.process_item(item, config)
+            result = _auto_flush(result)
+            refs.append(result)                  # ~KB ref only
+        return {self.output_ports[0].name: Collection(refs)}
+```
+
+Peak memory: 1 input item + 1 output item. Constant regardless of Collection size.
+
+#### Tier 2: `run()` + framework utilities — automatic safety (15% of blocks)
+
+Block author overrides `run()` but uses `map_items` / `parallel_map` / `pack`:
+
+```python
+def run(self, inputs, config):
+    return {"masks": self.map_items(self._segment, inputs["images"])}
+```
+
+`map_items` and `parallel_map` auto-flush each result to storage internally. `pack()` auto-flushes any remaining in-memory items as a safety net.
+
+Peak memory during `map_items`: 1 input + 1 output per iteration.
+Peak memory at `pack()`: items already flushed, only refs remain.
+
+#### Tier 3: `run()` + manual loop — pack() safety net (5% of blocks)
+
+Block author writes a manual loop. `pack()` flushes accumulated items:
+
+```python
+def run(self, inputs, config):
+    results = []
+    for img in self.unpack(inputs["images"]):
+        results.append(segment(img.view().to_memory()))   # accumulates in memory
+    return {"masks": self.pack(results)}                   # pack() flushes each to storage
+```
+
+Peak memory: N × output_item_size during the loop (cannot be prevented).
+After `pack()`: all flushed to storage, only refs remain.
+
+This is the least optimal path but still has the `pack()` safety net.
+
+#### Auto-flush implementation
+
+```python
+def _auto_flush(obj: DataObject) -> DataObject:
+    """Write in-memory DataObject to storage, return lightweight reference.
+
+    If the object already has a StorageReference, return as-is (no-op).
+    Called internally by map_items, parallel_map, pack, and process_item default run.
+    """
+    if hasattr(obj, 'storage_ref') and obj.storage_ref is not None:
+        return obj
+    ref = _get_output_storage_backend().write(obj)
+    return DataObject(storage_ref=ref, metadata=obj.metadata, dtype_info=obj.dtype_info)
+```
+
+**`_auto_flush` requires access to a storage backend within the subprocess.** The subprocess worker (`engine/runners/worker.py`) must initialise an output storage directory and make it available to `_auto_flush` via a thread-local or module-level reference.
+
+#### worker.py force-write as final safety net
+
+After `block.run()` returns, `worker.py` scans all output Collections. Any item without a `StorageReference` is written to storage. This catches cases where a block bypasses all framework utilities:
+
+```python
+# In worker.py, after block.run() returns:
+for name, coll in outputs.items():
+    for i, item in enumerate(coll):
+        if item.storage_ref is None:
+            item.storage_ref = storage_backend.write(item)
+```
+
+This does not reduce peak memory (items are already in memory), but ensures cross-process serialisation works.
+
+#### AppBlock boundary conversion — memory safe by design
+
+`FileExchangeBridge.prepare()` iterates the Collection and writes each item to a file one at a time:
+
+```python
+class FileExchangeBridge:
+    def prepare(self, collection: Collection, exchange_dir: Path):
+        for i, item in enumerate(collection):
+            data = item.view().to_memory()      # +1 item
+            adapter.write(data, exchange_dir / f"item_{i}{ext}")  # write file
+            # data eligible for GC                # -1 item
+```
+
+Peak memory: 1 item. Safe regardless of Collection size.
+
+**Impact on existing code**:
+
+| File | Change | Detail |
+|---|---|---|
+| `blocks/base/block.py` | **Add** `process_item()` method to `Block` (raises `NotImplementedError`). **Add** `_auto_flush()` static method. **Modify** `map_items()`: call `_auto_flush(result)` after each `func(item)`. **Modify** `parallel_map()`: call `_auto_flush(result)` for each result. **Modify** `pack()`: call `_auto_flush(item)` for each item before adding to Collection. | `process_item` signature: `(self, item: DataObject, config: BlockConfig) -> DataObject`. |
+| `blocks/process/process_block.py` | **Add** default `run()` implementation that iterates primary input, calls `self.process_item()`, auto-flushes, packs. Subclasses can override either `process_item()` (simple) or `run()` (complex). | Default `run()` uses first input port as primary input, first output port as output. |
+| `blocks/app/bridge.py` | **Modify** `FileExchangeBridge.prepare()` to accept `Collection` and iterate items one at a time with per-item materialisation and file write. | Replace current bulk prepare with per-item loop. |
+| `engine/runners/worker.py` | **Add** output storage directory initialisation. **Add** post-run scan: flush any items without StorageReference. **Add** `_get_output_storage_backend()` module-level accessor for `_auto_flush`. | Worker must know the project's storage directory to write intermediate results. |
+| `core/storage/base.py` | `StorageBackend.write()` must handle writing a raw in-memory DataObject (not just ViewProxy-backed objects). | May need a `write_from_memory(data, path)` variant or auto-detection. |
+| New file: `blocks/code/lazy_list.py` | `LazyList` class. | See Addendum 4. |
+| New file: `tests/core/test_lazy_list.py` or extend `tests/blocks/test_code_block.py` | LazyList tests: iteration, indexing, len, GC behaviour. | |
+| `docs/architecture/ARCHITECTURE.md` Section 6.2 | **Update** Collection section to document the three-tier interface and auto-flush behaviour. Add memory safety guarantees per tier. | |
+| `docs/architecture/ARCHITECTURE.md` Section 6.6 | **Update** error handling section to note that `process_item` catches per-item exceptions within the framework loop. | |
+| `docs/architecture/PROJECT_TREE.md` | **Add** `blocks/code/lazy_list.py` entry. | |
+
+### Summary of all addendum decisions
+
+| # | Decision | Memory safety | Framework enforced? |
+|---|---|---|---|
+| 1 | `unpack()` returns DataObject, not ViewProxy | Block author controls when data loads | Yes — unpack never triggers data load |
+| 2 | IOBlock creates lazy StorageReferences, not eager reads | Collection construction is O(N × ref_size), not O(N × data_size) | Yes — IOBlock default behaviour |
+| 3 | `parallel_map` memory is block author's responsibility | Warning in docs and docstring | No — author chooses max_workers |
+| 4 | CodeBlock uses LazyList for length > 1 | Iteration loads 1 item at a time | Yes — unless user calls `list()` or `np.array()` |
+| 5 | Three-tier auto-flush: process_item / map_items / pack | Tier 1-2: constant memory. Tier 3: pack() safety net | Yes (Tier 1-2 fully enforced, Tier 3 partial) |
+
+---
+
 ## ADR-021: MergeCollection and Collection operation blocks
 
 **Status**: proposed
