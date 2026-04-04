@@ -216,7 +216,6 @@ class TestGuessMime:
         assert _guess_mime(Path("file.xyz")) == "application/octet-stream"
 
 
-
 # ---------------------------------------------------------------------------
 # Zarr Adapter
 # ---------------------------------------------------------------------------
@@ -307,6 +306,7 @@ class TestTIFFAdapter:
         from scieasy.blocks.io.adapters.tiff_adapter import TIFFAdapter
 
         assert TIFFAdapter().supported_extensions() == [".tif", ".tiff"]
+
     def test_create_reference(self, tmp_path: Path) -> None:
         from scieasy.blocks.io.adapters.tiff_adapter import TIFFAdapter
 
@@ -316,4 +316,3 @@ class TestTIFFAdapter:
         assert ref.backend == "filesystem"
         assert ref.format == "tiff"
         assert ref.path == str(tmp_path / "image.tif")
-
