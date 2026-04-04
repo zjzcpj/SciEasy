@@ -7,10 +7,16 @@ ADR-017: PROCESS_SPAWNED and PROCESS_EXITED events added for subprocess tracking
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import logging
+from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # -- Event type constants (ADR-017, ADR-018) --------------------------------
 
@@ -57,8 +63,6 @@ class EngineEvent:
 class EventBus:
     """Publish/subscribe dispatcher for EngineEvent instances.
 
-    TODO(ADR-018): Implement concrete EventBus.
-
     Internal storage:
         _subscribers: dict[str, list[Callable[[EngineEvent], None]]]
 
@@ -70,13 +74,27 @@ class EventBus:
     """
 
     def __init__(self) -> None:
-        # TODO(ADR-018): Initialize _subscribers dict.
-        raise NotImplementedError
+        self._subscribers: dict[str, list[Callable[[EngineEvent], None]]] = defaultdict(list)
 
     async def emit(self, event: EngineEvent) -> None:
-        """Broadcast *event* to all subscribers of its event_type."""
-        # TODO(ADR-018): Iterate _subscribers[event.event_type], call each.
-        raise NotImplementedError
+        """Broadcast *event* to all subscribers of its event_type.
+
+        Each callback is invoked in order. If a callback is a coroutine
+        function its result is awaited. Exceptions in individual callbacks
+        are caught, logged, and do **not** prevent subsequent callbacks
+        from running (error isolation per ADR-018).
+        """
+        for callback in self._subscribers[event.event_type]:
+            try:
+                result = callback(event)
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception:
+                logger.exception(
+                    "EventBus: callback %r failed for event %s",
+                    callback,
+                    event.event_type,
+                )
 
     def subscribe(
         self,
@@ -84,14 +102,17 @@ class EventBus:
         callback: Callable[[EngineEvent], None],
     ) -> None:
         """Register *callback* to receive events of the given type."""
-        # TODO(ADR-018): Append callback to _subscribers[event_type].
-        raise NotImplementedError
+        self._subscribers[event_type].append(callback)
 
     def unsubscribe(
         self,
         event_type: str,
         callback: Callable[[EngineEvent], None],
     ) -> None:
-        """Remove a previously registered *callback* for *event_type*."""
-        # TODO(ADR-018): Remove callback from _subscribers[event_type].
-        raise NotImplementedError
+        """Remove a previously registered *callback* for *event_type*.
+
+        If *callback* is not currently subscribed for *event_type* the
+        call is silently ignored.
+        """
+        with contextlib.suppress(ValueError):
+            self._subscribers[event_type].remove(callback)
