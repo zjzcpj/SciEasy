@@ -21,8 +21,9 @@ class TestImportEngineModules:
     def test_import_scheduler(self) -> None:
         from scieasy.engine import scheduler  # noqa: F401
 
-    def test_import_batch(self) -> None:
-        from scieasy.engine import batch  # noqa: F401
+    # ADR-020: batch module deleted — test removed.
+    # def test_import_batch(self) -> None:
+    #     from scieasy.engine import batch
 
     def test_import_checkpoint(self) -> None:
         from scieasy.engine import checkpoint  # noqa: F401
@@ -65,19 +66,22 @@ class TestImportEngineModules:
     def test_instantiate_resource_request(self) -> None:
         from scieasy.engine.resources import ResourceRequest
 
-        req = ResourceRequest(cpu_cores=2, estimated_memory_gb=4.0)
+        # ADR-022: estimated_memory_gb removed. Only GPU/CPU fields remain.
+        req = ResourceRequest(cpu_cores=2)
         assert req.cpu_cores == 2
-        assert req.estimated_memory_gb == 4.0
+        assert req.requires_gpu is False
 
     def test_instantiate_resource_snapshot(self) -> None:
         from scieasy.engine.resources import ResourceSnapshot
 
+        # ADR-022: available_memory_gb replaced with system_memory_percent.
         snap = ResourceSnapshot(
             available_gpu_slots=1,
             available_cpu_workers=4,
-            available_memory_gb=8.0,
+            system_memory_percent=0.45,
         )
         assert snap.available_cpu_workers == 4
+        assert snap.system_memory_percent == 0.45
 
 
 class TestImportAPIModules:

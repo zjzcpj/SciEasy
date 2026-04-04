@@ -37,6 +37,9 @@ class MergeBlock(ProcessBlock):
 
     def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
         """Merge two DataFrames via Arrow tables."""
+        # TODO(ADR-020): Inputs `left` and `right` are Collection[DataFrame].
+        # Must call unpack() or unpack_single() to get DataFrames before processing.
+        # Pack result into Collection before returning.
         self.transition(BlockState.RUNNING)
         try:
             left_obj = inputs["left"]

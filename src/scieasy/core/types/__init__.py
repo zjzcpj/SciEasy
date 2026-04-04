@@ -6,6 +6,7 @@ from scieasy.core.storage.ref import StorageReference
 from scieasy.core.types.array import Array, FluorImage, Image, MSImage, SRSImage
 from scieasy.core.types.artifact import Artifact
 from scieasy.core.types.base import DataObject, TypeSignature
+from scieasy.core.types.collection import Collection
 from scieasy.core.types.composite import AnnData, CompositeData, SpatialData
 from scieasy.core.types.dataframe import DataFrame, MetabPeakTable, PeakTable
 from scieasy.core.types.registry import TypeRegistry, TypeSpec
@@ -16,6 +17,7 @@ __all__ = [
     "AnnData",
     "Array",
     "Artifact",
+    "Collection",
     "CompositeData",
     "DataFrame",
     "DataObject",

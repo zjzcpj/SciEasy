@@ -7,6 +7,9 @@ from scieasy.core.lineage.graph import ProvenanceGraph
 from scieasy.core.lineage.record import LineageRecord
 from scieasy.core.lineage.store import LineageStore
 
+# TODO(ADR-020): Update for removed batch_info field.
+# TODO(ADR-018): Add tests for termination, partial_output_refs, termination_detail fields.
+
 
 def _make_record(
     block_id: str,

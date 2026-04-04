@@ -72,6 +72,11 @@ class FileExchangeBridge:
         manifest_path = exchange_dir / "manifest.json"
         manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
+    # TODO(ADR-017): launch() must use spawn_block_process() factory, not direct subprocess.Popen.
+    # TODO(ADR-019): launch() must return ProcessHandle, not subprocess.Popen[bytes].
+    # TODO(ADR-019): ProcessHandle must be stored for cancellation support.
+    # TODO(ADR-020): prepare() must iterate Collection items and serialize one at a time.
+
     def launch(self, command: str, exchange_dir: Path) -> subprocess.Popen[bytes]:
         """Launch the external application with *command*.
 

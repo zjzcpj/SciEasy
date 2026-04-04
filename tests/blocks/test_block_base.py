@@ -14,6 +14,11 @@ from scieasy.core.types.array import Array, Image
 from scieasy.core.types.base import TypeSignature
 from scieasy.core.types.dataframe import DataFrame
 
+# TODO(ADR-018): Add tests for CANCELLED/SKIPPED transitions.
+# TODO(ADR-019): Add test for terminate_grace_sec ClassVar.
+# TODO(ADR-020): Remove tests referencing batch_mode, on_batch_error.
+# TODO(ADR-020): Add tests for process_item(), pack(), unpack(), unpack_single(), map_items(), parallel_map().
+
 
 class _DummyBlock(Block):
     """Minimal concrete Block subclass for testing."""

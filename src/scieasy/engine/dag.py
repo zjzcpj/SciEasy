@@ -5,6 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 
+# TODO(ADR-018): DAG must support querying downstream dependents for skip propagation.
+# DAGScheduler._propagate_skip() walks downstream from a failed/cancelled block
+# and marks blocks SKIPPED if all required inputs are unsatisfiable.
 def build_dag(workflow: Any) -> dict[str, Any]:
     """Construct an internal DAG representation from a WorkflowDefinition.
 

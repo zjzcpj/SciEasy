@@ -1,9 +1,10 @@
-"""Tests for BlockConfig, BlockResult, and BatchResult."""
+"""Tests for BlockConfig and BlockResult."""
+# ADR-020: BatchResult tests removed — BatchResult class deleted.
 
 from __future__ import annotations
 
 from scieasy.blocks.base.config import BlockConfig
-from scieasy.blocks.base.result import BatchResult, BlockResult
+from scieasy.blocks.base.result import BlockResult
 
 
 class TestBlockConfig:
@@ -46,21 +47,5 @@ class TestBlockResult:
         assert result.error is None
 
 
-class TestBatchResult:
-    """BatchResult — aggregate batch execution outcome."""
-
-    def test_creation(self) -> None:
-        result = BatchResult(
-            succeeded=[(0, "ok")],
-            failed=[(1, ValueError("bad"))],
-            skipped=[2],
-        )
-        assert len(result.succeeded) == 1
-        assert len(result.failed) == 1
-        assert result.skipped == [2]
-
-    def test_defaults_empty(self) -> None:
-        result = BatchResult()
-        assert result.succeeded == []
-        assert result.failed == []
-        assert result.skipped == []
+# ADR-020: TestBatchResult removed — BatchResult class deleted.
+# Collection iteration is block-internal; engine no longer performs batch execution.

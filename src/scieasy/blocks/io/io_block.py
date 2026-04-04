@@ -38,6 +38,13 @@ class IOBlock(Block):
         OutputPort(name="data", accepted_types=[DataObject], description="Loaded data (input mode)"),
     ]
 
+    # TODO(ADR-020): direction="input" must produce Collection output, not single DataObject.
+    # TODO(ADR-020-Add2): Lazy Collection construction — when path.is_dir(), iterate
+    #   files and create StorageReference per file WITHOUT calling adapter.read().
+    #   100 files = ~100KB refs, not 100GB data in memory.
+    #   For single files, same lazy pattern — create StorageReference without reading.
+    #   Adapter is invoked lazily by ViewProxy when downstream blocks access data.
+    # TODO(ADR-020): direction="output" must accept Collection input and write each item.
     def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
         """Execute the IO operation (read or write)."""
         from scieasy.blocks.io.adapter_registry import AdapterRegistry

@@ -21,9 +21,13 @@ CREATE TABLE IF NOT EXISTS lineage (
     timestamp TEXT NOT NULL,
     duration_ms INTEGER NOT NULL,
     environment TEXT,
-    batch_info TEXT
+    termination TEXT NOT NULL DEFAULT 'completed',
+    partial_output_refs TEXT,
+    termination_detail TEXT
 );
 """
+# ADR-018: Added termination, partial_output_refs, termination_detail.
+# ADR-020: Removed batch_info column.
 
 _CREATE_INDEX_BLOCK = """
 CREATE INDEX IF NOT EXISTS idx_lineage_block_id ON lineage (block_id);
@@ -63,10 +67,13 @@ class LineageStore:
                     "conda_env": record.environment.conda_env,
                 }
             )
+        # ADR-018: persist termination, partial_output_refs, termination_detail.
+        # ADR-020: batch_info removed.
         self._conn.execute(
             "INSERT INTO lineage (block_id, block_version, block_config, "
-            "input_hashes, output_hashes, timestamp, duration_ms, environment, batch_info) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "input_hashes, output_hashes, timestamp, duration_ms, environment, "
+            "termination, partial_output_refs, termination_detail) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 record.block_id,
                 record.block_version,
@@ -76,13 +83,19 @@ class LineageStore:
                 record.timestamp,
                 record.duration_ms,
                 env_json,
-                json.dumps(record.batch_info) if record.batch_info else None,
+                record.termination,
+                json.dumps(record.partial_output_refs),
+                record.termination_detail,
             ),
         )
         self._conn.commit()
 
     def _row_to_record(self, row: tuple[Any, ...]) -> LineageRecord:
-        """Convert a database row to a :class:`LineageRecord`."""
+        """Convert a database row to a :class:`LineageRecord`.
+
+        ADR-018: Added termination, partial_output_refs, termination_detail.
+        ADR-020: Removed batch_info.
+        """
         env: EnvironmentSnapshot | None = None
         if row[7] is not None:
             env_data = json.loads(row[7])
@@ -96,7 +109,9 @@ class LineageStore:
             timestamp=row[5],
             duration_ms=row[6],
             environment=env,
-            batch_info=json.loads(row[7 + 1]) if row[8] is not None else None,
+            termination=row[8] if row[8] is not None else "completed",
+            partial_output_refs=json.loads(row[9]) if row[9] is not None else [],
+            termination_detail=row[10] if row[10] is not None else "",
         )
 
     def query(
@@ -108,14 +123,16 @@ class LineageStore:
         if block_id is not None:
             cursor = self._conn.execute(
                 "SELECT block_id, block_version, block_config, input_hashes, "
-                "output_hashes, timestamp, duration_ms, environment, batch_info "
+                "output_hashes, timestamp, duration_ms, environment, "
+                "termination, partial_output_refs, termination_detail "
                 "FROM lineage WHERE block_id = ? ORDER BY id",
                 (block_id,),
             )
         else:
             cursor = self._conn.execute(
                 "SELECT block_id, block_version, block_config, input_hashes, "
-                "output_hashes, timestamp, duration_ms, environment, batch_info "
+                "output_hashes, timestamp, duration_ms, environment, "
+                "termination, partial_output_refs, termination_detail "
                 "FROM lineage ORDER BY id",
             )
         return [self._row_to_record(row) for row in cursor.fetchall()]
@@ -138,7 +155,8 @@ class LineageStore:
 
             cursor = self._conn.execute(
                 "SELECT block_id, block_version, block_config, input_hashes, "
-                "output_hashes, timestamp, duration_ms, environment, batch_info "
+                "output_hashes, timestamp, duration_ms, environment, "
+                "termination, partial_output_refs, termination_detail "
                 "FROM lineage WHERE output_hashes LIKE ? ORDER BY id",
                 (f'%"{current_hash}"%',),
             )

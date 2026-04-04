@@ -41,3 +41,7 @@ class StorageBackend(Protocol):
     def get_metadata(self, ref: StorageReference) -> dict[str, Any]:
         """Return backend-level metadata for the data at *ref*."""
         ...
+
+    # TODO(ADR-020-Add5): StorageBackend.write() must handle writing a raw in-memory
+    # DataObject (not just ViewProxy-backed objects). May need write_from_memory(data, path)
+    # variant or auto-detection in existing write() method.

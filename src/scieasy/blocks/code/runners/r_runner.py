@@ -1,4 +1,7 @@
-"""RRunner — rpy2 bridge or Rscript subprocess."""
+"""RRunner — Rscript subprocess execution.
+
+ADR-017: All execution in isolated subprocesses. No rpy2 in-process bridge.
+"""
 
 from __future__ import annotations
 
@@ -7,17 +10,25 @@ from typing import Any
 
 
 class RRunner:
-    """R code execution environment.
+    """R code execution environment via Rscript subprocess.
 
-    Not yet implemented.  Planned backends: rpy2 (in-process) or
-    Rscript subprocess with JSON serialisation.
+    TODO(ADR-017): Implement using Rscript subprocess.
+
+    Design:
+        - Inline mode: write R script to temp file, call Rscript subprocess.
+        - Script mode: call Rscript subprocess with script path.
+        - JSON serialization for data transfer across process boundary.
+        - StorageReference-based data flow: only pointers cross boundary.
+        - NO rpy2 in-process bridge (ADR-017 prohibits).
     """
 
     def execute_inline(self, script: str, namespace: dict[str, Any]) -> dict[str, Any]:
-        raise NotImplementedError(
-            "R inline execution is not yet implemented. "
-            "Install rpy2 and contribute an implementation, or use PythonRunner with rpy2 interop."
-        )
+        """Execute R script via Rscript subprocess.
+
+        TODO(ADR-017): Write script to temp file, spawn Rscript process,
+        pass StorageReference pointers via JSON stdin, read output refs.
+        """
+        raise NotImplementedError
 
     def execute_script(
         self,
@@ -26,7 +37,9 @@ class RRunner:
         inputs: dict[str, Any],
         config: dict[str, Any],
     ) -> dict[str, Any]:
-        raise NotImplementedError(
-            "R script execution is not yet implemented. "
-            "Install rpy2 and contribute an implementation, or use PythonRunner with rpy2 interop."
-        )
+        """Execute R script file via Rscript subprocess.
+
+        TODO(ADR-017): Spawn Rscript process with script_path,
+        pass StorageReference pointers via JSON, read output refs.
+        """
+        raise NotImplementedError

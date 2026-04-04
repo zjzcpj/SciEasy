@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from scieasy.blocks.base.state import (
-    BatchErrorStrategy,
-    BatchMode,
+    # ADR-020: BatchErrorStrategy and BatchMode removed
     BlockState,
     ExecutionMode,
     InputDelivery,
 )
+
+# TODO(ADR-018): Add tests for CANCELLED, SKIPPED states in BlockState.
+# TODO(ADR-020): Remove tests for BatchMode, BatchErrorStrategy (deleted enums).
 
 
 class TestBlockStateValues:
@@ -22,8 +24,13 @@ class TestBlockStateValues:
         assert BlockState.DONE.value == "done"
         assert BlockState.ERROR.value == "error"
 
+    # ADR-018: CANCELLED and SKIPPED added
+    def test_cancelled_skipped(self) -> None:
+        assert BlockState.CANCELLED.value == "cancelled"
+        assert BlockState.SKIPPED.value == "skipped"
+
     def test_member_count(self) -> None:
-        assert len(BlockState) == 6
+        assert len(BlockState) == 8  # ADR-018: was 6, now 8
 
 
 class TestExecutionModeValues:
@@ -38,16 +45,7 @@ class TestExecutionModeValues:
         assert len(ExecutionMode) == 3
 
 
-class TestBatchModeValues:
-    """BatchMode — strategy for processing multiple inputs."""
-
-    def test_all_values(self) -> None:
-        assert BatchMode.PARALLEL.value == "parallel"
-        assert BatchMode.SERIAL.value == "serial"
-        assert BatchMode.ADAPTIVE.value == "adaptive"
-
-    def test_member_count(self) -> None:
-        assert len(BatchMode) == 3
+# ADR-020: TestBatchModeValues removed — BatchMode enum deleted.
 
 
 class TestInputDeliveryValues:
@@ -62,14 +60,4 @@ class TestInputDeliveryValues:
         assert len(InputDelivery) == 3
 
 
-class TestBatchErrorStrategyValues:
-    """BatchErrorStrategy — what to do when a batch item fails."""
-
-    def test_all_values(self) -> None:
-        assert BatchErrorStrategy.STOP.value == "stop"
-        assert BatchErrorStrategy.SKIP.value == "skip"
-        assert BatchErrorStrategy.RETRY.value == "retry"
-        assert BatchErrorStrategy.PAUSE.value == "pause"
-
-    def test_member_count(self) -> None:
-        assert len(BatchErrorStrategy) == 4
+# ADR-020: TestBatchErrorStrategyValues removed — BatchErrorStrategy enum deleted.

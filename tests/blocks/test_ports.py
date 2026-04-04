@@ -16,6 +16,10 @@ from scieasy.core.types.composite import AnnData, CompositeData
 from scieasy.core.types.dataframe import DataFrame, PeakTable
 from scieasy.core.types.series import Series, Spectrum
 
+# TODO(ADR-020): Add tests for Collection-transparent type checking:
+#   Collection[Image] matches accepted_types=[Image].
+# TODO(ADR-020-Add6): Test Collection[DataFrame] rejected by accepted_types=[Image] port.
+
 
 class TestPortAcceptsType:
     """port_accepts_type — isinstance-based, inheritance-aware matching."""

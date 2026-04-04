@@ -7,16 +7,18 @@ from typing import Any, ClassVar
 
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort, port_accepts_type, validate_port_constraint
-from scieasy.blocks.base.state import BatchErrorStrategy, BatchMode, BlockState, ExecutionMode
+from scieasy.blocks.base.state import BlockState, ExecutionMode
 
-# Valid state transitions.
+# Valid state transitions (ADR-018: added CANCELLED, SKIPPED).
 _VALID_TRANSITIONS: dict[BlockState, set[BlockState]] = {
-    BlockState.IDLE: {BlockState.READY, BlockState.ERROR},
-    BlockState.READY: {BlockState.RUNNING, BlockState.ERROR},
-    BlockState.RUNNING: {BlockState.DONE, BlockState.PAUSED, BlockState.ERROR},
-    BlockState.PAUSED: {BlockState.RUNNING, BlockState.ERROR},
+    BlockState.IDLE: {BlockState.READY, BlockState.SKIPPED, BlockState.ERROR},
+    BlockState.READY: {BlockState.RUNNING, BlockState.SKIPPED, BlockState.ERROR},
+    BlockState.RUNNING: {BlockState.DONE, BlockState.PAUSED, BlockState.ERROR, BlockState.CANCELLED},
+    BlockState.PAUSED: {BlockState.RUNNING, BlockState.ERROR, BlockState.CANCELLED},
     BlockState.DONE: {BlockState.IDLE},
     BlockState.ERROR: {BlockState.IDLE},
+    BlockState.CANCELLED: {BlockState.IDLE},  # ADR-018: user explicitly terminated
+    BlockState.SKIPPED: {BlockState.IDLE},  # ADR-018: upstream input unavailable
 }
 
 
@@ -37,8 +39,9 @@ class Block(ABC):
     output_ports: ClassVar[list[OutputPort]] = []
 
     execution_mode: ClassVar[ExecutionMode] = ExecutionMode.AUTO
-    batch_mode: ClassVar[BatchMode] = BatchMode.PARALLEL
-    on_batch_error: ClassVar[BatchErrorStrategy] = BatchErrorStrategy.SKIP
+    # ADR-020: batch_mode and on_batch_error REMOVED — Collection iteration is block-internal.
+    # ADR-019: grace period for SIGTERM before SIGKILL on cancellation.
+    terminate_grace_sec: ClassVar[float] = 5.0
 
     key_dependencies: ClassVar[list[str]] = []
 
@@ -118,3 +121,41 @@ class Block(ABC):
         Default implementation passes outputs through unchanged.
         """
         return outputs
+
+    # -- ADR-020: Collection utilities (Tier 1/2/3 block authoring) ----------
+
+    # TODO(ADR-020-Add5): Implement process_item() — Tier 1 entry point.
+    # 80% of blocks override this. Framework handles iteration, flush, packing.
+    # Signature: def process_item(self, item: DataObject, config: BlockConfig) -> DataObject
+    # Default run() iterates primary input Collection, calls process_item() per
+    # item, auto-flushes each result, packs into output Collection.
+    # Peak memory = O(1 item).
+
+    # TODO(ADR-020): Implement pack() static method.
+    # Signature: pack(items: list[DataObject], item_type: type | None = None) -> Collection
+    # Auto-flushes each item if no StorageReference.
+
+    # TODO(ADR-020): Implement unpack() static method.
+    # Signature: unpack(collection: Collection) -> list[DataObject]
+    # Returns DataObject instances, NOT ViewProxy (ADR-020-Add1).
+    # Block authors explicitly call .view() when ready.
+
+    # TODO(ADR-020): Implement unpack_single() static method.
+    # Signature: unpack_single(collection: Collection) -> DataObject
+    # Collection must have length=1, raises ValueError otherwise.
+
+    # TODO(ADR-020): Implement map_items() static method.
+    # Signature: map_items(func: Callable, collection: Collection) -> Collection
+    # Sequential per-item processing. Auto-flushes each result.
+
+    # TODO(ADR-020): Implement parallel_map() static method.
+    # Signature: parallel_map(func: Callable, collection: Collection, max_workers: int = 4) -> Collection
+    # Parallel per-item processing. Auto-flushes each result.
+    # Memory is block author's responsibility — choose max_workers based on item size.
+
+    # TODO(ADR-020-Add5): Implement _auto_flush() private method.
+    # Signature: _auto_flush(data: DataObject) -> DataObject
+    # If data has no StorageReference, write to output directory via appropriate
+    # backend, replace with lightweight ref (~KB). Called by map_items,
+    # parallel_map, pack, and process_item default run().
+    # Subprocess worker also performs final force-write scan after block.run().

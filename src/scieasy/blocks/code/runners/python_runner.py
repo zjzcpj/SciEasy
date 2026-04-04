@@ -1,44 +1,47 @@
-"""PythonRunner — exec() for inline, importlib for script mode."""
+"""PythonRunner — subprocess-based Python code execution.
+
+ADR-017: All execution in isolated subprocesses. No in-process exec() or importlib.
+"""
 
 from __future__ import annotations
 
-import importlib.util
 from pathlib import Path
 from typing import Any
 
 
 class PythonRunner:
-    """Python code execution environment.
+    """Python code execution environment via subprocess.
 
-    Inline mode: runs the script string via ``exec()`` in the provided namespace.
-    The namespace is returned, with internal keys (starting with ``_``) stripped.
+    TODO(ADR-017): Implement subprocess-based execution.
 
-    Script mode: loads the script file via ``importlib``, calls the entry function
-    with ``(inputs, config)`` arguments, and returns its result (expected dict).
+    Inline mode:
+        - Serialize script string + StorageReference pointers to subprocess payload.
+        - Subprocess worker receives payload, reconstructs ViewProxy instances,
+          runs script via exec() in isolated process, collects output refs.
+        - Cross-process data: only StorageReference pointers (~100 bytes).
+        - NO in-process exec() — all execution in child subprocess.
+
+    Script mode:
+        - Serialize script path + StorageReference pointers to subprocess payload.
+        - Subprocess imports module, calls entry function with ViewProxy inputs.
+        - Cross-process data: only StorageReference pointers.
+        - NO in-process importlib — all execution in child subprocess.
+
+    Data flow:
+        1. Engine serializes inputs as StorageReference pointers.
+        2. Subprocess reconstructs ViewProxy from each StorageReference.
+        3. Subprocess calls block.run(inputs, config).
+        4. Subprocess _auto_flush() any in-memory outputs.
+        5. Subprocess returns output StorageReference pointers.
     """
 
     def execute_inline(self, script: str, namespace: dict[str, Any]) -> dict[str, Any]:
-        """Execute *script* source code within *namespace* and return results.
+        """Execute *script* via subprocess (NOT in-process exec).
 
-        After execution, keys starting with ``_`` and built-in modules are
-        stripped from the namespace.  The caller should look for the expected
-        output keys.
+        TODO(ADR-017): Prepare subprocess payload, call spawn_block_process(),
+        read output refs from subprocess stdout.
         """
-        exec(script, namespace)
-
-        # Strip private/internal keys.
-        result: dict[str, Any] = {}
-        skip_types = {type(importlib)}  # module type
-        for key, value in namespace.items():
-            if key.startswith("_"):
-                continue
-            if key == "config":
-                continue
-            if type(value) in skip_types:
-                continue
-            result[key] = value
-
-        return result
+        raise NotImplementedError
 
     def execute_script(
         self,
@@ -47,30 +50,9 @@ class PythonRunner:
         inputs: dict[str, Any],
         config: dict[str, Any],
     ) -> dict[str, Any]:
-        """Execute *entry_function* from *script_path* with *inputs* and *config*.
+        """Execute *entry_function* via subprocess (NOT in-process importlib).
 
-        Loads the script as a Python module via importlib, calls the named
-        function, and returns its result (must be a dict mapping output port
-        names to values).
+        TODO(ADR-017): Prepare subprocess payload with script_path,
+        call spawn_block_process(), read output refs.
         """
-        path = Path(script_path)
-        if not path.exists():
-            raise FileNotFoundError(f"Script not found: {path}")
-
-        # Use mtime in module name for hot-reload safety.
-        mod_name = f"_scieasy_user_{path.stem}_{int(path.stat().st_mtime)}"
-        spec = importlib.util.spec_from_file_location(mod_name, path)
-        if spec is None or spec.loader is None:
-            raise ImportError(f"Cannot load script: {path}")
-
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-
-        func = getattr(module, entry_function, None)
-        if func is None:
-            raise AttributeError(f"Script {path.name} has no function '{entry_function}'")
-
-        result = func(inputs, config)
-        if not isinstance(result, dict):
-            raise TypeError(f"Entry function '{entry_function}' must return a dict, got {type(result).__name__}")
-        return result
+        raise NotImplementedError

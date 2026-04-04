@@ -10,6 +10,8 @@ import pytest
 from scieasy.blocks.io.io_block import IOBlock
 from scieasy.core.types.dataframe import DataFrame
 
+# TODO(ADR-020): Update assertions to expect Collection-wrapped outputs.
+
 
 @pytest.fixture
 def csv_file(tmp_path: Path) -> Path:

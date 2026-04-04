@@ -12,6 +12,16 @@ import fnmatch
 import time
 from pathlib import Path
 
+# TODO(ADR-019): Add process_handle: ProcessHandle | None = None parameter to __init__()
+# (after poll_interval). Store as self._process_handle.
+# TODO(ADR-019): Change wait_for_output() to async (cascading: ProcessHandle.is_alive() is async).
+# Inside while loop, after new_files check and before timeout check:
+#   if self._process_handle is not None and not await self._process_handle.is_alive():
+#       exit_info = await self._process_handle.exit_info()
+#       if not new_files: raise ProcessExitedWithoutOutputError(...)
+# TODO(ADR-019): Add exception class: class ProcessExitedWithoutOutputError(RuntimeError): pass
+# Note: async cascading change affects AppBlock.run() — must await watcher.wait_for_output().
+
 
 class FileWatcher:
     """Watches a directory for new or modified files matching glob patterns.
