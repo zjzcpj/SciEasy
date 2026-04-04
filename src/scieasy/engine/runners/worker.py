@@ -27,37 +27,94 @@ from typing import Any
 def reconstruct_inputs(payload: dict[str, Any]) -> dict[str, Any]:
     """Reconstruct inputs from serialized payload.
 
-    ADR-017: Full ViewProxy reconstruction from StorageReference
-    pointers will be implemented in Phase 5.2. For now, inputs
-    are passed through as-is from the payload.
+    ADR-017: Converts StorageReference dicts back into ViewProxy instances
+    so block.run() receives lazy-loading accessors, not raw dicts.
+    Scalar values and other non-reference inputs pass through as-is.
     """
-    return dict(payload.get("inputs", {}))
+    from scieasy.core.proxy import ViewProxy
+    from scieasy.core.storage.ref import StorageReference
+    from scieasy.core.types.base import TypeSignature
+
+    raw_inputs = payload.get("inputs", {})
+    result: dict[str, Any] = {}
+
+    for key, value in raw_inputs.items():
+        if isinstance(value, dict) and "backend" in value and "path" in value:
+            # This is a serialized StorageReference — reconstruct ViewProxy.
+            ref = StorageReference(
+                backend=value["backend"],
+                path=value["path"],
+                format=value.get("format"),
+                metadata=value.get("metadata"),
+            )
+            sig = TypeSignature(type_chain=["DataObject"])
+            result[key] = ViewProxy(storage_ref=ref, dtype_info=sig)
+        else:
+            # Scalar or other value — pass through.
+            result[key] = value
+
+    return result
 
 
 def serialise_outputs(outputs: dict[str, Any], output_dir: str) -> dict[str, Any]:
     """Serialize block outputs to JSON-compatible format.
 
-    ADR-017, ADR-020-Add5: Full output serialization with
-    StorageReference persistence and _auto_flush will be implemented
-    in Phase 5.2. For now, outputs with storage_ref are serialized
-    to their reference dicts, and other values are stringified.
+    ADR-017: Converts output DataObjects into StorageReference dicts.
+    ADR-020-Add5: Auto-flushes in-memory DataObjects that lack a
+    StorageReference, writing them to output_dir before serialization.
 
     Parameters
     ----------
     outputs:
         Mapping of port names to output data objects.
     output_dir:
-        Directory for writing output artifacts (unused in basic mode).
+        Directory for writing output artifacts when auto-flushing.
     """
+    from scieasy.blocks.base.block import Block
+    from scieasy.core.types.base import DataObject
+    from scieasy.core.types.collection import Collection
+
     result: dict[str, Any] = {}
     for key, value in outputs.items():
+        # Handle Collection: serialize each item's reference.
+        if isinstance(value, Collection):
+            item_refs = []
+            for item in value:
+                item = Block._auto_flush(item)
+                if hasattr(item, "storage_ref") and item.storage_ref is not None:
+                    ref = item.storage_ref
+                    item_refs.append(
+                        {
+                            "backend": ref.backend,
+                            "path": ref.path,
+                            "format": ref.format,
+                            "metadata": ref.metadata,
+                        }
+                    )
+                else:
+                    item_refs.append({"_value": str(item)})
+            result[key] = {
+                "_collection": True,
+                "items": item_refs,
+                "item_type": value.item_type.__name__,
+            }
+            continue
+
+        # Auto-flush in-memory DataObjects.
+        if isinstance(value, DataObject):
+            value = Block._auto_flush(value)
+
+        # Serialize StorageReference-backed objects.
         if hasattr(value, "storage_ref") and value.storage_ref is not None:
             ref = value.storage_ref
             result[key] = {
                 "backend": ref.backend,
                 "path": ref.path,
                 "format": ref.format,
+                "metadata": ref.metadata,
             }
+        elif isinstance(value, (str, int, float, bool, type(None), list, dict)):
+            result[key] = value
         else:
             result[key] = str(value)
     return result

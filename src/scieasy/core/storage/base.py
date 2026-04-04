@@ -44,3 +44,19 @@ class StorageBackend(Protocol):
     def get_metadata(self, ref: StorageReference) -> dict[str, Any]:
         """Return backend-level metadata for the data at *ref*."""
         ...
+
+    def write_from_memory(self, data: Any, path: str) -> StorageReference:
+        """Write raw in-memory data to storage at *path* and return a reference.
+
+        ADR-020-Add5: Handles DataObjects that exist only in-memory (no
+        existing StorageReference). Concrete backends implement this to
+        persist raw Python/numpy/arrow data to their storage format.
+
+        Parameters
+        ----------
+        data:
+            The raw in-memory data to persist.
+        path:
+            Target path within the backend's storage.
+        """
+        ...

@@ -85,3 +85,69 @@ class TestSplitBlock:
         block.transition(BlockState.READY)
         with pytest.raises(ValueError, match="Unknown split mode"):
             block.run({"data": data}, block.config)
+
+
+class TestMergeBlockCollection:
+    """ADR-020: MergeBlock with Collection-wrapped inputs."""
+
+    def test_concat_collection_inputs(self) -> None:
+        """MergeBlock should unpack Collection inputs and pack output."""
+        from scieasy.core.types.collection import Collection
+
+        left = _make_df({"a": [1, 2], "b": [3, 4]})
+        right = _make_df({"a": [5, 6], "b": [7, 8]})
+
+        left_col = Collection([left], item_type=DataFrame)
+        right_col = Collection([right], item_type=DataFrame)
+
+        block = MergeBlock(config={"params": {"how": "concat"}})
+        block.transition(BlockState.READY)
+        result = block.run({"left": left_col, "right": right_col}, block.config)
+
+        merged = result["merged"]
+        assert isinstance(merged, DataFrame)
+        assert merged.row_count == 4
+
+    def test_mixed_raw_and_collection(self) -> None:
+        """MergeBlock should handle mix of raw and Collection inputs."""
+        from scieasy.core.types.collection import Collection
+
+        left = _make_df({"x": [1]})
+        right_col = Collection([_make_df({"x": [2]})], item_type=DataFrame)
+
+        block = MergeBlock(config={"params": {"how": "concat"}})
+        block.transition(BlockState.READY)
+        result = block.run({"left": left, "right": right_col}, block.config)
+
+        assert result["merged"].row_count == 2
+
+
+class TestSplitBlockCollection:
+    """ADR-020: SplitBlock with Collection-wrapped inputs."""
+
+    def test_head_collection_input(self) -> None:
+        from scieasy.core.types.collection import Collection
+
+        data = _make_df({"val": list(range(10))})
+        data_col = Collection([data], item_type=DataFrame)
+
+        block = SplitBlock(config={"params": {"mode": "head", "n": 3}})
+        block.transition(BlockState.READY)
+        result = block.run({"data": data_col}, block.config)
+
+        out = result["out"]
+        assert isinstance(out, DataFrame)
+        assert out.row_count == 3
+
+    def test_ratio_collection_input(self) -> None:
+        from scieasy.core.types.collection import Collection
+
+        data = _make_df({"val": list(range(10))})
+        data_col = Collection([data], item_type=DataFrame)
+
+        block = SplitBlock(config={"params": {"mode": "ratio", "ratio": 0.5}})
+        block.transition(BlockState.READY)
+        result = block.run({"data": data_col}, block.config)
+
+        assert result["out"].row_count == 5
+        assert result["remainder"].row_count == 5

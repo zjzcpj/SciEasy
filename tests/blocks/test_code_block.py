@@ -15,7 +15,6 @@ from scieasy.blocks.code.runners.python_runner import PythonRunner
 from scieasy.core.proxy import ViewProxy
 
 
-@pytest.mark.skip(reason="ADR-017: PythonRunner rewritten to use subprocess. Tests need update.")
 class TestPythonRunnerInline:
     """PythonRunner inline mode — exec() in namespace."""
 
@@ -37,7 +36,6 @@ class TestPythonRunnerInline:
         assert "_private" not in result
 
 
-@pytest.mark.skip(reason="ADR-017: PythonRunner rewritten to use subprocess. Tests need update.")
 class TestPythonRunnerScript:
     """PythonRunner script mode — importlib-based execution."""
 
@@ -61,7 +59,6 @@ class TestPythonRunnerScript:
             runner.execute_script(script, "run", {}, {})
 
 
-@pytest.mark.skip(reason="ADR-017: CodeBlock rewritten to use subprocess. Tests need update.")
 class TestCodeBlockInline:
     """CodeBlock inline mode with MEMORY delivery."""
 
@@ -78,7 +75,6 @@ class TestCodeBlockInline:
         assert result["output"] == 20
 
 
-@pytest.mark.skip(reason="ADR-017: CodeBlock rewritten to use subprocess. Tests need update.")
 class TestCodeBlockScript:
     """CodeBlock script mode."""
 
@@ -92,7 +88,6 @@ class TestCodeBlockScript:
         assert result["result"] == 6
 
 
-@pytest.mark.skip(reason="ADR-017: CodeBlock rewritten to use subprocess. Tests need update.")
 class TestCodeBlockProxyMode:
     """CodeBlock PROXY delivery — passes ViewProxy directly."""
 
@@ -111,7 +106,6 @@ class TestCodeBlockProxyMode:
         proxy.to_memory.assert_not_called()
 
 
-@pytest.mark.skip(reason="ADR-017: CodeBlock rewritten to use subprocess. Tests need update.")
 class TestCodeBlockChunkedMode:
     """CodeBlock CHUNKED delivery — iterates chunks."""
 
