@@ -66,7 +66,8 @@ class JuliaRunner:
                 raise RuntimeError(f"Julia failed (exit {proc.returncode}): {proc.stderr}")
 
             if output_path.exists():
-                return json.loads(output_path.read_text(encoding="utf-8"))
+                result: dict[str, Any] = json.loads(output_path.read_text(encoding="utf-8"))
+                return result
             return {}
 
     def execute_script(
@@ -113,5 +114,6 @@ class JuliaRunner:
                 raise RuntimeError(f"Julia failed (exit {proc.returncode}): {proc.stderr}")
 
             if output_path.exists():
-                return json.loads(output_path.read_text(encoding="utf-8"))
+                result: dict[str, Any] = json.loads(output_path.read_text(encoding="utf-8"))
+                return result
             return {}
