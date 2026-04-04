@@ -27,6 +27,9 @@ class ZarrBackend:
         arr = np.asarray(data)
         z = zarr.open_array(ref.path, mode="w", shape=arr.shape, dtype=arr.dtype)
         z[:] = arr
+        # Persist axis metadata in Zarr attrs for round-trip fidelity.
+        if ref.metadata and "axes" in ref.metadata:
+            z.attrs["axes"] = ref.metadata["axes"]
         metadata = dict(ref.metadata) if ref.metadata else {}
         metadata.update({"shape": list(arr.shape), "dtype": str(arr.dtype)})
         return StorageReference(
@@ -55,9 +58,13 @@ class ZarrBackend:
     def get_metadata(self, ref: StorageReference) -> dict[str, Any]:
         """Return Zarr-level metadata for *ref*."""
         arr = zarr.open_array(ref.path, mode="r")
-        return {
+        meta: dict[str, Any] = {
             "shape": list(arr.shape),
             "dtype": str(arr.dtype),
             "chunks": list(arr.chunks),
             "ndim": arr.ndim,
         }
+        axes = arr.attrs.get("axes")
+        if axes is not None:
+            meta["axes"] = axes
+        return meta
