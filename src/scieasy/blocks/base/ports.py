@@ -33,25 +33,29 @@ class OutputPort(Port):
     """An output connection endpoint on a block."""
 
 
-# TODO(ADR-020): port_accepts_type must extract item_type from Collection and
-# validate against accepted_types. Collection is transparent to port system —
-# Collection[Image] matches accepted_types=[Image]. Port never sees Collection itself.
-# TODO(ADR-020-Add6): Collection.item_type checked, not Collection class.
-# Collection[DataFrame] must be rejected by accepted_types=[Image] port.
 def port_accepts_type(port: Port, data_type: type) -> bool:
     """Check whether *port* accepts *data_type* (isinstance-based, inheritance-aware).
 
     Returns ``True`` if *data_type* is a subclass of any type listed in
     ``port.accepted_types``.  An empty ``accepted_types`` list means the port
     accepts anything.
+
+    ADR-020-Add6: If *data_type* is a Collection, checks its ``item_type``
+    against the port's accepted types. The Collection wrapper is transparent
+    to the port system.
     """
     if not port.accepted_types:
         return True
+
+    # ADR-020: Collection transparency — check item_type, not Collection class.
+    from scieasy.core.types.collection import Collection
+
+    if isinstance(data_type, Collection):
+        return any(issubclass(data_type.item_type, t) for t in port.accepted_types)
+
     return any(issubclass(data_type, t) for t in port.accepted_types)
 
 
-# TODO(ADR-020): port_accepts_signature must be Collection-transparent —
-# extract item_type signature from Collection, check against accepted type signatures.
 def port_accepts_signature(port: Port, signature: TypeSignature) -> bool:
     """Check whether *port* accepts a :class:`TypeSignature`.
 
@@ -84,7 +88,6 @@ def validate_port_constraint(port: InputPort, value: Any) -> tuple[bool, str]:
     return True, ""
 
 
-# TODO(ADR-020): validate_connection must be Collection-transparent for edge validation.
 def validate_connection(
     source_port: OutputPort,
     target_port: InputPort,

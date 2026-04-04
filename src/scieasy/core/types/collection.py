@@ -9,80 +9,75 @@ from __future__ import annotations
 
 from typing import Any
 
-# TODO(ADR-020): Implement Collection class.
-#
-# Design constraints:
-#   - NOT a DataObject subclass — transport wrapper only
-#   - Homogeneous: all items must share the same base type
-#   - item_type is immutable after construction
-#   - length=0 is valid (empty Collection)
-#   - Single item = Collection with length=1
-#   - Type identity determined by item_type (for port matching)
-#
-# Fields:
-#   _items: list[DataObject]
-#   _item_type: type  — immutable after __init__
-#
-# Properties:
-#   item_type -> type: read-only
-#   length -> int: read-only (== len(_items))
-#
-# Protocols to implement:
-#   __iter__: iterate over items
-#   __len__: return length
-#   __getitem__: index access
-#   __class_getitem__: enable Collection[Image] syntax
-#
-# Methods:
-#   storage_refs -> list[StorageReference]: extract refs from all items
-#
-# Invariants:
-#   - All items same base type (enforced at construction)
-#   - item_type immutable after init
-#   - length=0 valid
-#
-# TODO(ADR-020-Add6): Empty Collection must specify item_type explicitly.
-#   Collection(items=[], item_type=Image)  # valid
-#   Collection(items=[])                    # raises ValueError
-#
-# TODO(ADR-020-Add6): Port validation checks Collection.item_type, not
-#   Collection itself. Collection[DataFrame] rejected by accepted_types=[Image] port.
+from scieasy.core.types.base import DataObject
 
 
 class Collection:
-    """Homogeneous ordered collection of DataObjects for inter-block transport."""
+    """Homogeneous ordered collection of DataObjects for inter-block transport.
 
-    def __init__(self, items: list[Any], item_type: type | None = None) -> None:
-        # TODO(ADR-020): Validate homogeneity — all items must be instances of item_type.
-        # TODO(ADR-020-Add6): If items is empty, item_type must be explicitly provided.
-        raise NotImplementedError
+    Invariants:
+        - All items must be instances of the same base DataObject subclass.
+        - ``item_type`` is set at construction and cannot change.
+        - ``length=0`` is valid only when ``item_type`` is provided explicitly.
+
+    ADR-020 Addendum 6: Empty Collection without explicit ``item_type`` raises
+    ``TypeError`` to prevent bypassing port type checks.
+    """
+
+    __slots__ = ("_item_type", "_items")
+
+    def __init__(self, items: list[DataObject] | None = None, item_type: type | None = None) -> None:
+        items = items if items is not None else []
+
+        # ADR-020-Add6: empty Collection must specify item_type explicitly.
+        if not items and item_type is None:
+            raise TypeError("item_type is required for empty Collection")
+
+        # Infer item_type from first item if not provided.
+        if items and item_type is None:
+            item_type = type(items[0])
+
+        # Validate homogeneity.
+        if items:
+            for i, item in enumerate(items):
+                if not isinstance(item, item_type):  # type: ignore[arg-type]
+                    raise TypeError(
+                        f"Collection requires homogeneous types: item[{i}] is "
+                        f"{type(item).__name__}, expected {item_type.__name__}"  # type: ignore[union-attr]
+                    )
+
+        self._items: list[DataObject] = list(items)
+        self._item_type: type = item_type or DataObject
 
     @property
     def item_type(self) -> type:
         """Return the element type of this Collection (immutable)."""
-        raise NotImplementedError
+        return self._item_type
 
     @property
     def length(self) -> int:
         """Return the number of items in this Collection."""
-        raise NotImplementedError
+        return len(self._items)
 
     def __iter__(self) -> Any:
-        raise NotImplementedError
+        return iter(self._items)
 
     def __len__(self) -> int:
-        raise NotImplementedError
+        return len(self._items)
 
-    def __getitem__(self, index: int) -> Any:
-        raise NotImplementedError
+    def __getitem__(self, index: int | slice) -> Any:
+        if isinstance(index, slice):
+            return [self._items[i] for i in range(*index.indices(len(self._items)))]
+        return self._items[index]
 
     def __class_getitem__(cls, item_type: type) -> Any:
-        """Enable Collection[Image] syntax for type annotations."""
-        # TODO(ADR-020): Return a parameterized alias or GenericAlias.
-        raise NotImplementedError
+        """Enable ``Collection[Image]`` syntax for type annotations."""
+        return cls
+
+    def __repr__(self) -> str:
+        return f"Collection[{self._item_type.__name__}](length={len(self._items)})"
 
     @property
     def storage_refs(self) -> list[Any]:
         """Extract StorageReference from each item."""
-        # TODO(ADR-020): Return [item.storage_ref for item in self._items]
-        raise NotImplementedError
+        return [item.storage_ref for item in self._items]
