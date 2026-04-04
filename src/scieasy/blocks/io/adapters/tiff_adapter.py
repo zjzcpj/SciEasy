@@ -7,18 +7,19 @@ from typing import Any
 
 import numpy as np
 
+from scieasy.core.storage.ref import StorageReference
 from scieasy.core.types.array import Image
 
 
 class TIFFAdapter:
     """Format adapter for TIFF / OME-TIFF image files.
 
-    Uses :mod:`tifffile` for reading/writing.  Falls back to a clear error
+    Uses tifffile for reading/writing.  Falls back to a clear error
     message if tifffile is not installed.
     """
 
     def read(self, path: str | Path, **kwargs: Any) -> Image:
-        """Read a TIFF file and return an :class:`Image`."""
+        """Read a TIFF file and return an Image."""
         tifffile = _import_tifffile()
         path = Path(path)
         data = tifffile.imread(str(path), **kwargs)
@@ -50,6 +51,10 @@ class TIFFAdapter:
         """Return the list of file extensions this adapter handles."""
         return [".tif", ".tiff"]
 
+    def create_reference(self, path: str | Path) -> StorageReference:
+        """Build a StorageReference for a TIFF file without reading data."""
+        return StorageReference(backend="filesystem", path=str(Path(path)), format="tiff")
+
 
 def _import_tifffile() -> Any:
     """Import tifffile, raising a clear error if not installed."""
@@ -59,7 +64,3 @@ def _import_tifffile() -> Any:
         return tifffile
     except ImportError as exc:
         raise ImportError("TIFFAdapter requires the 'tifffile' package. Install it with: pip install tifffile") from exc
-
-
-# TODO(ADR-020-Add2): Implement create_reference(path) -> StorageReference.
-# Build a StorageReference pointing to the file without reading its contents.

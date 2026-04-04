@@ -8,18 +8,19 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from scieasy.core.storage.ref import StorageReference
 from scieasy.core.types.dataframe import DataFrame
 
 
 class ParquetAdapter:
     """Format adapter for Apache Parquet files.
 
-    Reads Parquet into an Arrow Table wrapped in a :class:`DataFrame`.
-    Writes a :class:`DataFrame` (with ``_arrow_table``) to Parquet.
+    Reads Parquet into an Arrow Table wrapped in a DataFrame.
+    Writes a DataFrame (with _arrow_table) to Parquet.
     """
 
     def read(self, path: str | Path, **kwargs: Any) -> DataFrame:
-        """Read a Parquet file and return a :class:`DataFrame`."""
+        """Read a Parquet file and return a DataFrame."""
         path = Path(path)
         table = pq.read_table(str(path), **kwargs)
         df = DataFrame(
@@ -50,6 +51,6 @@ class ParquetAdapter:
         """Return the list of file extensions this adapter handles."""
         return [".parquet", ".pq"]
 
-
-# TODO(ADR-020-Add2): Implement create_reference(path) -> StorageReference.
-# Build a StorageReference pointing to the file without reading its contents.
+    def create_reference(self, path: str | Path) -> StorageReference:
+        """Build a StorageReference for a Parquet file without reading data."""
+        return StorageReference(backend="arrow", path=str(Path(path)), format="parquet")
