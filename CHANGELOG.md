@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- [#87] Phase 5.0c: IOBlock lazy Collection + adapter create_reference (ADR-020-Add2) -- FormatAdapter.create_reference() protocol, lazy StorageReference construction in IOBlock, Collection support in FileExchangeBridge.prepare(), ZarrAdapter scaffold (@claude, 2026-04-04, branch: feat/issue-87/ioblock-lazy-collection, session: 20260404-041549-phase-5-0c-ioblock-lazy-collection-adapt)
 - [#83] Phase 5.0a: Collection class + Block base utilities — ADR-020 Collection transport, pack/unpack/map_items/parallel_map, ProcessBlock Tier 1 process_item, port Collection transparency (@claude, 2026-04-04, branch: feat/issue-83/collection-block-utilities, session: 20260404-040318-phase-5-0a-collection-class-block-base-u)
 - [#74] ADR-017-022 backbone scaffolding — TODO-annotated code stubs for subprocess isolation, event-driven scheduler, ProcessHandle, Collection transport, Collection operation blocks, psutil memory monitoring (@claude, 2026-04-04, branch: refactor/issue-74/adr-017-022-backbone, session: 20260404-024138-adr-017-022-backbone-scaffolding)
 - [#42] Wave 3 tests: import coverage for Phase 5+ modules and extended block tests (@claude, 2026-04-03, branch: test/issue-42/wave3-import-coverage, session: 20260403-192429-wave-3-tests-import-coverage-and-extende)
