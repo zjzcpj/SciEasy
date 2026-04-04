@@ -6,52 +6,138 @@ Uses spawn_block_process() as the single subprocess creation entry point.
 
 from __future__ import annotations
 
+import json
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class LocalRunner:
     """Execute blocks as local subprocesses.
 
-    TODO(ADR-017): Implement using spawn_block_process().
-
     Implements the BlockRunner protocol (engine/runners/base.py).
 
     Methods:
-        async run(block, inputs, config) -> RunHandle
+        async run(block, inputs, config) -> dict[str, Any]
             - Calls spawn_block_process() to create isolated subprocess.
-            - Returns RunHandle with run_id, ProcessHandle, and asyncio.Future.
-            - Future resolves when subprocess exits with output refs.
+            - Waits for subprocess to complete.
+            - Returns parsed JSON output from subprocess stdout.
 
-        async check_status(run_id) -> BlockState
+        async check_status(run_id) -> str
             - Queries ProcessHandle.is_alive() for the given run_id.
-            - Returns RUNNING if alive, DONE/ERROR based on exit info.
+            - Returns "running" if alive, "completed" otherwise.
 
         async cancel(run_id) -> None
-            - Calls ProcessHandle.terminate(grace_period_sec) for the given run_id.
+            - Calls ProcessHandle.terminate() for the given run_id.
     """
+
+    def __init__(self, event_bus: Any | None = None, registry: Any | None = None) -> None:
+        self._event_bus = event_bus
+        self._registry = registry
 
     async def run(
         self,
         block: Any,
         inputs: dict[str, Any],
         config: dict[str, Any],
-    ) -> Any:
+    ) -> dict[str, Any]:
         """Execute *block* in an isolated subprocess.
 
-        TODO(ADR-017): Return RunHandle (not dict[str, Any]).
-        """
-        raise NotImplementedError
+        Delegates to spawn_block_process() and waits for the subprocess
+        to complete. Returns the parsed JSON output from the worker.
 
-    async def check_status(self, run_id: str) -> Any:
+        Parameters
+        ----------
+        block:
+            The block instance to run. Its class path is resolved for
+            serialization to the worker subprocess.
+        inputs:
+            Mapping of port names to input data references.
+        config:
+            Execution-time configuration for this invocation.
+
+        Returns
+        -------
+        dict[str, Any]
+            Parsed JSON result from the subprocess worker.
+        """
+        from scieasy.engine.runners.process_handle import spawn_block_process
+
+        block_class_path = f"{block.__class__.__module__}.{block.__class__.__qualname__}"
+
+        handle = spawn_block_process(
+            block_class=block_class_path,
+            inputs_refs=inputs,
+            config=config,
+            event_bus=self._event_bus,
+            registry=self._registry,
+        )
+
+        # Wait for subprocess to complete by reading stdout.
+        # communicate() waits for the process to finish and returns
+        # (stdout, stderr) as bytes.
+        popen = handle._popen
+        if popen is None:
+            return {"error": "No subprocess handle available"}
+
+        stdout, stderr = popen.communicate()
+
+        if popen.returncode != 0:
+            error_msg = stderr.decode(errors="replace") if stderr else "unknown error"
+            logger.error(
+                "Block subprocess %s exited with code %d: %s",
+                block_class_path,
+                popen.returncode,
+                error_msg,
+            )
+            # Try to parse stdout for structured error from worker
+            if stdout:
+                try:
+                    return json.loads(stdout.decode())
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    pass
+            return {"error": error_msg}
+
+        if stdout:
+            try:
+                return json.loads(stdout.decode())
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                return {"error": f"Failed to parse worker output: {exc}"}
+
+        return {}
+
+    async def check_status(self, run_id: str) -> str:
         """Query the current status of a previously started run.
 
-        TODO(ADR-017): Query ProcessHandle.is_alive() from ProcessRegistry.
+        Parameters
+        ----------
+        run_id:
+            Block ID / opaque identifier returned when the run was initiated.
+
+        Returns
+        -------
+        str
+            "running", "completed", or "unknown".
         """
-        raise NotImplementedError
+        if self._registry is None:
+            return "unknown"
+        handle = self._registry.get_handle(run_id)
+        if handle is None:
+            return "unknown"
+        alive = handle.is_alive()
+        return "running" if alive else "completed"
 
     async def cancel(self, run_id: str) -> None:
         """Request cancellation of a running execution.
 
-        TODO(ADR-017): Call ProcessHandle.terminate() from ProcessRegistry.
+        Parameters
+        ----------
+        run_id:
+            Block ID / opaque identifier of the run to cancel.
         """
-        raise NotImplementedError
+        if self._registry is None:
+            return
+        handle = self._registry.get_handle(run_id)
+        if handle is not None:
+            handle.terminate()

@@ -13,9 +13,9 @@ class BlockRunner(Protocol):
     reporting its status, and supporting cancellation.
     """
 
-    # TODO(ADR-017, ADR-018): run() return type should be RunHandle
-    # (dataclass with run_id, process_handle, result: asyncio.Future),
-    # not dict[str, Any]. RunHandle defined in engine/scheduler.py.
+    # NOTE(ADR-017, ADR-018): run() currently returns dict[str, Any].
+    # Future evolution: return RunHandle (dataclass with run_id,
+    # process_handle, result: asyncio.Future) defined in engine/scheduler.py.
     async def run(
         self,
         block: Any,
@@ -37,6 +37,8 @@ class BlockRunner(Protocol):
         -------
         dict[str, Any]
             Mapping of output port names to result data references.
+            In the future this may evolve to a RunHandle containing
+            a process_handle and an asyncio.Future for the result.
         """
         ...
 
