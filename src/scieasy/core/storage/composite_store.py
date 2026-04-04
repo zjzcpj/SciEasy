@@ -110,15 +110,39 @@ class CompositeStore:
 
         *args* should be slot names to select.
         """
-        all_data = self.read(ref)
-        if not args:
-            return all_data
-        return {k: v for k, v in all_data.items() if k in args}
+        base = Path(ref.path)
+        manifest_path = base / self._MANIFEST_NAME
+        manifest: dict[str, Any] = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+        requested = set(args) if args else set(manifest["slots"].keys())
+        result: dict[str, Any] = {}
+        for slot_name in requested:
+            slot_info = manifest["slots"].get(slot_name)
+            if slot_info is None:
+                continue
+            backend = self._get_backend_for(slot_info["backend"])
+            slot_ref = StorageReference(
+                backend=slot_info["backend"],
+                path=slot_info["path"],
+                format=slot_info.get("format"),
+            )
+            result[slot_name] = backend.read(slot_ref)
+        return result
 
     def iter_chunks(self, ref: StorageReference, chunk_size: int) -> Iterator[Any]:
         """Yield slots one at a time from the composite at *ref*."""
-        all_data = self.read(ref)
-        yield from all_data.items()
+        base = Path(ref.path)
+        manifest_path = base / self._MANIFEST_NAME
+        manifest: dict[str, Any] = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+        for slot_name, slot_info in manifest["slots"].items():
+            backend = self._get_backend_for(slot_info["backend"])
+            slot_ref = StorageReference(
+                backend=slot_info["backend"],
+                path=slot_info["path"],
+                format=slot_info.get("format"),
+            )
+            yield slot_name, backend.read(slot_ref)
 
     def get_metadata(self, ref: StorageReference) -> dict[str, Any]:
         """Return metadata for the composite directory at *ref*."""
