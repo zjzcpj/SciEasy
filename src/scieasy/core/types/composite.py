@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 from scieasy.core.types.array import Array
+from scieasy.core.types.artifact import Artifact
 from scieasy.core.types.base import DataObject
 from scieasy.core.types.dataframe import DataFrame
 
@@ -28,7 +29,10 @@ class CompositeData(DataObject):
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
-        self._slots: dict[str, DataObject] = slots or {}
+        self._slots: dict[str, DataObject] = {}
+        if slots:
+            for name, obj in slots.items():
+                self.set(name, obj)
 
     def get(self, slot_name: str) -> DataObject:
         """Retrieve the :class:`DataObject` stored in *slot_name*."""
@@ -62,9 +66,7 @@ class AnnData(CompositeData):
         "X": Array,
         "obs": DataFrame,
         "var": DataFrame,
-        # Artifact is imported lazily to avoid a heavier import at class-definition
-        # time; the string key is sufficient for Phase 1.
-        "uns": DataObject,
+        "uns": Artifact,
     }
 
 

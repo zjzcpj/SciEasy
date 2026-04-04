@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from scieasy.core.types.array import Array, Image
+from scieasy.core.types.artifact import Artifact
 from scieasy.core.types.base import DataObject
 from scieasy.core.types.composite import AnnData, CompositeData, SpatialData
 from scieasy.core.types.dataframe import DataFrame
@@ -135,3 +136,33 @@ class TestNestedComposites:
         assert sig.type_chain == ["DataObject", "CompositeData", "SpatialData"]
         assert sig.slot_schema is not None
         assert sig.slot_schema["table"] == "AnnData"
+
+
+class TestCompositeInitValidation:
+    """Verify constructor validates slots against expected_slots."""
+
+    def test_init_with_invalid_slot_type_raises(self) -> None:
+        wrong = DataFrame(columns=["a"])
+        with pytest.raises(TypeError, match="expects Array"):
+            AnnData(slots={"X": wrong})
+
+    def test_init_with_valid_slots_succeeds(self) -> None:
+        x = Array(shape=(10, 5), dtype="float64")
+        obs = DataFrame(columns=["cell"], row_count=10)
+        ad = AnnData(slots={"X": x, "obs": obs})
+        assert ad.get("X") is x
+        assert ad.get("obs") is obs
+
+
+class TestAnnDataUnsType:
+    """Verify AnnData uns slot expects Artifact."""
+
+    def test_uns_expected_type_is_artifact(self) -> None:
+        ad = AnnData()
+        assert ad.slot_types()["uns"] is Artifact
+
+    def test_uns_rejects_dataframe(self) -> None:
+        ad = AnnData()
+        df = DataFrame(columns=["a"])
+        with pytest.raises(TypeError):
+            ad.set("uns", df)
