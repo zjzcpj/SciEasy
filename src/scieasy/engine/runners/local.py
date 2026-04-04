@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from scieasy.engine.runners.process_handle import ProcessRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +35,7 @@ class LocalRunner:
             - Calls ProcessHandle.terminate() for the given run_id.
     """
 
-    def __init__(self, event_bus: Any | None = None, registry: Any | None = None) -> None:
+    def __init__(self, event_bus: Any | None = None, registry: ProcessRegistry | None = None) -> None:
         self._event_bus = event_bus
         self._registry = registry
 
@@ -94,14 +97,14 @@ class LocalRunner:
             # Try to parse stdout for structured error from worker
             if stdout:
                 try:
-                    return json.loads(stdout.decode())
+                    return dict(json.loads(stdout.decode()))
                 except (json.JSONDecodeError, UnicodeDecodeError):
                     pass
             return {"error": error_msg}
 
         if stdout:
             try:
-                return json.loads(stdout.decode())
+                return dict(json.loads(stdout.decode()))
             except (json.JSONDecodeError, UnicodeDecodeError) as exc:
                 return {"error": f"Failed to parse worker output: {exc}"}
 
