@@ -100,6 +100,47 @@ class TestDataObjectToMemory:
             obj.to_memory()
 
 
+class TestDataObjectSave:
+    """DataObject.save — persist to path via BackendRouter."""
+
+    def test_save_array_round_trip(self, tmp_path: Path) -> None:
+        """Save an Array that already has a storage_ref to a new path."""
+        arr_data = np.array([[1.0, 2.0], [3.0, 4.0]])
+        backend = ZarrBackend()
+        original_path = str(tmp_path / "original.zarr")
+        ref = StorageReference(backend="zarr", path=original_path)
+        ref = backend.write(arr_data, ref)
+
+        obj = Array(shape=(2, 2), ndim=2, dtype="float64", storage_ref=ref)
+        new_path = str(tmp_path / "saved.zarr")
+        obj.save(new_path)
+
+        # storage_ref should now point to new path
+        assert obj.storage_ref is not None
+        assert "saved.zarr" in obj.storage_ref.path
+
+        # Data should be intact at new location
+        result = obj.to_memory()
+        np.testing.assert_array_equal(result, arr_data)
+
+    def test_save_updates_storage_ref(self, tmp_path: Path) -> None:
+        arr_data = np.array([10.0, 20.0])
+        backend = ZarrBackend()
+        ref = StorageReference(backend="zarr", path=str(tmp_path / "src.zarr"))
+        ref = backend.write(arr_data, ref)
+
+        obj = Array(shape=(2,), ndim=1, dtype="float64", storage_ref=ref)
+        old_ref = obj.storage_ref
+        obj.save(str(tmp_path / "dst.zarr"))
+        assert obj.storage_ref is not old_ref
+        assert obj.storage_ref.backend == "zarr"
+
+    def test_save_without_ref_raises(self) -> None:
+        obj = Array(shape=(5,), ndim=1, dtype="float32")
+        with pytest.raises(ValueError, match="without a storage_ref"):
+            obj.save("/tmp/should_fail.zarr")
+
+
 class TestTypeAttributes:
     """Type attribute storage on concrete DataObject subclasses."""
 

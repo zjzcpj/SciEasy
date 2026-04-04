@@ -137,5 +137,33 @@ class DataObject:
         return self.view().to_memory()
 
     def save(self, path: str | Path) -> None:
-        """Persist the data object to *path*."""
-        raise NotImplementedError
+        """Persist the data object to *path* using the appropriate backend.
+
+        Uses :class:`BackendRouter` to select the correct storage backend
+        based on this object's type.  The object must have a
+        ``storage_ref`` (i.e. data must already be persisted somewhere)
+        so that it can be loaded and re-written to the new location.
+
+        After writing, ``self.storage_ref`` is updated to point to the
+        new location.
+
+        Raises
+        ------
+        ValueError
+            If the object has no ``storage_ref`` and no overridden save logic.
+        """
+        from scieasy.core.storage.router import BackendRouter
+
+        if self._storage_ref is None:
+            raise ValueError(
+                "Cannot save a DataObject without a storage_ref. The object must be persisted to storage first."
+            )
+
+        router = BackendRouter()
+        backend = router.get_backend(self)
+        backend_name = router.get_backend_name(self)
+
+        data = self.to_memory()
+        ref = StorageReference(backend=backend_name, path=str(path))
+        result_ref = backend.write(data, ref)
+        self._storage_ref = result_ref

@@ -2061,7 +2061,14 @@ my_project/
 │   ├── raw/                  # Original uploaded files (read-only after import)
 │   ├── zarr/                 # Zarr stores for Array-type data
 │   ├── parquet/              # Parquet files for DataFrame-type data
-│   └── artifacts/            # PDFs, reports, images, other files
+│   ├── artifacts/            # PDFs, reports, images, other files
+│   └── runs/                 # Per-run intermediate outputs (ADR-020-Add5)
+│       └── run_20260404_143000/
+│           ├── cellpose_001/ # _auto_flush outputs for this block
+│           │   ├── data.zarr
+│           │   └── ...
+│           └── raman_smooth_001/
+│               └── data.parquet
 ├── blocks/                   # ← Tier 1 drop-in: .py files auto-discovered
 │   ├── raman_denoise.py      #   project-local blocks
 │   └── custom_merge.py
