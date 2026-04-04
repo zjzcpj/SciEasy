@@ -1231,38 +1231,71 @@ A single image is `Collection[Image]` with length=1. 100 images is `Collection[I
 
 **Port compatibility**: `Collection` is transparent to the port system. A port declaring `accepted_types=[Image]` accepts `Collection[Image]` of any length. The port system checks the Collection's `item_type` against `accepted_types`, not the Collection wrapper itself.
 
-**Block-internal iteration**: blocks decide how to process their input Collection. The `Block` base class provides utility methods:
+**Block-internal iteration and memory safety** (ADR-020 Addendum 5): blocks decide how to process their input Collection. The framework provides a three-tier interface with automatic memory management:
+
+**Tier 1 — `process_item()` (80% of blocks, zero memory management):**
+
+```python
+class ProcessBlock(Block):
+    def process_item(self, item: DataObject, config: BlockConfig) -> DataObject:
+        """Override this. Framework handles iteration, flush, and packing."""
+        raise NotImplementedError
+
+    def run(self, inputs, config):
+        """Default: iterate primary input, auto-flush each result to storage."""
+        primary = list(inputs.values())[0]
+        refs = []
+        for item in primary:
+            result = self.process_item(item, config)
+            result = _auto_flush(result)     # write to storage, return lightweight ref
+            refs.append(result)              # ~KB ref only
+        return {self.output_ports[0].name: Collection(refs)}
+```
+
+Peak memory: 1 input item + 1 output item, constant regardless of Collection size.
+
+**Tier 2 — `run()` + framework utilities (15% of blocks, automatic safety):**
 
 ```python
 class Block(ABC):
-    # --- Pack / unpack ---
+    # --- Pack / unpack (Addendum 1: unpack returns DataObject, not ViewProxy) ---
     @staticmethod
-    def pack(items: list[DataObject]) -> Collection: ...
+    def pack(items: list[DataObject]) -> Collection:
+        """Auto-flushes each item to storage if no StorageReference."""
     @staticmethod
     def unpack(collection: Collection) -> list[DataObject]: ...
     @staticmethod
     def unpack_single(collection: Collection) -> DataObject: ...
 
-    # --- Iteration helpers (execute inside the block's subprocess) ---
+    # --- Iteration helpers (auto-flush after each item) ---
     @staticmethod
     def map_items(func, collection: Collection) -> Collection:
-        """Apply func to each item sequentially."""
+        """Apply func to each item sequentially. Auto-flushes each result."""
     @staticmethod
     def parallel_map(func, collection: Collection, max_workers=4) -> Collection:
-        """Apply func to each item using a process pool."""
+        """Apply func to each item using a process pool. Auto-flushes each result.
+        Warning: loads max_workers items concurrently — use map_items for large items."""
 ```
+
+`map_items` and `parallel_map` auto-flush each result to storage internally. `pack()` auto-flushes any remaining in-memory items as a safety net. Block authors using these utilities get memory safety without explicit flush calls.
+
+**Tier 3 — `run()` + manual loop (5% of blocks, pack() safety net):**
+
+Block authors who write manual loops accumulate results in memory. `pack()` flushes when called, but cannot prevent peak memory during the loop. This is the least optimal path but still has the safety net.
+
+**`_auto_flush` mechanism**: any DataObject without a `StorageReference` is written to the output storage directory and replaced with a lightweight reference (~KB). This is called internally by `map_items`, `parallel_map`, `pack`, and the `process_item` default `run()`. The subprocess worker (`worker.py`) also performs a final force-write scan after `block.run()` returns, catching any items that bypassed framework utilities.
 
 **Example block patterns:**
 
-| Pattern | Block example | Code |
-|---|---|---|
-| Parallel per-item | Cellpose segmentation | `return {"masks": self.parallel_map(segment, inputs["images"], max_workers=4)}` |
-| Serial per-item | napari review | `for mask in self.unpack(inputs["masks"]): reviewed.append(review(mask))` |
-| Whole-collection | ElMAVEN peak picking | `bridge.prepare_all(inputs["data"], exchange_dir)` — no unpack, one window |
-| Single-item operation | Cross-modal merge | `metab = self.unpack_single(inputs["metabolites"])` |
-| Simple transform | Savitzky-Golay smooth | `return {"smoothed": self.map_items(smooth_fn, inputs["spectra"])}` |
+| Tier | Pattern | Block example | Code | Peak memory |
+|---|---|---|---|---|
+| 1 | Simple per-item | Savitzky-Golay smooth | `process_item(self, item, config): return smooth(item.view().to_memory())` | O(1 item) |
+| 2 | Parallel per-item | Cellpose segmentation | `return {"masks": self.parallel_map(segment, inputs["images"], max_workers=4)}` | O(workers × item) |
+| 2 | Serial per-item | napari review | `for mask in self.unpack(inputs["masks"]): ...` + `self.pack(results)` | O(N items) at pack, then flushed |
+| 2 | Whole-collection | ElMAVEN peak picking | `bridge.prepare(inputs["data"], exchange_dir)` — bridge iterates and writes files one at a time | O(1 item) |
+| 2 | Single-item operation | Cross-modal merge | `metab = self.unpack_single(inputs["metabolites"])` | O(1 item) |
 
-**CodeBlock auto-unpack**: CodeBlock transparently converts Collections for user scripts. `Collection` length=1 → single native object (numpy array, pandas DataFrame). `Collection` length>1 → list of native objects. User scripts never see a `Collection` object.
+**CodeBlock auto-unpack** (ADR-020 Addendum 4): CodeBlock transparently converts Collections for user scripts. `Collection` length=1 → single native object (numpy array, pandas DataFrame). `Collection` length>1 → `LazyList` that loads items on demand during iteration. User scripts never see a `Collection` object. `LazyList` ensures memory stays bounded during `for x in input_0:` loops — each iteration loads one item, previous items are eligible for GC.
 
 **Collection operation blocks** (ADR-021): the framework provides built-in utility blocks for combining, splitting, filtering, and slicing Collections. For example, `MergeCollection` concatenates two same-typed Collections — useful when merging two batches of data before passing to ElMAVEN.
 
@@ -1473,7 +1506,9 @@ class RobustCellpose(ProcessBlock):
         return {"masks": self.pack([r for r in results if r is not None])}
 ```
 
-If a block's subprocess crashes (segfault, OOM), all items in the Collection are lost — the same behaviour as interrupting a Jupyter notebook cell. Blocks that need partial result preservation can write to storage incrementally.
+If a block's subprocess crashes (segfault, OOM), all items in the Collection are lost — the same behaviour as interrupting a Jupyter notebook cell. However, the engine process is unaffected (ADR-017): `ProcessMonitor` detects the crash, the block transitions to `ERROR`, downstream blocks are `SKIPPED`, and the user can resume from the last checkpoint.
+
+Blocks using Tier 1 (`process_item`) get partial result preservation automatically — each processed item is flushed to storage before the next item begins. A crash on item 47 preserves items 1–46 in storage. Blocks using Tier 2/3 can achieve the same by calling `_auto_flush` or `flush_to_storage` after each item.
 
 ### 6.7 Environment snapshots for reproducibility
 

@@ -79,6 +79,8 @@ scieasy/                               # ← repo root
 │       │   │   │                       #   executes in subprocess, not engine process (ADR-017).
 │       │   │   │                       #   Utilities: pack(), unpack(), map_items(),
 │       │   │   │                       #   parallel_map() for Collection handling (ADR-020).
+│       │   │   │                       #   process_item() convenience method + _auto_flush()
+│       │   │   │                       #   for memory-safe per-item processing (ADR-020 Addendum 5).
 │       │   │   ├── ports.py            # Port, InputPort, OutputPort
 │       │   │   │                       #   Type matching + optional constraint function
 │       │   │   ├── config.py           # BlockConfig: validated param container (Pydantic)
@@ -90,9 +92,12 @@ scieasy/                               # ← repo root
 │       │   ├── io/                     # IOBlock — data ingress / egress
 │       │   │   ├── __init__.py
 │       │   │   ├── io_block.py         # IOBlock: direction="input"|"output", format dispatch
+│       │   │   │                       #   Lazy Collection construction: creates StorageReference
+│       │   │   │                       #   per file, no eager data read (ADR-020 Addendum 2)
 │       │   │   ├── adapters/           # Pluggable format adapters
 │       │   │   │   ├── __init__.py
 │       │   │   │   ├── base.py         # FormatAdapter protocol (read → DataObject, write → file)
+│       │   │   │   │                   #   + create_reference(path) for lazy loading (ADR-020 Addendum 2)
 │       │   │   │   ├── csv_adapter.py
 │       │   │   │   ├── tiff_adapter.py
 │       │   │   │   ├── zarr_adapter.py
@@ -106,6 +111,8 @@ scieasy/                               # ← repo root
 │       │   ├── process/                # ProcessBlock — data transformation
 │       │   │   ├── __init__.py
 │       │   │   ├── process_block.py    # ProcessBlock base (algorithm, params)
+│       │   │   │                       #   Default run() iterates via process_item() + auto-flush
+│       │   │   │                       #   (ADR-020 Addendum 5 Tier 1)
 │       │   │   ├── builtins/           # Built-in process blocks shipped with framework
 │       │   │   │   ├── __init__.py
 │       │   │   │   ├── merge.py        # Merge / join / concatenate multi-input
@@ -122,6 +129,11 @@ scieasy/                               # ← repo root
 │       │   │   ├── __init__.py
 │       │   │   ├── code_block.py       # CodeBlock: inline mode + script mode
 │       │   │   │                       #   Dispatches to CodeRunner by language
+│       │   │   │                       #   Auto-unpack: Collection → native objects / LazyList
+│       │   │   │                       #   Auto-repack: native objects → Collection (ADR-020 Addendum 4)
+│       │   │   ├── lazy_list.py        # LazyList: looks like list, loads items on demand from
+│       │   │   │                       #   Collection via ViewProxy. Memory-safe iteration for
+│       │   │   │                       #   user scripts (ADR-020 Addendum 4)
 │       │   │   ├── runners/            # Language-specific execution environments
 │       │   │   │   ├── __init__.py
 │       │   │   │   ├── base.py         # CodeRunner protocol (execute_inline, execute_script)
@@ -136,6 +148,8 @@ scieasy/                               # ← repo root
 │       │   │   ├── __init__.py
 │       │   │   ├── app_block.py        # AppBlock: launch → pause → watch → resume
 │       │   │   ├── bridge.py           # ExternalAppBridge protocol (serialise, launch, watch)
+│       │   │   │                       #   prepare() iterates Collection, writes files one at a
+│       │   │   │                       #   time for memory safety (ADR-020 Addendum 5)
 │       │   │   └── watcher.py          # File watcher (polling) for output detection
 │       │   │                           #   + process death detection via ProcessHandle (ADR-019)
 │       │   │
@@ -354,12 +368,25 @@ scieasy/                               # ← repo root
 ├── tests/
 │   ├── conftest.py                     # Shared fixtures: sample data, temp project workspace
 │   │
+│   ├── architecture/                   # Structural enforcement tests (Phase 2)
+│   │   ├── test_layer_deps.py          # Layer import direction: core→blocks→engine→api
+│   │   ├── test_type_system.py         # DataObject hierarchy, axes, expected_slots,
+│   │   │                               #   Collection is NOT DataObject (ADR-020)
+│   │   ├── test_block_system.py        # Block category inheritance, run() signature
+│   │   │                               #   matches dict[str, Collection] (ADR-020),
+│   │   │                               #   process_item() signature (ADR-020 Addendum 5),
+│   │   │                               #   Collection utilities exist on Block base class
+│   │   ├── test_registries.py          # BlockSpec/TypeSpec storage, entry_points valid
+│   │   └── test_placement.py           # Module docstrings, file placement conventions
+│   │
 │   ├── core/
 │   │   ├── test_types.py              # DataObject hierarchy, TypeSignature, inheritance matching
 │   │   ├── test_composite.py          # CompositeData slot access, nested composites
 │   │   ├── test_storage.py            # Zarr/Arrow/filesystem read/write round-trips
 │   │   ├── test_proxy.py              # ViewProxy: lazy loading, slice, iter_chunks
-│   │   └── test_lineage.py            # LineageRecord creation, SQLite store, graph queries
+│   │   ├── test_lineage.py            # LineageRecord creation, SQLite store, graph queries
+│   │   └── test_collection.py         # Collection construction, homogeneity, pack/unpack,
+│   │                                   #   auto-flush in pack/map_items (ADR-020)
 │   │
 │   ├── blocks/
 │   │   ├── test_ports.py              # Port type matching, constraint validation
@@ -369,12 +396,12 @@ scieasy/                               # ← repo root
 │   │   ├── test_app_block.py          # Mock external app lifecycle (launch → watch → resume)
 │   │   ├── test_ai_block.py           # Mock LLM responses, structured output parsing
 │   │   ├── test_subworkflow.py        # Nested workflow execution, input/output mapping
-│   │   └── test_registry.py           # Block discovery via entry_points
+│   │   ├── test_registry.py           # Block discovery via entry_points
+│   │   └── test_lazy_list.py          # LazyList iteration, indexing, len, GC (ADR-020 Addendum 4)
 │   │
 │   ├── engine/
 │   │   ├── test_dag.py                # DAG construction, topological sort, cycle detection
 │   │   ├── test_scheduler.py          # Event-driven execution, cancel propagation, SKIPPED
-│   │   ├── test_collection.py         # Collection construction, homogeneity, pack/unpack (ADR-020)
 │   │   ├── test_resources.py          # ResourceManager acquire/release, auto-release via EventBus
 │   │   ├── test_checkpoint.py         # Serialise/restore with CANCELLED/SKIPPED states
 │   │   ├── test_process_handle.py     # ProcessHandle terminate/kill, platform ops (ADR-019)
@@ -507,13 +534,13 @@ julia = "scieasy.blocks.code.runners.julia_runner:JuliaRunner"
 | Directory | Python files | Purpose |
 |---|---|---|
 | `core/` | 15 | Data types, Collection transport, storage, proxy, lineage |
-| `blocks/` | 29 | All block categories, adapters, runners, registry (process_mgr.py deleted per ADR-019) |
+| `blocks/` | 30 | All block categories, adapters, runners, registry, lazy_list (process_mgr.py deleted per ADR-019, lazy_list.py added per ADR-020) |
 | `engine/` | 10 | Scheduler, resources, checkpoint, events, runners (worker, process_handle, process_monitor, platform) |
 | `ai/` | 6 | Generation, synthesis, optimization |
 | `api/` | 9 | FastAPI routes, WebSocket, SSE |
 | `workflow/` | 4 | Definition, serialization, validation, layout |
 | `utils/` | 3 | Hashing, wrapping, logging |
 | `cli/` | 1 | CLI entry point |
-| **Total backend** | **~77** | |
+| **Total backend** | **~78** | |
 | `frontend/src/` | ~25 `.tsx/.ts` | React components, hooks, stores, API client |
-| `tests/` | ~22 | Unit + integration tests |
+| `tests/` | ~30 | Architecture enforcement, unit, and integration tests |

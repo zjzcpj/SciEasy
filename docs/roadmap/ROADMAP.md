@@ -195,13 +195,16 @@ Claude can `from scieasy.blocks.base import Block` and get full type hints + aut
   - Every `Array` subclass declares `axes` (not None)
   - Every `CompositeData` subclass declares `expected_slots`
   - `TypeSignature` correctly encodes inheritance chain for all registered types
+  - `Collection` is NOT a `DataObject` subclass (ADR-020: transport wrapper, not data type)
 
 ### 2.3 Block system structural tests
 
 - [ ] `tests/architecture/test_block_system.py`:
   - Every class in `blocks/*/` inherits from exactly one of: IOBlock, ProcessBlock, CodeBlock, AppBlock, AIBlock, SubWorkflowBlock
   - Every block declares at least one output port
-  - Every block's `run()` signature matches `(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, Collection]` (ADR-020)
+  - `Block.run()` signature: `inputs` annotated as `dict[str, Collection]`, `config` annotated as `BlockConfig`, return annotated as `dict[str, Collection]` (ADR-020)
+  - `ProcessBlock.process_item()` signature: `item` annotated as `DataObject`, `config` annotated as `BlockConfig`, return annotated as `DataObject` (ADR-020 Addendum 5)
+  - Block base class exposes Collection utilities: `pack`, `unpack`, `unpack_single`, `map_items`, `parallel_map`, `_auto_flush` (ADR-020)
   - No block at module level calls `to_memory()` (import-time side effect check)
 
 ### 2.4 Registry structural tests
@@ -382,6 +385,25 @@ assert isinstance(result["smoothed"], Spectrum)
 
 **Goal**: multi-block workflows execute as DAGs with Collection-based data transport (ADR-020), subprocess isolation (ADR-017), cancellation support (ADR-018), and cross-platform process lifecycle management (ADR-019).
 
+### 5.0 Collection infrastructure and block refactor (ADR-020 Addendum)
+
+- [ ] Implement `core/types/collection.py` — Collection class with homogeneity enforcement
+- [ ] Implement `_auto_flush()` in Block base — write in-memory DataObject to storage, return lightweight ref
+- [ ] Implement `process_item()` in Block base — convenience method, raises NotImplementedError
+- [ ] Implement default `run()` in ProcessBlock — iterate primary input via `process_item()` + auto-flush (Tier 1)
+- [ ] Modify `map_items()` — auto-flush each result after `func(item)` (Tier 2)
+- [ ] Modify `parallel_map()` — auto-flush each result; add memory warning in docstring (Addendum 3)
+- [ ] Modify `pack()` — auto-flush items without StorageReference as safety net (Tier 3)
+- [ ] Implement `blocks/code/lazy_list.py` — LazyList for CodeBlock auto-unpack of length > 1 (Addendum 4)
+- [ ] Modify CodeBlock auto-unpack — length=1 → single native object; length>1 → LazyList (Addendum 4)
+- [ ] Modify CodeBlock auto-repack — size-threshold warning for large outputs
+- [ ] Modify IOBlock — lazy Collection construction: create StorageReference per file, no eager read (Addendum 2)
+- [ ] Add `FormatAdapter.create_reference(path) -> StorageReference` to adapter protocol (Addendum 2)
+- [ ] Implement `create_reference()` in each adapter (CSV, TIFF, Parquet, Zarr, generic)
+- [ ] Modify `FileExchangeBridge.prepare()` — iterate Collection, write files one at a time (Addendum 5)
+- [ ] Modify `worker.py` — initialise output storage dir; post-run force-write scan for items without StorageReference (Addendum 5)
+- [ ] Verify `core/storage/base.py` `StorageBackend.write()` handles raw in-memory DataObject (not just ViewProxy-backed objects) for _auto_flush support
+
 ### 5.1 DAG construction + scheduling
 
 - [ ] Implement `build_dag()` from `WorkflowDefinition`
@@ -440,7 +462,8 @@ assert isinstance(result["smoothed"], Spectrum)
 - [ ] `tests/engine/test_events.py` — EventBus emit/subscribe, error isolation between subscribers
 - [ ] `tests/engine/test_resources.py` — GPU slot exhaustion, auto-release on block terminal events
 - [ ] `tests/engine/test_checkpoint.py` — pause → serialise (with CANCELLED/SKIPPED states) → resume → correct result
-- [ ] `tests/core/test_collection.py` — Collection construction, homogeneity enforcement, pack/unpack round-trip
+- [ ] `tests/core/test_collection.py` — Collection construction, homogeneity enforcement, pack/unpack round-trip, auto-flush in pack/map_items
+- [ ] `tests/blocks/test_lazy_list.py` — LazyList iteration (memory bounded), indexing, len (no load), GC behaviour
 - [ ] `tests/integration/test_multimodal_workflow.py` — the Appendix A scenario with Collection transport (load → process → merge → export)
 - [ ] `tests/integration/test_cancel_scenario.py` — cancel Cellpose → napari/SRS SKIPPED → Raman continues
 
