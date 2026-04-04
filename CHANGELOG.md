@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- [#91] Phase 5.3: ResourceManager with psutil watermark — ADR-022 OS-level memory monitoring, ADR-018 EventBus auto-release, GPU/CPU slot counting, 32 tests (@claude, 2026-04-04, branch: feat/issue-91/resource-management, session: 20260404-042212-phase-5-3-resource-management-adr-022)
 - [#85] Phase 5.5: EventBus publish/subscribe dispatcher — ADR-018 runtime backbone with sync/async callback support, error isolation, 12 tests (@claude, 2026-04-04, branch: feat/issue-85/event-bus, session: 20260404-041317-phase-5-5-event-bus-implementation-adr-0)
 - [#83] Phase 5.0a: Collection class + Block base utilities — ADR-020 Collection transport, pack/unpack/map_items/parallel_map, ProcessBlock Tier 1 process_item, port Collection transparency (@claude, 2026-04-04, branch: feat/issue-83/collection-block-utilities, session: 20260404-040318-phase-5-0a-collection-class-block-base-u)
 - [#74] ADR-017-022 backbone scaffolding — TODO-annotated code stubs for subprocess isolation, event-driven scheduler, ProcessHandle, Collection transport, Collection operation blocks, psutil memory monitoring (@claude, 2026-04-04, branch: refactor/issue-74/adr-017-022-backbone, session: 20260404-024138-adr-017-022-backbone-scaffolding)
