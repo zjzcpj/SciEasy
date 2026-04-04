@@ -18,7 +18,7 @@ class TestLineageStoreClose:
     """LineageStore.close — resource cleanup."""
 
     def test_close_then_query_raises(self) -> None:
-        store = LineageStore()
+        store = LineageStore(":memory:")
         store.close()
         with pytest.raises(sqlite3.ProgrammingError):
             store.query()
@@ -48,7 +48,7 @@ class TestLineageStoreClose:
     # ADR-020: test_write_with_batch_info removed — batch_info field deleted.
     # ADR-018: TODO: Add test for termination, partial_output_refs, termination_detail.
     def test_write_with_termination_fields(self) -> None:
-        store = LineageStore()
+        store = LineageStore(":memory:")
         record = LineageRecord(
             block_id="b1",
             block_version="1.0",
