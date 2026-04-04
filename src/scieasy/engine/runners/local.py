@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from scieasy.engine.runners.process_handle import ProcessRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +35,7 @@ class LocalRunner:
             - Calls ProcessHandle.terminate() for the given run_id.
     """
 
-    def __init__(self, event_bus: Any | None = None, registry: Any | None = None) -> None:
+    def __init__(self, event_bus: Any | None = None, registry: ProcessRegistry | None = None) -> None:
         self._event_bus = event_bus
         self._registry = registry
 
@@ -62,16 +65,17 @@ class LocalRunner:
         dict[str, Any]
             Parsed JSON result from the subprocess worker.
         """
-        from scieasy.engine.runners.process_handle import spawn_block_process
+        from scieasy.engine.runners.process_handle import ProcessRegistry, spawn_block_process
 
         block_class_path = f"{block.__class__.__module__}.{block.__class__.__qualname__}"
+        registry = self._registry if self._registry is not None else ProcessRegistry()
 
         handle = spawn_block_process(
             block_class=block_class_path,
             inputs_refs=inputs,
             config=config,
             event_bus=self._event_bus,
-            registry=self._registry,
+            registry=registry,
         )
 
         # Wait for subprocess to complete by reading stdout.
@@ -94,14 +98,14 @@ class LocalRunner:
             # Try to parse stdout for structured error from worker
             if stdout:
                 try:
-                    return json.loads(stdout.decode())
+                    return dict(json.loads(stdout.decode()))
                 except (json.JSONDecodeError, UnicodeDecodeError):
                     pass
             return {"error": error_msg}
 
         if stdout:
             try:
-                return json.loads(stdout.decode())
+                return dict(json.loads(stdout.decode()))
             except (json.JSONDecodeError, UnicodeDecodeError) as exc:
                 return {"error": f"Failed to parse worker output: {exc}"}
 
