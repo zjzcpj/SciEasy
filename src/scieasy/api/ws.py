@@ -6,50 +6,123 @@ client sends cancel requests and interactive completions.
 
 from __future__ import annotations
 
-from fastapi import WebSocket
+import asyncio
+import json
+import logging
+from typing import Any
 
-# TODO(ADR-018): Implement bidirectional WebSocket handler.
-#
-# Function signature:
-#   async def websocket_handler(websocket: WebSocket, event_bus: EventBus) -> None
-#
-# Protocol:
-#   1. await websocket.accept()
-#   2. Start two concurrent tasks:
-#
-#   INBOUND LOOP (client → server):
-#     async for message in websocket:
-#       data = json.loads(message)
-#       if data["type"] == "cancel_block":
-#           event_bus.emit(EngineEvent(event_type=CANCEL_BLOCK_REQUEST,
-#                                      block_id=data["block_id"],
-#                                      data={"workflow_id": data["workflow_id"]}))
-#       elif data["type"] == "cancel_workflow":
-#           event_bus.emit(EngineEvent(event_type=CANCEL_WORKFLOW_REQUEST,
-#                                      data={"workflow_id": data["workflow_id"]}))
-#       elif data["type"] == "interactive_complete":
-#           # Forward to appropriate event
-#
-#   OUTBOUND LOOP (server → client):
-#     Subscribe to: BLOCK_READY, BLOCK_RUNNING, BLOCK_PAUSED, BLOCK_DONE,
-#       BLOCK_ERROR, BLOCK_CANCELLED, BLOCK_SKIPPED, WORKFLOW_COMPLETED
-#     On each event:
-#       await websocket.send_json(serialise_event(event))
-#
-#   CANCEL PROPAGATION MESSAGE:
-#     When BLOCK_CANCELLED is followed by BLOCK_SKIPPED events, aggregate
-#     into a single cancel_propagation message listing all skipped blocks
-#     and their skip reasons.
-#
-# Helper:
-#   def serialise_event(event: EngineEvent) -> dict
-#     Convert EngineEvent to WebSocket JSON protocol format.
+from fastapi import WebSocket, WebSocketDisconnect
+
+from scieasy.engine.events import (
+    BLOCK_CANCELLED,
+    BLOCK_DONE,
+    BLOCK_ERROR,
+    BLOCK_PAUSED,
+    BLOCK_READY,
+    BLOCK_RUNNING,
+    BLOCK_SKIPPED,
+    CANCEL_BLOCK_REQUEST,
+    CANCEL_WORKFLOW_REQUEST,
+    WORKFLOW_COMPLETED,
+    EngineEvent,
+    EventBus,
+)
+
+logger = logging.getLogger(__name__)
+
+# Event types pushed to the client.
+_OUTBOUND_EVENTS = frozenset(
+    {
+        BLOCK_READY,
+        BLOCK_RUNNING,
+        BLOCK_PAUSED,
+        BLOCK_DONE,
+        BLOCK_ERROR,
+        BLOCK_CANCELLED,
+        BLOCK_SKIPPED,
+        WORKFLOW_COMPLETED,
+    }
+)
 
 
-async def websocket_handler(websocket: WebSocket) -> None:
+def serialise_event(event: EngineEvent) -> dict[str, Any]:
+    """Convert an EngineEvent to a JSON-serialisable dict for the WebSocket protocol."""
+    return {
+        "type": event.event_type,
+        "block_id": event.block_id,
+        "data": event.data,
+        "timestamp": event.timestamp.isoformat(),
+    }
+
+
+async def websocket_handler(websocket: WebSocket, event_bus: EventBus) -> None:
     """Handle a WebSocket connection for real-time workflow updates.
 
-    TODO(ADR-018): Implement bidirectional protocol as described above.
-    Add event_bus parameter. Start inbound + outbound concurrent loops.
+    ADR-018: Bidirectional protocol.
+    - Inbound: client sends cancel_block, cancel_workflow, interactive_complete.
+    - Outbound: server pushes all block state changes and workflow completion.
     """
-    raise NotImplementedError
+    await websocket.accept()
+
+    outbound_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+
+    def _on_event(event: EngineEvent) -> None:
+        """Callback for EventBus — enqueue event for outbound delivery."""
+        outbound_queue.put_nowait(serialise_event(event))
+
+    # Subscribe to all outbound event types.
+    for event_type in _OUTBOUND_EVENTS:
+        event_bus.subscribe(event_type, _on_event)
+
+    async def _inbound_loop() -> None:
+        """Read messages from the client and dispatch to EventBus."""
+        try:
+            while True:
+                raw = await websocket.receive_text()
+                data = json.loads(raw)
+                msg_type = data.get("type", "")
+
+                if msg_type == "cancel_block":
+                    await event_bus.emit(
+                        EngineEvent(
+                            event_type=CANCEL_BLOCK_REQUEST,
+                            block_id=data.get("block_id"),
+                            data={"workflow_id": data.get("workflow_id", "")},
+                        )
+                    )
+                elif msg_type == "cancel_workflow":
+                    await event_bus.emit(
+                        EngineEvent(
+                            event_type=CANCEL_WORKFLOW_REQUEST,
+                            data={"workflow_id": data.get("workflow_id", "")},
+                        )
+                    )
+                elif msg_type == "interactive_complete":
+                    await event_bus.emit(
+                        EngineEvent(
+                            event_type=BLOCK_DONE,
+                            block_id=data.get("block_id"),
+                            data=data.get("data", {}),
+                        )
+                    )
+                else:
+                    logger.warning("Unknown WebSocket message type: %s", msg_type)
+        except WebSocketDisconnect:
+            pass
+
+    async def _outbound_loop() -> None:
+        """Send queued events to the client."""
+        try:
+            while True:
+                payload = await outbound_queue.get()
+                await websocket.send_json(payload)
+        except WebSocketDisconnect:
+            pass
+
+    try:
+        await asyncio.gather(_inbound_loop(), _outbound_loop())
+    except WebSocketDisconnect:
+        pass
+    finally:
+        for event_type in _OUTBOUND_EVENTS:
+            event_bus.unsubscribe(event_type, _on_event)

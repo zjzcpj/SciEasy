@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from scieasy.core.storage.ref import StorageReference
+
 
 class H5ADAdapter:
     """Format adapter for H5AD (AnnData) files.
@@ -21,6 +23,6 @@ class H5ADAdapter:
     def supported_extensions(self) -> list[str]:
         return [".h5ad"]
 
-
-# TODO(ADR-020-Add2): Implement create_reference(path) -> StorageReference.
-# Build a StorageReference pointing to the file without reading its contents.
+    def create_reference(self, path: str | Path) -> StorageReference:
+        """Build a StorageReference pointing to the file without reading contents (ADR-020-Add2)."""
+        return StorageReference(backend="filesystem", path=str(Path(path).resolve()), format="h5ad")

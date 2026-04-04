@@ -36,14 +36,23 @@ class MergeBlock(ProcessBlock):
     ]
 
     def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
-        """Merge two DataFrames via Arrow tables."""
-        # TODO(ADR-020): Inputs `left` and `right` are Collection[DataFrame].
-        # Must call unpack() or unpack_single() to get DataFrames before processing.
-        # Pack result into Collection before returning.
+        """Merge two DataFrames via Arrow tables.
+
+        Accepts both raw DataFrame and Collection[DataFrame] inputs for
+        backward compatibility during the ADR-020 transition.
+        """
         self.transition(BlockState.RUNNING)
         try:
+            from scieasy.core.types.collection import Collection
+
             left_obj = inputs["left"]
             right_obj = inputs["right"]
+
+            # ADR-020: Unpack Collection inputs if present.
+            if isinstance(left_obj, Collection):
+                left_obj = self.unpack_single(left_obj)
+            if isinstance(right_obj, Collection):
+                right_obj = self.unpack_single(right_obj)
 
             left_data = to_arrow(left_obj)
             right_data = to_arrow(right_obj)

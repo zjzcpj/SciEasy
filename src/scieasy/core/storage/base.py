@@ -27,6 +27,9 @@ class StorageBackend(Protocol):
 
         Returns an updated :class:`StorageReference` with any backend-assigned
         metadata (e.g. chunk layout, checksum).
+
+        Concrete implementations should handle both ViewProxy-backed objects
+        and raw in-memory DataObjects (ADR-020-Add5).
         """
         ...
 
@@ -42,6 +45,18 @@ class StorageBackend(Protocol):
         """Return backend-level metadata for the data at *ref*."""
         ...
 
-    # TODO(ADR-020-Add5): StorageBackend.write() must handle writing a raw in-memory
-    # DataObject (not just ViewProxy-backed objects). May need write_from_memory(data, path)
-    # variant or auto-detection in existing write() method.
+    def write_from_memory(self, data: Any, path: str) -> StorageReference:
+        """Write raw in-memory data to storage at *path* and return a reference.
+
+        ADR-020-Add5: Handles DataObjects that exist only in-memory (no
+        existing StorageReference). Concrete backends implement this to
+        persist raw Python/numpy/arrow data to their storage format.
+
+        Parameters
+        ----------
+        data:
+            The raw in-memory data to persist.
+        path:
+            Target path within the backend's storage.
+        """
+        ...

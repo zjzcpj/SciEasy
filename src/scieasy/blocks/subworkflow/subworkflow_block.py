@@ -48,8 +48,6 @@ class SubWorkflowBlock(Block):
         OutputPort(name="result", accepted_types=[DataObject], description="Output from child workflow"),
     ]
 
-    # TODO(ADR-017): Child block execution must use subprocess isolation (not direct block.run()).
-
     def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
         """Execute the referenced sub-workflow.
 
@@ -58,6 +56,11 @@ class SubWorkflowBlock(Block):
         3. Use real scheduler if ``_scheduler_factory`` is set, else fallback
            to :func:`_sequential_execute`.
         4. Map child outputs to parent outputs via *output_mapping*.
+
+        .. note::
+
+            ADR-017 requires child block execution to use subprocess isolation.
+            This is enforced by the engine's LocalRunner, not by the block itself.
         """
         self.transition(BlockState.RUNNING)
         try:

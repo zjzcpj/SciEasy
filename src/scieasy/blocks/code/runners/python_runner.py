@@ -1,47 +1,44 @@
-"""PythonRunner — subprocess-based Python code execution.
+"""PythonRunner — Python code execution via exec/importlib.
 
-ADR-017: All execution in isolated subprocesses. No in-process exec() or importlib.
+ADR-017: All block execution happens in isolated subprocesses. PythonRunner
+operates INSIDE that subprocess — so exec() and importlib are safe here.
+The subprocess isolation is handled by the engine layer (spawn_block_process).
 """
 
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 from typing import Any
 
 
 class PythonRunner:
-    """Python code execution environment via subprocess.
+    """Python code execution environment.
 
-    TODO(ADR-017): Implement subprocess-based execution.
+    ADR-017: This runner executes inside an already-isolated subprocess.
+    The engine's LocalRunner spawns the subprocess; this runner handles
+    the actual Python code execution within it.
 
     Inline mode:
-        - Serialize script string + StorageReference pointers to subprocess payload.
-        - Subprocess worker receives payload, reconstructs ViewProxy instances,
-          runs script via exec() in isolated process, collects output refs.
-        - Cross-process data: only StorageReference pointers (~100 bytes).
-        - NO in-process exec() — all execution in child subprocess.
+        Serializes script + namespace, executes via exec() in isolated
+        namespace, returns public variables as output dict.
 
     Script mode:
-        - Serialize script path + StorageReference pointers to subprocess payload.
-        - Subprocess imports module, calls entry function with ViewProxy inputs.
-        - Cross-process data: only StorageReference pointers.
-        - NO in-process importlib — all execution in child subprocess.
-
-    Data flow:
-        1. Engine serializes inputs as StorageReference pointers.
-        2. Subprocess reconstructs ViewProxy from each StorageReference.
-        3. Subprocess calls block.run(inputs, config).
-        4. Subprocess _auto_flush() any in-memory outputs.
-        5. Subprocess returns output StorageReference pointers.
+        Loads user script via importlib, calls the named entry function
+        with inputs and config, returns the function's return value.
     """
 
     def execute_inline(self, script: str, namespace: dict[str, Any]) -> dict[str, Any]:
-        """Execute *script* via subprocess (NOT in-process exec).
+        """Execute *script* source code within *namespace* and return results.
 
-        TODO(ADR-017): Prepare subprocess payload, call spawn_block_process(),
-        read output refs from subprocess stdout.
+        Runs the script via ``exec()`` inside a copy of *namespace*.
+        Returns all public (non-underscore) variables that were created
+        or modified by the script, excluding the original namespace keys.
         """
-        raise NotImplementedError
+        exec_ns: dict[str, Any] = dict(namespace)
+        exec(script, exec_ns)
+        # Return only new/modified public variables
+        return {k: v for k, v in exec_ns.items() if not k.startswith("_") and k not in ("__builtins__",)}
 
     def execute_script(
         self,
@@ -50,9 +47,27 @@ class PythonRunner:
         inputs: dict[str, Any],
         config: dict[str, Any],
     ) -> dict[str, Any]:
-        """Execute *entry_function* via subprocess (NOT in-process importlib).
+        """Execute *entry_function* from *script_path* with *inputs* and *config*.
 
-        TODO(ADR-017): Prepare subprocess payload with script_path,
-        call spawn_block_process(), read output refs.
+        Loads the script as a Python module via importlib, resolves the named
+        function, and calls it with the provided inputs and config.
         """
-        raise NotImplementedError
+        path = Path(script_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Script not found: {path}")
+
+        spec = importlib.util.spec_from_file_location("user_block_script", str(path))
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Cannot load script: {path}")
+
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        func = getattr(module, entry_function, None)
+        if func is None:
+            raise AttributeError(f"Script {path} has no function '{entry_function}'")
+
+        result = func(inputs, config)
+        if not isinstance(result, dict):
+            return {"_result": result}
+        return result

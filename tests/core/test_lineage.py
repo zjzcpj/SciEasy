@@ -11,9 +11,6 @@ from scieasy.core.lineage.graph import ProvenanceGraph
 from scieasy.core.lineage.record import LineageRecord
 from scieasy.core.lineage.store import LineageStore
 
-# TODO(ADR-020): Update for removed batch_info field.
-# TODO(ADR-018): Add tests for termination, partial_output_refs, termination_detail fields.
-
 
 def _make_record(
     block_id: str,
@@ -228,3 +225,83 @@ class TestProvenanceGraph:
         # h4's ancestry includes D and C (which are not in h2's ancestry)
         assert "D" in only_in_b_ids
         assert "C" in only_in_b_ids
+
+
+class TestLineageTerminationFields:
+    """ADR-018: termination, partial_output_refs, termination_detail fields."""
+
+    def test_default_termination_is_completed(self) -> None:
+        record = _make_record("block_A", ["in1"], ["out1"])
+        assert record.termination == "completed"
+        assert record.partial_output_refs == []
+        assert record.termination_detail == ""
+
+    def test_cancelled_termination(self) -> None:
+        record = LineageRecord(
+            input_hashes=["in1"],
+            block_id="block_B",
+            block_config={},
+            block_version="1.0",
+            output_hashes=[],
+            timestamp="2026-01-01T00:00:00",
+            duration_ms=50,
+            termination="cancelled",
+            partial_output_refs=["partial_1"],
+            termination_detail="User cancelled via WebSocket",
+        )
+        assert record.termination == "cancelled"
+        assert record.partial_output_refs == ["partial_1"]
+        assert record.termination_detail == "User cancelled via WebSocket"
+
+    def test_skipped_termination(self) -> None:
+        record = LineageRecord(
+            input_hashes=[],
+            block_id="block_C",
+            block_config={},
+            block_version="1.0",
+            output_hashes=[],
+            timestamp="2026-01-01T00:00:00",
+            duration_ms=0,
+            termination="skipped",
+            termination_detail="upstream block_A error",
+        )
+        assert record.termination == "skipped"
+        assert record.termination_detail == "upstream block_A error"
+
+    def test_error_termination(self) -> None:
+        record = LineageRecord(
+            input_hashes=["in1"],
+            block_id="block_D",
+            block_config={"param": 1},
+            block_version="1.0",
+            output_hashes=[],
+            timestamp="2026-01-01T00:00:00",
+            duration_ms=200,
+            termination="error",
+            partial_output_refs=["partial_out1", "partial_out2"],
+            termination_detail="ZeroDivisionError in process_item",
+        )
+        assert record.termination == "error"
+        assert len(record.partial_output_refs) == 2
+
+    def test_store_round_trip_with_termination(self) -> None:
+        """Write a record with termination fields and read it back."""
+        store = LineageStore(":memory:")
+        record = LineageRecord(
+            input_hashes=["in"],
+            block_id="store_test",
+            block_config={},
+            block_version="1.0",
+            output_hashes=["out"],
+            timestamp="2026-01-01T00:00:00",
+            duration_ms=10,
+            termination="cancelled",
+            partial_output_refs=["p1"],
+            termination_detail="test cancel",
+        )
+        store.write(record)
+        results = store.query(block_id="store_test")
+        assert len(results) == 1
+        assert results[0].termination == "cancelled"
+        assert results[0].partial_output_refs == ["p1"]
+        assert results[0].termination_detail == "test cancel"

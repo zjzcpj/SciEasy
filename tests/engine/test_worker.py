@@ -16,7 +16,8 @@ from scieasy.engine.runners.worker import (
 
 
 class TestReconstructInputs:
-    def test_returns_inputs_from_payload(self) -> None:
+    def test_scalar_inputs_pass_through(self) -> None:
+        """ADR-017: Non-reference inputs pass through as-is."""
         payload = {"inputs": {"port_a": "ref1", "port_b": "ref2"}}
         result = reconstruct_inputs(payload)
         assert result == {"port_a": "ref1", "port_b": "ref2"}
@@ -26,6 +27,30 @@ class TestReconstructInputs:
         result = reconstruct_inputs(payload)
         assert result == {}
 
+    def test_storage_ref_dict_becomes_view_proxy(self) -> None:
+        """ADR-017: Dicts with backend/path are reconstructed as ViewProxy."""
+        from scieasy.core.proxy import ViewProxy
+
+        payload = {
+            "inputs": {
+                "image": {
+                    "backend": "zarr",
+                    "path": "/data/img.zarr",
+                    "format": "zarr",
+                    "metadata": {"axes": ["z", "y", "x"]},
+                },
+                "label": "test",
+            }
+        }
+        result = reconstruct_inputs(payload)
+
+        assert isinstance(result["image"], ViewProxy)
+        assert result["image"].storage_ref.backend == "zarr"
+        assert result["image"].storage_ref.path == "/data/img.zarr"
+        assert result["image"].storage_ref.format == "zarr"
+        assert result["image"].storage_ref.metadata == {"axes": ["z", "y", "x"]}
+        assert result["label"] == "test"
+
 
 # ---------------------------------------------------------------------------
 # serialise_outputs
@@ -33,16 +58,18 @@ class TestReconstructInputs:
 
 
 class TestSerialiseOutputs:
-    def test_serialises_plain_values_as_strings(self) -> None:
+    def test_serialises_plain_values_natively(self) -> None:
+        """ADR-017: scalar types (int, str, float, bool, None) pass through as-is."""
         outputs = {"result": 42, "name": "hello"}
         result = serialise_outputs(outputs, "")
-        assert result == {"result": "42", "name": "hello"}
+        assert result == {"result": 42, "name": "hello"}
 
     def test_serialises_storage_ref(self) -> None:
         mock_obj = MagicMock()
         mock_obj.storage_ref.backend = "zarr"
         mock_obj.storage_ref.path = "/data/output.zarr"
         mock_obj.storage_ref.format = "zarr"
+        mock_obj.storage_ref.metadata = None
 
         outputs = {"image": mock_obj}
         result = serialise_outputs(outputs, "/output")
@@ -51,13 +78,15 @@ class TestSerialiseOutputs:
                 "backend": "zarr",
                 "path": "/data/output.zarr",
                 "format": "zarr",
+                "metadata": None,
             }
         }
 
-    def test_serialises_value_without_storage_ref_attribute(self) -> None:
+    def test_serialises_int_without_storage_ref_attribute(self) -> None:
+        """ADR-017: int values without storage_ref are preserved as int."""
         outputs = {"count": 5}
         result = serialise_outputs(outputs, "")
-        assert result == {"count": "5"}
+        assert result == {"count": 5}
 
     def test_serialises_value_with_none_storage_ref(self) -> None:
         mock_obj = MagicMock()

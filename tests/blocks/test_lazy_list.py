@@ -308,19 +308,36 @@ class TestCodeBlockRepackOutputs:
         assert result["status"] == "ok"
 
 
-class TestCodeBlockRunNotImplemented:
-    def test_run_raises_with_message(self) -> None:
-        """run() raises NotImplementedError with Phase 5.2 reference."""
+class TestCodeBlockRunIntegration:
+    """CodeBlock.run() is now implemented — verify it dispatches to runners."""
+
+    def test_run_inline_python(self) -> None:
+        """run() executes inline Python script and returns results."""
+        from scieasy.blocks.base.state import BlockState
         from scieasy.blocks.code.code_block import CodeBlock
 
-        block = CodeBlock()
-        with pytest.raises(NotImplementedError, match=r"Phase 5\.2"):
-            block.run({}, block.config)
+        block = CodeBlock(config={"params": {"script": "result = 42"}})
+        block.transition(BlockState.READY)
+        outputs = block.run({}, block.config)
+        assert outputs["result"] == 42
+        assert block.state == BlockState.DONE
 
-    def test_run_message_mentions_subprocess(self) -> None:
-        """run() error message mentions subprocess delegation."""
+    def test_run_inline_with_inputs(self) -> None:
+        """run() passes inputs to the user script namespace."""
+        from scieasy.blocks.base.state import BlockState
         from scieasy.blocks.code.code_block import CodeBlock
 
-        block = CodeBlock()
-        with pytest.raises(NotImplementedError, match=r"spawn_block_process\(\)"):
+        block = CodeBlock(config={"params": {"script": "output = data * 2"}})
+        block.transition(BlockState.READY)
+        outputs = block.run({"data": 10}, block.config)
+        assert outputs["output"] == 20
+
+    def test_run_missing_script_raises(self) -> None:
+        """run() with no script raises ValueError."""
+        from scieasy.blocks.base.state import BlockState
+        from scieasy.blocks.code.code_block import CodeBlock
+
+        block = CodeBlock(config={"params": {}})
+        block.transition(BlockState.READY)
+        with pytest.raises(ValueError, match="script"):
             block.run({}, block.config)

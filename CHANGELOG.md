@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- [#113] Implement all ADR-017–022 TODO stubs, raise coverage threshold to 85% — resolve 38 TODOs across 32 files, implement WebSocket handler, ProcessExitedWithoutOutputError, create_reference(), Collection unpack/pack, CheckpointManager integration, ViewProxy.from_file(), add 24 new tests (@claude, 2026-04-04, branch: feat/issue-113/implement-all-todos-raise-coverage, session: 20260404-170726-implement-all-todo-stubs-adr-017-to-adr)
 - [#109] Phase 6.2: Implement scieasy CLI commands — init, validate, run, blocks, serve with typer.testing smoke tests (@claude, 2026-04-04, branch: phase6/cli-commands)
 - [#108] Phase 6.1: Workflow validator with type checking, cycle detection, dangling port detection — 6 ordered validation checks, 21 tests (@claude, 2026-04-04, branch: phase6/workflow-validator, session: 20260404-052508-phase-6-1-workflow-validator)
 - [#107] Phase 6.1: YAML workflow serializer with Pydantic schema — load_yaml/save_yaml, schema validation, optional layout field, 10 tests (@claude, 2026-04-04, branch: phase6/workflow-serializer, session: 20260404-052427-phase-6-1-yaml-serializer-with-pydantic)

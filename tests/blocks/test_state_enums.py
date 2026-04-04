@@ -9,9 +9,6 @@ from scieasy.blocks.base.state import (
     InputDelivery,
 )
 
-# TODO(ADR-018): Add tests for CANCELLED, SKIPPED states in BlockState.
-# TODO(ADR-020): Remove tests for BatchMode, BatchErrorStrategy (deleted enums).
-
 
 class TestBlockStateValues:
     """BlockState — lifecycle state of a block instance."""

@@ -140,12 +140,16 @@ class CheckpointManager:
     def _on_state_change(self, event: Any) -> None:
         """Hook invoked on terminal block events.
 
-        Currently a no-op stub — future integration with the DAGScheduler
-        will use this to trigger automatic checkpoint saves after each
-        block state transition.
+        ADR-018: Auto-save checkpoint when latest state is available.
+        If a checkpoint has been saved previously (via save()), updates it
+        with the new block state from the event.
         """
-        # TODO(ADR-018): Auto-save checkpoint when scheduler provides
-        # workflow state snapshot on terminal block events.
+        if self._latest is not None:
+            block_id = getattr(event, "block_id", None)
+            event_type = getattr(event, "event_type", "")
+            if block_id and event_type:
+                self._latest.block_states[block_id] = event_type.replace("block_", "")
+                self.save(self._latest)
 
     # -- properties ---------------------------------------------------------
 
