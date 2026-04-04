@@ -31,7 +31,7 @@ def reconstruct_inputs(payload: dict[str, Any]) -> dict[str, Any]:
     pointers will be implemented in a future phase. For now, inputs
     are passed through as-is from the payload.
     """
-    return payload.get("inputs", {})
+    return dict(payload.get("inputs", {}))
 
 
 def serialise_outputs(outputs: dict[str, Any], output_dir: str) -> dict[str, Any]:
