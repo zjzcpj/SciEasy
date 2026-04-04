@@ -1,9 +1,11 @@
-"""FormatAdapter protocol — read file to DataObject, write DataObject to file."""
+"""FormatAdapter protocol -- read file to DataObject, write DataObject to file."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
+
+from scieasy.core.storage.ref import StorageReference
 
 
 @runtime_checkable
@@ -26,8 +28,11 @@ class FormatAdapter(Protocol):
         """Return the list of file extensions this adapter handles."""
         ...
 
-    # TODO(ADR-020-Add2): Add create_reference() method to FormatAdapter protocol.
-    # Signature: def create_reference(self, path: str | Path) -> StorageReference
-    # Builds a StorageReference without reading file data.
-    # For Zarr: ref points to .zarr directory. For Parquet: ref points to .parquet file.
-    # For TIFF: ref points to .tif file. Each adapter implements its own version.
+    def create_reference(self, path: str | Path) -> StorageReference:
+        """Build a StorageReference pointing to *path* without reading data.
+
+        This enables lazy Collection construction: IOBlock creates references
+        for each file without loading contents into memory.  Actual data reading
+        happens later when a downstream block calls ViewProxy.to_memory().
+        """
+        ...

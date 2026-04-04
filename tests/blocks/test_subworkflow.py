@@ -1,4 +1,4 @@
-"""Tests for SubWorkflowBlock — stub test with sequential executor."""
+"""Tests for SubWorkflowBlock — sequential executor and scheduler factory injection."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.base.state import BlockState
 from scieasy.blocks.process.process_block import ProcessBlock
 from scieasy.blocks.subworkflow.subworkflow_block import SubWorkflowBlock, _sequential_execute
-
-# TODO(ADR-020): Update to pass/expect Collections.
+from scieasy.core.types.base import DataObject
+from scieasy.core.types.collection import Collection
 
 
 class AddOneBlock(ProcessBlock):
@@ -41,6 +41,26 @@ class DoubleBlock(ProcessBlock):
     def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
         self.transition(BlockState.RUNNING)
         result = {"x": inputs["x"] * 2}
+        self.transition(BlockState.DONE)
+        return result
+
+
+class CollectionPassthroughBlock(ProcessBlock):
+    """Block that receives a Collection on 'items' and passes it through unchanged."""
+
+    name = "CollectionPassthrough"
+    algorithm = "passthrough"
+
+    input_ports: ClassVar[list[InputPort]] = [
+        InputPort(name="items", accepted_types=[], required=True),
+    ]
+    output_ports: ClassVar[list[OutputPort]] = [
+        OutputPort(name="items", accepted_types=[]),
+    ]
+
+    def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+        self.transition(BlockState.RUNNING)
+        result = {"items": inputs["items"]}
         self.transition(BlockState.DONE)
         return result
 
@@ -94,3 +114,84 @@ class TestSubWorkflowBlock:
         block.transition(BlockState.READY)
         block.run({}, block.config)
         assert block.state == BlockState.DONE
+
+    def test_scheduler_factory_injection(self) -> None:
+        """Verify that _scheduler_factory ClassVar can be set and triggers _run_with_scheduler."""
+        call_log: list[str] = []
+
+        def fake_factory() -> None:
+            """Sentinel — not called directly; _run_with_scheduler is the real hook."""
+
+        original = SubWorkflowBlock._scheduler_factory
+        try:
+            SubWorkflowBlock._scheduler_factory = fake_factory
+
+            child_blocks = [AddOneBlock()]
+            block = SubWorkflowBlock(
+                config={
+                    "params": {
+                        "child_blocks": child_blocks,
+                        "input_mapping": {"data": "x"},
+                        "output_mapping": {"x": "result"},
+                    }
+                }
+            )
+            block.transition(BlockState.READY)
+
+            # Monkey-patch _run_with_scheduler to prove it gets called.
+            original_method = block._run_with_scheduler
+
+            def tracking_run_with_scheduler(child_inputs: dict, config: BlockConfig) -> dict:
+                call_log.append("_run_with_scheduler")
+                return original_method(child_inputs, config)
+
+            block._run_with_scheduler = tracking_run_with_scheduler  # type: ignore[assignment]
+
+            result = block.run({"data": 10}, block.config)
+            assert result["result"] == 11
+            assert call_log == ["_run_with_scheduler"]
+        finally:
+            SubWorkflowBlock._scheduler_factory = original
+
+    def test_run_with_scheduler_factory_none_uses_sequential(self) -> None:
+        """When _scheduler_factory is None, run() uses _sequential_execute (fallback)."""
+        assert SubWorkflowBlock._scheduler_factory is None  # default
+
+        child_blocks = [AddOneBlock(), DoubleBlock()]
+        block = SubWorkflowBlock(
+            config={
+                "params": {
+                    "child_blocks": child_blocks,
+                    "input_mapping": {"data": "x"},
+                    "output_mapping": {"x": "result"},
+                }
+            }
+        )
+        block.transition(BlockState.READY)
+        result = block.run({"data": 5}, block.config)
+        # (5 + 1) * 2 = 12
+        assert result["result"] == 12
+
+    def test_collection_passthrough(self) -> None:
+        """Collections flow through child workflow without unwrapping."""
+        obj1 = DataObject()
+        obj2 = DataObject()
+        coll = Collection([obj1, obj2])
+
+        child_blocks = [CollectionPassthroughBlock()]
+        block = SubWorkflowBlock(
+            config={
+                "params": {
+                    "child_blocks": child_blocks,
+                    "input_mapping": {"data": "items"},
+                    "output_mapping": {"items": "result"},
+                }
+            }
+        )
+        block.transition(BlockState.READY)
+        result = block.run({"data": coll}, block.config)
+
+        assert isinstance(result["result"], Collection)
+        assert len(result["result"]) == 2
+        assert result["result"][0] is obj1
+        assert result["result"][1] is obj2

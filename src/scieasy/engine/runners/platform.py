@@ -11,7 +11,10 @@ import logging
 import subprocess
 import sys
 import time
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from scieasy.engine.runners.process_handle import ProcessExitInfo
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +37,11 @@ class PlatformOps(Protocol):
         """Add platform-specific args to Popen kwargs for process group creation."""
         ...
 
-    def terminate_tree(self, pid: int, grace_sec: float) -> Any:
+    def terminate_tree(self, pid: int, grace_sec: float) -> ProcessExitInfo:
         """Graceful termination of process tree. Returns ProcessExitInfo."""
         ...
 
-    def kill_tree(self, pid: int) -> Any:
+    def kill_tree(self, pid: int) -> ProcessExitInfo:
         """Immediate forced termination of process tree. Returns ProcessExitInfo."""
         ...
 
@@ -46,7 +49,7 @@ class PlatformOps(Protocol):
         """Non-blocking alive check."""
         ...
 
-    def get_exit_info(self, pid: int) -> Any:
+    def get_exit_info(self, pid: int) -> ProcessExitInfo | None:
         """Return ProcessExitInfo if exited, None if still alive."""
         ...
 
@@ -67,7 +70,7 @@ class PosixOps:
         popen_kwargs["start_new_session"] = True
         return popen_kwargs
 
-    def terminate_tree(self, pid: int, grace_sec: float) -> Any:
+    def terminate_tree(self, pid: int, grace_sec: float) -> ProcessExitInfo:
         """Send SIGTERM to the process group, wait *grace_sec*, then SIGKILL."""
         import os
         import signal
@@ -122,7 +125,7 @@ class PosixOps:
             platform_detail="killed by SIGKILL after grace period",
         )
 
-    def kill_tree(self, pid: int) -> Any:
+    def kill_tree(self, pid: int) -> ProcessExitInfo:
         """Immediately SIGKILL the entire process group."""
         import os
         import signal
@@ -155,7 +158,7 @@ class PosixOps:
             return True
         return True
 
-    def get_exit_info(self, pid: int) -> Any:
+    def get_exit_info(self, pid: int) -> ProcessExitInfo | None:
         """Retrieve exit status via ``os.waitpid(pid, WNOHANG)``.
 
         Returns ProcessExitInfo if the process has exited, None if still alive.
@@ -211,10 +214,11 @@ class WindowsOps:
 
     def create_process_group(self, popen_kwargs: dict[str, Any]) -> dict[str, Any]:
         """Add ``CREATE_NEW_PROCESS_GROUP`` creation flag."""
-        popen_kwargs["creationflags"] = popen_kwargs.get("creationflags", 0) | subprocess.CREATE_NEW_PROCESS_GROUP
+        create_new_pg: int = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+        popen_kwargs["creationflags"] = popen_kwargs.get("creationflags", 0) | create_new_pg
         return popen_kwargs
 
-    def terminate_tree(self, pid: int, grace_sec: float) -> Any:
+    def terminate_tree(self, pid: int, grace_sec: float) -> ProcessExitInfo:
         """Terminate process tree via psutil with grace period, then kill."""
         import psutil
 
@@ -261,7 +265,7 @@ class WindowsOps:
             platform_detail="terminated via psutil" + (" (killed after grace)" if alive else ""),
         )
 
-    def kill_tree(self, pid: int) -> Any:
+    def kill_tree(self, pid: int) -> ProcessExitInfo:
         """Immediately kill entire process tree via psutil."""
         import psutil
 
@@ -296,9 +300,9 @@ class WindowsOps:
         """Check if process exists using ``psutil.pid_exists()``."""
         import psutil
 
-        return psutil.pid_exists(pid)
+        return bool(psutil.pid_exists(pid))
 
-    def get_exit_info(self, pid: int) -> Any:
+    def get_exit_info(self, pid: int) -> ProcessExitInfo | None:
         """Check process status via psutil.
 
         Returns ProcessExitInfo if exited, None if still alive.
