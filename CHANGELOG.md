@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- [#86] Phase 5.0b: LazyList + CodeBlock auto-unpack -- memory-safe lazy item loading, CodeBlock unpack/repack layer (@claude, 2026-04-04, branch: feat/issue-86/lazy-list-codeblock, session: 20260404-041450-phase-5-0b-lazylist-codeblock-auto-unpac)
 - [#88] Phase 5.6: Collection operation blocks -- MergeCollection, SplitCollection, FilterCollection, SliceCollection (ADR-021) (@claude, 2026-04-04, branch: feat/issue-88/collection-operation-blocks, session: 20260404-041611-phase-5-6-collection-operation-blocks-ad)
 - [#90] Phase 5.2a: PlatformOps + ProcessHandle + ProcessRegistry — ADR-017/019 cross-platform process lifecycle, PosixOps/WindowsOps, spawn_block_process factory, 29 tests (@claude, 2026-04-04, branch: feat/issue-90/platform-process-handle, session: 20260404-042159-phase-5-2a-platformops-processhandle-pro)
 - [#91] Phase 5.3: ResourceManager with psutil watermark — ADR-022 OS-level memory monitoring, ADR-018 EventBus auto-release, GPU/CPU slot counting, 32 tests (@claude, 2026-04-04, branch: feat/issue-91/resource-management, session: 20260404-042212-phase-5-3-resource-management-adr-022)
