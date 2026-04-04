@@ -79,11 +79,11 @@ All green. Zero implementation, zero failures.
 
 ### 1.4 Block system interfaces
 
-- [ ] `blocks/base/state.py` — `BlockState`, `ExecutionMode`, `BatchMode`, `InputDelivery`, `BatchErrorStrategy` enums
-- [ ] `blocks/base/ports.py` — `Port`, `InputPort`, `OutputPort` dataclasses with `accepted_types`, `constraint`
+- [ ] `blocks/base/state.py` — `BlockState` (8 states incl. CANCELLED, SKIPPED; ADR-018), `ExecutionMode`, `InputDelivery` enums
+- [ ] `blocks/base/ports.py` — `Port`, `InputPort`, `OutputPort` dataclasses with `accepted_types`, `constraint`, Collection-transparent type checking
 - [ ] `blocks/base/config.py` — `BlockConfig` Pydantic model
-- [ ] `blocks/base/result.py` — `BlockResult`, `BatchResult` dataclasses
-- [ ] `blocks/base/block.py` — `Block` ABC with `validate()`, `run()`, `postprocess()`, class-level declarations
+- [ ] `blocks/base/result.py` — `BlockResult` dataclass
+- [ ] `blocks/base/block.py` — `Block` ABC with `validate()`, `run()`, `postprocess()`, Collection utilities: `pack()`, `unpack()`, `map_items()`, `parallel_map()` (ADR-020)
 - [ ] `blocks/io/io_block.py` — `IOBlock(Block)` with `direction` field
 - [ ] `blocks/process/process_block.py` — `ProcessBlock(Block)`
 - [ ] `blocks/code/code_block.py` — `CodeBlock(Block)` with `InputDelivery` handling signatures
@@ -105,13 +105,16 @@ All green. Zero implementation, zero failures.
 ### 1.6 Engine interfaces
 
 - [ ] `engine/dag.py` — `build_dag()`, `topological_sort()` signatures
-- [ ] `engine/scheduler.py` — `DAGScheduler` with `execute()`, `pause()`, `resume()` signatures
-- [ ] `engine/batch.py` — `BatchExecutor` with serial/parallel/adaptive dispatch signatures
-- [ ] `engine/resources.py` — `ResourceRequest` dataclass, `ResourceManager` with `acquire()`, `release()`
-- [ ] `engine/runners/base.py` — `BlockRunner` Protocol (run, check_status, cancel)
-- [ ] `engine/runners/local.py` — `LocalRunner(BlockRunner)` signature only
-- [ ] `engine/checkpoint.py` — `WorkflowCheckpoint` dataclass, `save()`, `load()` signatures
-- [ ] `engine/events.py` — `EngineEvent` dataclass, `EventBus` with `emit()`, `subscribe()` signatures
+- [ ] `engine/scheduler.py` — `DAGScheduler` with `execute()`, `pause()`, `resume()`, `cancel_block()`, `cancel_workflow()` signatures (ADR-018, event-driven)
+- [ ] `engine/resources.py` — `ResourceRequest` dataclass, `ResourceManager` with `acquire()`, `release()`, EventBus auto-release
+- [ ] `engine/runners/base.py` — `BlockRunner` Protocol (run → RunHandle, check_status, cancel)
+- [ ] `engine/runners/local.py` — `LocalRunner(BlockRunner)` — isolated subprocess execution (ADR-017)
+- [ ] `engine/runners/worker.py` — subprocess entry point (ADR-017)
+- [ ] `engine/runners/process_handle.py` — `ProcessHandle`, `ProcessExitInfo`, `ProcessRegistry`, `spawn_block_process()` (ADR-019)
+- [ ] `engine/runners/process_monitor.py` — `ProcessMonitor` background coroutine (ADR-019)
+- [ ] `engine/runners/platform.py` — `PlatformOps` protocol + `PosixOps` + `WindowsOps` (ADR-019)
+- [ ] `engine/checkpoint.py` — `WorkflowCheckpoint` dataclass (incl. skip_reasons; ADR-018), `save()`, `load()` signatures
+- [ ] `engine/events.py` — `EngineEvent` dataclass, `EventBus` with `emit()`, `subscribe()`, 14 event type constants (ADR-018)
 
 ### 1.7 Workflow definition interfaces
 
@@ -198,7 +201,7 @@ Claude can `from scieasy.blocks.base import Block` and get full type hints + aut
 - [ ] `tests/architecture/test_block_system.py`:
   - Every class in `blocks/*/` inherits from exactly one of: IOBlock, ProcessBlock, CodeBlock, AppBlock, AIBlock, SubWorkflowBlock
   - Every block declares at least one output port
-  - Every block's `run()` signature matches `(self, inputs: dict[str, ViewProxy], config: BlockConfig) -> dict[str, DataObject]`
+  - Every block's `run()` signature matches `(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, Collection]` (ADR-020)
   - No block at module level calls `to_memory()` (import-time side effect check)
 
 ### 2.4 Registry structural tests
@@ -377,51 +380,69 @@ assert isinstance(result["smoothed"], Spectrum)
 
 ## Phase 5 — Execution engine
 
-**Goal**: multi-block workflows execute as DAGs. Batch, parallel/serial, pause/resume, checkpointing all work.
+**Goal**: multi-block workflows execute as DAGs with Collection-based data transport (ADR-020), subprocess isolation (ADR-017), cancellation support (ADR-018), and cross-platform process lifecycle management (ADR-019).
 
 ### 5.1 DAG construction + scheduling
 
 - [ ] Implement `build_dag()` from `WorkflowDefinition`
 - [ ] Implement `topological_sort()` with cycle detection
-- [ ] Implement `DAGScheduler.execute()` — walk topo-order, check readiness, dispatch
+- [ ] Implement event-driven `DAGScheduler.execute()` — subscribe to EventBus, dispatch blocks, propagate SKIPPED on failure/cancel (ADR-018)
+- [ ] Implement `DAGScheduler.cancel_block()` — terminate subprocess, mark CANCELLED, propagate SKIPPED downstream
+- [ ] Implement `DAGScheduler.cancel_workflow()` — cancel all RUNNING/PAUSED blocks, SKIP remaining
 
-### 5.2 Batch execution
+### 5.2 Process lifecycle (ADR-017, ADR-019)
 
-- [ ] Implement parallel dispatch via `ProcessPoolExecutor` / `ThreadPoolExecutor`
-- [ ] Implement serial dispatch (one item through full sub-pipeline)
-- [ ] Implement adaptive look-ahead (scan downstream for SERIAL/INTERACTIVE → switch mode)
-- [ ] Implement `BatchErrorStrategy` (stop, skip, retry, pause)
-- [ ] Implement `BatchResult` accumulation
+- [ ] Implement `ProcessHandle` — cross-platform terminate/kill/is_alive/exit_info
+- [ ] Implement `ProcessRegistry` — register/deregister/get_handle/terminate_all
+- [ ] Implement `ProcessMonitor` — background coroutine polling for unexpected process exits
+- [ ] Implement `PlatformOps` — PosixOps (signals, process groups) + WindowsOps (Job Objects, TerminateProcess)
+- [ ] Implement `spawn_block_process()` factory — single point of subprocess creation
+- [ ] Implement `LocalRunner` — subprocess execution via worker.py, returns RunHandle
+- [ ] Implement `worker.py` — subprocess entry point: deserialise payload, reconstruct ViewProxy, call block.run(), return Collection StorageRefs
 
 ### 5.3 Resource management
 
 - [ ] Implement `ResourceManager.acquire()` / `release()` with GPU slot counting
-- [ ] Integrate with scheduler — parallel dispatch respects resource limits
+- [ ] Implement EventBus auto-release on BLOCK_DONE/ERROR/CANCELLED/PROCESS_EXITED (ADR-018)
+- [ ] Integrate with scheduler — dispatch respects resource limits
 
 ### 5.4 Checkpoint + pause/resume
 
-- [ ] Implement `WorkflowCheckpoint` serialisation (block states + intermediate refs)
+- [ ] Implement `WorkflowCheckpoint` serialisation (block states incl. CANCELLED/SKIPPED, skip_reasons, intermediate Collection refs)
 - [ ] Implement `DAGScheduler.pause()` — serialise state, return checkpoint
-- [ ] Implement `DAGScheduler.resume()` — load checkpoint, skip completed blocks
+- [ ] Implement `DAGScheduler.resume()` — load checkpoint, skip completed/cancelled/skipped blocks
 - [ ] Test crash recovery: kill mid-execution → resume from checkpoint
 
-### 5.5 Event bus
+### 5.5 Event bus (ADR-018)
 
-- [ ] Implement `EventBus.emit()` / `subscribe()` — in-process pub/sub
-- [ ] Scheduler emits: block_state_changed, batch_progress, workflow_complete, workflow_error
+- [ ] Implement `EventBus.emit()` / `subscribe()` / `unsubscribe()` — async in-process pub/sub
+- [ ] Define all 14 event type constants: BLOCK_READY/RUNNING/PAUSED/DONE/ERROR/CANCELLED/SKIPPED, CANCEL_BLOCK/WORKFLOW_REQUEST, PROCESS_SPAWNED/EXITED, WORKFLOW_STARTED/COMPLETED, CHECKPOINT_SAVED
+- [ ] Wire all subscribers: DAGScheduler, ResourceManager, ProcessRegistry, LineageRecorder, CheckpointManager
 
-### 5.6 SubWorkflowBlock completion
+### 5.6 Collection operation blocks (ADR-021)
 
-- [ ] Now that the engine exists, implement SubWorkflowBlock with real DAGScheduler (remove stub)
+- [ ] Implement `MergeCollection` — concatenate 2 same-typed Collections
+- [ ] Implement `SplitCollection` — split by index or condition
+- [ ] Implement `FilterCollection` — keep items matching metadata predicate
+- [ ] Implement `SliceCollection` — extract sub-range [start:end]
 
-### 5.7 Tests
+### 5.7 SubWorkflowBlock completion
+
+- [ ] Now that the engine exists, implement SubWorkflowBlock with real DAGScheduler (remove sequential stub)
+- [ ] Child workflow runs in its own subprocess with own scheduler, communicates via Collection StorageRefs
+
+### 5.8 Tests
 
 - [ ] `tests/engine/test_dag.py` — build DAG, topo sort, cycle detection
-- [ ] `tests/engine/test_scheduler.py` — 3-block linear pipeline, branching DAG, diamond DAG
-- [ ] `tests/engine/test_batch.py` — 10 items parallel, 10 items serial, adaptive switch
-- [ ] `tests/engine/test_resources.py` — GPU slot exhaustion → serial fallback
-- [ ] `tests/engine/test_checkpoint.py` — pause → serialise → resume → correct result
-- [ ] `tests/integration/test_multimodal_workflow.py` — the Appendix A scenario (simplified: load → process → merge → export)
+- [ ] `tests/engine/test_scheduler.py` — 3-block linear pipeline, branching DAG, diamond DAG, cancel block + SKIPPED propagation, cancel workflow
+- [ ] `tests/engine/test_process_handle.py` — ProcessHandle terminate/kill on POSIX/Windows, process tree kill
+- [ ] `tests/engine/test_process_monitor.py` — detect unexpected exit, emit PROCESS_EXITED event
+- [ ] `tests/engine/test_events.py` — EventBus emit/subscribe, error isolation between subscribers
+- [ ] `tests/engine/test_resources.py` — GPU slot exhaustion, auto-release on block terminal events
+- [ ] `tests/engine/test_checkpoint.py` — pause → serialise (with CANCELLED/SKIPPED states) → resume → correct result
+- [ ] `tests/core/test_collection.py` — Collection construction, homogeneity enforcement, pack/unpack round-trip
+- [ ] `tests/integration/test_multimodal_workflow.py` — the Appendix A scenario with Collection transport (load → process → merge → export)
+- [ ] `tests/integration/test_cancel_scenario.py` — cancel Cellpose → napari/SRS SKIPPED → Raman continues
 
 ### Deliverable
 
@@ -477,14 +498,14 @@ scieasy blocks                                          # Lists all installed bl
 
 ### 7.1 REST endpoints
 
-- [ ] Workflow CRUD (create, get, update, delete, execute, pause, resume)
+- [ ] Workflow CRUD (create, get, update, delete, execute, pause, resume, cancel workflow, cancel block — ADR-018)
 - [ ] Block registry endpoints (list, get schema, validate connection)
 - [ ] Data endpoints (upload, metadata, preview)
 - [ ] Project management endpoints
 
 ### 7.2 Real-time communication
 
-- [ ] WebSocket handler — broadcast block state changes, interactive block prompts
+- [ ] WebSocket handler — bidirectional: broadcast block state changes + cancel_propagation; receive cancel_block/cancel_workflow + interactive_complete (ADR-018)
 - [ ] SSE handler — stream execution logs
 
 ### 7.3 Tests
@@ -524,7 +545,8 @@ scieasy blocks                                          # Lists all installed bl
 - [ ] Run / pause / resume controls
 - [ ] Live block state badges via WebSocket
 - [ ] Log stream viewer via SSE
-- [ ] Batch progress indicator
+- [ ] Cancel button on RUNNING/PAUSED blocks (ADR-018)
+- [ ] CANCELLED and SKIPPED state visual indicators
 
 ---
 
@@ -555,8 +577,8 @@ scieasy blocks                                          # Lists all installed bl
 - [ ] Implement mzXML adapter, h5ad adapter
 - [ ] Build example blocks: CellposeSegment, RamanBaseline, SpectralPCA
 - [ ] Build the full multimodal workflow from ARCHITECTURE.md Appendix A
-- [ ] Run it: data loaded → ElMAVEN (mock) → R script → Cellpose → napari (mock) → merge → export
-- [ ] Confirm lineage, checkpoints, batch modes all work in the integrated scenario
+- [ ] Run it: data loaded → ElMAVEN (mock, whole-collection) → R script → Cellpose (parallel_map) → napari (mock, serial per-item) → merge → export
+- [ ] Confirm lineage, checkpoints, Collection transport, cancel + SKIPPED propagation all work in the integrated scenario
 - [ ] Write `docs/getting-started.md` tutorial based on this scenario
 
 ---

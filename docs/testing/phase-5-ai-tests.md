@@ -2,8 +2,9 @@
 
 > **Status**: Phase 5 is PLANNED (not yet implemented).
 > This document specifies the automated tests that must be written when
-> Phase 5 is implemented: DAG scheduling, batch execution, resource management,
-> checkpoint/resume, and event bus.
+> Phase 5 is implemented: DAG scheduling, Collection transport (ADR-020),
+> subprocess isolation (ADR-017), cancellation (ADR-018), process lifecycle
+> (ADR-019), resource management, checkpoint/resume, and event bus.
 
 ---
 
@@ -13,7 +14,8 @@
 |-----------|-------------|-----------|
 | DAG construction | `src/scieasy/engine/dag.py` | `tests/engine/test_dag.py` |
 | Scheduler | `src/scieasy/engine/scheduler.py` | `tests/engine/test_scheduler.py` |
-| Batch executor | `src/scieasy/engine/batch.py` | `tests/engine/test_batch.py` |
+| Collection transport | `src/scieasy/core/types/collection.py` | `tests/core/test_collection.py` |
+| Process lifecycle | `src/scieasy/engine/runners/process_handle.py` | `tests/engine/test_process_handle.py` |
 | Resource manager | `src/scieasy/engine/resources.py` | `tests/engine/test_resources.py` |
 | Checkpoint | `src/scieasy/engine/checkpoint.py` | `tests/engine/test_checkpoint.py` |
 | Event bus | `src/scieasy/engine/events.py` | `tests/engine/test_events.py` |
@@ -167,60 +169,47 @@ async def test_scheduler_resume_from_checkpoint():
     # Assert final results match full execution
 ```
 
-### 2.3 `tests/engine/test_batch.py`
+### 2.3 `tests/core/test_collection.py` (ADR-020)
 
 ```python
-# --- BatchExecutor ---
+# --- Collection construction and invariants ---
 
-@pytest.mark.asyncio
-async def test_batch_parallel_10_items():
-    """10 items processed in parallel through one block."""
-    from scieasy.engine.batch import BatchExecutor
-    # Create block, 10 input items
-    # Execute in PARALLEL mode
-    # Assert all 10 results produced
-    # Assert execution was concurrent (timing check or mock)
+def test_collection_homogeneous():
+    """Collection enforces homogeneous item types."""
+    # Create Collection[Image] with 3 Images → OK
+    # Attempt Collection with Image + DataFrame → TypeError
 
-@pytest.mark.asyncio
-async def test_batch_serial_10_items():
-    """10 items processed serially through a pipeline."""
-    # Execute in SERIAL mode
-    # Assert all 10 results produced in order
+def test_collection_empty():
+    """Empty Collection is valid."""
+    # Collection([], item_type=Image) → length=0
 
-@pytest.mark.asyncio
-async def test_batch_adaptive_switches_to_serial():
-    """Adaptive mode switches to serial when downstream has INTERACTIVE block."""
-    # Pipeline: ProcessBlock -> AppBlock (INTERACTIVE)
-    # Adaptive look-ahead should switch to SERIAL
-    # Assert items processed one at a time
+def test_collection_single_item():
+    """Single item is Collection with length=1."""
+    # Collection([one_image]) → length=1
+    # unpack_single() returns the image
 
-@pytest.mark.asyncio
-async def test_batch_adaptive_stays_parallel():
-    """Adaptive mode stays parallel when all downstream blocks support it."""
-    # Pipeline: ProcessBlock -> ProcessBlock
-    # Adaptive should stay PARALLEL
+def test_collection_pack_unpack_roundtrip():
+    """pack() then unpack() returns original items."""
+    # Block.pack(items) → Collection → Block.unpack() → same items
 
-# --- BatchErrorStrategy ---
+def test_collection_map_items():
+    """map_items applies func to each item."""
+    # Block.map_items(lambda x: transform(x), collection)
+    # Assert result is Collection with transformed items
 
-@pytest.mark.asyncio
-async def test_batch_error_stop():
-    """STOP strategy: abort batch on first error."""
-    # 10 items, item 3 fails
-    # Assert only items 1-3 processed
-    # Assert BatchResult.failed == 1
+def test_collection_storage_refs():
+    """storage_refs() returns list of StorageReference for cross-process serialisation."""
+    # Each item has storage_ref → collection.storage_refs() returns [ref1, ref2, ...]
 
-@pytest.mark.asyncio
-async def test_batch_error_skip():
-    """SKIP strategy: continue batch, skip failed items."""
-    # 10 items, item 3 fails
-    # Assert 9 items succeeded, 1 skipped
-    # Assert BatchResult.succeeded == 9
+# --- Collection type checking ---
 
-@pytest.mark.asyncio
-async def test_batch_error_retry():
-    """RETRY strategy: retry N times, then skip."""
-    # Item fails twice, succeeds on third try
-    # Assert item eventually succeeds
+def test_port_accepts_collection():
+    """Port with accepted_types=[Image] accepts Collection[Image]."""
+    # validate_connection(source=Collection[Image], target=Image port) → OK
+
+def test_port_rejects_wrong_collection():
+    """Port with accepted_types=[Image] rejects Collection[DataFrame]."""
+    # validate_connection(source=Collection[DataFrame], target=Image port) → Error
 
 @pytest.mark.asyncio
 async def test_batch_result_accumulation():

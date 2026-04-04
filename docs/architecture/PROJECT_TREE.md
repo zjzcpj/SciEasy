@@ -36,6 +36,9 @@ scieasy/                               # ← repo root
 │       │   │   ├── text.py             # Text (plain text, markdown, JSON)
 │       │   │   ├── artifact.py         # Artifact (opaque files: PDF, binary, etc.)
 │       │   │   ├── composite.py        # CompositeData (named heterogeneous slots)
+│       │   │   ├── collection.py       # Collection: homogeneous ordered transport wrapper
+│       │   │   │                       #   for DataObjects between blocks (ADR-020).
+│       │   │   │                       #   NOT a DataObject subclass — type identity from contents.
 │       │   │   └── registry.py         # TypeRegistry: discovers types from
 │       │   │                           #   Tier 1: {project}/types/ + ~/.scieasy/types/
 │       │   │                           #   Tier 2: scieasy.types entry_points
@@ -55,7 +58,8 @@ scieasy/                               # ← repo root
 │       │   │
 │       │   └── lineage/                # Provenance tracking
 │       │       ├── __init__.py
-│       │       ├── record.py           # LineageRecord dataclass (hashes, config, environment)
+│       │       ├── record.py           # LineageRecord dataclass (hashes, config, environment,
+│       │       │                       #   termination status, partial_output_refs; ADR-018)
 │       │       ├── environment.py      # EnvironmentSnapshot: python version, key_packages, freeze
 │       │       ├── store.py            # LineageStore: SQLite read/write for lineage records
 │       │       └── graph.py            # Provenance graph queries (ancestors, diff, audit)
@@ -70,12 +74,18 @@ scieasy/                               # ← repo root
 │       │   │   ├── __init__.py
 │       │   │   ├── block.py            # Block ABC: validate(), run(), postprocess()
 │       │   │   │                       #   Fields: name, version, input_ports, output_ports,
-│       │   │   │                       #   execution_mode, batch_mode, resource_request
+│       │   │   │                       #   execution_mode, resource_request,
+│       │   │   │                       #   terminate_grace_sec (ADR-019). run() always
+│       │   │   │                       #   executes in subprocess, not engine process (ADR-017).
+│       │   │   │                       #   Utilities: pack(), unpack(), map_items(),
+│       │   │   │                       #   parallel_map() for Collection handling (ADR-020).
 │       │   │   ├── ports.py            # Port, InputPort, OutputPort
 │       │   │   │                       #   Type matching + optional constraint function
 │       │   │   ├── config.py           # BlockConfig: validated param container (Pydantic)
-│       │   │   ├── state.py            # BlockState enum, ExecutionMode, BatchMode enums
-│       │   │   └── result.py           # BlockResult, BatchResult (succeeded/failed/skipped)
+│       │   │   ├── state.py            # BlockState enum (8 states incl. CANCELLED, SKIPPED;
+│       │   │   │                       #   ADR-018), ExecutionMode, InputDelivery enums
+│       │   │   │                       #   BatchMode/BatchErrorStrategy removed (ADR-020)
+│       │   │   └── result.py           # BlockResult (BatchResult removed per ADR-020)
 │       │   │
 │       │   ├── io/                     # IOBlock — data ingress / egress
 │       │   │   ├── __init__.py
@@ -115,9 +125,9 @@ scieasy/                               # ← repo root
 │       │   │   ├── runners/            # Language-specific execution environments
 │       │   │   │   ├── __init__.py
 │       │   │   │   ├── base.py         # CodeRunner protocol (execute_inline, execute_script)
-│       │   │   │   ├── python_runner.py    # Python: exec() for inline, importlib for script
-│       │   │   │   ├── r_runner.py         # R: rpy2 bridge or Rscript subprocess
-│       │   │   │   └── julia_runner.py     # Julia: juliacall or subprocess
+│       │   │   │   ├── python_runner.py    # Python: subprocess worker calls exec()/importlib (ADR-017)
+│       │   │   │   ├── r_runner.py         # R: subprocess calling Rscript (ADR-017, no rpy2)
+│       │   │   │   └── julia_runner.py     # Julia: subprocess calling julia (ADR-017, no juliacall)
 │       │   │   ├── runner_registry.py  # Maps language string → runner class
 │       │   │   └── introspect.py       # Script introspection: parse run() signature,
 │       │   │                           #   extract configure() schema, auto-gen ports
@@ -126,8 +136,8 @@ scieasy/                               # ← repo root
 │       │   │   ├── __init__.py
 │       │   │   ├── app_block.py        # AppBlock: launch → pause → watch → resume
 │       │   │   ├── bridge.py           # ExternalAppBridge protocol (serialise, launch, watch)
-│       │   │   ├── watcher.py          # File watcher (watchdog) for output detection
-│       │   │   └── process_mgr.py      # External process lifecycle management (subprocess)
+│       │   │   └── watcher.py          # File watcher (polling) for output detection
+│       │   │                           #   + process death detection via ProcessHandle (ADR-019)
 │       │   │
 │       │   ├── ai/                     # AIBlock — LLM-driven processing
 │       │   │   ├── __init__.py
@@ -155,28 +165,40 @@ scieasy/                               # ← repo root
 │       │   ├── dag.py                  # DAG construction from workflow definition
 │       │   │                           #   (topological sort, dependency resolution)
 │       │   │
-│       │   ├── scheduler.py            # DAGScheduler: walk DAG in topo-order,
-│       │   │                           #   check readiness, dispatch blocks, propagate state
-│       │   │
-│       │   ├── batch.py                # BatchExecutor: handles parallel/serial/adaptive
-│       │   │                           #   dispatch for collections of data items.
-│       │   │                           #   Implements BatchErrorStrategy (stop/skip/retry/pause).
+│       │   ├── scheduler.py            # DAGScheduler: event-driven DAG execution (ADR-018)
+│       │   │                           #   Subscribes to EventBus for cancel/error/done events.
+│       │   │                           #   Propagates SKIPPED to unreachable downstream blocks.
 │       │   │
 │       │   ├── resources.py            # ResourceManager: GPU slots, CPU workers, memory budget.
 │       │   │                           #   ResourceRequest dataclass. acquire()/release().
+│       │   │                           #   Auto-release via EventBus on block terminal states (ADR-018).
 │       │   │
 │       │   ├── runners/                # BlockRunner protocol + implementations
 │       │   │   ├── __init__.py
-│       │   │   ├── base.py             # BlockRunner protocol (run, check_status, cancel)
-│       │   │   └── local.py            # LocalRunner: in-process / subprocess execution
+│       │   │   ├── base.py             # BlockRunner protocol (run→RunHandle, check_status, cancel)
+│       │   │   ├── local.py            # LocalRunner: isolated subprocess execution (ADR-017)
+│       │   │   ├── worker.py           # Subprocess entry point: receives payload via stdin,
+│       │   │   │                       #   imports block, reconstructs ViewProxy from StorageRef,
+│       │   │   │                       #   calls block.run(), writes outputs, returns refs (ADR-017)
+│       │   │   ├── process_handle.py   # ProcessHandle, ProcessExitInfo, ProcessRegistry,
+│       │   │   │                       #   spawn_block_process() factory (ADR-019)
+│       │   │   ├── process_monitor.py  # ProcessMonitor: background polling loop detecting
+│       │   │   │                       #   unexpected process exits (crash, OOM, task manager kill)
+│       │   │   ├── platform.py         # PlatformOps protocol + PosixOps + WindowsOps (ADR-019)
+│       │   │   │                       #   Isolates: signals, process groups, Job Objects,
+│       │   │   │                       #   alive checks, zombie cleanup
 │       │   │   # └── ssh.py            # (future) SSHRunner
 │       │   │   # └── slurm.py          # (future) SlurmRunner
 │       │   │
 │       │   ├── checkpoint.py           # WorkflowCheckpoint: serialise/deserialise workflow state
-│       │   │                           #   (block states, intermediate data refs, pending block)
+│       │   │                           #   (block states incl. CANCELLED/SKIPPED, skip_reasons,
+│       │   │                           #    intermediate data refs, pending block)
 │       │   │
-│       │   └── events.py              # Engine event bus: block state changes, progress updates.
-│       │                               #   Consumed by API layer for WebSocket broadcast.
+│       │   └── events.py              # EventBus: publish/subscribe backbone of the runtime (ADR-018)
+│       │                               #   14 event types: BLOCK_READY/RUNNING/PAUSED/DONE/ERROR/
+│       │                               #   CANCELLED/SKIPPED, CANCEL_BLOCK/WORKFLOW_REQUEST,
+│       │                               #   PROCESS_SPAWNED/EXITED, WORKFLOW_STARTED/COMPLETED,
+│       │                               #   CHECKPOINT_SAVED. All runtime components subscribe.
 │       │
 │       │
 │       │ ── Layer 4: AI Services ─────────────────────────────────
@@ -209,18 +231,22 @@ scieasy/                               # ← repo root
 │       │   │
 │       │   ├── routes/                 # REST endpoints
 │       │   │   ├── __init__.py
-│       │   │   ├── workflows.py        # CRUD /api/workflows, execute, pause, resume
+│       │   │   ├── workflows.py        # CRUD /api/workflows, execute, pause, resume, cancel
+│       │   │   │                       #   + per-block cancel endpoint (ADR-018)
 │       │   │   ├── blocks.py           # GET /api/blocks (palette), validate-connection
 │       │   │   ├── data.py             # Upload, metadata, preview /api/data
 │       │   │   ├── ai.py               # POST /api/ai/generate-block, suggest-workflow, optimize
 │       │   │   └── projects.py         # Project CRUD, workspace management
 │       │   │
-│       │   ├── ws.py                   # WebSocket handler: real-time block state, progress,
-│       │   │                           #   interactive block signals (prompt / complete)
+│       │   ├── ws.py                   # WebSocket handler: bidirectional event routing (ADR-018)
+│       │   │                           #   Inbound: cancel_block, cancel_workflow, interactive_complete
+│       │   │                           #   Outbound: block_state, cancel_propagation, interactive_prompt
 │       │   │
 │       │   ├── sse.py                  # Server-Sent Events: log streaming from execution
 │       │   │
 │       │   ├── schemas.py              # Pydantic models for all API request/response shapes
+│       │   │                           #   Includes CancelBlockRequest, CancelWorkflowRequest,
+│       │   │                           #   CancelBlockResponse, CancelWorkflowResponse (ADR-018)
 │       │   │
 │       │   └── deps.py                 # FastAPI dependency injection (engine, registry, etc.)
 │       │
@@ -347,10 +373,13 @@ scieasy/                               # ← repo root
 │   │
 │   ├── engine/
 │   │   ├── test_dag.py                # DAG construction, topological sort, cycle detection
-│   │   ├── test_scheduler.py          # End-to-end workflow execution, state propagation
-│   │   ├── test_batch.py              # Parallel/serial/adaptive modes, error strategies
-│   │   ├── test_resources.py          # ResourceManager acquire/release, GPU throttling
-│   │   └── test_checkpoint.py         # Serialise/restore workflow state, resume from pause
+│   │   ├── test_scheduler.py          # Event-driven execution, cancel propagation, SKIPPED
+│   │   ├── test_collection.py         # Collection construction, homogeneity, pack/unpack (ADR-020)
+│   │   ├── test_resources.py          # ResourceManager acquire/release, auto-release via EventBus
+│   │   ├── test_checkpoint.py         # Serialise/restore with CANCELLED/SKIPPED states
+│   │   ├── test_process_handle.py     # ProcessHandle terminate/kill, platform ops (ADR-019)
+│   │   ├── test_process_monitor.py    # Death detection, event emission (ADR-019)
+│   │   └── test_events.py            # EventBus emit/subscribe, error isolation (ADR-018)
 │   │
 │   ├── ai/
 │   │   ├── test_block_generator.py    # Generate all 5 block types, validation pipeline
@@ -417,8 +446,8 @@ scieasy/                               # ← repo root
               engine/scheduler.py
               ╱      │       ╲
              ▼       ▼        ▼
-      engine/    engine/    engine/
-      batch.py   resources  runners/
+      engine/    engine/
+      resources  runners/
                      │
               ┌──────┼──────────────────┐
               ▼      ▼                  ▼
@@ -477,14 +506,14 @@ julia = "scieasy.blocks.code.runners.julia_runner:JuliaRunner"
 
 | Directory | Python files | Purpose |
 |---|---|---|
-| `core/` | 14 | Data types, storage, proxy, lineage |
-| `blocks/` | 30 | All block categories, adapters, runners, registry |
-| `engine/` | 7 | Scheduler, batch, resources, checkpoint, events |
+| `core/` | 15 | Data types, Collection transport, storage, proxy, lineage |
+| `blocks/` | 29 | All block categories, adapters, runners, registry (process_mgr.py deleted per ADR-019) |
+| `engine/` | 10 | Scheduler, resources, checkpoint, events, runners (worker, process_handle, process_monitor, platform) |
 | `ai/` | 6 | Generation, synthesis, optimization |
 | `api/` | 9 | FastAPI routes, WebSocket, SSE |
 | `workflow/` | 4 | Definition, serialization, validation, layout |
 | `utils/` | 3 | Hashing, wrapping, logging |
 | `cli/` | 1 | CLI entry point |
-| **Total backend** | **~74** | |
+| **Total backend** | **~77** | |
 | `frontend/src/` | ~25 `.tsx/.ts` | React components, hooks, stores, API client |
 | `tests/` | ~22 | Unit + integration tests |

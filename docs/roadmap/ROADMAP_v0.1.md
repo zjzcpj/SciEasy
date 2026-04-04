@@ -86,14 +86,14 @@ All green. Zero implementation, zero failures.
       timestamp:     "2026-04-02T14:32:00Z"
       duration_ms:   4521
       environment:   { python: "3.11.8", key_packages: { cellpose: "3.0.1", ... } }
-      batch_info:    { total: 50, succeeded: 48, failed: 2, strategy: "skip" }
+      termination:   "completed"    # "completed" | "cancelled" | "error" | "skipped" (ADR-018)
 
 ### 1.4 Block system interfaces
 
-- [ ] `blocks/base/state.py` — `BlockState`, `ExecutionMode`, `BatchMode`, `InputDelivery`, `BatchErrorStrategy` enums
+- [ ] `blocks/base/state.py` — `BlockState` (8 states; ADR-018), `ExecutionMode`, `InputDelivery` enums (BatchMode/BatchErrorStrategy removed per ADR-020)
 - [ ] `blocks/base/ports.py` — `Port`, `InputPort`, `OutputPort` dataclasses with `accepted_types`, `constraint`
 - [ ] `blocks/base/config.py` — `BlockConfig` Pydantic model
-- [ ] `blocks/base/result.py` — `BlockResult`, `BatchResult` dataclasses
+- [ ] `blocks/base/result.py` — `BlockResult` dataclass (BatchResult removed per ADR-020)
 - [ ] `blocks/base/block.py` — `Block` ABC with `validate()`, `run()`, `postprocess()`, class-level declarations
 - [ ] `blocks/io/io_block.py` — `IOBlock(Block)` with `direction` field
 - [ ] `blocks/process/process_block.py` — `ProcessBlock(Block)`
@@ -117,7 +117,7 @@ All green. Zero implementation, zero failures.
 
 - [ ] `engine/dag.py` — `build_dag()`, `topological_sort()` signatures
 - [ ] `engine/scheduler.py` — `DAGScheduler` with `execute()`, `pause()`, `resume()` signatures
-- [ ] `engine/batch.py` — `BatchExecutor` with serial/parallel/adaptive dispatch signatures
+- [ ] ~~`engine/batch.py`~~ — removed (ADR-020: Collection-based transport eliminates engine-level batch iteration)
 - [ ] `engine/resources.py` — `ResourceRequest` dataclass, `ResourceManager` with `acquire()`, `release()`
 - [ ] `engine/runners/base.py` — `BlockRunner` Protocol (run, check_status, cancel)
 - [ ] `engine/runners/local.py` — `LocalRunner(BlockRunner)` signature only

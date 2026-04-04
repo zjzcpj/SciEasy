@@ -52,7 +52,7 @@ The system is organised into six horizontal layers, from bottom to top. Each lay
 │  Block generation · workflow synthesis · param optimisation  │
 ├─────────────────────────────────────────────────────────────┤
 │  Layer 3: Execution engine                                  │
-│  DAG scheduler · batch executor · process manager           │
+│  DAG scheduler · process lifecycle · resource management    │
 ├─────────────────────────────────────────────────────────────┤
 │  Layer 2: Block system                                      │
 │  Port typing · block registry · state machine · runners     │
@@ -284,10 +284,14 @@ LineageRecord:
     timestamp:     "2026-04-02T14:32:00Z"
     duration_ms:   4521
     environment:   { python: "3.11.8", key_packages: { cellpose: "3.0.1", ... } }
-    batch_info:    { total: 50, succeeded: 48, failed: 2, strategy: "skip" }
+    termination:   "completed"              # "completed" | "cancelled" | "error" | "skipped"
+    partial_output_refs: null               # StorageReference list for partial outputs (if any)
+    termination_detail:  null               # human-readable reason (error message, skip reason, etc.)
 ```
 
 Records are stored in a local SQLite database within the project workspace. They form a provenance graph that supports reproducibility audits, debugging, and AI-driven parameter comparison.
+
+Lineage records are written for **all terminal states**, not just successful completions. A cancelled block produces a record with `termination: "cancelled"` and `output_hashes: []`. A skipped block produces a record with `termination: "skipped"` and `termination_detail` pointing to the upstream block that caused the skip. This ensures the provenance graph is complete — every block execution attempt is traceable, including failures and cancellations.
 
 ### 4.5 Broadcast utility
 
@@ -371,16 +375,13 @@ class BlockState(Enum):
     PAUSED = "paused"       # waiting for user (interactive/external)
     DONE = "done"
     ERROR = "error"
+    CANCELLED = "cancelled" # user explicitly requested termination (ADR-018)
+    SKIPPED = "skipped"     # upstream did not produce required output (ADR-018)
 
 class ExecutionMode(Enum):
     AUTO = "auto"           # pure computation, no user intervention
     INTERACTIVE = "interactive"  # requires user action (e.g. napari review)
     EXTERNAL = "external"   # delegates to external application
-
-class BatchMode(Enum):
-    PARALLEL = "parallel"   # all items through this block concurrently
-    SERIAL = "serial"       # one item at a time through full downstream
-    ADAPTIVE = "adaptive"   # engine decides based on downstream blocks
 
 class Block(ABC):
     """Abstract base class for all blocks."""
@@ -392,7 +393,7 @@ class Block(ABC):
     input_ports: list[InputPort] = []
     output_ports: list[OutputPort] = []
     execution_mode: ExecutionMode = ExecutionMode.AUTO
-    batch_mode: BatchMode = BatchMode.PARALLEL
+    terminate_grace_sec: float = 5.0       # grace period before SIGKILL (ADR-019)
 
     def __init__(self, config: dict = None):
         self.config = BlockConfig(config or {})
@@ -405,13 +406,87 @@ class Block(ABC):
 
     @abstractmethod
     def run(self, inputs: dict[str, ViewProxy], config: BlockConfig) -> dict[str, DataObject]:
-        """Core execution logic. Must return a dict mapping output port names to DataObjects."""
+        """Core execution logic. Must return a dict mapping output port names to DataObjects.
+
+        IMPORTANT: This method always executes inside an isolated subprocess,
+        never in the engine process (ADR-017). The engine serialises
+        StorageReference pointers to the subprocess; the subprocess
+        reconstructs ViewProxy instances from storage and calls run().
+        Block authors do not need to handle serialisation — the subprocess
+        wrapper is transparent.
+        """
         ...
 
     def postprocess(self, outputs: dict[str, DataObject]) -> dict[str, DataObject]:
         """Optional hook for cleanup, logging, or output transformation."""
         return outputs
 ```
+
+**State machine** (ADR-018): the eight states and their valid transitions:
+
+```
+IDLE      → { READY, SKIPPED, ERROR }
+READY     → { RUNNING, SKIPPED, ERROR }
+RUNNING   → { DONE, PAUSED, ERROR, CANCELLED }
+PAUSED    → { RUNNING, ERROR, CANCELLED }
+DONE      → { IDLE }
+ERROR     → { IDLE }
+CANCELLED → { IDLE }
+SKIPPED   → { IDLE }
+```
+
+`DONE`, `ERROR`, `CANCELLED`, and `SKIPPED` are terminal states for a single workflow execution. Transitioning back to `IDLE` is only valid when the workflow is reset for a new run.
+
+**State diagram:**
+
+```
+                          ┌──────────────────────────────────────────────┐
+                          │               WORKFLOW RESET                  │
+                          │  (only when starting a new run of the same   │
+                          │   workflow — all blocks return to IDLE)       │
+                          └──┬─────┬─────────┬───────────┬──────────────┘
+                             │     │         │           │
+                             ▼     ▼         ▼           ▼
+          ┌───────────── IDLE ◄── DONE    ERROR ──► IDLE
+          │                │                ▲
+          │                ▼                │
+          │    ┌──── READY ────────────► ERROR
+          │    │       │                    ▲
+          │    │       ▼                    │
+          │    │   RUNNING ──────┬───── ERROR
+          │    │       │        │          ▲
+          │    │       ▼        │          │
+          │    │   PAUSED ──────┤───── ERROR
+          │    │       │        │
+          │    │       │        ▼
+          │    │       │      DONE ──────► IDLE
+          │    │       │
+          │    │       │    (user cancels)
+          │    │       └─────────────► CANCELLED ──► IDLE
+          │    │                            ▲
+          │    │                            │
+          │    │       (user cancels        │
+          │    │        while RUNNING) ─────┘
+          │    │
+          │    │    (upstream failed/cancelled,
+          │    │     required inputs unsatisfiable)
+          │    └──────────────────────► SKIPPED ────► IDLE
+          │                                ▲
+          └────────────────────────────────┘
+              (upstream failed/cancelled
+               before block left IDLE)
+```
+
+**`CANCELLED`**: the user explicitly requested termination of this block. The block's subprocess is killed via `ProcessHandle.terminate()` (ADR-019). No output is produced. Downstream blocks that depend on this block's output are marked `SKIPPED`.
+
+**`SKIPPED`**: this block cannot execute because a required upstream block did not produce output (due to `ERROR`, `CANCELLED`, or itself being `SKIPPED`). The skip reason is recorded and traces back to the root-cause block. Propagation is automatic and deterministic — the scheduler does not distinguish between `ERROR` and `CANCELLED` when propagating; it only checks whether required inputs can be satisfied.
+
+**Subprocess isolation** (ADR-017): all blocks execute in isolated subprocesses. The engine process is a pure orchestrator that never executes block logic directly. This provides:
+- **Reliable cancellation**: any block can be terminated at any time via OS-level process signals.
+- **Crash isolation**: a segfault, OOM, or memory leak in a block only kills its subprocess.
+- **Hang protection**: a deadlocked block does not freeze the engine.
+
+Block authors do not need to change their code. The framework handles serialisation of `StorageReference` and reconstruction of `ViewProxy` transparently in the subprocess worker. Cross-process overhead is limited to process startup (~50–200ms) + reference serialisation (~KB), not data copying — the underlying data stays in storage (Zarr/Parquet/filesystem).
 
 ### 5.2 Port system
 
@@ -701,9 +776,17 @@ def run(inputs, config):
 
 ##### Framework bridge implementation
 
+All CodeBlock execution happens inside an isolated subprocess (ADR-017). The engine process never calls `exec()` or `importlib` directly. Instead, it prepares an invocation payload containing `StorageReference` pointers and delegates to the subprocess worker:
+
 ```python
 class CodeBlock(Block):
     def run(self, inputs, config):
+        """Executed inside the subprocess worker, NOT in the engine process.
+
+        The engine serialises StorageReference pointers and config to the
+        subprocess. The subprocess reconstructs ViewProxy instances from
+        storage, applies InputDelivery modes, and calls this method.
+        """
         language = config["language"]
         runner = CodeRunnerRegistry.get(language)
         delivery_map = config.get("input_delivery", {})
@@ -771,16 +854,20 @@ class CodeBlock(Block):
         return concatenate_results(all_results)
 ```
 
+Note: `proxy.to_memory()` and `proxy.iter_chunks()` calls happen inside the subprocess, loading data into the subprocess's memory — not the engine's. This preserves the lazy-loading contract (ADR-007): the engine process never touches the actual data.
+
 ##### Script discovery and UI integration
 
 The frontend provides a file picker for `.py` / `.R` / `.jl` files. When a script is selected, the framework introspects it — reads port names from the `run()` function signature, config schema and `input_delivery` declarations from `configure()` (if present) — and auto-populates the block's port declarations, config form, and per-port delivery dropdowns. The user's script does not need to be modified beyond adding the `run()` convention.
 
 In the config panel, each input port shows a delivery mode selector (defaulting to MEMORY). For inline mode, delivery is locked to MEMORY and the selector is hidden.
 
-**Code runners** are isolated execution environments:
-- **Python**: in-process `exec()` with a sandboxed namespace (inline), or `subprocess` / `importlib` for script mode.
-- **R**: via `rpy2` bridge or subprocess calling `Rscript`.
-- **Julia**: via `juliacall` or subprocess.
+**Code runners** are isolated subprocess execution environments (ADR-017):
+- **Python**: the subprocess worker calls `exec()` for inline mode or `importlib` for script mode — both inside the subprocess, never in the engine process.
+- **R**: subprocess calling `Rscript` with JSON-based input/output serialisation. No in-process `rpy2` bridge.
+- **Julia**: subprocess calling `julia` with JSON-based input/output serialisation. No in-process `juliacall` bridge.
+
+All code runners execute inside subprocesses managed by `ProcessHandle` (ADR-019). If a script hangs or crashes, the subprocess is terminated without affecting the engine.
 
 #### AppBlock
 
@@ -1022,85 +1109,162 @@ Each registered block/type exposes to the palette:
 
 ### 6.1 DAG scheduler
 
-A workflow is a directed acyclic graph (DAG) of blocks connected by typed edges. The scheduler:
+A workflow is a directed acyclic graph (DAG) of blocks connected by typed edges. The scheduler is **event-driven** (ADR-018) — it reacts to block completion, errors, cancellation, and process death events via the `EventBus`, rather than iterating sequentially through a fixed topological order.
+
+Core responsibilities:
 
 1. **Topological sort**: determines execution order respecting data dependencies.
 2. **Readiness check**: a block becomes READY when all its required input ports have data.
-3. **Dispatch**: ready blocks are dispatched to the appropriate executor (in-process, subprocess, or external).
-4. **State propagation**: block state changes (RUNNING → PAUSED → DONE) are broadcast via WebSocket to the frontend.
+3. **Dispatch**: ready blocks are dispatched to the `BlockRunner`, which spawns an isolated subprocess (ADR-017) and returns a `RunHandle`.
+4. **Cancellation handling**: on `CANCEL_BLOCK_REQUEST`, terminates the block's subprocess and propagates `SKIPPED` to all unreachable downstream blocks (ADR-018).
+5. **State propagation**: all block state changes are emitted as events on the `EventBus`, consumed by the WebSocket handler, LineageRecorder, CheckpointManager, and ResourceManager.
 
 ```python
+@dataclass
+class RunHandle:
+    """Returned by BlockRunner.run() for lifecycle tracking."""
+    run_id: str
+    process_handle: ProcessHandle
+    result: asyncio.Future[dict[str, Any]]   # resolves when subprocess completes
+
 class DAGScheduler:
-    def __init__(self, workflow: WorkflowDefinition):
+    def __init__(self, workflow: WorkflowDefinition, event_bus: EventBus,
+                 runner: BlockRunner, resource_manager: ResourceManager):
         self.graph = build_dag(workflow)
         self.block_states: dict[str, BlockState] = {}
-        self.checkpoints: list[WorkflowCheckpoint] = []
+        self.skip_reasons: dict[str, str] = {}
+        self.event_bus = event_bus
+        self.runner = runner
+        self.resource_manager = resource_manager
+
+        # Subscribe to events
+        event_bus.subscribe(CANCEL_BLOCK_REQUEST, self._on_cancel_block)
+        event_bus.subscribe(CANCEL_WORKFLOW_REQUEST, self._on_cancel_workflow)
+        event_bus.subscribe(PROCESS_EXITED, self._on_process_exited)
 
     async def execute(self):
-        for block_id in topological_sort(self.graph):
-            block = self.graph.nodes[block_id]
-            inputs = gather_inputs(block, self.graph)
+        self.event_bus.emit(EngineEvent(WORKFLOW_STARTED, data={"workflow_id": ...}))
 
-            self.set_state(block_id, BlockState.RUNNING)
+        # Initial dispatch: find all blocks with no dependencies → READY → dispatch
+        for block_id in self._find_ready_blocks():
+            await self._dispatch(block_id)
 
-            if block.execution_mode == ExecutionMode.EXTERNAL:
-                result = await self.run_external(block, inputs)
-            elif block.execution_mode == ExecutionMode.INTERACTIVE:
-                result = await self.run_interactive(block, inputs)
-            else:
-                result = await self.run_auto(block, inputs)
+        # Event loop: react to block completions, errors, cancellations
+        while not self._all_terminal():
+            event = await self._next_event()
+            if event.event_type == BLOCK_DONE:
+                self._store_outputs(event.block_id, event.data["output_refs"])
+                for next_id in self._find_newly_ready_blocks():
+                    await self._dispatch(next_id)
+            elif event.event_type in (BLOCK_ERROR, BLOCK_CANCELLED):
+                self._propagate_skipped(event.block_id)
 
-            self.store_outputs(block_id, result)
-            self.set_state(block_id, BlockState.DONE)
-            self.save_checkpoint()
+        self.event_bus.emit(EngineEvent(WORKFLOW_COMPLETED, data={...}))
+
+    async def _dispatch(self, block_id: str):
+        """Acquire resources, call runner.run(), track the RunHandle."""
+        block = self.graph.nodes[block_id]
+        await self.resource_manager.acquire(block.resource_request)
+        self.set_state(block_id, BlockState.RUNNING)
+        handle = await self.runner.run(block, inputs, config)
+        self._active_runs[block_id] = handle
+        # handle.result resolves when subprocess exits → emits BLOCK_DONE or BLOCK_ERROR
+
+    async def _on_cancel_block(self, event: EngineEvent):
+        block_id = event.block_id
+        if self.block_states[block_id] not in (BlockState.RUNNING, BlockState.PAUSED):
+            return
+        await self.runner.cancel(self._active_runs[block_id].run_id)
+        self.set_state(block_id, BlockState.CANCELLED)
+        self.event_bus.emit(EngineEvent(BLOCK_CANCELLED, block_id=block_id))
+        self._propagate_skipped(block_id)
+
+    def _propagate_skipped(self, failed_block_id: str):
+        """Mark all unreachable downstream blocks as SKIPPED."""
+        queue = self._get_downstream_of(failed_block_id)
+        while queue:
+            block_id = queue.pop(0)
+            if self.block_states[block_id] in (DONE, ERROR, CANCELLED, SKIPPED):
+                continue
+            unsatisfied = self._get_unsatisfied_required_inputs(block_id)
+            if unsatisfied:
+                self.set_state(block_id, BlockState.SKIPPED)
+                self.skip_reasons[block_id] = f"upstream '{failed_block_id}' did not produce output"
+                self.event_bus.emit(EngineEvent(BLOCK_SKIPPED, block_id=block_id,
+                    data={"skip_reason": self.skip_reasons[block_id]}))
+                queue.extend(self._get_downstream_of(block_id))
 ```
 
-### 6.2 Batch execution
+**EventBus subscription matrix** — who listens to what:
 
-When an input port receives a **collection** of data items (e.g., 50 images), the engine consults the block's `batch_mode` to decide execution strategy:
+| Subscriber | `BLOCK_DONE` | `BLOCK_ERROR` | `BLOCK_CANCELLED` | `BLOCK_SKIPPED` | `CANCEL_BLOCK_REQUEST` | `CANCEL_WORKFLOW_REQUEST` | `PROCESS_SPAWNED` | `PROCESS_EXITED` |
+|---|---|---|---|---|---|---|---|---|
+| **DAGScheduler** | ✓ schedule next | ✓ propagate SKIPPED | ✓ propagate SKIPPED | — | ✓ initiate cancel | ✓ cancel all | — | ✓ update block state |
+| **ResourceManager** | ✓ release | ✓ release | ✓ release | — | — | — | ✓ record allocation | ✓ release |
+| **ProcessRegistry** | — | — | — | — | ✓ terminate process | ✓ terminate all | ✓ register handle | ✓ deregister handle |
+| **WebSocket handler** | ✓ push to client | ✓ push to client | ✓ push to client | ✓ push to client | — | — | — | — |
+| **LineageRecorder** | ✓ write record | ✓ write record | ✓ write record | ✓ write record | — | — | — | — |
+| **CheckpointManager** | ✓ save | ✓ save | ✓ save | ✓ save | — | — | — | — |
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│  PARALLEL MODE                                                   │
-│                                                                  │
-│  All items pass through block N concurrently, then block N+1.    │
-│                                                                  │
-│  Block 1 (denoise):   [img1, img2, img3, ..., img50]  ← parallel│
-│       ↓                                                          │
-│  Block 2 (segment):   [img1, img2, img3, ..., img50]  ← parallel│
-│       ↓                                                          │
-│  Block 3 (napari):    [img1, img2, img3, ..., img50]  ← problem!│
-│                                                                  │
-│  ✓ Fast for auto blocks. Ideal for automated pipelines.          │
-│  ✗ Interactive blocks receive all items at once — impractical.   │
-├──────────────────────────────────────────────────────────────────┤
-│  SERIAL MODE                                                     │
-│                                                                  │
-│  Each item runs through the full sub-pipeline before the next.   │
-│                                                                  │
-│  img1 → denoise → segment → napari (review) → done              │
-│  img2 → denoise → segment → napari (review) → done              │
-│  img3 → denoise → segment → napari (review) → done              │
-│                                                                  │
-│  ✓ Interactive blocks see one item at a time — natural for       │
-│    manual review / correction.                                   │
-│  ✗ Slower. No cross-item parallelism.                            │
-├──────────────────────────────────────────────────────────────────┤
-│  ADAPTIVE MODE (recommended default)                             │
-│                                                                  │
-│  Engine performs look-ahead on the DAG:                           │
-│  - If downstream contains any SERIAL or INTERACTIVE block →      │
-│    run current block in SERIAL mode to avoid buffering.          │
-│  - Otherwise → run in PARALLEL mode for throughput.              │
-│                                                                  │
-│  This gives the best of both worlds automatically.               │
-└──────────────────────────────────────────────────────────────────┘
+### 6.2 Collection-based data transport (ADR-020)
+
+All data flowing between blocks is wrapped in a `Collection` — a homogeneous, ordered container of `DataObject` instances. The engine treats every Collection as an opaque unit: one Collection in, one Collection out, one subprocess, one ProcessHandle. **The engine never unpacks, iterates, or inspects the contents of a Collection.**
+
+```python
+class Collection:
+    """Homogeneous ordered collection of DataObjects.
+
+    NOT a DataObject subclass — it is a transport wrapper, not a data type.
+    Its type identity for port matching is determined by item_type.
+    A single item is Collection with length=1. There is no special case.
+    """
+    items: list[DataObject]
+    item_type: type          # e.g. Image, DataFrame — determines port compatibility
+
+    def __getitem__(self, index): ...
+    def __iter__(self): ...
+    def __len__(self): ...
+    def storage_refs(self) -> list[StorageReference]: ...
 ```
 
-Implementation uses `concurrent.futures`:
-- **CPU-bound blocks** (image processing, spectral analysis): `ProcessPoolExecutor`.
-- **IO-bound blocks** (file loading, API calls): `ThreadPoolExecutor` or `asyncio`.
-- **Interactive/external blocks**: always serial, one at a time.
+A single image is `Collection[Image]` with length=1. 100 images is `Collection[Image]` with length=100. The engine handles both identically.
+
+**Port compatibility**: `Collection` is transparent to the port system. A port declaring `accepted_types=[Image]` accepts `Collection[Image]` of any length. The port system checks the Collection's `item_type` against `accepted_types`, not the Collection wrapper itself.
+
+**Block-internal iteration**: blocks decide how to process their input Collection. The `Block` base class provides utility methods:
+
+```python
+class Block(ABC):
+    # --- Pack / unpack ---
+    @staticmethod
+    def pack(items: list[DataObject]) -> Collection: ...
+    @staticmethod
+    def unpack(collection: Collection) -> list[DataObject]: ...
+    @staticmethod
+    def unpack_single(collection: Collection) -> DataObject: ...
+
+    # --- Iteration helpers (execute inside the block's subprocess) ---
+    @staticmethod
+    def map_items(func, collection: Collection) -> Collection:
+        """Apply func to each item sequentially."""
+    @staticmethod
+    def parallel_map(func, collection: Collection, max_workers=4) -> Collection:
+        """Apply func to each item using a process pool."""
+```
+
+**Example block patterns:**
+
+| Pattern | Block example | Code |
+|---|---|---|
+| Parallel per-item | Cellpose segmentation | `return {"masks": self.parallel_map(segment, inputs["images"], max_workers=4)}` |
+| Serial per-item | napari review | `for mask in self.unpack(inputs["masks"]): reviewed.append(review(mask))` |
+| Whole-collection | ElMAVEN peak picking | `bridge.prepare_all(inputs["data"], exchange_dir)` — no unpack, one window |
+| Single-item operation | Cross-modal merge | `metab = self.unpack_single(inputs["metabolites"])` |
+| Simple transform | Savitzky-Golay smooth | `return {"smoothed": self.map_items(smooth_fn, inputs["spectra"])}` |
+
+**CodeBlock auto-unpack**: CodeBlock transparently converts Collections for user scripts. `Collection` length=1 → single native object (numpy array, pandas DataFrame). `Collection` length>1 → list of native objects. User scripts never see a `Collection` object.
+
+**Collection operation blocks** (ADR-021): the framework provides built-in utility blocks for combining, splitting, filtering, and slicing Collections. For example, `MergeCollection` concatenates two same-typed Collections — useful when merging two batches of data before passing to ElMAVEN.
 
 ### 6.3 Pause, resume, and checkpointing
 
@@ -1111,18 +1275,22 @@ The engine supports mid-workflow suspension via `WorkflowCheckpoint`:
 class WorkflowCheckpoint:
     workflow_id: str
     timestamp: datetime
-    block_states: dict[str, BlockState]          # state of every block
+    block_states: dict[str, BlockState]          # state of every block (all 8 states valid)
     intermediate_refs: dict[str, StorageReference]  # outputs produced so far
     pending_block: str | None                     # block waiting for user action
     config_snapshot: dict                          # full config at checkpoint time
+    skip_reasons: dict[str, str]                   # block_id → skip reason for SKIPPED blocks (ADR-018)
 ```
 
-Checkpoints are saved to `{project}/checkpoints/` as JSON + references to Zarr/Parquet data. Resuming a workflow loads the latest checkpoint, skips completed blocks, and continues from the pending block.
+Checkpoints are saved to `{project}/checkpoints/` as JSON + references to Zarr/Parquet data. Resuming a workflow loads the latest checkpoint, skips completed blocks, and continues from the pending block. The `CheckpointManager` subscribes to `BLOCK_DONE`, `BLOCK_ERROR`, `BLOCK_CANCELLED`, and `BLOCK_SKIPPED` events on the `EventBus` and saves a checkpoint after each state change.
+
+Checkpoint state values include `CANCELLED` and `SKIPPED` (ADR-018). When resuming from a checkpoint, blocks in these states are not re-executed. Users can reset individual blocks to `IDLE` to retry them in a new run.
 
 This is critical for:
 - **AppBlock**: user closes ElMAVEN, goes to lunch, comes back → workflow resumes.
 - **Long pipelines**: crash recovery without re-running expensive blocks.
 - **Collaborative workflows**: one person runs the automated steps, saves checkpoint, another person does the manual review steps.
+- **Partial cancellation recovery**: user cancels one branch, the checkpoint records which blocks completed, which were cancelled, and which were skipped — enabling selective re-execution.
 
 ### 6.4 Resource management
 
@@ -1169,28 +1337,145 @@ class CellposeSegment(ProcessBlock):
 
 The DAG scheduler consults the `ResourceManager` before dispatching each block in parallel mode. If 50 images are queued for GPU-based Cellpose but only 1 GPU slot is available, the scheduler runs them sequentially through that slot rather than spawning 50 competing processes. CPU-only blocks can still run at full parallelism up to `max_cpu_workers`.
 
-### 6.5 Batch error handling
-
-When processing a batch of items, partial failures are inevitable (corrupt files, edge-case inputs, numerical errors). The engine provides configurable error strategies:
+**Automatic resource release via EventBus** (ADR-018, ADR-019): the `ResourceManager` subscribes to `BLOCK_DONE`, `BLOCK_ERROR`, `BLOCK_CANCELLED`, and `PROCESS_EXITED` events. When any of these events fire, the manager automatically releases the resources allocated to that block. This guarantees resources are never leaked, even when a block crashes unexpectedly (detected by `ProcessMonitor`) or is cancelled by the user.
 
 ```python
-class BatchErrorStrategy(Enum):
-    STOP = "stop"       # abort entire batch on first failure
-    SKIP = "skip"       # skip failed item, continue rest, log warning
-    RETRY = "retry"     # retry N times, then skip or stop
-    PAUSE = "pause"     # pause workflow, let user decide per-item
+# ResourceManager event subscription (in __init__):
+event_bus.subscribe(BLOCK_DONE, self._on_block_terminal)
+event_bus.subscribe(BLOCK_ERROR, self._on_block_terminal)
+event_bus.subscribe(BLOCK_CANCELLED, self._on_block_terminal)
+event_bus.subscribe(PROCESS_EXITED, self._on_block_terminal)
 
-@dataclass
-class BatchResult:
-    """Returned by the batch executor after processing a collection."""
-    succeeded: list[tuple[int, DataObject]]   # (item_index, result)
-    failed: list[tuple[int, Exception]]       # (item_index, error)
-    skipped: list[int]                        # item indices skipped
+def _on_block_terminal(self, event: EngineEvent):
+    allocation = self._allocations.pop(event.block_id, None)
+    if allocation:
+        self.release(allocation)
 ```
 
-Each block can declare a default `on_batch_error: BatchErrorStrategy`; users can override it per-block in the workflow config. The `BatchResult` is logged in lineage and surfaced in the frontend — the user sees which items succeeded, which failed, and can re-run only the failed items.
+### 6.5 Process lifecycle management
 
-### 6.6 Environment snapshots for reproducibility
+All blocks execute in isolated subprocesses (ADR-017). The process lifecycle is managed by three components that work together via the `EventBus` (ADR-019):
+
+#### ProcessHandle
+
+A cross-platform abstraction over an OS process, providing three guarantees: always terminable, always observable, always tracked.
+
+```python
+class ProcessHandle:
+    block_id: str                       # which block owns this process
+    pid: int                            # OS process ID
+    start_time: datetime                # when the process was launched
+    resource_request: ResourceRequest   # resources this process holds
+
+    async def is_alive(self) -> bool:
+        """Non-blocking alive check. Uses os.kill(pid,0) on POSIX, OpenProcess on Windows."""
+
+    async def exit_info(self) -> ProcessExitInfo | None:
+        """Exit code + signal info if exited, None if still running."""
+
+    async def terminate(self, grace_period_sec: float = 5.0) -> ProcessExitInfo:
+        """Terminate process and all its children.
+        Linux/macOS: SIGTERM to process group → wait grace_period → SIGKILL.
+        Windows: TerminateJobObject (immediate, no grace period)."""
+
+    async def kill(self) -> ProcessExitInfo:
+        """Immediate forced termination. SIGKILL / TerminateProcess."""
+
+@dataclass
+class ProcessExitInfo:
+    exit_code: int | None
+    signal_number: int | None       # POSIX only
+    was_killed_by_framework: bool
+    platform_detail: str
+```
+
+#### spawn_block_process factory
+
+**All subprocess creation goes through this single function.** No code in the framework calls `subprocess.Popen` directly.
+
+```python
+def spawn_block_process(
+    block_id: str,
+    command: list[str],
+    resource_request: ResourceRequest,
+    event_bus: EventBus,
+    cwd: str | Path | None = None,
+    env: dict[str, str] | None = None,
+    stdin_data: bytes | None = None,
+) -> ProcessHandle:
+    """Launch a subprocess with platform-appropriate isolation.
+    Linux/macOS: start_new_session=True (new process group for killpg).
+    Windows: CREATE_NEW_PROCESS_GROUP + Job Object (kills entire tree on close).
+    Registers the handle in ProcessRegistry and emits PROCESS_SPAWNED event."""
+```
+
+#### ProcessRegistry
+
+Singleton tracking all active block processes:
+
+```python
+class ProcessRegistry:
+    def register(self, handle: ProcessHandle) -> None
+    def deregister(self, block_id: str) -> None
+    def get_handle(self, block_id: str) -> ProcessHandle | None
+    def active_handles(self) -> list[ProcessHandle]
+    def terminate_all(self, grace_period_sec: float = 5.0) -> None
+        """Emergency shutdown: terminate every active process."""
+```
+
+#### ProcessMonitor
+
+Background coroutine that polls active processes for unexpected exits at 1-second intervals:
+
+```python
+class ProcessMonitor:
+    async def run(self):
+        while True:
+            for handle in self.registry.active_handles():
+                if not await handle.is_alive():
+                    exit_info = await handle.exit_info()
+                    self.event_bus.emit(ProcessExitedEvent(
+                        block_id=handle.block_id, exit_info=exit_info))
+                    self.registry.deregister(handle.block_id)
+            await asyncio.sleep(self.poll_interval_sec)
+```
+
+Detects: crashes (non-zero exit), OOM kills, user killing external apps via the OS task manager. Subscribers react via `PROCESS_EXITED` events (see EventBus subscription matrix in section 6.1).
+
+#### Platform abstraction
+
+All platform-specific process management is isolated in a single module:
+
+| Operation | Linux / macOS | Windows |
+|---|---|---|
+| Process group creation | `start_new_session=True` (calls `setsid()`) | `CREATE_NEW_PROCESS_GROUP` + Job Object |
+| Graceful termination | `os.killpg(pgid, SIGTERM)` + grace period | No equivalent; goes directly to forced termination |
+| Forced termination | `os.killpg(pgid, SIGKILL)` | `TerminateJobObject()` or `TerminateProcess()` |
+| Process tree kill | `os.killpg()` kills entire group | Job Object kills all assigned processes |
+| Alive check | `os.kill(pid, 0)` | `OpenProcess()` + `GetExitCodeProcess()` |
+| Zombie cleanup | `os.waitpid(pid, WNOHANG)` | Not applicable (Windows auto-cleans) |
+
+### 6.6 Error handling within blocks (ADR-020)
+
+With Collection-based transport, error handling for individual items within a Collection is the block's responsibility, not the engine's. The engine only sees block-level outcomes: DONE, ERROR, CANCELLED, or SKIPPED.
+
+Blocks that process items individually can implement their own error strategies:
+
+```python
+class RobustCellpose(ProcessBlock):
+    def run(self, inputs, config):
+        results = []
+        for img in self.unpack(inputs["images"]):
+            try:
+                results.append(segment(img))
+            except Exception:
+                results.append(None)  # skip failed item, or use a sentinel
+        return {"masks": self.pack([r for r in results if r is not None])}
+```
+
+If a block's subprocess crashes (segfault, OOM), all items in the Collection are lost — the same behaviour as interrupting a Jupyter notebook cell. Blocks that need partial result preservation can write to storage incrementally.
+
+### 6.7 Environment snapshots for reproducibility
 
 Lineage records (section 4.4) capture block version and config, but the same block version can produce different results under different package versions. Each lineage record includes an optional environment snapshot:
 
@@ -1206,19 +1491,19 @@ class EnvironmentSnapshot:
 
 Blocks declare `key_dependencies: list[str]` — the package names whose versions matter for reproducibility. The engine auto-captures their versions at execution time. For strict reproducibility audits, the full pip freeze or conda environment can be attached.
 
-### 6.7 Remote execution interface (future)
+### 6.8 Remote execution interface (future)
 
 The current implementation is local-only, but the scheduler–runner interface is designed for location-agnostic execution:
 
 ```python
 class BlockRunner(Protocol):
     """Abstract interface between the scheduler and the execution environment."""
-    async def run(self, block: Block, inputs: dict, config: dict) -> dict: ...
+    async def run(self, block: Block, inputs: dict, config: dict) -> RunHandle: ...
     async def check_status(self, run_id: str) -> BlockState: ...
     async def cancel(self, run_id: str) -> None: ...
 
 class LocalRunner(BlockRunner):
-    """Runs blocks in-process or as local subprocesses. Default implementation."""
+    """Runs blocks as isolated local subprocesses (ADR-017). Default implementation."""
     ...
 
 # Future implementations (not in v1):
@@ -1227,7 +1512,7 @@ class LocalRunner(BlockRunner):
 # class CloudRunner(BlockRunner):   # run on cloud compute (AWS Batch, GCP, etc.)
 ```
 
-The DAG scheduler interacts only with the `BlockRunner` protocol. Adding remote execution in the future means implementing a new runner — no changes to the scheduler, block system, or frontend.
+The DAG scheduler interacts only with the `BlockRunner` protocol. `run()` returns a `RunHandle` containing a `ProcessHandle` for lifecycle management and an `asyncio.Future` for the result. Adding remote execution in the future means implementing a new runner (with its own `ProcessHandle` subclass for remote termination) — no changes to the scheduler, block system, or frontend.
 
 ---
 
@@ -1435,6 +1720,8 @@ DELETE /api/workflows/{id}             Delete workflow
 POST   /api/workflows/{id}/execute     Start execution
 POST   /api/workflows/{id}/pause       Pause at current block
 POST   /api/workflows/{id}/resume      Resume from checkpoint
+POST   /api/workflows/{id}/cancel      Cancel entire workflow (ADR-018)
+POST   /api/workflows/{id}/blocks/{block_id}/cancel  Cancel a single block (ADR-018)
 
 # Block registry
 GET    /api/blocks                     List all available blocks (with search/filter)
@@ -1476,6 +1763,30 @@ POST   /api/ai/optimize-params          Run parameter optimisation on a block
 {
   "type": "interactive_complete",
   "block_id": "napari_review_001"
+}
+
+// Client → Server: cancel a single block (ADR-018)
+{
+  "type": "cancel_block",
+  "block_id": "cellpose_001",
+  "workflow_id": "wf_001"
+}
+
+// Client → Server: cancel entire workflow (ADR-018)
+{
+  "type": "cancel_workflow",
+  "workflow_id": "wf_001"
+}
+
+// Server → Client: cancellation propagation result (ADR-018)
+{
+  "type": "cancel_propagation",
+  "cancelled_block": "cellpose_001",
+  "skipped_blocks": [
+    {"block_id": "napari_review_001", "reason": "upstream 'cellpose_001' cancelled"},
+    {"block_id": "srs_extract_001", "reason": "upstream 'cellpose_001' cancelled"}
+  ],
+  "unaffected_blocks": ["raman_preprocess_001", "load_raman_001"]
 }
 ```
 
@@ -1590,7 +1901,7 @@ workflow:
         output_format: "csv"
         watch_patterns: ["*_peaks.csv"]
       execution_mode: "external"
-      batch_mode: "serial"
+      # block handles batch internally (ADR-020)
 
     - id: "r_annotation"
       block_type: "CodeBlock"
@@ -1608,7 +1919,7 @@ workflow:
         direction: "input"
         format: "csv"
         path: "data/raw/raman_spectra/"
-        batch: true
+        # loads directory as Collection (ADR-020)
 
     - id: "raman_preprocess"
       block_type: "ProcessBlock"
@@ -1617,7 +1928,7 @@ workflow:
         params:
           baseline_method: "als"
           smoothing_window: 11
-      batch_mode: "parallel"
+      # block handles batch internally (ADR-020)
 
     - id: "load_if_images"
       block_type: "IOBlock"
@@ -1625,7 +1936,7 @@ workflow:
         direction: "input"
         format: "tif"
         path: "data/raw/IF_images/"
-        batch: true
+        # loads directory as Collection (ADR-020)
 
     - id: "cellpose_segment"
       block_type: "ProcessBlock"
@@ -1634,14 +1945,14 @@ workflow:
         params:
           model: "cyto2"
           diameter: 30
-      batch_mode: "parallel"
+      # block handles batch internally (ADR-020)
 
     - id: "napari_review"
       block_type: "AppBlock"
       config:
         app_command: "napari"
       execution_mode: "interactive"
-      batch_mode: "serial"
+      # block handles batch internally (ADR-020)
 
     - id: "srs_extract"
       block_type: "ProcessBlock"
@@ -1697,8 +2008,8 @@ workflow:
 | Array storage | Zarr v3 | Chunked, compressed, cloud-ready |
 | Tabular storage | Apache Arrow / Parquet | Via `pyarrow` |
 | Metadata DB | SQLite | Lineage records, project metadata |
-| Process management | `subprocess` + `watchdog` | External app lifecycle |
-| Concurrency | `concurrent.futures` + `asyncio` | Batch execution |
+| Process lifecycle | ProcessHandle + ProcessRegistry + ProcessMonitor | Cross-platform: POSIX signals + process groups (Linux/macOS), Job Objects + TerminateProcess (Windows). Optional: `psutil` for convenience methods (ADR-019) |
+| Concurrency | `concurrent.futures` + `asyncio` | Block-internal parallelism, async scheduling |
 | Frontend framework | React 18 + TypeScript | |
 | Workflow canvas | ReactFlow | Node-graph editor |
 | State management | Zustand | Lightweight, React-native |
@@ -1772,14 +2083,38 @@ The framework is designed for community extensibility at every layer:
                               └───────────┘
 ```
 
-Execution flow:
-1. Three IOBlocks load data in parallel (independent branches).
+Execution flow (happy path):
+1. Three IOBlocks load data in parallel (independent branches). Each runs in its own subprocess (ADR-017).
 2. LC-MS branch: ElMAVEN opens (workflow pauses), user picks peaks, saves CSV → workflow resumes → R script annotates peaks.
-3. Raman branch: baseline correction + PCA run in parallel batch mode across all spectra.
+3. Raman branch: baseline correction + PCA process the spectra Collection (block-internal parallelism).
 4. IF branch: Cellpose segments all images in parallel → napari opens one-by-one in serial mode for manual review.
 5. SRS extraction applies reviewed IF masks to registered SRS hyperspectral images.
 6. Cross-modal merge joins all branches by cell ID.
 7. Export saves integrated AnnData object.
+
+**Cancellation scenario** (ADR-018): what happens if the user cancels Cellpose during step 4?
+
+```
+User cancels "cellpose_segment" (RUNNING)
+    │
+    ├──→ cellpose subprocess killed via ProcessHandle.terminate()
+    │    cellpose_segment → CANCELLED
+    │
+    ├──→ napari_review → SKIPPED ("upstream 'cellpose_segment' cancelled")
+    │    SRS_extract   → SKIPPED ("upstream 'napari_review' skipped")
+    │    cross_modal_merge has 3 required inputs:
+    │      input_metabolites (from R annotation) → will be satisfied ✓
+    │      input_spectra (from Raman PCA) → will be satisfied ✓
+    │      input_spatial (from SRS extract) → SKIPPED, will NOT be satisfied ✗
+    │    cross_modal_merge → SKIPPED ("required input 'input_spatial' unsatisfied")
+    │    export → SKIPPED ("upstream 'cross_modal_merge' skipped")
+    │
+    └──→ LC-MS branch: continues executing (unaffected)
+         Raman branch: continues executing (unaffected)
+         Both branches complete normally with DONE status.
+```
+
+The Raman and LC-MS results are preserved. Only the IF-dependent subgraph is skipped. The checkpoint records the final state, and the user can later reset the cancelled blocks and re-run just the IF branch.
 
 ---
 
@@ -1799,7 +2134,13 @@ Execution flow:
 | **Block registry** | The catalogue of all available blocks, populated from installed Python packages via entry_points. |
 | **Format adapter** | A plugin that converts between a file format and a DataObject subclass. |
 | **SubWorkflowBlock** | A meta-block that encapsulates an entire workflow as a single reusable node in a parent workflow. |
+| **Collection** | A homogeneous, ordered container of DataObjects used as the transport wrapper between blocks. Not a data type — its type identity is determined by its contents. The engine treats Collections as opaque units (ADR-020). |
 | **ResourceManager** | Engine component that tracks GPU/CPU/memory availability and throttles parallel dispatch accordingly. |
+| **ProcessHandle** | Cross-platform abstraction over an OS process, providing terminate/monitor/query capabilities. Every subprocess in the framework is wrapped in a ProcessHandle (ADR-019). |
+| **ProcessRegistry** | Singleton tracking all active block subprocesses. Enables cancellation, monitoring, and clean shutdown (ADR-019). |
+| **ProcessMonitor** | Background coroutine that polls active processes for unexpected exits — crashes, OOM kills, user killing via the OS task manager (ADR-019). |
+| **EventBus** | Publish/subscribe dispatcher that connects all runtime components (scheduler, resource manager, process registry, WebSocket handler, lineage recorder, checkpoint manager). The backbone of the event-driven runtime (ADR-018). |
+| **RunHandle** | Returned by `BlockRunner.run()`. Contains a `ProcessHandle` for lifecycle management and an `asyncio.Future` for the result. |
 
 ---
 
@@ -1831,16 +2172,15 @@ If absent, the frontend auto-layouts using dagre or elkjs. If present, positions
 
 ### C.3 Sandbox policy for CodeBlock and AppBlock
 
-CodeBlock executes arbitrary user code; AppBlock launches arbitrary processes. In a single-user local deployment this is acceptable, but any future multi-user or cloud scenario requires sandboxing.
+All blocks now execute in isolated subprocesses by default (ADR-017). This provides crash isolation, hang protection, and reliable cancellation. The `SUBPROCESS` level of sandboxing is the universal baseline.
 
-**Reserved interface**: a `sandbox_policy` field on Block:
+For future multi-user or cloud scenarios, stronger sandboxing options remain as reserved interfaces:
 
 ```python
 class SandboxPolicy(Enum):
-    NONE = "none"               # current default — full trust
-    SUBPROCESS = "subprocess"   # run in isolated subprocess with resource limits
-    CONTAINER = "container"     # run in a Docker/Podman container
+    SUBPROCESS = "subprocess"   # current default — all blocks (ADR-017)
+    CONTAINER = "container"     # run in a Docker/Podman container (future)
     WASM = "wasm"               # run in WebAssembly sandbox (future)
 ```
 
-Not implementing in v1 — the target audience is single-user local installations. But the field exists in the Block base class so that security policies can be enforced later without changing the block API.
+`CONTAINER` and `WASM` are not implemented in v1 — the target audience is single-user local installations. They build on the same `ProcessHandle` abstraction (ADR-019), so adding them requires implementing a new `ProcessHandle` subclass (e.g., `ContainerHandle` wrapping `docker stop`) without changing the scheduler, EventBus, or any other runtime component.

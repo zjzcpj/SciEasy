@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- ADR-017: Subprocess isolation for all block execution — all blocks run in isolated subprocesses, never in the engine process
+- ADR-018: Block cancellation and graceful workflow degradation — CANCELLED/SKIPPED states, event-driven scheduler, EventBus as runtime backbone
+- ADR-019: ProcessHandle, ProcessRegistry, ProcessMonitor — cross-platform process lifecycle management (POSIX signals + process groups / Windows Job Objects)
+- ADR-020: Collection-based data transport — eliminate engine-level batch iteration; all data flows as Collection wrappers; blocks handle iteration internally
+- ADR-021: MergeCollection and Collection operation blocks — built-in utility blocks for combining/splitting/filtering Collections
+
 - [#35] Add AI PR review workflow with Codex agent (@claude, 2026-04-03, branch: feat/ai-pr-review, session: 20260403-162720-add-ai-pr-review-workflow-with-codex-age)
 - [#32] Add code audit agent prompt for automated PR review (@claude, 2026-04-03, branch: feat/issue-32/code-audit-agent-prompt, session: 20260403-160517-add-code-audit-agent-prompt-for-automate)
 
