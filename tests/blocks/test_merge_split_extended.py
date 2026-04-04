@@ -1,0 +1,83 @@
+"""Extended tests for MergeBlock and SplitBlock — error paths and edge cases."""
+
+from __future__ import annotations
+
+import pyarrow as pa
+import pytest
+
+from scieasy.blocks.base.state import BlockState
+from scieasy.blocks.process.builtins.merge import MergeBlock
+from scieasy.blocks.process.builtins.split import SplitBlock
+from scieasy.core.types.dataframe import DataFrame
+
+
+def _make_df(data: dict) -> DataFrame:
+    """Helper to create a DataFrame with an Arrow table attached."""
+    table = pa.table(data)
+    df = DataFrame(columns=table.column_names, row_count=table.num_rows)
+    df._arrow_table = table  # type: ignore[attr-defined]
+    return df
+
+
+class TestMergeBlockExtended:
+    """MergeBlock — error paths and defaults."""
+
+    def test_unsupported_join_raises(self) -> None:
+        block = MergeBlock(config={"params": {"how": "inner"}})
+        block.transition(BlockState.READY)
+        left = _make_df({"a": [1, 2]})
+        right = _make_df({"a": [3, 4]})
+        with pytest.raises(NotImplementedError, match="inner"):
+            block.run({"left": left, "right": right}, block.config)
+        assert block.state == BlockState.ERROR
+
+    def test_default_how_is_concat(self) -> None:
+        block = MergeBlock()
+        block.transition(BlockState.READY)
+        left = _make_df({"a": [1, 2]})
+        right = _make_df({"a": [3, 4]})
+        result = block.run({"left": left, "right": right}, block.config)
+        merged = result["merged"]
+        assert merged.row_count == 4
+        assert block.state == BlockState.DONE
+
+    def test_error_state_on_failure(self) -> None:
+        block = MergeBlock(config={"params": {"how": "outer"}})
+        block.transition(BlockState.READY)
+        left = _make_df({"a": [1]})
+        right = _make_df({"a": [2]})
+        with pytest.raises(NotImplementedError):
+            block.run({"left": left, "right": right}, block.config)
+        assert block.state == BlockState.ERROR
+
+
+class TestSplitBlockExtended:
+    """SplitBlock — error paths and defaults."""
+
+    def test_filter_missing_column_raises(self) -> None:
+        block = SplitBlock(config={"params": {"mode": "filter", "value": "x"}})
+        block.transition(BlockState.READY)
+        df = _make_df({"a": [1, 2, 3]})
+        with pytest.raises((ValueError, KeyError)):
+            block.run({"data": df}, block.config)
+
+    def test_filter_missing_value_raises(self) -> None:
+        block = SplitBlock(config={"params": {"mode": "filter", "column": "a"}})
+        block.transition(BlockState.READY)
+        df = _make_df({"a": [1, 2, 3]})
+        with pytest.raises((ValueError, KeyError)):
+            block.run({"data": df}, block.config)
+
+    def test_head_default_n(self) -> None:
+        block = SplitBlock(config={"params": {"mode": "head"}})
+        block.transition(BlockState.READY)
+        df = _make_df({"a": list(range(200))})
+        result = block.run({"data": df}, block.config)
+        assert result["out"].row_count == 100  # default n=100
+
+    def test_ratio_default(self) -> None:
+        block = SplitBlock(config={"params": {"mode": "ratio"}})
+        block.transition(BlockState.READY)
+        df = _make_df({"a": list(range(100))})
+        result = block.run({"data": df}, block.config)
+        assert result["out"].row_count == 80  # default ratio=0.8
