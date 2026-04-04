@@ -6,23 +6,30 @@ Isolates all OS-specific process management behind a single protocol.
 
 from __future__ import annotations
 
+import contextlib
+import logging
+import subprocess
 import sys
-from typing import Any, Protocol, runtime_checkable
+import time
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from scieasy.engine.runners.process_handle import ProcessExitInfo
+
+logger = logging.getLogger(__name__)
 
 
 @runtime_checkable
 class PlatformOps(Protocol):
     """Protocol for cross-platform process management.
 
-    TODO(ADR-019): Implement 5 methods per platform.
-
     | Operation             | Linux / macOS                      | Windows                                  |
     |-----------------------|------------------------------------|------------------------------------------|
-    | Process group creation| start_new_session=True             | CREATE_NEW_PROCESS_GROUP + Job Object    |
-    | Graceful termination  | os.killpg(pgid, SIGTERM) + grace   | No equivalent; forced termination        |
-    | Forced termination    | os.killpg(pgid, SIGKILL)           | TerminateJobObject() or TerminateProcess |
-    | Process tree kill     | os.killpg()                        | Job Object                               |
-    | Alive check           | os.kill(pid, 0)                    | OpenProcess() + GetExitCodeProcess()     |
+    | Process group creation| start_new_session=True             | CREATE_NEW_PROCESS_GROUP                 |
+    | Graceful termination  | os.killpg(pgid, SIGTERM) + grace   | psutil terminate + grace + kill          |
+    | Forced termination    | os.killpg(pgid, SIGKILL)           | psutil kill (recursive)                  |
+    | Process tree kill     | os.killpg()                        | psutil children(recursive) + kill        |
+    | Alive check           | os.kill(pid, 0)                    | psutil.pid_exists()                      |
     | Zombie cleanup        | os.waitpid(pid, WNOHANG)           | Not applicable                           |
     """
 
@@ -30,11 +37,11 @@ class PlatformOps(Protocol):
         """Add platform-specific args to Popen kwargs for process group creation."""
         ...
 
-    def terminate_tree(self, pid: int, grace_sec: float) -> Any:
+    def terminate_tree(self, pid: int, grace_sec: float) -> ProcessExitInfo:
         """Graceful termination of process tree. Returns ProcessExitInfo."""
         ...
 
-    def kill_tree(self, pid: int) -> Any:
+    def kill_tree(self, pid: int) -> ProcessExitInfo:
         """Immediate forced termination of process tree. Returns ProcessExitInfo."""
         ...
 
@@ -42,15 +49,15 @@ class PlatformOps(Protocol):
         """Non-blocking alive check."""
         ...
 
-    def get_exit_info(self, pid: int) -> Any:
+    def get_exit_info(self, pid: int) -> ProcessExitInfo | None:
         """Return ProcessExitInfo if exited, None if still alive."""
         ...
 
 
 class PosixOps:
-    """Linux/macOS implementation.
+    """Linux/macOS implementation using OS-level process group APIs.
 
-    TODO(ADR-019): Implement using:
+    Uses:
         - start_new_session=True for process group
         - os.killpg(pgid, signal.SIGTERM) for graceful
         - os.killpg(pgid, signal.SIGKILL) for forced
@@ -59,55 +66,273 @@ class PosixOps:
     """
 
     def create_process_group(self, popen_kwargs: dict[str, Any]) -> dict[str, Any]:
-        raise NotImplementedError
+        """Add ``start_new_session=True`` so the child gets its own process group."""
+        popen_kwargs["start_new_session"] = True
+        return popen_kwargs
 
-    def terminate_tree(self, pid: int, grace_sec: float) -> Any:
-        raise NotImplementedError
+    def terminate_tree(self, pid: int, grace_sec: float) -> ProcessExitInfo:
+        """Send SIGTERM to the process group, wait *grace_sec*, then SIGKILL."""
+        import os
+        import signal
 
-    def kill_tree(self, pid: int) -> Any:
-        raise NotImplementedError
+        from scieasy.engine.runners.process_handle import ProcessExitInfo
+
+        try:
+            pgid = os.getpgid(pid)
+        except ProcessLookupError:
+            return ProcessExitInfo(
+                exit_code=None,
+                signal_number=None,
+                was_killed_by_framework=True,
+                platform_detail="process already dead before terminate",
+            )
+
+        # Phase 1: SIGTERM
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            return ProcessExitInfo(
+                exit_code=None,
+                signal_number=signal.SIGTERM,
+                was_killed_by_framework=True,
+                platform_detail="process died during SIGTERM",
+            )
+
+        # Wait for graceful exit
+        deadline = time.monotonic() + grace_sec
+        while time.monotonic() < deadline:
+            if not self.is_alive(pid):
+                info = self.get_exit_info(pid)
+                if info is not None:
+                    info.was_killed_by_framework = True
+                    return info
+                return ProcessExitInfo(
+                    exit_code=None,
+                    signal_number=signal.SIGTERM,
+                    was_killed_by_framework=True,
+                    platform_detail="terminated by SIGTERM",
+                )
+            time.sleep(0.05)
+
+        # Phase 2: SIGKILL if still alive
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(pgid, signal.SIGKILL)
+
+        return ProcessExitInfo(
+            exit_code=None,
+            signal_number=signal.SIGKILL,
+            was_killed_by_framework=True,
+            platform_detail="killed by SIGKILL after grace period",
+        )
+
+    def kill_tree(self, pid: int) -> ProcessExitInfo:
+        """Immediately SIGKILL the entire process group."""
+        import os
+        import signal
+
+        from scieasy.engine.runners.process_handle import ProcessExitInfo
+
+        try:
+            pgid = os.getpgid(pid)
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+        return ProcessExitInfo(
+            exit_code=None,
+            signal_number=signal.SIGKILL,
+            was_killed_by_framework=True,
+            platform_detail="killed by SIGKILL",
+        )
 
     def is_alive(self, pid: int) -> bool:
-        raise NotImplementedError
+        """Check if process is alive using ``os.kill(pid, 0)``."""
+        import os
 
-    def get_exit_info(self, pid: int) -> Any:
-        raise NotImplementedError
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            # Process exists but we lack permission — still alive
+            return True
+        return True
+
+    def get_exit_info(self, pid: int) -> ProcessExitInfo | None:
+        """Retrieve exit status via ``os.waitpid(pid, WNOHANG)``.
+
+        Returns ProcessExitInfo if the process has exited, None if still alive.
+        """
+        import os
+        import signal as signal_mod
+
+        from scieasy.engine.runners.process_handle import ProcessExitInfo
+
+        try:
+            wpid, status = os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            # Not our child or already reaped
+            if not self.is_alive(pid):
+                return ProcessExitInfo(
+                    exit_code=None,
+                    platform_detail="process exited but not our child",
+                )
+            return None
+
+        if wpid == 0:
+            # Still running
+            return None
+
+        if os.WIFEXITED(status):
+            return ProcessExitInfo(
+                exit_code=os.WEXITSTATUS(status),
+                platform_detail="exited normally",
+            )
+        if os.WIFSIGNALED(status):
+            sig = os.WTERMSIG(status)
+            return ProcessExitInfo(
+                exit_code=None,
+                signal_number=sig,
+                platform_detail=f"killed by signal {signal_mod.Signals(sig).name}",
+            )
+
+        return ProcessExitInfo(
+            exit_code=None,
+            platform_detail=f"unknown exit status {status}",
+        )
 
 
 class WindowsOps:
-    """Windows implementation.
+    """Windows implementation using psutil for process tree management.
 
-    TODO(ADR-019): Implement using:
+    Uses:
         - CREATE_NEW_PROCESS_GROUP flag for Popen
-        - CreateJobObject() + AssignProcessToJobObject() for tree management
-        - TerminateJobObject() for forced tree kill
-        - TerminateProcess() as fallback
-        - OpenProcess() + GetExitCodeProcess() for alive/exit check
-        - psutil as helper for reliable tree termination
-
-    Note: psutil used as helper, but custom Job Object handling required
-    for reliable tree termination on Windows (ADR-019).
+        - psutil.Process(pid).children(recursive=True) for tree operations
+        - psutil.Process.terminate() / kill() for termination
+        - psutil.pid_exists() for alive check
     """
 
     def create_process_group(self, popen_kwargs: dict[str, Any]) -> dict[str, Any]:
-        raise NotImplementedError
+        """Add ``CREATE_NEW_PROCESS_GROUP`` creation flag."""
+        create_new_pg: int = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+        popen_kwargs["creationflags"] = popen_kwargs.get("creationflags", 0) | create_new_pg
+        return popen_kwargs
 
-    def terminate_tree(self, pid: int, grace_sec: float) -> Any:
-        raise NotImplementedError
+    def terminate_tree(self, pid: int, grace_sec: float) -> ProcessExitInfo:
+        """Terminate process tree via psutil with grace period, then kill."""
+        import psutil
 
-    def kill_tree(self, pid: int) -> Any:
-        raise NotImplementedError
+        from scieasy.engine.runners.process_handle import ProcessExitInfo
+
+        try:
+            parent = psutil.Process(pid)
+        except psutil.NoSuchProcess:
+            return ProcessExitInfo(
+                exit_code=None,
+                was_killed_by_framework=True,
+                platform_detail="process already dead before terminate",
+            )
+
+        # Collect the tree (children first, then parent)
+        children = parent.children(recursive=True)
+        procs = [*children, parent]
+
+        # Phase 1: terminate all
+        for proc in procs:
+            try:
+                proc.terminate()
+            except psutil.NoSuchProcess:
+                continue
+
+        # Wait for graceful exit
+        _, alive = psutil.wait_procs(procs, timeout=grace_sec)
+
+        # Phase 2: kill survivors
+        for proc in alive:
+            try:
+                proc.kill()
+            except psutil.NoSuchProcess:
+                continue
+
+        # Get exit code from parent if possible
+        exit_code = None
+        with contextlib.suppress(psutil.NoSuchProcess, psutil.TimeoutExpired):
+            exit_code = parent.wait(timeout=1)
+
+        return ProcessExitInfo(
+            exit_code=exit_code,
+            was_killed_by_framework=True,
+            platform_detail="terminated via psutil" + (" (killed after grace)" if alive else ""),
+        )
+
+    def kill_tree(self, pid: int) -> ProcessExitInfo:
+        """Immediately kill entire process tree via psutil."""
+        import psutil
+
+        from scieasy.engine.runners.process_handle import ProcessExitInfo
+
+        try:
+            parent = psutil.Process(pid)
+        except psutil.NoSuchProcess:
+            return ProcessExitInfo(
+                exit_code=None,
+                was_killed_by_framework=True,
+                platform_detail="process already dead before kill",
+            )
+
+        children = parent.children(recursive=True)
+        for child in children:
+            try:
+                child.kill()
+            except psutil.NoSuchProcess:
+                continue
+
+        with contextlib.suppress(psutil.NoSuchProcess):
+            parent.kill()
+
+        return ProcessExitInfo(
+            exit_code=None,
+            was_killed_by_framework=True,
+            platform_detail="killed via psutil",
+        )
 
     def is_alive(self, pid: int) -> bool:
-        raise NotImplementedError
+        """Check if process exists using ``psutil.pid_exists()``."""
+        import psutil
 
-    def get_exit_info(self, pid: int) -> Any:
-        raise NotImplementedError
+        return bool(psutil.pid_exists(pid))
+
+    def get_exit_info(self, pid: int) -> ProcessExitInfo | None:
+        """Check process status via psutil.
+
+        Returns ProcessExitInfo if exited, None if still alive.
+        """
+        import psutil
+
+        from scieasy.engine.runners.process_handle import ProcessExitInfo
+
+        if psutil.pid_exists(pid):
+            try:
+                proc = psutil.Process(pid)
+                status = proc.status()
+                if status == psutil.STATUS_ZOMBIE:
+                    return ProcessExitInfo(
+                        exit_code=None,
+                        platform_detail="zombie process",
+                    )
+                # Still alive
+                return None
+            except psutil.NoSuchProcess:
+                pass
+
+        return ProcessExitInfo(
+            exit_code=None,
+            platform_detail="process no longer exists",
+        )
 
 
 def get_platform_ops() -> PlatformOps:
     """Return the correct PlatformOps implementation for the current OS."""
-    # TODO(ADR-019): Return PosixOps for Linux/macOS, WindowsOps for Windows.
     if sys.platform == "win32":
         return WindowsOps()
     return PosixOps()
