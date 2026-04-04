@@ -1774,6 +1774,7 @@ POST   /api/workflows/{id}/pause       Pause at current block
 POST   /api/workflows/{id}/resume      Resume from checkpoint
 POST   /api/workflows/{id}/cancel      Cancel entire workflow (ADR-018)
 POST   /api/workflows/{id}/blocks/{block_id}/cancel  Cancel a single block (ADR-018)
+POST   /api/workflows/{id}/execute-from  Start execution from a specific block (ADR-023)
 
 # Block registry
 GET    /api/blocks                     List all available blocks (with search/filter)
@@ -1783,7 +1784,14 @@ POST   /api/blocks/validate-connection Validate a proposed port connection
 # Data management
 POST   /api/data/upload                Upload data files
 GET    /api/data/{ref}                 Get data object metadata
-GET    /api/data/{ref}/preview         Get a lightweight preview (thumbnail, first N rows)
+GET    /api/data/{ref}/preview         Get a type-appropriate preview (ADR-023 Addendum 1)
+
+# Project management (ADR-023 Addendum 1)
+POST   /api/projects                   Create a new project workspace
+GET    /api/projects                   List all projects (name, path, last_opened, workflow_count)
+GET    /api/projects/{id}              Get project details
+PUT    /api/projects/{id}              Update project metadata
+DELETE /api/projects/{id}              Delete project
 
 # AI services
 POST   /api/ai/generate-block          Generate a block from natural-language description
@@ -1846,49 +1854,293 @@ POST   /api/ai/optimize-params          Run parameter optimisation on a block
 
 ## 9. Layer 6 — Frontend
 
+> **ADR-023** redesigned the frontend layout. This section reflects that decision.
+
 ### 9.1 Technology stack
 
 | Component | Technology | Rationale |
 |---|---|---|
-| Workflow canvas | **ReactFlow** | Mature node-graph editor with drag-drop, zoom, minimap |
+| Workflow canvas | **ReactFlow** (`@xyflow/react`) | Mature node-graph editor with drag-drop, zoom, minimap |
 | State management | **Zustand** | Lightweight, works well with ReactFlow |
-| UI components | **shadcn/ui** + Tailwind | Clean, accessible, customisable |
-| Data previews | **Plotly.js** (charts), embedded viewers | Interactive data exploration inline |
+| UI components | **shadcn/ui** + **Tailwind CSS** | Clean, accessible, customisable component library |
+| Data previews | **Plotly.js** (charts), **Monaco** (text), embedded image viewers | Interactive data exploration inline |
 | Block palette | Searchable sidebar with categories | Drag blocks onto canvas |
+| Build tool | **Vite** + **TypeScript** | Fast HMR, type safety |
 
-### 9.2 Canvas interaction model
+### 9.2 Layout
+
+Three resizable columns (Block Palette | Canvas + Bottom Panel | Data Preview) with a fixed toolbar at the top.
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│ ┌──────────┐                              ┌───────────┐ │
-│ │  Block    │                              │  Block    │ │
-│ │  Palette  │    ┌──────────────────────┐  │  Config   │ │
-│ │           │    │                      │  │  Panel    │ │
-│ │  [Search] │    │   ReactFlow Canvas   │  │           │ │
-│ │           │    │                      │  │  (shown   │ │
-│ │  ▸ IO     │    │   ┌─────┐  ┌─────┐  │  │   when a  │ │
-│ │  ▸ Process│    │   │ Blk ├──▶ Blk │  │  │   block   │ │
-│ │  ▸ Code   │    │   └─────┘  └──┬──┘  │  │   is      │ │
-│ │  ▸ App    │    │               │      │  │  selected)│ │
-│ │  ▸ AI     │    │            ┌──▼──┐   │  │           │ │
-│ │           │    │            │ Blk │   │  │  [params] │ │
-│ │           │    │            └─────┘   │  │  [ports]  │ │
-│ │           │    │                      │  │  [status] │ │
-│ │           │    └──────────────────────┘  │           │ │
-│ └──────────┘                              └───────────┘ │
-│ ┌─────────────────────────────────────────────────────┐ │
-│ │  Status Bar: execution progress, logs, checkpoints  │ │
-│ └─────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Toolbar: [Import][Export][Save] │ [▶Run][⏸Pause][■Stop][↻Reset] │ [🗑Del][🔄Reload] │
+├───────────┬──────────────────────────────────────────────────┬──────────────┤
+│           │              ReactFlow Canvas                    │              │
+│  Block    │                                                  │    Data      │
+│  Palette  │     ┌──────┐      ┌──────┐        ┌────┐       │   Preview    │
+│           │     │ Load ├─────▶│ Proc │        │mini│       │    Panel     │
+│  [Search] │     └──────┘      └──┬───┘        │map │       │              │
+│           │                     │              └────┘       │  [Port ▼]    │
+│  ▸ IO     │                ┌────▼───┐                       │  [1][2][3].. │
+│  ▸ Process│                │ Export │                       │  ┌────────┐  │
+│  ▸ Code   │                └────────┘                       │  │viewer  │  │
+│  ▸ App    ├──────────────────────────────────────────────────┤  └────────┘  │
+│  ▸ AI     │ Bottom Panel (browser-style tabs)                │  Metadata:   │
+│  ▸ Sub-WF │ [💬 AI Chat][📋 Config][📜 Logs][🔗 Lineage]... │  shape: ...  │
+│  ▸ Custom │                                                  │              │
+│           │ > AI: I suggest adding baseline correction...    │              │
+└───────────┴──────────────────────────────────────────────────┴──────────────┘
 ```
 
-Each block node on the canvas displays:
-- Block name and icon.
-- Input/output port handles (colour-coded by data type).
-- State badge (idle / running / paused / done / error).
-- Progress indicator during execution.
+**Structural rules:**
 
-Connections are drawn between ports. Invalid type-mismatches are rejected with a visual indicator. The config panel on the right shows the selected block's parameters as an auto-generated form (from JSON Schema).
+- **Block Palette** (left): full height from toolbar to window bottom. Does not share vertical space with the bottom panel.
+- **ReactFlow Canvas** (centre top): fills remaining horizontal space. Contains the ReactFlow minimap (default position: bottom-right of canvas viewport).
+- **Bottom Panel** (centre bottom): same width as canvas. Height adjustable via drag handle. Can be collapsed.
+- **Data Preview Panel** (right): full height from toolbar to window bottom. Does not share vertical space with the bottom panel.
+- **Toolbar** (top): full width, fixed position.
+
+**All three columns are resizable via drag handles:**
+
+| Panel | Default | Min | Max | Drag |
+|-------|---------|-----|-----|------|
+| Block Palette | 220px | 160px | 400px | Horizontal (right edge) |
+| Data Preview | 320px | 240px | 600px | Horizontal (left edge) |
+| Bottom Panel | 200px | 100px | 50% of canvas height | Vertical (top edge) |
+| Canvas | Fills remaining | — | — | — |
+
+**Collapse behaviour:**
+
+| Panel | Trigger | Collapsed state |
+|-------|---------|-----------------|
+| Block Palette | Toggle button or `Ctrl+B` | Icon-only mode (~48px) showing category icons |
+| Data Preview | Toggle button or `Ctrl+D` | Hidden (0px). Auto-shows when a block with output is selected. |
+| Bottom Panel | Toggle button or `Ctrl+J` | Tab bar only (~32px). Auto-expands when execution starts. |
+
+### 9.3 Toolbar
+
+Fixed horizontal bar at the top, grouped by function:
+
+```
+[📁 Projects ▼] │ [📂 Import][💾 Save][📤 Export] │ [▶ Run][⏸ Pause][■ Stop][↻ Reset] │ [🗑 Delete][🔄 Reload Blocks]
+ Project mgmt      File operations                    Execution controls                   Edit operations
+```
+
+**Projects menu** (ADR-023 Addendum 1):
+
+| Menu item | Action |
+|-----------|--------|
+| New Project... | Modal dialog → name, description, directory → `POST /api/projects/` |
+| Open Project... | List known projects or browse directory → load `project.yaml` |
+| Save Project | Save current workflow + project metadata |
+| Recent Projects ▸ | Sub-menu of last 5 opened projects |
+| Close Project | Return to welcome screen |
+
+When no project is open, the canvas area shows a **welcome screen** with "New Project", "Open Project", and recent projects list.
+
+**Keyboard shortcuts:**
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+O` | Import workflow YAML |
+| `Ctrl+S` | Save workflow |
+| `Ctrl+Shift+S` | Export workflow |
+| `Ctrl+Enter` | Run workflow |
+| `Ctrl+.` | Stop (cancel entire workflow) |
+| `Delete` / `Backspace` | Delete selected block(s) or edge(s) |
+| `Ctrl+Z` | Undo |
+| `Ctrl+Y` / `Ctrl+Shift+Z` | Redo |
+| `Ctrl+A` | Select all |
+| `Escape` | Deselect all |
+| `Space` (hold) | Pan canvas |
+| `Ctrl+Mouse wheel` | Zoom canvas |
+| `Ctrl+M` | Toggle minimap |
+
+### 9.4 Block Palette (left column)
+
+Full-height left sidebar with searchable, categorised block list.
+
+- Blocks are fetched from `GET /api/blocks/` on mount and after "Reload Blocks."
+- Search filters by block name, category, and description.
+- Categories: IO, Process, Code, App, AI, SubWorkflow, Custom (user/project-local blocks from `~/.scieasy/blocks/` and `project/blocks/`).
+- Drag-and-drop: dragging a block onto the canvas creates a new node with default config.
+
+### 9.5 Block node design
+
+Each block on the canvas renders as a custom ReactFlow node with header, inline config, ports, and status footer.
+
+```
+┌────────────────────────────────────┐
+│ 📦 Cellpose Segmentation   [▶][↻] │  ← Header: icon + name + run + start-from-here
+├────────────────────────────────────┤
+│  Model:    [▼ cyto2       ]        │  ← Inline config (top 3 params by ui_priority)
+│  Diameter: [  30.0        ]        │
+│  Channels: [▼ [0,1]       ]        │
+│                                    │
+◯ images                     masks ◉ │  ← Ports: type-coloured handles
+◯ config                   errors  ◉ │
+├────────────────────────────────────┤
+│ ✅ Done · 3.2s · 47 items          │  ← State badge
+└────────────────────────────────────┘
+```
+
+**Header elements:**
+
+| Element | Description |
+|---------|-------------|
+| Icon | Block category icon (IO, Process, Code, App, AI, SubWF) |
+| Name | Block display name (from block metadata or user-assigned) |
+| `[▶]` button | Run this single block only (uses cached upstream outputs) |
+| `[↻]` button | "Start from here" — re-run from this block through all downstream (ADR-023 Section 8) |
+
+**Inline config (hybrid approach):**
+
+Block nodes display the **top 3 parameters** by `ui_priority` (default: first 3 in schema order) as compact inline form controls. Clicking the block switches the bottom panel to the `[📋 Config]` tab showing the **full parameter form** with all parameters, descriptions, and validation.
+
+**Port rendering:**
+
+- Input ports on the **left** edge, output ports on the **right** edge.
+- Port handles are coloured by data type (Section 9.6).
+- Hover tooltip: type name, constraint, connection status.
+- Drawing a connection triggers backend validation (`POST /api/blocks/validate-connection`). Invalid connections are visually rejected.
+
+**State badge:**
+
+| State | Display | Colour |
+|-------|---------|--------|
+| IDLE | `○ Idle` | Grey `#9CA3AF` |
+| READY | `◉ Ready` | Blue `#3B82F6` |
+| RUNNING | `⟳ Running · {elapsed}` | Blue `#3B82F6` with spinner |
+| PAUSED | `⏸ Paused` | Amber `#F59E0B` |
+| DONE | `✅ Done · {elapsed} · {item_count} items` | Green `#22C55E` |
+| ERROR | `❌ Error: {message}` | Red `#EF4444` (clickable → traceback in Logs) |
+| CANCELLED | `⊘ Cancelled` | Orange `#F97316` |
+| SKIPPED | `⊘ Skipped: {reason}` | Grey `#9CA3AF` italic |
+
+**Node sizing:** fixed width 280px, dynamic height based on inline params and ports.
+
+### 9.6 Port type colour system
+
+Base data types receive a pure solid colour. Sub-types inherit the parent colour. Users may define `_ui_ring_color` on custom sub-types for visual distinction.
+
+| Base Type | Colour | Hex | Collection |
+|-----------|--------|-----|------------|
+| `Array` | Blue | `#3B82F6` | Double ring blue |
+| `Series` | Green | `#22C55E` | Double ring green |
+| `DataFrame` | Orange | `#F97316` | Double ring orange |
+| `Text` | Purple | `#A855F7` | Double ring purple |
+| `Artifact` | Grey | `#6B7280` | Double ring grey |
+| `CompositeData` | Red | `#EF4444` | Double ring red |
+| `DataObject` (fallback) | Light grey | `#E5E7EB` | Double ring grey |
+
+```
+Single DataObject port:  ◉  (solid filled circle)
+Collection[T] port:      ◎  (double ring in T's colour)
+```
+
+**User-extensible ring colours:** sub-types declare `_ui_ring_color: ClassVar[str]` for an outer ring around the parent's solid fill. If undefined, the sub-type is visually identical to the parent (tooltip always shows the precise type).
+
+**Edge colours:** inherit the source port's base type colour. Collection edges render as **dashed lines**.
+
+The colour map is stored in `frontend/src/config/typeColorMap.ts`. At runtime, the frontend resolves port colours by walking the type hierarchy from the block schema API.
+
+### 9.7 Data Preview Panel (right column)
+
+Full-height right sidebar that displays the output of the currently selected block.
+
+```
+┌─────────────────────────────┐
+│ Preview: {block_name}       │
+├─────────────────────────────┤
+│ Port: [▼ {port_name}    ]  │  ← Dropdown for multiple output ports
+├─────────────────────────────┤
+│ Collection[Image] · 47 items│  ← Type badge + item count
+├──┬──┬──┬──┬──┬──────────────┤
+│ 1│ 2│ 3│ 4│ 5│  ... ▶       │  ← Collection item tabs
+├──┴──┴──┴──┴──┴──────────────┤
+│  ┌───────────────────────┐  │
+│  │   Type-specific       │  │  ← Renderer area
+│  │   renderer            │  │
+│  └───────────────────────┘  │
+├─────────────────────────────┤
+│ Metadata:                   │
+│   shape: (1024, 1024)       │
+│   dtype: uint16             │
+│   storage: zarr://data/...  │
+└─────────────────────────────┘
+```
+
+**Renderer selection by type:**
+
+| Type | Renderer |
+|------|----------|
+| `DataFrame`, `PeakTable` | Paginated table (first 100 rows, column sorting, search) |
+| `Array`, `Image` | Zoomable image viewer (channel selector, brightness/contrast) |
+| `MSImage` | Image + click-to-spectrum overlay (Plotly) |
+| `Series`, `Spectrum` | Plotly line chart (zoom, pan, hover) |
+| `Text` | Monaco editor (read-only, syntax highlighting) |
+| `Artifact` | File preview (images/PDFs inline, others show metadata + download) |
+| `CompositeData` | Expandable slot list with per-slot renderer |
+
+**Collection tab behaviour:**
+
+| Size | Rendering |
+|------|-----------|
+| 1 item | No tab bar, render directly |
+| 2–20 | Horizontal tab bar with labels (metadata or sequential numbers) |
+| 21–100 | Paginated tab bar, 10 per page |
+| >100 | Paginated + jump-to input |
+
+Preview data is fetched lazily on tab click via `GET /api/data/{ref}/preview` and cached in Zustand.
+
+### 9.8 Bottom Panel (browser-style tabs)
+
+Tabbed panel below the canvas, same width as the canvas area.
+
+| Tab | Content | Phase |
+|-----|---------|-------|
+| **💬 AI Chat** | Conversational AI assistant (block generation, workflow suggestions, parameter advice) | Phase 8 MVP |
+| **📋 Config** | Full parameter form for selected block (JSON Schema → auto-generated form) | Phase 8 MVP |
+| **📜 Logs** | Real-time execution log stream (SSE), block filter, severity filter, auto-scroll | Phase 8 MVP |
+| **🔗 Lineage** | Provenance chain for selected block output | Phase 8.5 |
+| **📊 Jobs** | Current/historical execution list | Phase 8.5 |
+| **⚠ Problems** | Validation errors and type mismatch warnings | Phase 8.5 |
+
+**Tab interaction rules:**
+
+- Clicking a block → auto-switches to **Config** tab (unless user has pinned another tab).
+- Starting execution → auto-switches to **Logs** tab and auto-expands bottom panel.
+- Clicking an ERROR badge → auto-switches to **Logs** filtered to that block.
+- AI Chat maintains conversation history across block selections.
+
+### 9.9 "Start from here" execution (ADR-023)
+
+Each block node has a `[↻]` button that re-runs the workflow from that block using cached upstream outputs.
+
+**Execution flow:**
+
+1. Frontend sends `POST /api/workflows/{id}/execute-from` with `{"block_id": "C"}`.
+2. Backend validates all predecessors of C have cached outputs in checkpoint `intermediate_refs`.
+3. Backend resets C and all downstream blocks to IDLE, clears their cached outputs.
+4. Backend loads predecessor outputs from checkpoint, sets predecessors to DONE.
+5. DAGScheduler executes from C onward (normal event-driven dispatch).
+6. Frontend receives state updates via WebSocket: C, D, E transition through RUNNING → DONE while A, B remain DONE.
+
+The `[↻]` button is visible only when cached upstream outputs exist. If predecessor outputs are missing, a tooltip explains: "Run the workflow first to enable Start from here."
+
+### 9.10 State management (Zustand)
+
+| Store slice | Responsibility |
+|-------------|----------------|
+| `projectSlice` | Current project, recent projects, isProjectOpen (ADR-023 Addendum 1) |
+| `workflowSlice` | Nodes, edges, workflow metadata (mirror of backend state) |
+| `executionSlice` | Per-block execution state, timing, output refs (updated via WebSocket) |
+| `uiSlice` | Panel widths, collapsed states, selected block ID, active bottom tab |
+| `previewSlice` | Cached preview data keyed by StorageReference |
+| `paletteSlice` | Available blocks from registry, search filter |
+| `chatSlice` | AI chat message history |
+
+**Data flow:** the backend is the source of truth for workflow definition and execution state. The frontend sends mutations via REST and receives state updates via WebSocket. The frontend never computes execution state locally.
 
 ---
 
@@ -2222,6 +2474,8 @@ nodes:
 ```
 
 If absent, the frontend auto-layouts using dagre or elkjs. If present, positions are restored exactly. The backend ignores this field entirely.
+
+The ADR-023 layout redesign (three-column with bottom panel) does not affect layout persistence — node positions are stored per-node and are independent of which panels are visible or how wide they are. Panel widths and collapsed states are stored in browser `localStorage` (via Zustand `uiSlice`), not in the workflow YAML.
 
 ### C.3 Sandbox policy for CodeBlock and AppBlock
 

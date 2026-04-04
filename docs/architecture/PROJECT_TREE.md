@@ -304,57 +304,72 @@ scieasy/                               # ← repo root
 │  REACT FRONTEND  (Layer 6)
 │ ══════════════════════════════════════════════════════════════════
 │
-├── frontend/
+├── frontend/                                        # ADR-023: Frontend redesign
 │   ├── package.json
 │   ├── tsconfig.json
 │   ├── vite.config.ts
 │   ├── tailwind.config.ts
+│   ├── postcss.config.js
 │   │
 │   └── src/
 │       ├── main.tsx                    # React entry point
-│       ├── App.tsx                     # Top-level layout: palette | canvas | config panel
+│       ├── App.tsx                     # Root layout: three-column + toolbar + bottom panel (ADR-023)
 │       │
 │       ├── components/
+│       │   ├── Toolbar.tsx             # Projects menu, file, execution, edit buttons (ADR-023-Add1)
+│       │   ├── ProjectDialog.tsx       # New/Open project modal dialogs (ADR-023-Add1)
+│       │   ├── WelcomeScreen.tsx       # Welcome screen when no project is open (ADR-023-Add1)
+│       │   │
 │       │   ├── canvas/                 # ReactFlow integration
-│       │   │   ├── WorkflowCanvas.tsx  # ReactFlow instance, event handlers, minimap
-│       │   │   ├── BlockNode.tsx       # Custom ReactFlow node: ports, state badge, progress
-│       │   │   ├── TypedEdge.tsx       # Custom edge: color-coded by data type
+│       │   │   ├── WorkflowCanvas.tsx  # ReactFlow instance, minimap, zoom, pan
+│       │   │   ├── BlockNode.tsx       # Custom node: header, inline config, ports, state badge
+│       │   │   ├── PortHandle.tsx      # Custom handle: type-coloured circle / double-ring
+│       │   │   ├── TypedEdge.tsx       # Custom edge: color-coded by source port type
 │       │   │   └── SubWorkflowNode.tsx # Drill-down node for SubWorkflowBlock
 │       │   │
-│       │   ├── palette/                # Block palette sidebar
+│       │   ├── palette/                # Block palette (left column, full height)
 │       │   │   ├── BlockPalette.tsx    # Searchable, categorised block list
 │       │   │   └── BlockCard.tsx       # Draggable block card (icon, name, port summary)
 │       │   │
-│       │   ├── config/                 # Block config panel (right sidebar)
-│       │   │   ├── ConfigPanel.tsx     # Auto-generated form from JSON Schema
-│       │   │   ├── CodeEditor.tsx      # Monaco-based editor for CodeBlock inline mode
-│       │   │   ├── ScriptPicker.tsx    # File picker for CodeBlock script mode
-│       │   │   └── PortInspector.tsx   # Port types, constraints, connection status
+│       │   ├── preview/                # Data preview (right column, full height)
+│       │   │   ├── DataPreview.tsx     # Port selector, collection tabs, renderer dispatch
+│       │   │   ├── TableRenderer.tsx   # DataFrame/PeakTable: paginated table, sort, search
+│       │   │   ├── ImageRenderer.tsx   # Array/Image: zoomable, channel selector, brightness
+│       │   │   ├── ChartRenderer.tsx   # Series/Spectrum: Plotly line chart
+│       │   │   ├── TextRenderer.tsx    # Text: Monaco read-only with syntax highlighting
+│       │   │   ├── ArtifactRenderer.tsx # Artifact: PDF/image inline, others metadata+download
+│       │   │   └── CompositeRenderer.tsx # CompositeData: expandable slot list
 │       │   │
-│       │   ├── status/                 # Execution status bar
-│       │   │   ├── StatusBar.tsx       # Overall progress, run/pause/resume controls
-│       │   │   ├── LogStream.tsx       # Live log viewer (SSE consumer)
-│       │   │   └── BatchProgress.tsx   # Per-item progress for batch execution
-│       │   │
-│       │   └── data/                   # Data preview components
-│       │       ├── TablePreview.tsx     # First N rows of DataFrame
-│       │       ├── ImagePreview.tsx     # Thumbnail viewer for Array/Image
-│       │       ├── SpectrumPreview.tsx  # Plotly line chart for Series/Spectrum
-│       │       └── CompositePreview.tsx # Tabbed view of CompositeData slots
+│       │   └── bottom/                 # Bottom panel (browser-style tabs)
+│       │       ├── BottomPanel.tsx      # Tab container with drag-resize handle
+│       │       ├── AIChat.tsx           # AI conversational interface
+│       │       ├── ConfigPanel.tsx      # Full parameter form from JSON Schema
+│       │       ├── LogViewer.tsx        # SSE log stream with block/severity filters
+│       │       ├── LineageView.tsx      # Provenance chain visualisation (Phase 8.5)
+│       │       ├── JobsList.tsx         # Current/historical execution list (Phase 8.5)
+│       │       └── ProblemsPanel.tsx    # Validation errors and warnings (Phase 8.5)
 │       │
 │       ├── hooks/
-│       │   ├── useWebSocket.ts         # WebSocket connection for live block state
+│       │   ├── useWebSocket.ts         # WebSocket connection + event dispatch to Zustand
 │       │   ├── useSSE.ts               # SSE connection for log streaming
 │       │   ├── useBlockRegistry.ts     # Fetch and cache block palette data
 │       │   └── useWorkflow.ts          # Workflow CRUD operations
 │       │
-│       ├── stores/
-│       │   ├── workflowStore.ts        # Zustand: workflow definition, node/edge state
-│       │   ├── executionStore.ts       # Zustand: block states, progress, batch results
-│       │   └── uiStore.ts             # Zustand: selected block, panel visibility, layout
+│       ├── store/
+│       │   ├── index.ts                # Zustand store with slices
+│       │   ├── projectSlice.ts         # Current project, recent projects, isProjectOpen (ADR-023-Add1)
+│       │   ├── workflowSlice.ts        # Nodes, edges, workflow metadata
+│       │   ├── executionSlice.ts       # Per-block state, timing, output refs (WebSocket)
+│       │   ├── uiSlice.ts              # Panel widths, collapsed states, selected block, active tab
+│       │   ├── previewSlice.ts         # Cached preview data keyed by StorageReference
+│       │   ├── paletteSlice.ts         # Available blocks from registry, search filter
+│       │   └── chatSlice.ts            # AI chat message history
 │       │
-│       ├── api/
-│       │   └── client.ts              # Typed API client (REST endpoints → fetch wrappers)
+│       ├── config/
+│       │   └── typeColorMap.ts         # Base type → colour hex mapping for port handles/edges
+│       │
+│       ├── lib/
+│       │   └── api.ts                  # Typed REST API client (fetch wrappers)
 │       │
 │       └── types/
 │           ├── workflow.ts             # TypeScript types mirroring backend workflow schema
@@ -543,5 +558,5 @@ julia = "scieasy.blocks.code.runners.julia_runner:JuliaRunner"
 | `utils/` | 3 | Hashing, wrapping, logging |
 | `cli/` | 1 | CLI entry point |
 | **Total backend** | **~78** | |
-| `frontend/src/` | ~25 `.tsx/.ts` | React components, hooks, stores, API client |
+| `frontend/src/` | ~34 `.tsx/.ts` | React components, hooks, stores, config, API client (ADR-023, ADR-023-Add1) |
 | `tests/` | ~30 | Architecture enforcement, unit, and integration tests |
