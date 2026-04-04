@@ -41,7 +41,11 @@ CREATE INDEX IF NOT EXISTS idx_lineage_output_hashes ON lineage (output_hashes);
 class LineageStore:
     """Persistent SQLite-backed store for :class:`LineageRecord` instances."""
 
-    def __init__(self, db_path: str | Path = ":memory:") -> None:
+    def __init__(self, db_path: str | Path | None = None) -> None:
+        if db_path is None:
+            default_dir = Path(".scieasy")
+            default_dir.mkdir(parents=True, exist_ok=True)
+            db_path = str(default_dir / "lineage.db")
         self._db_path = str(db_path)
         self._conn = sqlite3.connect(self._db_path)
         self._conn.execute("PRAGMA journal_mode=WAL")

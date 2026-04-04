@@ -30,10 +30,22 @@ class TypeSignature:
 
         Compatibility means that *other*'s type chain is a prefix of or equal
         to this signature's type chain (i.e. this type is a subtype of other).
+        For composite types, slot schemas must also be compatible.
         """
         if len(other.type_chain) > len(self.type_chain):
             return False
-        return self.type_chain[: len(other.type_chain)] == other.type_chain
+        if self.type_chain[: len(other.type_chain)] != other.type_chain:
+            return False
+        # Slot schema comparison for composites
+        if other.slot_schema is not None:
+            if self.slot_schema is None:
+                return False
+            for slot_name, expected_type in other.slot_schema.items():
+                if slot_name not in self.slot_schema:
+                    return False
+                if self.slot_schema[slot_name] != expected_type:
+                    return False
+        return True
 
     @classmethod
     def from_type(cls, data_type: type) -> TypeSignature:

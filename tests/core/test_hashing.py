@@ -54,3 +54,18 @@ class TestContentHash:
         result = content_hash("")
         assert isinstance(result, str)
         assert len(result) > 0
+
+    def test_different_shape_same_bytes(self) -> None:
+        a = np.array([1, 2, 3, 4, 5, 6])
+        b = np.array([[1, 2, 3], [4, 5, 6]])
+        assert content_hash(a) != content_hash(b)
+
+    def test_different_dtype_same_values(self) -> None:
+        a = np.array([1, 2], dtype=np.int32)
+        b = np.array([1, 2], dtype=np.int64)
+        assert content_hash(a) != content_hash(b)
+
+    def test_zero_dim_array(self) -> None:
+        result = content_hash(np.array(42))
+        assert isinstance(result, str)
+        assert len(result) > 0
