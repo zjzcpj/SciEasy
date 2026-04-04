@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- [#98] Phase 5.1: DAG construction + event-driven DAGScheduler — ADR-018 DAG dataclass, build_dag, topological_sort (Kahn's), CycleError, skip propagation, pause/resume, input gathering, 38 tests (@claude, 2026-04-04, branch: feat/issue-8/dag-scheduler, session: 20260404-044439-phase-5-1-dag-construction-scheduling-ad)
 - [#87] Phase 5.0c: IOBlock lazy Collection + adapter create_reference (ADR-020-Add2) -- FormatAdapter.create_reference() protocol, lazy StorageReference construction in IOBlock, Collection support in FileExchangeBridge.prepare(), ZarrAdapter scaffold (@claude, 2026-04-04, branch: feat/issue-87/ioblock-lazy-collection, session: 20260404-041549-phase-5-0c-ioblock-lazy-collection-adapt)
 - [#96] Phase 5.2b: ProcessMonitor + LocalRunner + worker.py — ADR-017/019 async process death detection, subprocess-based block execution, worker entry point, RunHandle fields, 24 tests (@claude, 2026-04-04, branch: feat/issue-6/processmonitor-localrunner-worker, session: 20260404-043408-phase-5-2b-processmonitor-localrunner-wo)
 - [#86] Phase 5.0b: LazyList + CodeBlock auto-unpack -- memory-safe lazy item loading, CodeBlock unpack/repack layer (@claude, 2026-04-04, branch: feat/issue-86/lazy-list-codeblock, session: 20260404-041450-phase-5-0b-lazylist-codeblock-auto-unpac)
