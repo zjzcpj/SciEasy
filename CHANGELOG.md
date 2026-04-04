@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- [#105] Phase 5.8: Integration tests for execution engine — 23 tests exercising DAG+EventBus+Collection+Scheduler+cancellation+cycle detection end-to-end (@claude, 2026-04-04, branch: feat/issue-105/integration-tests, session: 20260404-051442-phase-5-8-integration-tests)
 - [#102] Phase 5.7: SubWorkflowBlock scheduler factory injection and Collection passthrough — _scheduler_factory ClassVar for engine-layer injection (import-linter safe), fallback to _sequential_execute, Collections flow through unchanged, 3 new tests (@claude, 2026-04-04, branch: feat/issue-102/subworkflow-completion, session: 20260404-050108-phase-5-7-subworkflowblock-completion)
 - [#101] Phase 5.4: Checkpoint serialization + CheckpointManager — ADR-018 JSON save/load with ISO-8601 timestamps, CheckpointManager directory-based storage with EventBus auto-subscription, skip_reasons for CANCELLED/SKIPPED states, 9 tests (@claude, 2026-04-04, branch: feat/issue-101/checkpoint-pause-resume, session: 20260404-050056-phase-5-4-checkpoint-serialization-check)
 - [#98] Phase 5.1: DAG construction + event-driven DAGScheduler — ADR-018 DAG dataclass, build_dag, topological_sort (Kahn's), CycleError, skip propagation, pause/resume, input gathering, 38 tests (@claude, 2026-04-04, branch: feat/issue-8/dag-scheduler, session: 20260404-044439-phase-5-1-dag-construction-scheduling-ad)
