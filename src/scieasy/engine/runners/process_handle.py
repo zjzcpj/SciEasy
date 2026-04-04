@@ -6,16 +6,24 @@ ADR-017: spawn_block_process() is the single entry point for ALL subprocess crea
 
 from __future__ import annotations
 
+import json
+import logging
+import subprocess
+import sys
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
+
+from scieasy.engine.runners.platform import PlatformOps, get_platform_ops
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
 class ProcessExitInfo:
     """Exit state of a terminated subprocess.
 
-    TODO(ADR-019): Populated by PlatformOps when process exits.
+    Populated by PlatformOps when process exits (ADR-019).
     """
 
     exit_code: int | None = None
@@ -27,13 +35,15 @@ class ProcessExitInfo:
 class ProcessHandle:
     """Per-process wrapper tracking lifecycle of a block subprocess.
 
-    TODO(ADR-019): Implement all methods using PlatformOps.
+    Delegates all OS-specific operations to the PlatformOps instance
+    obtained at construction time (ADR-019).
 
-    Fields:
-        block_id: str — which block owns this process
-        pid: int — OS process ID
-        start_time: datetime — when the process was spawned
-        resource_request: ResourceRequest — what resources were allocated
+    Attributes:
+        block_id: Which block owns this process.
+        pid: OS process ID.
+        start_time: When the process was spawned.
+        resource_request: What resources were allocated.
+        was_killed_by_framework: Set to True when terminate/kill is called.
     """
 
     def __init__(
@@ -43,71 +53,91 @@ class ProcessHandle:
         start_time: datetime,
         resource_request: Any,
     ) -> None:
-        # TODO(ADR-019): Store fields. Get platform ops via get_platform_ops().
-        raise NotImplementedError
+        self.block_id = block_id
+        self.pid = pid
+        self.start_time = start_time
+        self.resource_request = resource_request
+        self.was_killed_by_framework = False
+        self._platform_ops: PlatformOps = get_platform_ops()
+        self._popen: subprocess.Popen[bytes] | None = None
 
-    async def is_alive(self) -> bool:
+    def is_alive(self) -> bool:
         """Non-blocking alive check.
 
-        TODO(ADR-019): Delegate to PlatformOps.is_alive(self.pid).
-        Linux/macOS: os.kill(pid, 0). Windows: OpenProcess() + GetExitCodeProcess().
+        Delegates to PlatformOps.is_alive(self.pid).
         """
-        raise NotImplementedError
+        return self._platform_ops.is_alive(self.pid)
 
-    async def exit_info(self) -> ProcessExitInfo | None:
+    def exit_info(self) -> ProcessExitInfo | None:
         """Return ProcessExitInfo if process has exited, None if still alive.
 
-        TODO(ADR-019): Delegate to PlatformOps.get_exit_info(self.pid).
+        Delegates to PlatformOps.get_exit_info(self.pid).
         """
-        raise NotImplementedError
+        return self._platform_ops.get_exit_info(self.pid)
 
-    async def terminate(self, grace_period_sec: float = 5.0) -> ProcessExitInfo:
+    def terminate(self, grace_period_sec: float = 5.0) -> ProcessExitInfo:
         """Graceful then forced kill.
 
-        TODO(ADR-019): Send SIGTERM (Unix) or begin graceful shutdown (Windows).
-        Wait grace_period_sec. If still alive, call kill().
-        Linux/macOS: os.killpg(pgid, SIGTERM) → wait → os.killpg(pgid, SIGKILL).
-        Windows: No graceful equivalent; forced termination via TerminateJobObject().
+        Sends SIGTERM (Unix) or begins graceful shutdown (Windows).
+        Waits grace_period_sec. If still alive, escalates to kill.
         """
-        raise NotImplementedError
+        self.was_killed_by_framework = True
+        info: ProcessExitInfo = self._platform_ops.terminate_tree(self.pid, grace_period_sec)
+        info.was_killed_by_framework = True
+        return info
 
-    async def kill(self) -> ProcessExitInfo:
+    def kill(self) -> ProcessExitInfo:
         """Immediate forced termination.
 
-        TODO(ADR-019): Delegate to PlatformOps.kill_tree(self.pid).
-        Linux/macOS: os.killpg(pgid, SIGKILL). Windows: TerminateJobObject().
+        Delegates to PlatformOps.kill_tree(self.pid).
         """
-        raise NotImplementedError
+        self.was_killed_by_framework = True
+        info: ProcessExitInfo = self._platform_ops.kill_tree(self.pid)
+        info.was_killed_by_framework = True
+        return info
 
 
 class ProcessRegistry:
-    """Singleton tracking all active block subprocesses.
+    """Tracks all active block subprocesses (ADR-019).
 
-    TODO(ADR-019): Implement as singleton or module-level instance.
+    Simple dict-based registry mapping block_id to ProcessHandle.
     """
+
+    def __init__(self) -> None:
+        self._handles: dict[str, ProcessHandle] = {}
 
     def register(self, handle: ProcessHandle) -> None:
         """Register a newly spawned process."""
-        raise NotImplementedError
+        self._handles[handle.block_id] = handle
 
     def deregister(self, block_id: str) -> None:
         """Remove a process after it has exited."""
-        raise NotImplementedError
+        self._handles.pop(block_id, None)
 
     def get_handle(self, block_id: str) -> ProcessHandle | None:
         """Look up the handle for a block."""
-        raise NotImplementedError
+        return self._handles.get(block_id)
 
     def active_handles(self) -> list[ProcessHandle]:
         """Return all currently active process handles."""
-        raise NotImplementedError
+        return list(self._handles.values())
 
-    async def terminate_all(self, grace_period_sec: float = 5.0) -> None:
+    def terminate_all(self, grace_period_sec: float = 5.0) -> None:
         """Terminate all active processes (engine shutdown).
 
-        TODO(ADR-019): Iterate active_handles(), call terminate() on each.
+        Iterates all active handles and calls terminate() on each.
+        Handles that fail to terminate are logged but do not prevent
+        other handles from being terminated.
         """
-        raise NotImplementedError
+        for handle in list(self._handles.values()):
+            try:
+                handle.terminate(grace_period_sec)
+            except Exception:
+                logger.exception(
+                    "Failed to terminate process for block %s (pid=%d)",
+                    handle.block_id,
+                    handle.pid,
+                )
 
 
 def spawn_block_process(
@@ -116,21 +146,82 @@ def spawn_block_process(
     config: dict[str, Any],
     event_bus: Any,
     registry: ProcessRegistry,
+    resource_request: Any | None = None,
+    output_dir: str | None = None,
 ) -> ProcessHandle:
-    """Single entry point for ALL subprocess creation.
-
-    TODO(ADR-017, ADR-019): Implement subprocess spawning.
+    """Single entry point for ALL subprocess creation (ADR-017, ADR-019).
 
     Steps:
         1. Serialize payload: block class path, StorageReference pointers, config.
-        2. Create subprocess via Popen:
-           - Linux/macOS: start_new_session=True (new process group for killpg).
-           - Windows: CREATE_NEW_PROCESS_GROUP + Job Object (kills entire tree).
+        2. Create subprocess via Popen with platform-specific process group.
         3. Create ProcessHandle wrapping the Popen.
         4. Register handle in ProcessRegistry.
         5. Emit PROCESS_SPAWNED event via EventBus.
         6. Return the ProcessHandle.
 
-    The subprocess runs engine/runners/worker.py as entry point.
+    The subprocess runs ``scieasy.engine.runners.worker`` as entry point.
     """
-    raise NotImplementedError
+    from scieasy.engine.events import PROCESS_SPAWNED, EngineEvent
+    from scieasy.engine.resources import ResourceRequest as ResReq
+
+    platform_ops = get_platform_ops()
+
+    # Resolve block class path for serialization
+    if isinstance(block_class, str):
+        block_class_path = block_class
+    else:
+        block_class_path = f"{block_class.__module__}.{block_class.__qualname__}"
+
+    # Build payload for the worker subprocess
+    payload = json.dumps(
+        {
+            "block_class": block_class_path,
+            "inputs": inputs_refs,
+            "config": config,
+            "output_dir": output_dir,
+        }
+    )
+
+    # Configure Popen kwargs with platform-specific process group
+    popen_kwargs: dict[str, Any] = {
+        "stdin": subprocess.PIPE,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+    }
+    popen_kwargs = platform_ops.create_process_group(popen_kwargs)
+
+    # Launch the worker subprocess
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "scieasy.engine.runners.worker"],
+        **popen_kwargs,
+    )
+
+    # Write payload to stdin and close it
+    if proc.stdin is not None:
+        proc.stdin.write(payload.encode())
+        proc.stdin.close()
+
+    # Build the ProcessHandle
+    rr = resource_request if resource_request is not None else ResReq()
+    handle = ProcessHandle(
+        block_id=block_class_path,
+        pid=proc.pid,
+        start_time=datetime.now(),
+        resource_request=rr,
+    )
+    handle._popen = proc
+    handle._platform_ops = platform_ops
+
+    # Register in the registry
+    registry.register(handle)
+
+    # Emit PROCESS_SPAWNED event
+    event_bus.emit(
+        EngineEvent(
+            event_type=PROCESS_SPAWNED,
+            block_id=handle.block_id,
+            data={"pid": proc.pid},
+        )
+    )
+
+    return handle
