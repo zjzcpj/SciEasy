@@ -2012,6 +2012,64 @@ Peak memory: 1 item. Safe regardless of Collection size.
 | 3 | `parallel_map` memory is block author's responsibility | Warning in docs and docstring | No — author chooses max_workers |
 | 4 | CodeBlock uses LazyList for length > 1 | Iteration loads 1 item at a time | Yes — unless user calls `list()` or `np.array()` |
 | 5 | Three-tier auto-flush: process_item / map_items / pack | Tier 1-2: constant memory. Tier 3: pack() safety net | Yes (Tier 1-2 fully enforced, Tier 3 partial) |
+| 6 | Collection type safety: explicit item_type required, port checks validate item_type | Prevents type-safe bypass via empty Collection or unchecked item_type | Yes — enforced at construction and port validation |
+
+### Addendum 6: Collection type safety fix (P1 audit finding)
+
+**Problem**: The original ADR-020 Collection specification has two type safety gaps:
+
+1. **Empty Collection defaults to DataObject**: `Collection([], item_type=None)` sets `item_type = DataObject`. A port declaring `accepted_types=[Image]` accepts this empty `Collection[DataObject]` because `DataObject` is the universal base. Type checking is silently bypassed.
+
+2. **`port_accepts_type(Collection)` returns True unconditionally**: The ADR-020 port adaptation stated `if data_type is Collection: return True`. This means any Collection passes any port, regardless of item_type. A `Collection[DataFrame]` would pass a port that only accepts `Image`.
+
+**Fix 1: Empty Collection requires explicit item_type**
+
+```python
+class Collection:
+    def __init__(self, items=None, item_type=None):
+        items = items or []
+        if items and item_type is None:
+            item_type = type(items[0])       # infer from first item — OK
+        if not items and item_type is None:
+            raise TypeError("item_type is required for empty Collection")  # ← NEW
+        # ... rest unchanged
+```
+
+Valid: `Collection([], item_type=Image)`, `Collection([img1, img2])` (infers Image).
+Invalid: `Collection([])` → `TypeError`.
+
+**Fix 2: Port type checking must validate item_type**
+
+```python
+def port_accepts_type(port, data_type):
+    if not port.accepted_types:
+        return True                          # port accepts anything
+    if isinstance(data_type, Collection):    # ← CHECK ITEM_TYPE
+        return any(issubclass(data_type.item_type, t) for t in port.accepted_types)
+    return any(issubclass(data_type, t) for t in port.accepted_types)
+
+def validate_connection(source_port, target_port):
+    # Source produces Collection[X] → check X against target.accepted_types
+    # Never return True just because it's a Collection
+```
+
+**Impact on ADR-020 main body**:
+
+The following text in ADR-020 Decision section must be corrected:
+
+| Original | Corrected |
+|---|---|
+| `self.item_type: type = item_type or DataObject` | `if not items and item_type is None: raise TypeError(...)` |
+| `port_accepts_type: if data_type is Collection: return True` | `if isinstance(data_type, Collection): check item_type against accepted_types` |
+
+**Impact on other files**:
+
+| File | Change |
+|---|---|
+| `src/scieasy/core/types/collection.py` | Raise TypeError on empty Collection without item_type |
+| `src/scieasy/blocks/base/ports.py` | `port_accepts_type` and `validate_connection` check Collection.item_type |
+| `tests/core/test_collection.py` | Test: `Collection([])` raises TypeError; `Collection([], item_type=Image)` OK |
+| `tests/blocks/test_ports.py` | Test: `Collection[DataFrame]` rejected by `accepted_types=[Image]` port |
 
 ---
 
