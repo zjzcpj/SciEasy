@@ -125,7 +125,7 @@ class TestLineageStore:
         ancestors = store.ancestors("h3")
         block_ids = [r.block_id for r in ancestors]
         assert block_ids.count("A") == 1
-        
+
     def test_default_path_persists(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """LineageStore with default path persists records to disk."""
         monkeypatch.chdir(tmp_path)
