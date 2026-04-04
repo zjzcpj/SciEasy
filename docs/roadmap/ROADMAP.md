@@ -522,91 +522,219 @@ scieasy blocks                                          # Lists all installed bl
 
 ## Phase 7 — API layer
 
-**Goal**: full REST + WebSocket + SSE backend. Frontend can connect.
+**Goal**: full REST + WebSocket + SSE backend. Frontend can connect. Includes execute-from (ADR-023) and type-aware data preview.
 
-### 7.1 REST endpoints
+### 7.1 REST endpoints — Workflow
 
-- [ ] Workflow CRUD (create, get, update, delete, execute, pause, resume, cancel workflow, cancel block — ADR-018)
-- [ ] Block registry endpoints (list, get schema, validate connection)
-- [ ] Data endpoints (upload, metadata, preview)
-- [ ] Project management endpoints
+- [ ] Workflow CRUD (create, get, update, delete)
+- [ ] Workflow execution (execute, pause, resume — delegates to DAGScheduler)
+- [ ] Workflow cancel + block cancel (ADR-018 — emit CANCEL_WORKFLOW_REQUEST / CANCEL_BLOCK_REQUEST via EventBus)
+- [ ] Execute-from endpoint (ADR-023): validate predecessors have cached outputs, reset downstream blocks, delegate to `DAGScheduler.execute_from()`
+- [ ] `create_app()` factory — wire FastAPI with EventBus, ResourceManager, ProcessRegistry, BlockRunner, DAGScheduler
 
-### 7.2 Real-time communication
+### 7.2 REST endpoints — Block registry
 
-- [ ] WebSocket handler — bidirectional: broadcast block state changes + cancel_propagation; receive cancel_block/cancel_workflow + interactive_complete (ADR-018)
-- [ ] SSE handler — stream execution logs
+- [ ] List all blocks (`GET /api/blocks/`) — name, category, description, port summary
+- [ ] Get block schema (`GET /api/blocks/{type}/schema`) — ports, config JSON Schema with `ui_priority` per parameter, port type hierarchy for colour resolution, optional `ui_ring_color` on sub-types (ADR-023)
+- [ ] Validate connection (`POST /api/blocks/validate-connection`) — check port type compatibility
 
-### 7.3 Tests
+### 7.3 REST endpoints — Data
 
-- [ ] `tests/api/` — FastAPI TestClient for all routes
-- [ ] WebSocket integration test — connect, start workflow, receive state updates
+- [ ] Upload data files (`POST /api/data/upload`)
+- [ ] Get data metadata (`GET /api/data/{ref}`)
+- [ ] Type-appropriate preview (`GET /api/data/{ref}/preview`) — table rows for DataFrame, image thumbnail for Image/Array, chart data for Series/Spectrum, text content for Text, file metadata for Artifact (ADR-023)
+
+### 7.4 REST endpoints — Project management (ADR-023 Addendum 1)
+
+- [ ] Create project (`POST /api/projects/`) — create workspace directory structure (equivalent to `scieasy init`), write `project.yaml`, return project metadata with workspace path
+- [ ] List projects (`GET /api/projects/`) — return name, path, description, last_opened, workflow_count
+- [ ] Get project (`GET /api/projects/{id}`)
+- [ ] Update project (`PUT /api/projects/{id}`)
+- [ ] Delete project (`DELETE /api/projects/{id}`)
+
+### 7.5 REST endpoints — API schemas
+
+- [ ] Add `ProjectCreate`, `ProjectResponse` to `schemas.py`
+- [ ] Add `ExecuteFromRequest`, `ExecuteFromResponse` to `schemas.py`
+
+### 7.6 Real-time communication
+
+- [ ] WebSocket handler — bidirectional: broadcast block state changes + cancel_propagation; receive cancel_block/cancel_workflow + interactive_complete (ADR-018). Already implemented in `ws.py`.
+- [ ] SSE handler — stream execution logs with block ID and severity level
+
+### 7.7 Dependency injection (`deps.py`)
+
+- [ ] `get_engine()` — return configured DAGScheduler + EventBus + ResourceManager + ProcessRegistry + LocalRunner
+- [ ] `get_block_registry()` — return BlockRegistry with scanned blocks
+- [ ] `get_type_registry()` — return TypeRegistry
+- [ ] `get_lineage_store()` — return LineageStore for current project
+
+### 7.8 Tests
+
+- [ ] `tests/api/test_workflows.py` — CRUD, execute, pause, resume, cancel, execute-from
+- [ ] `tests/api/test_blocks.py` — list, schema (verify ui_priority in response), validate-connection
+- [ ] `tests/api/test_data.py` — upload, metadata, type-appropriate preview
+- [ ] `tests/api/test_projects.py` — create (verify directory structure), list, get, update, delete
+- [ ] `tests/api/test_ws.py` — WebSocket connect, receive state updates, send cancel
+- [ ] `tests/api/test_sse.py` — SSE log stream connection and filtering
+
+### Deliverable
+
+```bash
+scieasy serve
+# Server starts on http://localhost:8000
+# curl /api/projects/ → list projects
+# curl /api/blocks/ → list blocks with schemas
+# curl /api/workflows/{id}/execute → start workflow, WebSocket pushes state updates
+# curl /api/workflows/{id}/execute-from → re-run from specific block
+```
 
 ---
 
-## Phase 8 — Frontend
+## Phase 8 — Frontend (ADR-023)
 
-**Goal**: visual workflow editor connected to backend.
+**Goal**: visual workflow editor with three-column layout, data preview, inline block config, and project management.
 
-### 8.1 ReactFlow canvas
+### 8.0 Project scaffolding
 
-- [ ] Block node component (ports, state badge, progress)
-- [ ] Typed edge component (color by data type)
-- [ ] Drag-drop from palette onto canvas
-- [ ] Connection validation (query backend on wire draw)
-- [ ] SubWorkflow drill-down node
+- [ ] Initialise Vite + React + TypeScript project in `frontend/`
+- [ ] Install dependencies: `@xyflow/react`, `zustand`, `plotly.js`, `react-plotly.js`, `tailwindcss`, `shadcn/ui`
+- [ ] Configure Tailwind, PostCSS, TypeScript paths
+- [ ] Create `App.tsx` root layout with resizable three-column + toolbar + bottom panel
 
-### 8.2 Block palette
+### 8.1 Project management (ADR-023 Addendum 1)
 
-- [ ] Fetch block list from backend registry endpoint
-- [ ] Search + category filter
+- [ ] Welcome screen when no project is open (New Project, Open Project, Recent Projects)
+- [ ] `ProjectDialog.tsx` — New/Open project modal dialogs
+- [ ] Projects dropdown menu in toolbar
+- [ ] `projectSlice` in Zustand store (currentProject, recentProjects, isProjectOpen)
+- [ ] Save/load project via `POST/GET /api/projects/`
+
+### 8.2 Block Palette (left column)
+
+- [ ] `BlockPalette.tsx` — full-height left sidebar with categories (IO, Process, Code, App, AI, SubWF, Custom)
+- [ ] `BlockCard.tsx` — draggable block card (icon, name, port summary)
+- [ ] Search and category filter
 - [ ] "Reload blocks" button
+- [ ] Fetch block list from `GET /api/blocks/`
+- [ ] Collapsible to icon-only mode (`Ctrl+B`)
 
-### 8.3 Config panel
+### 8.3 ReactFlow Canvas
 
-- [ ] Auto-generated form from JSON Schema
-- [ ] CodeBlock: Monaco editor for inline mode, file picker for script mode
-- [ ] InputDelivery per-port selector (shown only for CodeBlock in script mode)
-- [ ] Port inspector (types, constraints, connection status)
+- [ ] `WorkflowCanvas.tsx` — ReactFlow instance with minimap (inside canvas), zoom, pan
+- [ ] `BlockNode.tsx` — custom node: header (icon + name + [▶] + [↻]), inline top-3 params, type-coloured ports, state badge footer
+- [ ] `PortHandle.tsx` — custom handle: solid circle for single items, double ring for Collection, coloured by base type (ADR-023 Section 9.6)
+- [ ] `TypedEdge.tsx` — custom edge: source port colour, dashed for Collection
+- [ ] `SubWorkflowNode.tsx` — drill-down node for SubWorkflowBlock
+- [ ] Connection validation on wire draw (`POST /api/blocks/validate-connection`)
+- [ ] Delete selected blocks/edges via `Delete`/`Backspace` key
+- [ ] Drag-drop block from palette onto canvas
+- [ ] Undo/Redo (`Ctrl+Z`/`Ctrl+Y`)
+- [ ] `typeColorMap.ts` — base type → hex colour mapping
 
-### 8.4 Execution UI
+### 8.4 Data Preview Panel (right column)
 
-- [ ] Run / pause / resume controls
-- [ ] Live block state badges via WebSocket
-- [ ] Log stream viewer via SSE
+- [ ] `DataPreview.tsx` — port selector dropdown, collection tabs, renderer dispatch
+- [ ] `TableRenderer.tsx` — paginated DataFrame table (first 100 rows, column sort, search)
+- [ ] `ImageRenderer.tsx` — zoomable Image/Array viewer (channel selector, brightness)
+- [ ] `ChartRenderer.tsx` — Plotly line chart for Series/Spectrum
+- [ ] `TextRenderer.tsx` — Monaco read-only with syntax highlighting
+- [ ] `ArtifactRenderer.tsx` — PDF/image inline, others metadata + download link
+- [ ] `CompositeRenderer.tsx` — expandable slot list
+- [ ] Collection tab bar: ≤20 direct tabs, 21-100 paginated, >100 paginated + jump-to
+- [ ] Lazy loading via `GET /api/data/{ref}/preview`, cached in `previewSlice`
+- [ ] Collapsible, auto-shows on block selection (`Ctrl+D`)
+
+### 8.5 Bottom Panel (browser-style tabs)
+
+- [ ] `BottomPanel.tsx` — resizable height, collapsible, browser-style tab bar
+- [ ] `AIChat.tsx` — conversational AI interface (block generation, workflow suggestions)
+- [ ] `ConfigPanel.tsx` — full parameter form from JSON Schema (auto-switches on block click)
+- [ ] `LogViewer.tsx` — SSE log stream with block filter, severity filter, auto-scroll
+- [ ] Auto-expand on execution start, auto-switch to Logs tab
+
+### 8.5b Bottom Panel — deferred tabs (Phase 8.5)
+
+- [ ] `LineageView.tsx` — provenance chain for selected block output
+- [ ] `JobsList.tsx` — current/historical execution list
+- [ ] `ProblemsPanel.tsx` — validation errors and type mismatch warnings
+
+### 8.6 Toolbar
+
+- [ ] Projects menu (New, Open, Save, Recent, Close) — ADR-023 Addendum 1
+- [ ] File operations (Import YAML, Save, Export)
+- [ ] Execution controls (Run, Pause, Stop, Reset) — wired to backend REST endpoints
+- [ ] Edit operations (Delete, Reload Blocks)
+- [ ] All keyboard shortcuts (Ctrl+Enter, Ctrl+S, Delete, Ctrl+Z, etc.)
+
+### 8.7 Execution UI
+
+- [ ] `useWebSocket.ts` — connect to backend, dispatch state events to `executionSlice`
+- [ ] `useSSE.ts` — SSE connection for log streaming
+- [ ] Live block state badges via WebSocket (8 states with colours and animations)
 - [ ] Cancel button on RUNNING/PAUSED blocks (ADR-018)
-- [ ] CANCELLED and SKIPPED state visual indicators
+- [ ] "Start from here" button on completed blocks (`POST /api/workflows/{id}/execute-from`) — ADR-023
+
+### 8.8 State management
+
+- [ ] Zustand store with 7 slices: project, workflow, execution, ui, preview, palette, chat
+- [ ] `lib/api.ts` — typed REST API client
+- [ ] TypeScript types mirroring backend schemas (`types/workflow.ts`, `types/blocks.ts`, `types/data.ts`)
+
+### 8.9 Tests
+
+- [ ] Component rendering tests (Vitest + React Testing Library)
+- [ ] WebSocket state update integration test
+- [ ] Human test plan: `docs/testing/phase-5-to-8-human-tests.md` (Phase 8 section)
+
+### Deliverable
+
+```bash
+cd frontend && npm run dev
+# Opens http://localhost:5173
+# Welcome screen → New Project → drag blocks → wire connections → Run → see results in preview
+```
 
 ---
 
 ## Phase 9 — AI services
 
-**Goal**: AI can generate blocks, propose workflows, and suggest parameters.
+**Goal**: AI can generate blocks, propose workflows, and suggest parameters. AI Chat tab in bottom panel provides the user-facing interface.
 
 ### 9.1 Block and type generation
 
 - [ ] Implement prompt templates for all five block categories + data types
 - [ ] Implement validation pipeline (static analysis → dry run → port contract check)
 - [ ] End-to-end: natural-language description → validated block in registry
+- [ ] Wire `POST /api/ai/generate-block` to generation pipeline
 
 ### 9.2 Workflow synthesis
 
 - [ ] Implement: data description + goal → proposed DAG (YAML)
+- [ ] Wire `POST /api/ai/suggest-workflow` to synthesis pipeline
+- [ ] AI Chat tab: user describes goal → AI proposes workflow → "Apply" button adds to canvas
 
 ### 9.3 Parameter optimization
 
 - [ ] Implement: observe intermediate results → suggest parameter changes
+- [ ] Wire `POST /api/ai/optimize-params` to optimization pipeline
+- [ ] AI Chat tab: user selects block → AI suggests parameter tweaks based on output preview
 
 ---
 
 ## Phase 10 — Integration + polish
 
-**Goal**: the Appendix A scenario (LC-MS + Raman + IF + SRS) runs end-to-end through the full stack.
+**Goal**: the Appendix A scenario (LC-MS + Raman + IF + SRS) runs end-to-end through the full stack (CLI + API + frontend).
 
 - [ ] Implement mzXML adapter, h5ad adapter
 - [ ] Build example blocks: CellposeSegment, RamanBaseline, SpectralPCA
+- [ ] Build example workflow YAML files in `examples/` directory
 - [ ] Build the full multimodal workflow from ARCHITECTURE.md Appendix A
-- [ ] Run it: data loaded → ElMAVEN (mock, whole-collection) → R script → Cellpose (parallel_map) → napari (mock, serial per-item) → merge → export
+- [ ] Run it end-to-end: data loaded → ElMAVEN (mock, whole-collection) → R script → Cellpose (parallel_map) → napari (mock, serial per-item) → merge → export
+- [ ] Verify in frontend: project creation → workflow loading → execution → data preview → "Start from here" re-run
 - [ ] Confirm lineage, checkpoints, Collection transport, cancel + SKIPPED propagation all work in the integrated scenario
+- [ ] Performance profiling on large datasets (>1000 items in Collection)
+- [ ] Polish: error messages, loading states, empty states, responsive layout
 - [ ] Write `docs/getting-started.md` tutorial based on this scenario
 
 ---

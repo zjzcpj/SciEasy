@@ -2909,3 +2909,161 @@ Automatically detect when a block's config changes and mark it + downstream as "
 | `docs/architecture/PROJECT_TREE.md` | Add `frontend/src/` directory structure |
 | `docs/roadmap/ROADMAP.md` Phase 8 | Rewrite to match new frontend component breakdown |
 | `docs/testing/phase-5-to-8-human-tests.md` | Update Phase 8 test cases for new layout |
+
+---
+
+## ADR-023 Addendum 1: Project management in the frontend and API enhancements for ADR-023
+
+**Date**: 2026-04-04
+
+### Context
+
+ADR-023 redesigned the frontend layout but did not address project-level operations. The backend already has skeleton endpoints for project CRUD (`routes/projects.py`) and the CLI already implements `scieasy init` (Phase 6). However, the frontend has no UI for creating, opening, saving, or switching projects. Additionally, the Phase 7 API roadmap needs updates to reflect ADR-023's new endpoint requirements and enhanced response formats.
+
+### Decision
+
+#### 1. Project management UI
+
+Add a **Projects menu** to the toolbar, positioned before the file operations group:
+
+```
+[📁 Projects ▼] │ [📂 Import][💾 Save][📤 Export] │ [▶ Run][⏸ Pause]...
+      │
+      ├── New Project...        → dialog: name, description, directory
+      ├── Open Project...       → dialog: select from list or browse directory
+      ├── Save Project          → save current project state (project.yaml + workflows)
+      ├── ─────────────
+      ├── Recent Projects ▸     → sub-menu of last 5 opened projects
+      └── Close Project         → close current project, return to welcome screen
+```
+
+**"New Project" flow:**
+
+1. User clicks "New Project..." → modal dialog appears.
+2. User enters: project name, optional description, parent directory (with file browser).
+3. Frontend sends `POST /api/projects/` with `{ "name": "...", "description": "...", "path": "/path/to/parent" }`.
+4. Backend executes the equivalent of `scieasy init` — creates the workspace directory structure (`workflows/`, `data/raw/`, `data/zarr/`, `data/parquet/`, `data/artifacts/`, `blocks/`, `types/`, `checkpoints/`, `lineage/`, `logs/`) and writes `project.yaml`.
+5. Backend returns the project metadata including the workspace path.
+6. Frontend switches to the new project (empty canvas, palette refreshed for project-local blocks).
+
+**"Open Project" flow:**
+
+1. User clicks "Open Project..." → modal dialog with two modes:
+   - **List mode**: fetches `GET /api/projects/` → shows known projects with name, path, last opened date.
+   - **Browse mode**: file dialog to select a project directory (must contain `project.yaml`).
+2. Frontend sends `GET /api/projects/{project_id}` or posts the selected path.
+3. Backend loads `project.yaml`, discovers `workflows/`, rescans `blocks/` and `types/` directories.
+4. Frontend loads the first workflow from `workflows/` (or shows an empty canvas if none exist) and refreshes the block palette.
+
+**"Save Project" flow:**
+
+1. Saves the current workflow to `workflows/{workflow_id}.yaml` via `PUT /api/workflows/{id}`.
+2. Saves any modified project metadata to `project.yaml`.
+3. Shows a brief confirmation toast.
+
+**Welcome screen (no project open):**
+
+When no project is open (app first launched or project closed), the canvas area shows a welcome screen:
+
+```
+┌──────────────────────────────────────┐
+│                                      │
+│        Welcome to SciEasy            │
+│                                      │
+│   [📁 New Project]                   │
+│   [📂 Open Project]                  │
+│                                      │
+│   Recent Projects:                   │
+│     • Raman Analysis (~/projects/...)│
+│     • LC-MS Pipeline (~/projects/...)│
+│                                      │
+└──────────────────────────────────────┘
+```
+
+#### 2. Phase 7 API enhancements for ADR-023
+
+The following additions and modifications to Phase 7 REST endpoints are required by ADR-023:
+
+**New endpoint:**
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/workflows/{id}/execute-from` | POST | Start execution from a specific block using cached upstream outputs (ADR-023 Section 8) |
+
+**Enhanced response formats:**
+
+| Endpoint | Enhancement |
+|----------|-------------|
+| `GET /api/blocks/{type}/schema` | Response must include `ui_priority` per parameter (for inline display ordering) and port type names with inheritance chain (for colour resolution). Optional `ui_ring_color` on sub-types. |
+| `GET /api/data/{ref}/preview` | Response must be type-appropriate: table rows for DataFrame, image thumbnail (base64 or URL) for Image/Array, chart data points for Series/Spectrum, text content for Text, file metadata for Artifact. |
+| `POST /api/projects/` | Accept `path` parameter for parent directory. Return created workspace path. |
+| `GET /api/projects/` | Return list with `name`, `path`, `description`, `last_opened`, `workflow_count`. |
+
+**New API schemas (schemas.py):**
+
+```python
+class ProjectCreate(BaseModel):
+    name: str
+    description: str = ""
+    path: str  # parent directory where workspace will be created
+
+class ProjectResponse(BaseModel):
+    id: str
+    name: str
+    description: str = ""
+    path: str  # full workspace path
+    last_opened: str | None = None  # ISO-8601
+    workflow_count: int = 0
+
+class ExecuteFromRequest(BaseModel):
+    block_id: str
+
+class ExecuteFromResponse(BaseModel):
+    execution_started: bool
+    start_block: str
+    reset_blocks: list[str] = []
+    preserved_blocks: list[str] = []
+    missing_predecessors: list[str] = []
+    message: str = ""
+```
+
+#### 3. Frontend state changes
+
+Add a `projectSlice` to the Zustand store:
+
+| Slice | Fields |
+|-------|--------|
+| `projectSlice` | `currentProject: ProjectResponse \| null`, `recentProjects: ProjectResponse[]`, `isProjectOpen: boolean` |
+
+When `isProjectOpen` is false, the canvas area renders the welcome screen instead of ReactFlow.
+
+### Impact on files
+
+#### Backend
+
+| File | Change |
+|------|--------|
+| `src/scieasy/api/schemas.py` | Add `ProjectCreate`, `ProjectResponse`, `ExecuteFromRequest`, `ExecuteFromResponse` |
+| `src/scieasy/api/routes/projects.py` | Implement all 5 endpoints with workspace directory operations |
+| `src/scieasy/api/routes/workflows.py` | Add `execute_from()` endpoint |
+| `src/scieasy/api/routes/data.py` | Implement type-appropriate preview responses |
+| `src/scieasy/engine/scheduler.py` | Add `execute_from()` method |
+
+#### Frontend
+
+| File | Change |
+|------|--------|
+| `frontend/src/components/Toolbar.tsx` | Add Projects dropdown menu |
+| `frontend/src/components/ProjectDialog.tsx` | New/Open project modal dialogs |
+| `frontend/src/components/WelcomeScreen.tsx` | Welcome screen when no project is open |
+| `frontend/src/store/projectSlice.ts` | Current project, recent projects, isProjectOpen |
+| `frontend/src/store/index.ts` | Add projectSlice |
+
+#### Documentation
+
+| File | Change |
+|------|--------|
+| `docs/architecture/ARCHITECTURE.md` Section 8.2 | Add project endpoint details |
+| `docs/architecture/ARCHITECTURE.md` Section 9.3 | Add Projects menu to toolbar |
+| `docs/architecture/PROJECT_TREE.md` | Add new frontend files |
+| `docs/roadmap/ROADMAP.md` Phase 7 & 8 | Update for ADR-023 requirements |

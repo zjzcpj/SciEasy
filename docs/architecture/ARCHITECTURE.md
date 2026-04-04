@@ -1784,7 +1784,14 @@ POST   /api/blocks/validate-connection Validate a proposed port connection
 # Data management
 POST   /api/data/upload                Upload data files
 GET    /api/data/{ref}                 Get data object metadata
-GET    /api/data/{ref}/preview         Get a lightweight preview (thumbnail, first N rows)
+GET    /api/data/{ref}/preview         Get a type-appropriate preview (ADR-023 Addendum 1)
+
+# Project management (ADR-023 Addendum 1)
+POST   /api/projects                   Create a new project workspace
+GET    /api/projects                   List all projects (name, path, last_opened, workflow_count)
+GET    /api/projects/{id}              Get project details
+PUT    /api/projects/{id}              Update project metadata
+DELETE /api/projects/{id}              Delete project
 
 # AI services
 POST   /api/ai/generate-block          Generate a block from natural-language description
@@ -1915,9 +1922,21 @@ Three resizable columns (Block Palette | Canvas + Bottom Panel | Data Preview) w
 Fixed horizontal bar at the top, grouped by function:
 
 ```
-[📂 Import][💾 Save][📤 Export] │ [▶ Run][⏸ Pause][■ Stop][↻ Reset] │ [🗑 Delete][🔄 Reload Blocks]
-  File operations                  Execution controls                   Edit operations
+[📁 Projects ▼] │ [📂 Import][💾 Save][📤 Export] │ [▶ Run][⏸ Pause][■ Stop][↻ Reset] │ [🗑 Delete][🔄 Reload Blocks]
+ Project mgmt      File operations                    Execution controls                   Edit operations
 ```
+
+**Projects menu** (ADR-023 Addendum 1):
+
+| Menu item | Action |
+|-----------|--------|
+| New Project... | Modal dialog → name, description, directory → `POST /api/projects/` |
+| Open Project... | List known projects or browse directory → load `project.yaml` |
+| Save Project | Save current workflow + project metadata |
+| Recent Projects ▸ | Sub-menu of last 5 opened projects |
+| Close Project | Return to welcome screen |
+
+When no project is open, the canvas area shows a **welcome screen** with "New Project", "Open Project", and recent projects list.
 
 **Keyboard shortcuts:**
 
@@ -2113,6 +2132,7 @@ The `[↻]` button is visible only when cached upstream outputs exist. If predec
 
 | Store slice | Responsibility |
 |-------------|----------------|
+| `projectSlice` | Current project, recent projects, isProjectOpen (ADR-023 Addendum 1) |
 | `workflowSlice` | Nodes, edges, workflow metadata (mirror of backend state) |
 | `executionSlice` | Per-block execution state, timing, output refs (updated via WebSocket) |
 | `uiSlice` | Panel widths, collapsed states, selected block ID, active bottom tab |

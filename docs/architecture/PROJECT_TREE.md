@@ -316,7 +316,9 @@ scieasy/                               # ← repo root
 │       ├── App.tsx                     # Root layout: three-column + toolbar + bottom panel (ADR-023)
 │       │
 │       ├── components/
-│       │   ├── Toolbar.tsx             # File, execution, edit operation buttons
+│       │   ├── Toolbar.tsx             # Projects menu, file, execution, edit buttons (ADR-023-Add1)
+│       │   ├── ProjectDialog.tsx       # New/Open project modal dialogs (ADR-023-Add1)
+│       │   ├── WelcomeScreen.tsx       # Welcome screen when no project is open (ADR-023-Add1)
 │       │   │
 │       │   ├── canvas/                 # ReactFlow integration
 │       │   │   ├── WorkflowCanvas.tsx  # ReactFlow instance, minimap, zoom, pan
@@ -355,6 +357,7 @@ scieasy/                               # ← repo root
 │       │
 │       ├── store/
 │       │   ├── index.ts                # Zustand store with slices
+│       │   ├── projectSlice.ts         # Current project, recent projects, isProjectOpen (ADR-023-Add1)
 │       │   ├── workflowSlice.ts        # Nodes, edges, workflow metadata
 │       │   ├── executionSlice.ts       # Per-block state, timing, output refs (WebSocket)
 │       │   ├── uiSlice.ts              # Panel widths, collapsed states, selected block, active tab
@@ -555,5 +558,5 @@ julia = "scieasy.blocks.code.runners.julia_runner:JuliaRunner"
 | `utils/` | 3 | Hashing, wrapping, logging |
 | `cli/` | 1 | CLI entry point |
 | **Total backend** | **~78** | |
-| `frontend/src/` | ~30 `.tsx/.ts` | React components, hooks, stores, config, API client (ADR-023) |
+| `frontend/src/` | ~34 `.tsx/.ts` | React components, hooks, stores, config, API client (ADR-023, ADR-023-Add1) |
 | `tests/` | ~30 | Architecture enforcement, unit, and integration tests |
