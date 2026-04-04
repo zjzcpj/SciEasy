@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- [#83] Phase 5.0a: Collection class + Block base utilities — ADR-020 Collection transport, pack/unpack/map_items/parallel_map, ProcessBlock Tier 1 process_item, port Collection transparency (@claude, 2026-04-04, branch: feat/issue-83/collection-block-utilities, session: 20260404-040318-phase-5-0a-collection-class-block-base-u)
 - [#74] ADR-017-022 backbone scaffolding — TODO-annotated code stubs for subprocess isolation, event-driven scheduler, ProcessHandle, Collection transport, Collection operation blocks, psutil memory monitoring (@claude, 2026-04-04, branch: refactor/issue-74/adr-017-022-backbone, session: 20260404-024138-adr-017-022-backbone-scaffolding)
 - [#42] Wave 3 tests: import coverage for Phase 5+ modules and extended block tests (@claude, 2026-04-03, branch: test/issue-42/wave3-import-coverage, session: 20260403-192429-wave-3-tests-import-coverage-and-extende)
 - [#38] Wave 1 tests: 7 new test files for core and block coverage (~65% -> ~76%) (@claude, 2026-04-03, branch: test/issue-38/wave1-core-block-coverage, session: 20260403-191229-wave-1-tests-achieve-85-coverage-for-pha)
