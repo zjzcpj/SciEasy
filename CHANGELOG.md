@@ -77,6 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - [#24] Enforce CompositeData slot contracts in TypeSignature matching and constructor (@claude, 2026-04-04, branch: fix/issue-24/composite-slot-contracts, session: 20260404-034408-fix-compositedata-slot-contracts-enforce)
+- [#30] Include ndarray shape/dtype in content_hash to prevent lineage collisions (@claude, 2026-04-04, branch: fix/issue-30/content-hash-shape-dtype, session: 20260404-034204-fix-content-hash-to-include-ndarray-shap)
 - [#16] Align BlockSpec and TypeRegistry with ADR-009 descriptor pattern
 - [#14] Promote CHANGELOG CI check from warning to error
 - CI: handle empty repo gracefully in workflows
