@@ -76,6 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#31] Deduplicate records in ProvenanceGraph descendants/ancestors traversals (@claude, 2026-04-04, branch: fix/issue-31/provenance-dedup, session: 20260404-034230-fix-provenancegraph-dedup-in-descendants)
 - [#16] Align BlockSpec and TypeRegistry with ADR-009 descriptor pattern
 - [#14] Promote CHANGELOG CI check from warning to error
 - CI: handle empty repo gracefully in workflows
