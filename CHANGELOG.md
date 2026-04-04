@@ -16,9 +16,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [#57] Update Block.postprocess() type annotation to dict[str, Collection] (@claude, 2026-04-04, branch: fix/batch-1/issues-59-57-58-48, session: 20260404-192842-batch-1-remove-inputdelivery-postprocess)
 - [#58] Document that port constraint functions receive Collection objects (@claude, 2026-04-04, branch: fix/batch-1/issues-59-57-58-48, session: 20260404-192842-batch-1-remove-inputdelivery-postprocess)
 
+### Fixed
+
+- [#53] Normalize StorageReference.path to POSIX forward slashes for cross-platform compatibility (@claude, 2026-04-04, branch: fix/batch-2/issues-53-49-52-67, session: 20260404-193701-batch-2-storagereference-paths-backendro)
+
 ### Added
 
 - [#48] Enforce JSON-serializable metadata on DataObject construction (@claude, 2026-04-04, branch: fix/batch-1/issues-59-57-58-48, session: 20260404-192842-batch-1-remove-inputdelivery-postprocess)
+- [#52] BackendRouter: DataObject type → StorageBackend automatic routing for _auto_flush (@claude, 2026-04-04, branch: fix/batch-2/issues-53-49-52-67, session: 20260404-193701-batch-2-storagereference-paths-backendro)
+- [#49] Implement DataObject.save() using BackendRouter for automatic backend selection (@claude, 2026-04-04, branch: fix/batch-2/issues-53-49-52-67, session: 20260404-193701-batch-2-storagereference-paths-backendro)
+- [#67] Define data/runs/{run_id}/{block_id}/ intermediate output storage convention and run_output_dir() utility (@claude, 2026-04-04, branch: fix/batch-2/issues-53-49-52-67, session: 20260404-193701-batch-2-storagereference-paths-backendro)
 
 - [#113] Implement all ADR-017–022 TODO stubs, raise coverage threshold to 85% — resolve 38 TODOs across 32 files, implement WebSocket handler, ProcessExitedWithoutOutputError, create_reference(), Collection unpack/pack, CheckpointManager integration, ViewProxy.from_file(), add 24 new tests (@claude, 2026-04-04, branch: feat/issue-113/implement-all-todos-raise-coverage, session: 20260404-170726-implement-all-todo-stubs-adr-017-to-adr)
 - [#109] Phase 6.2: Implement scieasy CLI commands — init, validate, run, blocks, serve with typer.testing smoke tests (@claude, 2026-04-04, branch: phase6/cli-commands)

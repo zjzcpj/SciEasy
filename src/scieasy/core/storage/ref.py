@@ -12,7 +12,10 @@ class StorageReference:
 
     Attributes:
         backend: Identifier for the storage backend (e.g. "zarr", "arrow", "filesystem").
-        path: Location of the data within the backend.
+        path: Location of the data within the backend.  Always stored as
+            POSIX-style forward-slash path for cross-platform portability
+            (ADR-017).  Backends convert to platform-native paths at the
+            point of filesystem access via ``pathlib.Path()``.
         format: Optional format hint (e.g. "ome-tiff", "parquet").
         metadata: Optional extra metadata attached to the reference.
     """
@@ -21,3 +24,7 @@ class StorageReference:
     path: str
     format: str | None = None
     metadata: dict[str, Any] | None = field(default=None)
+
+    def __post_init__(self) -> None:
+        """Normalize *path* to POSIX forward-slash format (ADR-017, #53)."""
+        self.path = self.path.replace("\\", "/")
