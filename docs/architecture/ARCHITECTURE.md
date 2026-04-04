@@ -1327,50 +1327,67 @@ This is critical for:
 
 ### 6.4 Resource management
 
-Parallel execution without resource awareness leads to GPU OOM and memory exhaustion. The engine includes a `ResourceManager` that throttles concurrency based on available resources.
+Resource management uses a three-layer defence model (ADR-022):
+
+- **Layer 1 (ResourceManager)**: dispatch gating — checks GPU slots, CPU cores, and actual OS memory usage before launching a block.
+- **Layer 2 (block-internal)**: `_auto_flush`, `LazyList`, `parallel_map(max_workers)` control per-block memory at runtime (ADR-020 Addendum 4/5).
+- **Layer 3 (OS + ProcessMonitor)**: if a subprocess exceeds available memory, the OS kills it; ProcessMonitor detects the death and the scheduler marks it as `ERROR` (ADR-017/019).
 
 ```python
 @dataclass
 class ResourceRequest:
-    """Declared by each block: what resources does one invocation need?"""
+    """Declared by each block: what discrete resources does it need?"""
     requires_gpu: bool = False
-    gpu_memory_gb: float = 0.0
-    estimated_memory_gb: float = 0.5
+    gpu_memory_gb: float = 0.0      # GPU VRAM — declared (not monitorable cross-platform)
     cpu_cores: int = 1
+    # NOTE: estimated_memory_gb removed (ADR-022).
+    # System memory is monitored at OS level via psutil, not estimated per-block.
 
 class ResourceManager:
-    """Tracks available resources and gates block dispatch."""
+    """Dispatch gating based on discrete resources + OS memory monitoring."""
 
-    def __init__(self, config: ResourceConfig):
-        self.gpu_slots = config.gpu_slots          # e.g. 1 (single GPU)
-        self.max_cpu_workers = config.cpu_workers   # e.g. 8
-        self.memory_budget_gb = config.memory_gb    # e.g. 32.0
-        self._allocated = ResourceLedger()
+    def __init__(
+        self,
+        gpu_slots: int = 0,
+        cpu_workers: int = 4,
+        memory_high_watermark: float = 0.80,    # pause dispatch above 80% system RAM
+        memory_critical: float = 0.95,           # never dispatch above 95% system RAM
+    ): ...
 
-    async def acquire(self, request: ResourceRequest) -> bool:
-        """Try to reserve resources. Returns False if insufficient — caller waits."""
-        ...
+    async def can_dispatch(self, request: ResourceRequest) -> bool:
+        """Check if resources are available for dispatching a block.
+        GPU/CPU: discrete slot counting (declaration-based, predictive).
+        Memory: OS-level check via psutil (monitoring-based, reactive)."""
+        import psutil
+        if request.requires_gpu and self._gpu_in_use >= self.gpu_slots:
+            return False
+        if self._cpu_in_use + request.cpu_cores > self.max_cpu_workers:
+            return False
+        if psutil.virtual_memory().percent / 100.0 > self.memory_high_watermark:
+            return False
+        return True
 
     def release(self, request: ResourceRequest) -> None:
-        """Return resources to the pool after block completes."""
+        """Release discrete resources (GPU slots, CPU cores).
+        Memory is not explicitly released — it drops when the subprocess exits."""
         ...
 
     @property
     def available(self) -> ResourceSnapshot:
-        """Current free resources (for UI display and scheduler decisions)."""
+        """Current resource state (for UI display and scheduler decisions)."""
         ...
 ```
 
-Blocks declare their resource needs via a class-level attribute:
+Blocks declare discrete resource needs via a class-level attribute:
 
 ```python
 class CellposeSegment(ProcessBlock):
-    resource_request = ResourceRequest(requires_gpu=True, gpu_memory_gb=2.0, estimated_memory_gb=4.0)
+    resource_request = ResourceRequest(requires_gpu=True, gpu_memory_gb=2.0)
 ```
 
-The DAG scheduler consults the `ResourceManager` before dispatching each block in parallel mode. If 50 images are queued for GPU-based Cellpose but only 1 GPU slot is available, the scheduler runs them sequentially through that slot rather than spawning 50 competing processes. CPU-only blocks can still run at full parallelism up to `max_cpu_workers`.
+The DAG scheduler consults `ResourceManager.can_dispatch()` before dispatching each block. If the system memory watermark is exceeded (e.g., a previous block is still processing a large Collection), the scheduler waits until memory drops before launching the next block. GPU and CPU resources use discrete slot counting — if only 1 GPU slot is available, GPU blocks run one at a time.
 
-**Automatic resource release via EventBus** (ADR-018, ADR-019): the `ResourceManager` subscribes to `BLOCK_DONE`, `BLOCK_ERROR`, `BLOCK_CANCELLED`, and `PROCESS_EXITED` events. When any of these events fire, the manager automatically releases the resources allocated to that block. This guarantees resources are never leaked, even when a block crashes unexpectedly (detected by `ProcessMonitor`) or is cancelled by the user.
+**Automatic resource release via EventBus** (ADR-018, ADR-019): the `ResourceManager` subscribes to `BLOCK_DONE`, `BLOCK_ERROR`, `BLOCK_CANCELLED`, and `PROCESS_EXITED` events. When any of these events fire, the manager releases the discrete resources (GPU slots, CPU cores) allocated to that block. Memory is not explicitly released — it drops naturally when the subprocess exits and the OS reclaims pages.
 
 ```python
 # ResourceManager event subscription (in __init__):
@@ -1382,7 +1399,7 @@ event_bus.subscribe(PROCESS_EXITED, self._on_block_terminal)
 def _on_block_terminal(self, event: EngineEvent):
     allocation = self._allocations.pop(event.block_id, None)
     if allocation:
-        self.release(allocation)
+        self.release(allocation)    # releases GPU slots + CPU cores only
 ```
 
 ### 6.5 Process lifecycle management
@@ -2045,6 +2062,7 @@ workflow:
 | Metadata DB | SQLite | Lineage records, project metadata |
 | Process lifecycle | ProcessHandle + ProcessRegistry + ProcessMonitor | Cross-platform: POSIX signals + process groups (Linux/macOS), Job Objects + TerminateProcess (Windows). Optional: `psutil` for convenience methods (ADR-019) |
 | Concurrency | `concurrent.futures` + `asyncio` | Block-internal parallelism, async scheduling |
+| System monitoring | `psutil` | OS memory usage for ResourceManager dispatch gating, process alive checks for ProcessHandle (ADR-022, ADR-019) |
 | Frontend framework | React 18 + TypeScript | |
 | Workflow canvas | ReactFlow | Node-graph editor |
 | State management | Zustand | Lightweight, React-native |

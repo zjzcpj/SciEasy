@@ -118,7 +118,7 @@ All green. Zero implementation, zero failures.
 - [ ] `engine/dag.py` — `build_dag()`, `topological_sort()` signatures
 - [ ] `engine/scheduler.py` — `DAGScheduler` with `execute()`, `pause()`, `resume()` signatures
 - [ ] ~~`engine/batch.py`~~ — removed (ADR-020: Collection-based transport eliminates engine-level batch iteration)
-- [ ] `engine/resources.py` — `ResourceRequest` dataclass, `ResourceManager` with `acquire()`, `release()`
+- [ ] `engine/resources.py` — `ResourceRequest` dataclass (GPU/CPU only, no estimated_memory_gb per ADR-022), `ResourceManager` with `can_dispatch()` (psutil memory watermark), `release()` (GPU/CPU discrete)
 - [ ] `engine/runners/base.py` — `BlockRunner` Protocol (run, check_status, cancel)
 - [ ] `engine/runners/local.py` — `LocalRunner(BlockRunner)` signature only
 - [ ] `engine/checkpoint.py` — `WorkflowCheckpoint` dataclass, `save()`, `load()` signatures

@@ -341,16 +341,18 @@ python
 from scieasy.engine.resources import ResourceManager, ResourceRequest
 
 # Create a resource manager with limited resources
-mgr = ResourceManager(cpu_workers=4, gpu_slots=1, memory_mb=4096)
+mgr = ResourceManager(cpu_workers=4, gpu_slots=1, memory_high_watermark=0.80)
 
-print(f"Available CPU: {mgr.available_cpu}")
+print(f"Available CPU: {mgr.available.available_cpu_workers}")
 # Expected: 4
-print(f"Available GPU: {mgr.available_gpu}")
+print(f"Available GPU: {mgr.available.available_gpu_slots}")
 # Expected: 1
+print(f"System memory: {mgr.available.system_memory_percent:.0%}")
+# Expected: current OS memory usage
 
-# Acquire some resources
-req = ResourceRequest(cpu=2, gpu=1, memory_mb=2048)
-token = mgr.acquire(req)
+# Check if dispatch is allowed
+req = ResourceRequest(cpu_cores=2, requires_gpu=True)
+can = await mgr.can_dispatch(req)
 print(f"After acquire — CPU: {mgr.available_cpu}, GPU: {mgr.available_gpu}")
 # Expected: CPU: 2, GPU: 0
 
