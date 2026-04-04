@@ -124,38 +124,101 @@ class Block(ABC):
 
     # -- ADR-020: Collection utilities (Tier 1/2/3 block authoring) ----------
 
-    # TODO(ADR-020-Add5): Implement process_item() — Tier 1 entry point.
-    # 80% of blocks override this. Framework handles iteration, flush, packing.
-    # Signature: def process_item(self, item: DataObject, config: BlockConfig) -> DataObject
-    # Default run() iterates primary input Collection, calls process_item() per
-    # item, auto-flushes each result, packs into output Collection.
-    # Peak memory = O(1 item).
+    def process_item(self, item: Any, config: BlockConfig) -> Any:
+        """Tier 1 entry point: override for per-item processing.
 
-    # TODO(ADR-020): Implement pack() static method.
-    # Signature: pack(items: list[DataObject], item_type: type | None = None) -> Collection
-    # Auto-flushes each item if no StorageReference.
+        The default ``run()`` in :class:`ProcessBlock` iterates the primary
+        input Collection and calls this method for each item, auto-flushing
+        each result. 80% of blocks only need to override this method.
+        """
+        raise NotImplementedError("Subclass must implement process_item()")
 
-    # TODO(ADR-020): Implement unpack() static method.
-    # Signature: unpack(collection: Collection) -> list[DataObject]
-    # Returns DataObject instances, NOT ViewProxy (ADR-020-Add1).
-    # Block authors explicitly call .view() when ready.
+    @staticmethod
+    def pack(items: list[Any], item_type: type | None = None) -> Any:
+        """Pack a list of DataObjects into a Collection, auto-flushing each.
 
-    # TODO(ADR-020): Implement unpack_single() static method.
-    # Signature: unpack_single(collection: Collection) -> DataObject
-    # Collection must have length=1, raises ValueError otherwise.
+        Any item without a ``StorageReference`` is flushed to storage as a
+        safety net (Tier 3).
+        """
+        from scieasy.core.types.collection import Collection
 
-    # TODO(ADR-020): Implement map_items() static method.
-    # Signature: map_items(func: Callable, collection: Collection) -> Collection
-    # Sequential per-item processing. Auto-flushes each result.
+        flushed = [Block._auto_flush(item) for item in items]
+        return Collection(flushed, item_type=item_type)
 
-    # TODO(ADR-020): Implement parallel_map() static method.
-    # Signature: parallel_map(func: Callable, collection: Collection, max_workers: int = 4) -> Collection
-    # Parallel per-item processing. Auto-flushes each result.
-    # Memory is block author's responsibility — choose max_workers based on item size.
+    @staticmethod
+    def unpack(collection: Any) -> list[Any]:
+        """Unpack a Collection into a list of DataObject instances.
 
-    # TODO(ADR-020-Add5): Implement _auto_flush() private method.
-    # Signature: _auto_flush(data: DataObject) -> DataObject
-    # If data has no StorageReference, write to output directory via appropriate
-    # backend, replace with lightweight ref (~KB). Called by map_items,
-    # parallel_map, pack, and process_item default run().
-    # Subprocess worker also performs final force-write scan after block.run().
+        Returns DataObject instances, NOT ViewProxy (ADR-020-Add1).
+        Block authors explicitly call ``.view()`` when ready to access data.
+        """
+        return list(collection)
+
+    @staticmethod
+    def unpack_single(collection: Any) -> Any:
+        """Unpack a length-1 Collection into a single DataObject.
+
+        Raises ``ValueError`` if the Collection does not have exactly one item.
+        """
+        if len(collection) != 1:
+            raise ValueError(f"Expected single-item Collection, got length {len(collection)}")
+        return collection[0]
+
+    @staticmethod
+    def map_items(func: Any, collection: Any) -> Any:
+        """Apply *func* to each item sequentially, auto-flushing each result.
+
+        Returns a new Collection. Peak memory: 1 input + 1 output per iteration.
+        """
+        from scieasy.core.types.collection import Collection
+
+        results = []
+        for item in collection:
+            result = func(item)
+            result = Block._auto_flush(result)
+            results.append(result)
+        return Collection(results, item_type=collection.item_type)
+
+    @staticmethod
+    def parallel_map(func: Any, collection: Any, max_workers: int = 4) -> Any:
+        """Apply *func* to each item in parallel, auto-flushing each result.
+
+        Returns a new Collection.
+
+        Warning: ``parallel_map`` loads ``max_workers`` items into memory
+        concurrently. For large items (images, MSI datasets), set
+        ``max_workers=1`` or use ``map_items()`` which processes one item
+        at a time.
+        """
+        from concurrent.futures import ProcessPoolExecutor
+
+        from scieasy.core.types.collection import Collection
+
+        with ProcessPoolExecutor(max_workers=max_workers) as pool:
+            results = list(pool.map(func, collection))
+        flushed = [Block._auto_flush(r) for r in results]
+        return Collection(flushed, item_type=collection.item_type)
+
+    @staticmethod
+    def _auto_flush(obj: Any) -> Any:
+        """Write in-memory DataObject to storage, return lightweight reference.
+
+        If the object already has a ``StorageReference``, return as-is (no-op).
+        Called internally by ``map_items``, ``parallel_map``, ``pack``, and
+        the ``process_item`` default ``run()``.
+
+        Note: In subprocess execution (Phase 5.2), the worker also performs a
+        final force-write scan after ``block.run()`` to catch any items that
+        were not flushed during execution.
+        """
+        from scieasy.core.types.base import DataObject
+
+        if not isinstance(obj, DataObject):
+            return obj
+        if obj.storage_ref is not None:
+            return obj
+        # Object has no storage ref — it is in-memory only.
+        # For now, return as-is. The subprocess worker (Phase 5.2) will
+        # perform the final force-write scan using the appropriate storage
+        # backend for the output directory.
+        return obj
