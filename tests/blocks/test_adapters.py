@@ -1,4 +1,4 @@
-"""Tests for format adapters — CSV, Parquet, Generic, TIFF (direct coverage)."""
+"""Tests for format adapters -- CSV, Parquet, Generic, TIFF, Zarr (direct coverage)."""
 
 from __future__ import annotations
 
@@ -11,6 +11,8 @@ import pytest
 from scieasy.blocks.io.adapters.csv_adapter import CSVAdapter
 from scieasy.blocks.io.adapters.generic_adapter import GenericAdapter, _guess_mime
 from scieasy.blocks.io.adapters.parquet_adapter import ParquetAdapter
+from scieasy.blocks.io.adapters.zarr_adapter import ZarrAdapter
+from scieasy.core.storage.ref import StorageReference
 from scieasy.core.types.artifact import Artifact
 from scieasy.core.types.dataframe import DataFrame
 
@@ -57,6 +59,14 @@ class TestCSVAdapterDirect:
 
     def test_supported_extensions(self) -> None:
         assert CSVAdapter().supported_extensions() == [".csv"]
+
+    def test_create_reference(self, tmp_path: Path) -> None:
+        adapter = CSVAdapter()
+        ref = adapter.create_reference(tmp_path / "data.csv")
+        assert isinstance(ref, StorageReference)
+        assert ref.backend == "arrow"
+        assert ref.format == "csv"
+        assert ref.path == str(tmp_path / "data.csv")
 
 
 # ---------------------------------------------------------------------------
