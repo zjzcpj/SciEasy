@@ -9,8 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+<<<<<<< claude/flamboyant-blackburn
+- ADR-017: Subprocess isolation for all block execution — all blocks run in isolated subprocesses, never in the engine process
+- ADR-018: Block cancellation and graceful workflow degradation — CANCELLED/SKIPPED states, event-driven scheduler, EventBus as runtime backbone
+- ADR-019: ProcessHandle, ProcessRegistry, ProcessMonitor — cross-platform process lifecycle management (POSIX signals + process groups / Windows Job Objects)
+- ADR-020: Collection-based data transport — eliminate engine-level batch iteration; all data flows as Collection wrappers; blocks handle iteration internally
+- ADR-021: MergeCollection and Collection operation blocks — built-in utility blocks for combining/splitting/filtering Collections
+
+=======
 - [#42] Wave 3 tests: import coverage for Phase 5+ modules and extended block tests (@claude, 2026-04-03, branch: test/issue-42/wave3-import-coverage, session: 20260403-192429-wave-3-tests-import-coverage-and-extende)
 - [#38] Wave 1 tests: 7 new test files for core and block coverage (~65% -> ~76%) (@claude, 2026-04-03, branch: test/issue-38/wave1-core-block-coverage, session: 20260403-191229-wave-1-tests-achieve-85-coverage-for-pha)
+>>>>>>> main
 - [#35] Add AI PR review workflow with Codex agent (@claude, 2026-04-03, branch: feat/ai-pr-review, session: 20260403-162720-add-ai-pr-review-workflow-with-codex-age)
 - [#32] Add code audit agent prompt for automated PR review (@claude, 2026-04-03, branch: feat/issue-32/code-audit-agent-prompt, session: 20260403-160517-add-code-audit-agent-prompt-for-automate)
 

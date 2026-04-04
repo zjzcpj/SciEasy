@@ -2,8 +2,9 @@
 
 > **Status**: Phase 5 is PLANNED (not yet implemented).
 > This document provides step-by-step manual verification procedures for humans
-> to confirm the execution engine works correctly: DAG scheduling, batch
-> processing, resource management, checkpoint/resume, and event bus.
+> to confirm the execution engine works correctly: DAG scheduling, Collection
+> transport (ADR-020), subprocess isolation (ADR-017), cancellation (ADR-018),
+> process lifecycle (ADR-019), resource management, checkpoint/resume, and event bus.
 
 ---
 
@@ -365,41 +366,54 @@ exit()
 
 ---
 
-### Test 9: Batch Execution with Multiple Items
+### Test 9: Collection Transport and Block-Internal Iteration (ADR-020)
 
 **Steps**:
 
 1. Create multiple input files:
 ```bash
 for i in 1 2 3 4 5; do
-  cat > /tmp/scieasy_engine_test/batch_${i}.csv << EOF
+  cat > /tmp/scieasy_engine_test/item_${i}.csv << EOF
 id,value
 ${i},$(( i * 10 ))
 EOF
 done
-ls /tmp/scieasy_engine_test/batch_*.csv
+ls /tmp/scieasy_engine_test/item_*.csv
 ```
 
-2. Run batch processing:
+2. Test Collection-based data transport:
 ```bash
 python
 ```
 ```python
-import asyncio
-from scieasy.engine.batch import BatchExecutor
-from scieasy.blocks.base.state import BatchMode
+from scieasy.core.types.collection import Collection
+from scieasy.core.types.dataframe import DataFrame
 
-# Create a batch executor
-executor = BatchExecutor(mode=BatchMode.PARALLEL)
+# Load 5 items into a Collection
+items = [DataFrame(columns=["id", "value"]) for _ in range(5)]
+coll = Collection(items)
+print(f"Collection[{coll.item_type.__name__}] length={len(coll)}")
+# Expected: Collection[DataFrame] length=5
 
-# Process 5 items through a block
-# (Adjust based on actual API)
-items = [f"/tmp/scieasy_engine_test/batch_{i}.csv" for i in range(1, 6)]
-print(f"Processing {len(items)} items in PARALLEL mode")
+# Test pack/unpack round-trip
+from scieasy.blocks.base.block import Block
+unpacked = Block.unpack(coll)
+repacked = Block.pack(unpacked)
+print(f"Round-trip: {len(repacked)} items")
+# Expected: 5 items
 
-# result = await executor.execute(block, items, config)
-# print(f"Succeeded: {result.succeeded}, Failed: {result.failed}")
-# Expected: Succeeded: 5, Failed: 0
+# Test map_items
+transformed = Block.map_items(lambda x: x, coll)
+print(f"Mapped: {len(transformed)} items")
+# Expected: 5 items
+
+# Test homogeneity enforcement
+from scieasy.core.types.array import Image
+try:
+    bad = Collection([items[0], Image()])
+    print("ERROR: should have raised TypeError")
+except TypeError as e:
+    print(f"Correctly rejected mixed types: {e}")
 
 exit()
 ```
@@ -442,20 +456,24 @@ exit()
 
 ## 4. Exploratory Test Scenarios
 
-### Scenario A: Large Batch Processing
-Process 100+ items through a 3-block pipeline. Measure:
+### Scenario A: Large Collection Processing (ADR-020)
+Create a Collection[Image] with 100+ items. Pass through a 3-block pipeline where
+the block uses `parallel_map()` internally. Measure:
 - Total execution time
-- Memory usage (does it grow linearly with batch size?)
+- Memory usage (does Collection + lazy loading keep it bounded?)
 - Are all results correct?
 
-### Scenario B: Mixed Execution Modes
-Build a pipeline where some blocks are PARALLEL and some are SERIAL/INTERACTIVE.
-Does adaptive mode correctly switch between modes?
+### Scenario B: Cancel Block Mid-Execution (ADR-018)
+1. Start a pipeline with a slow block (e.g., sleep 60s in a ProcessBlock)
+2. Cancel the block via API or WebSocket
+3. Verify: block → CANCELLED, downstream → SKIPPED, unrelated branches → continue
+4. Verify: ProcessHandle.terminate() killed the subprocess
 
-### Scenario C: Error Recovery
-1. Create a pipeline where the middle block fails on certain inputs
-2. Test with SKIP error strategy — do non-failing items still complete?
-3. Test with STOP error strategy — does the pipeline stop immediately?
+### Scenario C: External App Crash Detection (ADR-019)
+1. Start an AppBlock that launches an external process
+2. Kill the external process via OS task manager
+3. Verify: ProcessMonitor detects exit, block → ERROR, downstream → SKIPPED
+4. Verify: no orphan processes left
 
 ### Scenario D: Concurrent Workflows
 Start two workflows simultaneously. Do they interfere with each other?
@@ -485,9 +503,9 @@ Do resource limits prevent over-allocation?
 | 9 | Pause + resume produces correct results | [ ] |
 | 10 | Event bus delivers events to subscribers | [ ] |
 | 11 | Resource manager tracks CPU/GPU/memory | [ ] |
-| 12 | Batch parallel mode processes all items | [ ] |
-| 13 | Batch serial mode preserves order | [ ] |
-| 14 | Batch error strategy (STOP/SKIP) works | [ ] |
+| 12 | Collection transport: pack/unpack/map_items work (ADR-020) | [ ] |
+| 13 | Collection homogeneity enforced (mixed types rejected) | [ ] |
+| 14 | Cancel block → CANCELLED + downstream SKIPPED (ADR-018) | [ ] |
 | 15 | Lineage recorded for all block executions | [ ] |
 | 16 | Integration test: full pipeline with lineage | [ ] |
 
