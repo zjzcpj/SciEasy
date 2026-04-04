@@ -62,6 +62,42 @@ class TestZarrBackend:
         assert meta["dtype"] == "int32"
         assert meta["ndim"] == 2
 
+    def test_axes_metadata_roundtrip(self, tmp_path: Path) -> None:
+        """Axes metadata survives write/read via Zarr attrs."""
+        backend = ZarrBackend()
+        data = np.zeros((100, 100), dtype="float64")
+        ref = StorageReference(
+            backend="zarr",
+            path=str(tmp_path / "axes.zarr"),
+            metadata={"axes": ["y", "x"]},
+        )
+        result_ref = backend.write(data, ref)
+        assert result_ref.metadata is not None
+        assert result_ref.metadata["axes"] == ["y", "x"]
+
+        meta = backend.get_metadata(result_ref)
+        assert meta["axes"] == ["y", "x"]
+
+    def test_axes_roundtrip_via_viewproxy(self, tmp_path: Path) -> None:
+        """ViewProxy.axes returns correct axes after Zarr round-trip."""
+        from scieasy.core.proxy import ViewProxy
+        from scieasy.core.types.base import TypeSignature
+
+        backend = ZarrBackend()
+        data = np.zeros((100, 100), dtype="float64")
+        ref = StorageReference(
+            backend="zarr",
+            path=str(tmp_path / "proxy_axes.zarr"),
+            metadata={"axes": ["y", "x"]},
+        )
+        result_ref = backend.write(data, ref)
+
+        proxy = ViewProxy(
+            storage_ref=result_ref,
+            dtype_info=TypeSignature(type_chain=["DataObject", "Array", "Image"]),
+        )
+        assert proxy.axes == ["y", "x"]
+
 
 class TestArrowBackend:
     """Round-trip write/read for Parquet tables."""
@@ -269,3 +305,20 @@ class TestCompositeStore:
         assert len(slots) == 2
         slot_names = {s[0] for s in slots}
         assert slot_names == {"s1", "s2"}
+
+    def test_slice_loads_only_requested_slots(self, tmp_path: Path) -> None:
+        """slice() should only load data for requested slots."""
+        store = CompositeStore()
+        composite_data = {
+            "a": ("filesystem", "slot_a_data"),
+            "b": ("filesystem", "slot_b_data"),
+            "c": ("filesystem", "slot_c_data"),
+        }
+        ref = StorageReference(backend="composite", path=str(tmp_path / "lazy_comp"))
+        result_ref = store.write(composite_data, ref)
+
+        subset = store.slice(result_ref, "a")
+        assert list(subset.keys()) == ["a"]
+        assert subset["a"] == "slot_a_data"
+        assert "b" not in subset
+        assert "c" not in subset
