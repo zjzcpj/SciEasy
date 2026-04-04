@@ -117,6 +117,14 @@ class TestParquetAdapterDirect:
     def test_supported_extensions(self) -> None:
         assert ParquetAdapter().supported_extensions() == [".parquet", ".pq"]
 
+    def test_create_reference(self, tmp_path: Path) -> None:
+        adapter = ParquetAdapter()
+        ref = adapter.create_reference(tmp_path / "data.parquet")
+        assert isinstance(ref, StorageReference)
+        assert ref.backend == "arrow"
+        assert ref.format == "parquet"
+        assert ref.path == str(tmp_path / "data.parquet")
+
 
 # ---------------------------------------------------------------------------
 # Generic Adapter
@@ -168,6 +176,19 @@ class TestGenericAdapter:
         assert ".bin" in exts
         assert ".pdf" in exts
 
+    def test_create_reference(self, tmp_path: Path) -> None:
+        adapter = GenericAdapter()
+        ref = adapter.create_reference(tmp_path / "file.pdf")
+        assert isinstance(ref, StorageReference)
+        assert ref.backend == "filesystem"
+        assert ref.format == "pdf"
+        assert ref.path == str(tmp_path / "file.pdf")
+
+    def test_create_reference_unknown_extension(self, tmp_path: Path) -> None:
+        adapter = GenericAdapter()
+        ref = adapter.create_reference(tmp_path / "file.xyz")
+        assert ref.format == "xyz"
+
 
 class TestGuessMime:
     """_guess_mime — MIME type inference from file extension."""
@@ -193,6 +214,35 @@ class TestGuessMime:
 
     def test_unknown_extension(self) -> None:
         assert _guess_mime(Path("file.xyz")) == "application/octet-stream"
+
+
+
+# ---------------------------------------------------------------------------
+# Zarr Adapter
+# ---------------------------------------------------------------------------
+
+
+class TestZarrAdapter:
+    """ZarrAdapter -- create_reference support."""
+
+    def test_create_reference(self, tmp_path: Path) -> None:
+        adapter = ZarrAdapter()
+        ref = adapter.create_reference(tmp_path / "data.zarr")
+        assert isinstance(ref, StorageReference)
+        assert ref.backend == "zarr"
+        assert ref.format == "zarr"
+        assert ref.path == str(tmp_path / "data.zarr")
+
+    def test_supported_extensions(self) -> None:
+        assert ZarrAdapter().supported_extensions() == [".zarr"]
+
+    def test_read_raises_not_implemented(self, tmp_path: Path) -> None:
+        with pytest.raises(NotImplementedError):
+            ZarrAdapter().read(tmp_path / "data.zarr")
+
+    def test_write_raises_not_implemented(self, tmp_path: Path) -> None:
+        with pytest.raises(NotImplementedError):
+            ZarrAdapter().write(object(), tmp_path / "data.zarr")
 
 
 # ---------------------------------------------------------------------------
@@ -257,3 +307,13 @@ class TestTIFFAdapter:
         from scieasy.blocks.io.adapters.tiff_adapter import TIFFAdapter
 
         assert TIFFAdapter().supported_extensions() == [".tif", ".tiff"]
+    def test_create_reference(self, tmp_path: Path) -> None:
+        from scieasy.blocks.io.adapters.tiff_adapter import TIFFAdapter
+
+        adapter = TIFFAdapter()
+        ref = adapter.create_reference(tmp_path / "image.tif")
+        assert isinstance(ref, StorageReference)
+        assert ref.backend == "filesystem"
+        assert ref.format == "tiff"
+        assert ref.path == str(tmp_path / "image.tif")
+
