@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
 from scieasy.core.lineage.environment import EnvironmentSnapshot
 from scieasy.core.lineage.graph import ProvenanceGraph
 from scieasy.core.lineage.record import LineageRecord
@@ -52,7 +56,7 @@ class TestLineageStore:
     """Verify SQLite-backed LineageStore."""
 
     def test_write_and_query(self) -> None:
-        store = LineageStore()  # in-memory
+        store = LineageStore(":memory:")
         record = _make_record("block_A", ["hash_in_1"], ["hash_out_1"])
         store.write(record)
 
@@ -63,20 +67,20 @@ class TestLineageStore:
         assert results[0].output_hashes == ["hash_out_1"]
 
     def test_query_all(self) -> None:
-        store = LineageStore()
+        store = LineageStore(":memory:")
         store.write(_make_record("A", ["h1"], ["h2"]))
         store.write(_make_record("B", ["h2"], ["h3"]))
         results = store.query()
         assert len(results) == 2
 
     def test_query_nonexistent_block(self) -> None:
-        store = LineageStore()
+        store = LineageStore(":memory:")
         store.write(_make_record("A", ["h1"], ["h2"]))
         results = store.query(block_id="nonexistent")
         assert len(results) == 0
 
     def test_write_with_environment(self) -> None:
-        store = LineageStore()
+        store = LineageStore(":memory:")
         env = EnvironmentSnapshot.capture()
         record = LineageRecord(
             input_hashes=["in1"],
@@ -96,7 +100,7 @@ class TestLineageStore:
 
     def test_ancestors_linear_chain(self) -> None:
         """A -> B -> C: ancestors of C's output should include B and A."""
-        store = LineageStore()
+        store = LineageStore(":memory:")
         store.write(_make_record("A", ["raw"], ["h1"], timestamp="2026-01-01T00:00:00"))
         store.write(_make_record("B", ["h1"], ["h2"], timestamp="2026-01-01T00:01:00"))
         store.write(_make_record("C", ["h2"], ["h3"], timestamp="2026-01-01T00:02:00"))
@@ -108,10 +112,24 @@ class TestLineageStore:
         assert "A" in block_ids
 
     def test_ancestors_no_match(self) -> None:
-        store = LineageStore()
+        store = LineageStore(":memory:")
         store.write(_make_record("A", ["h1"], ["h2"]))
         ancestors = store.ancestors("nonexistent")
         assert ancestors == []
+
+    def test_default_path_persists(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """LineageStore with default path persists records to disk."""
+        monkeypatch.chdir(tmp_path)
+        store = LineageStore()
+        record = _make_record("persist_block", ["h_in"], ["h_out"])
+        store.write(record)
+        store.close()
+
+        store2 = LineageStore()
+        results = store2.query(block_id="persist_block")
+        assert len(results) == 1
+        assert results[0].output_hashes == ["h_out"]
+        store2.close()
 
 
 class TestProvenanceGraph:
