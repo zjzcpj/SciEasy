@@ -1,4 +1,8 @@
-"""CodeBlock — inline and script mode execution with language dispatch."""
+"""CodeBlock — inline and script mode execution with language dispatch.
+
+ADR-017: All execution in isolated subprocesses. No in-process exec/importlib.
+ADR-020-Add4: Auto-unpack Collection inputs, auto-repack outputs.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +11,6 @@ from typing import Any, ClassVar
 from scieasy.blocks.base.block import Block
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
-from scieasy.blocks.base.state import BlockState, InputDelivery
 from scieasy.core.types.base import DataObject
 
 
@@ -20,6 +23,18 @@ class CodeBlock(Block):
         MEMORY  — ``to_memory()`` is called, block receives raw data.
         PROXY   — block receives :class:`ViewProxy` instances directly.
         CHUNKED — ``iter_chunks()`` is called, results are concatenated.
+
+    TODO(ADR-017): All execution delegated to subprocess-based runner
+        via spawn_block_process(). No in-process exec() or importlib.
+
+    TODO(ADR-020-Add4): Auto-unpack Collection inputs:
+        - Collection length=1 → single native object (numpy array, pandas DataFrame)
+        - Collection length>1 → LazyList (from blocks/code/lazy_list.py)
+        - User scripts never see Collection object directly.
+        Auto-repack outputs as Collection.
+
+    TODO(ADR-017): _prepare_inputs() moves to subprocess worker
+        (engine/runners/worker.py). Input preparation happens in child process.
     """
 
     language: ClassVar[str] = "python"
@@ -36,77 +51,10 @@ class CodeBlock(Block):
     ]
 
     def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
-        """Execute the code block via the appropriate language runner."""
-        from scieasy.blocks.code.runner_registry import RunnerRegistry
+        """Execute the code block via subprocess-based language runner.
 
-        self.transition(BlockState.RUNNING)
-        try:
-            delivery = InputDelivery(config.get("delivery", InputDelivery.MEMORY.value))
-            prepared_inputs = self._prepare_inputs(inputs, delivery, config)
-
-            runner_registry = RunnerRegistry()
-            runner_registry.register_defaults()
-            runner_cls = runner_registry.get(self.language)
-            runner = runner_cls()
-
-            if self.mode == "inline":
-                script = config.get("script", "")
-                if not script:
-                    raise ValueError("Inline CodeBlock requires 'script' in config.params")
-                namespace = dict(prepared_inputs)
-                namespace["config"] = config
-                result = runner.execute_inline(script, namespace)
-            elif self.mode == "script":
-                script_path = config.get("script_path", "")
-                if not script_path:
-                    raise ValueError("Script CodeBlock requires 'script_path' in config.params")
-                entry = config.get("entry_function", "run")
-                result = runner.execute_script(
-                    script_path,
-                    entry,
-                    prepared_inputs,
-                    config.params,
-                )
-            else:
-                raise ValueError(f"Unknown CodeBlock mode: {self.mode}")
-
-            self.transition(BlockState.DONE)
-            return dict(result)
-        except Exception:
-            self.transition(BlockState.ERROR)
-            raise
-
-    def _prepare_inputs(
-        self,
-        inputs: dict[str, Any],
-        delivery: InputDelivery,
-        config: BlockConfig,
-    ) -> dict[str, Any]:
-        """Prepare inputs according to the delivery mode."""
-        from scieasy.core.proxy import ViewProxy
-
-        prepared: dict[str, Any] = {}
-
-        for key, value in inputs.items():
-            if delivery == InputDelivery.MEMORY:
-                if isinstance(value, ViewProxy):
-                    prepared[key] = value.to_memory()
-                else:
-                    prepared[key] = value
-
-            elif delivery == InputDelivery.PROXY:
-                # Pass ViewProxy directly to the user script.
-                prepared[key] = value
-
-            elif delivery == InputDelivery.CHUNKED:
-                if isinstance(value, ViewProxy):
-                    chunk_size = int(config.get("chunk_size", 1000))
-                    chunks = list(value.iter_chunks(chunk_size))
-                    prepared[key] = chunks
-                else:
-                    prepared[key] = [value]
-
-            else:
-                prepared[key] = value
-
-        return prepared
+        TODO(ADR-017): Delegate to subprocess via spawn_block_process().
+        TODO(ADR-020-Add4): Auto-unpack Collection inputs before passing
+            to user script, auto-repack outputs as Collection.
+        """
+        raise NotImplementedError

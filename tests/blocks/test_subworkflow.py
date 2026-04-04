@@ -10,6 +10,8 @@ from scieasy.blocks.base.state import BlockState
 from scieasy.blocks.process.process_block import ProcessBlock
 from scieasy.blocks.subworkflow.subworkflow_block import SubWorkflowBlock, _sequential_execute
 
+# TODO(ADR-020): Update to pass/expect Collections.
+
 
 class AddOneBlock(ProcessBlock):
     """Trivial block that adds 1 to input value."""

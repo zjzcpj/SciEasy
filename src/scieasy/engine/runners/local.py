@@ -1,4 +1,8 @@
-"""LocalRunner -- in-process or subprocess execution."""
+"""LocalRunner — subprocess execution on the local machine.
+
+ADR-017: All block execution in isolated subprocesses. No in-process execution.
+Uses spawn_block_process() as the single subprocess creation entry point.
+"""
 
 from __future__ import annotations
 
@@ -6,10 +10,24 @@ from typing import Any
 
 
 class LocalRunner:
-    """Execute blocks in the local process or as a local subprocess.
+    """Execute blocks as local subprocesses.
 
-    Implements the :class:`~scieasy.engine.runners.base.BlockRunner`
-    protocol for same-machine execution.
+    TODO(ADR-017): Implement using spawn_block_process().
+
+    Implements the BlockRunner protocol (engine/runners/base.py).
+
+    Methods:
+        async run(block, inputs, config) -> RunHandle
+            - Calls spawn_block_process() to create isolated subprocess.
+            - Returns RunHandle with run_id, ProcessHandle, and asyncio.Future.
+            - Future resolves when subprocess exits with output refs.
+
+        async check_status(run_id) -> BlockState
+            - Queries ProcessHandle.is_alive() for the given run_id.
+            - Returns RUNNING if alive, DONE/ERROR based on exit info.
+
+        async cancel(run_id) -> None
+            - Calls ProcessHandle.terminate(grace_period_sec) for the given run_id.
     """
 
     async def run(
@@ -17,46 +35,23 @@ class LocalRunner:
         block: Any,
         inputs: dict[str, Any],
         config: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Execute *block* locally with the given *inputs* and *config*.
+    ) -> Any:
+        """Execute *block* in an isolated subprocess.
 
-        Parameters
-        ----------
-        block:
-            The block instance to run.
-        inputs:
-            Mapping of port names to input data references.
-        config:
-            Execution-time configuration for this invocation.
-
-        Returns
-        -------
-        dict[str, Any]
-            Mapping of output port names to result data references.
+        TODO(ADR-017): Return RunHandle (not dict[str, Any]).
         """
         raise NotImplementedError
 
     async def check_status(self, run_id: str) -> Any:
         """Query the current status of a previously started run.
 
-        Parameters
-        ----------
-        run_id:
-            Opaque identifier returned when the run was initiated.
-
-        Returns
-        -------
-        Any
-            Runner-specific status descriptor.
+        TODO(ADR-017): Query ProcessHandle.is_alive() from ProcessRegistry.
         """
         raise NotImplementedError
 
     async def cancel(self, run_id: str) -> None:
         """Request cancellation of a running execution.
 
-        Parameters
-        ----------
-        run_id:
-            Opaque identifier of the run to cancel.
+        TODO(ADR-017): Call ProcessHandle.terminate() from ProcessRegistry.
         """
         raise NotImplementedError

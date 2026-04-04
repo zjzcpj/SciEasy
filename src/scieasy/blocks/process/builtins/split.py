@@ -40,6 +40,9 @@ class SplitBlock(ProcessBlock):
 
     def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
         """Split the input DataFrame."""
+        # TODO(ADR-020): Input `data` is Collection[DataFrame].
+        # Must unpack Collection, split, pack into output Collections.
+        # Outputs `out` and `remainder` are also Collections.
         self.transition(BlockState.RUNNING)
         try:
             data_obj = inputs["data"]

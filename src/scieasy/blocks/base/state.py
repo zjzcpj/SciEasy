@@ -14,6 +14,8 @@ class BlockState(Enum):
     PAUSED = "paused"
     DONE = "done"
     ERROR = "error"
+    CANCELLED = "cancelled"  # ADR-018: user explicitly terminated this block
+    SKIPPED = "skipped"  # ADR-018: block cannot execute — required upstream inputs missing
 
 
 class ExecutionMode(Enum):
@@ -24,12 +26,8 @@ class ExecutionMode(Enum):
     EXTERNAL = "external"
 
 
-class BatchMode(Enum):
-    """Strategy for processing multiple inputs."""
-
-    PARALLEL = "parallel"
-    SERIAL = "serial"
-    ADAPTIVE = "adaptive"
+# ADR-020: BatchMode enum REMOVED — engine no longer iterates collections.
+# Collection iteration is block-internal (see process_item(), map_items(), parallel_map()).
 
 
 class InputDelivery(Enum):
@@ -40,10 +38,5 @@ class InputDelivery(Enum):
     CHUNKED = "chunked"
 
 
-class BatchErrorStrategy(Enum):
-    """What to do when a batch item fails."""
-
-    STOP = "stop"
-    SKIP = "skip"
-    RETRY = "retry"
-    PAUSE = "pause"
+# ADR-020: BatchErrorStrategy enum REMOVED — block authors handle item-level
+# errors internally. Engine only sees DONE, ERROR, CANCELLED, SKIPPED.

@@ -25,3 +25,9 @@ class FormatAdapter(Protocol):
     def supported_extensions(self) -> list[str]:
         """Return the list of file extensions this adapter handles."""
         ...
+
+    # TODO(ADR-020-Add2): Add create_reference() method to FormatAdapter protocol.
+    # Signature: def create_reference(self, path: str | Path) -> StorageReference
+    # Builds a StorageReference without reading file data.
+    # For Zarr: ref points to .zarr directory. For Parquet: ref points to .parquet file.
+    # For TIFF: ref points to .tif file. Each adapter implements its own version.

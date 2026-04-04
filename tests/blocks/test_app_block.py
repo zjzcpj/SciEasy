@@ -12,6 +12,8 @@ from scieasy.blocks.app.bridge import FileExchangeBridge
 from scieasy.blocks.app.watcher import FileWatcher
 from scieasy.core.types.artifact import Artifact
 
+# TODO(ADR-020): Update to pass Collection inputs, verify Collection outputs.
+
 
 class TestFileWatcher:
     """FileWatcher — polling-based output detection."""

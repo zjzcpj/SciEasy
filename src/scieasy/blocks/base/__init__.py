@@ -13,19 +13,16 @@ from scieasy.blocks.base.ports import (
     validate_connection,
     validate_port_constraint,
 )
-from scieasy.blocks.base.result import BatchResult, BlockResult
+from scieasy.blocks.base.result import BlockResult
 from scieasy.blocks.base.state import (
-    BatchErrorStrategy,
-    BatchMode,
+    # ADR-020: BatchErrorStrategy, BatchMode REMOVED
     BlockState,
     ExecutionMode,
     InputDelivery,
 )
 
 __all__ = [
-    "BatchErrorStrategy",
-    "BatchMode",
-    "BatchResult",
+    # ADR-020: "BatchErrorStrategy", "BatchMode", "BatchResult" REMOVED
     "Block",
     "BlockConfig",
     "BlockResult",

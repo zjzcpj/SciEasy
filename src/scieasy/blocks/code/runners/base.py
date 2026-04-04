@@ -14,6 +14,9 @@ class CodeRunner(Protocol):
     from a script file, returning the output namespace.
     """
 
+    # TODO(ADR-017): execute_inline() and execute_script() must operate via subprocess,
+    # never in-process. Signature may change to return subprocess handle or output refs.
+
     def execute_inline(self, script: str, namespace: dict[str, Any]) -> dict[str, Any]:
         """Execute *script* source code within *namespace* and return results."""
         ...

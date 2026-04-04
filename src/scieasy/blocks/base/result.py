@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -15,10 +15,6 @@ class BlockResult:
     error: Exception | None = None
 
 
-@dataclass
-class BatchResult:
-    """Aggregate outcome of a batch execution across multiple items."""
-
-    succeeded: list[tuple[int, Any]] = field(default_factory=list)
-    failed: list[tuple[int, Exception]] = field(default_factory=list)
-    skipped: list[int] = field(default_factory=list)
+# ADR-020: BatchResult REMOVED — engine no longer performs batch iteration.
+# Collection iteration is block-internal. Blocks handle item-level errors
+# themselves (see process_item(), map_items(), parallel_map() on Block).

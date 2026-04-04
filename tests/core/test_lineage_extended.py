@@ -10,6 +10,9 @@ from scieasy.core.lineage.graph import ProvenanceGraph
 from scieasy.core.lineage.record import LineageRecord
 from scieasy.core.lineage.store import LineageStore
 
+# TODO(ADR-020): Update for removed batch_info field.
+# TODO(ADR-018): Add tests for new lineage fields.
+
 
 class TestLineageStoreClose:
     """LineageStore.close — resource cleanup."""
@@ -42,7 +45,9 @@ class TestLineageStoreClose:
         assert records[0].block_id == "b1"
         store2.close()
 
-    def test_write_with_batch_info(self) -> None:
+    # ADR-020: test_write_with_batch_info removed — batch_info field deleted.
+    # ADR-018: TODO: Add test for termination, partial_output_refs, termination_detail.
+    def test_write_with_termination_fields(self) -> None:
         store = LineageStore()
         record = LineageRecord(
             block_id="b1",
@@ -52,12 +57,16 @@ class TestLineageStoreClose:
             output_hashes=["out1"],
             timestamp="2026-01-01T00:00:00",
             duration_ms=50,
-            batch_info={"batch_id": 0, "total": 10},
+            termination="cancelled",
+            partial_output_refs=["partial_out1"],
+            termination_detail="User cancelled via UI",
         )
         store.write(record)
         records = store.query()
         assert len(records) == 1
-        assert records[0].batch_info == {"batch_id": 0, "total": 10}
+        assert records[0].termination == "cancelled"
+        assert records[0].partial_output_refs == ["partial_out1"]
+        assert records[0].termination_detail == "User cancelled via UI"
         store.close()
 
 

@@ -39,6 +39,10 @@ class SubWorkflowBlock(Block):
         OutputPort(name="result", accepted_types=[DataObject], description="Output from child workflow"),
     ]
 
+    # TODO(ADR-020): run() must pass Collections through child workflow.
+    # TODO(ADR-020): _sequential_execute() must handle Collection-wrapped inputs/outputs.
+    # TODO(ADR-017): Child block execution must use subprocess isolation (not direct block.run()).
+
     def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
         """Execute the referenced sub-workflow.
 

@@ -59,3 +59,7 @@ def _import_tifffile() -> Any:
         return tifffile
     except ImportError as exc:
         raise ImportError("TIFFAdapter requires the 'tifffile' package. Install it with: pip install tifffile") from exc
+
+
+# TODO(ADR-020-Add2): Implement create_reference(path) -> StorageReference.
+# Build a StorageReference pointing to the file without reading its contents.

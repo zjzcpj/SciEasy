@@ -32,4 +32,8 @@ class LineageRecord:
     timestamp: str
     duration_ms: int
     environment: EnvironmentSnapshot | None = None
-    batch_info: dict[str, Any] | None = field(default=None)
+    # ADR-020: batch_info REMOVED — no engine-level batch.
+    # ADR-018: New fields for all terminal states (not just success):
+    termination: str = "completed"  # "completed" | "cancelled" | "error" | "skipped"
+    partial_output_refs: list[str] = field(default_factory=list)  # outputs produced before termination
+    termination_detail: str = ""  # human-readable reason for non-completed termination

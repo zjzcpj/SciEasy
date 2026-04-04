@@ -22,6 +22,12 @@ class WorkflowCheckpoint:
     intermediate_refs: dict[str, Any] = field(default_factory=dict)
     pending_block: str | None = None
     config_snapshot: dict[str, Any] = field(default_factory=dict)
+    skip_reasons: dict[str, str] = field(default_factory=dict)  # ADR-018: block_id → skip reason
+
+
+# TODO(ADR-018): Checkpoint must record all 8 block states including CANCELLED and SKIPPED.
+# TODO(ADR-018): CheckpointManager class needed — subscribes to terminal events
+# via EventBus, saves checkpoint after each block state change.
 
 
 def save_checkpoint(checkpoint: WorkflowCheckpoint, path: str | Path) -> None:

@@ -93,3 +93,32 @@ async def resume_workflow(workflow_id: str) -> dict[str, Any]:
         Phase-1 skeleton --- not yet implemented.
     """
     raise NotImplementedError
+
+
+# -- ADR-018: Cancellation endpoints ----------------------------------------
+
+
+@router.post("/{workflow_id}/cancel")
+async def cancel_workflow(workflow_id: str) -> dict[str, Any]:
+    """Cancel an entire workflow (ADR-018).
+
+    Terminates all active block subprocesses and propagates SKIPPED
+    to downstream blocks with unsatisfiable inputs.
+
+    TODO(ADR-018): Emit CANCEL_WORKFLOW_REQUEST via EventBus.
+    Return CancelPropagationResponse with cancelled/skipped blocks.
+    """
+    raise NotImplementedError
+
+
+@router.post("/{workflow_id}/blocks/{block_id}/cancel")
+async def cancel_block(workflow_id: str, block_id: str) -> dict[str, Any]:
+    """Cancel a single block within a workflow (ADR-018).
+
+    Terminates the block's subprocess and propagates SKIPPED to
+    downstream blocks whose required inputs are now unsatisfiable.
+
+    TODO(ADR-018): Emit CANCEL_BLOCK_REQUEST via EventBus.
+    Return CancelPropagationResponse with cancelled/skipped blocks.
+    """
+    raise NotImplementedError

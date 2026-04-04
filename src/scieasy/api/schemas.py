@@ -111,6 +111,35 @@ class AISuggestWorkflowResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+# -- ADR-018: Cancellation schemas ----------------------------------------
+
+
+class CancelBlockRequest(BaseModel):
+    """Request body for cancelling a single block (ADR-018)."""
+
+    block_id: str
+
+
+class CancelWorkflowRequest(BaseModel):
+    """Request body for cancelling an entire workflow (ADR-018).
+
+    Empty body — workflow_id comes from the URL path parameter.
+    """
+
+
+class CancelPropagationResponse(BaseModel):
+    """Response body after cancellation propagation (ADR-018)."""
+
+    cancelled_blocks: list[str] = []
+    skipped_blocks: list[str] = []
+    skip_reasons: dict[str, str] = {}
+
+
+# ---------------------------------------------------------------------------
+# Errors
+# ---------------------------------------------------------------------------
+
+
 class ErrorResponse(BaseModel):
     """Standard error envelope returned by all endpoints on failure."""
 
