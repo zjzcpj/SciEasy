@@ -76,6 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#26] Persist axis metadata in ZarrBackend write/read for round-trip fidelity (@claude, 2026-04-04, branch: fix/issue-26/zarr-axes-metadata, session: 20260404-034314-fix-zarrbackend-to-persist-axis-metadata)
 - [#16] Align BlockSpec and TypeRegistry with ADR-009 descriptor pattern
 - [#14] Promote CHANGELOG CI check from warning to error
 - CI: handle empty repo gracefully in workflows
