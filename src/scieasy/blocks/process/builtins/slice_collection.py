@@ -16,9 +16,8 @@ from scieasy.core.types.base import DataObject
 class SliceCollection(ProcessBlock):
     """Extract sub-range [start:end] from a Collection.
 
-    TODO(ADR-021): Implement.
-    - Config: start: int, end: int.
-    - Static ports: input (Collection), output (Collection).
+    ADR-021: ``start`` defaults to 0, ``end`` defaults to ``len(collection)``.
+    Result preserves the original item_type.
     """
 
     name: ClassVar[str] = "Slice Collection"
@@ -33,5 +32,30 @@ class SliceCollection(ProcessBlock):
     ]
 
     def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
-        # TODO(ADR-021): Slice items[start:end]. Return sliced Collection.
-        raise NotImplementedError
+        """Slice a Collection from ``start`` to ``end``.
+
+        Config params:
+            start (int): Start index (inclusive). Defaults to 0.
+            end (int): End index (exclusive). Defaults to ``len(collection)``.
+
+        Raises:
+            TypeError: If input is not a Collection.
+        """
+        from scieasy.blocks.base.state import BlockState
+        from scieasy.core.types.collection import Collection
+
+        self.transition(BlockState.RUNNING)
+        try:
+            collection = inputs["input"]
+            if not isinstance(collection, Collection):
+                raise TypeError("SliceCollection requires a Collection input")
+            items = list(collection)
+            start = config.params.get("start", 0)
+            end = config.params.get("end", len(items))
+            sliced = items[start:end]
+            result = Collection(sliced, item_type=collection.item_type)
+            self.transition(BlockState.DONE)
+            return {"output": result}
+        except Exception:
+            self.transition(BlockState.ERROR)
+            raise

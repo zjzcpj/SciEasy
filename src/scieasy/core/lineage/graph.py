@@ -36,6 +36,7 @@ class ProvenanceGraph:
     def ancestors(self, output_hash: str) -> list[LineageRecord]:
         """Return all ancestor records of *output_hash*."""
         visited: set[str] = set()
+        visited_records: set[int] = set()
         result: list[LineageRecord] = []
         queue = [output_hash]
 
@@ -45,7 +46,8 @@ class ProvenanceGraph:
                 continue
             visited.add(current)
             record = self._output_to_record.get(current)
-            if record is not None:
+            if record is not None and id(record) not in visited_records:
+                visited_records.add(id(record))
                 result.append(record)
                 for inp in record.input_hashes:
                     if inp not in visited:
@@ -56,6 +58,7 @@ class ProvenanceGraph:
     def descendants(self, input_hash: str) -> list[LineageRecord]:
         """Return all descendant records of *input_hash*."""
         visited: set[str] = set()
+        visited_records: set[int] = set()
         result: list[LineageRecord] = []
         queue = [input_hash]
 
@@ -66,7 +69,9 @@ class ProvenanceGraph:
             visited.add(current)
             consumers = self._input_to_records.get(current, [])
             for record in consumers:
-                result.append(record)
+                if id(record) not in visited_records:
+                    visited_records.add(id(record))
+                    result.append(record)
                 for out_hash in record.output_hashes:
                     if out_hash not in visited:
                         queue.append(out_hash)

@@ -18,6 +18,7 @@ class NodeDef:
     block_type: str
     config: dict[str, Any] = field(default_factory=dict)
     execution_mode: str | None = None
+    layout: dict[str, float] | None = None
     # ADR-020: batch_mode REMOVED — engine no longer iterates collections.
 
 

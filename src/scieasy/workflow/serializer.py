@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+
+import yaml
+
+from scieasy.workflow.definition import WorkflowDefinition
+from scieasy.workflow.schema import WorkflowFileModel, WorkflowModel
 
 
-def load_yaml(path: str | Path) -> Any:
+def load_yaml(path: str | Path) -> WorkflowDefinition:
     """Deserialise a workflow definition from a YAML file.
 
     Parameters
@@ -16,13 +20,25 @@ def load_yaml(path: str | Path) -> Any:
 
     Returns
     -------
-    Any
-        A ``WorkflowDefinition`` instance (or equivalent dict representation).
+    WorkflowDefinition
+        A validated ``WorkflowDefinition`` instance.
+
+    Raises
+    ------
+    FileNotFoundError
+        If *path* does not exist.
+    yaml.YAMLError
+        If the file is not valid YAML.
+    pydantic.ValidationError
+        If the YAML content does not match the expected schema.
     """
-    raise NotImplementedError
+    text = Path(path).read_text(encoding="utf-8")
+    raw = yaml.safe_load(text)
+    validated = WorkflowFileModel.model_validate(raw)
+    return validated.workflow.to_definition()
 
 
-def save_yaml(workflow: Any, path: str | Path) -> None:
+def save_yaml(workflow: WorkflowDefinition, path: str | Path) -> None:
     """Serialise a workflow definition to a YAML file.
 
     Parameters
@@ -32,4 +48,10 @@ def save_yaml(workflow: Any, path: str | Path) -> None:
     path:
         Destination file path (will be created or overwritten).
     """
-    raise NotImplementedError
+    model = WorkflowModel.from_definition(workflow)
+    file_model = WorkflowFileModel(workflow=model)
+    data = file_model.model_dump(exclude_none=True)
+    Path(path).write_text(
+        yaml.safe_dump(data, default_flow_style=False, sort_keys=False),
+        encoding="utf-8",
+    )
