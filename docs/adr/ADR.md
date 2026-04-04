@@ -169,7 +169,7 @@ The framework introspects script files to auto-generate port declarations and co
 - Users can integrate existing scripts without modification beyond adding a `run()` wrapper function.
 - Script introspection (`introspect.py`) must handle Python, R, and Julia function signatures — a moderate implementation effort.
 - Inline mode executes code via `exec()`, which has security implications. Acceptable for single-user local deployment; requires sandboxing for any future multi-user scenario (see Appendix C.3 of ARCHITECTURE.md).
-- Data delivery to user scripts requires explicit handling — see ADR-016 for the per-port `InputDelivery` mechanism that resolves the tension between lazy loading and script compatibility.
+- Data delivery to user scripts requires explicit handling — see ADR-016 for the original per-port `InputDelivery` mechanism (now partially superseded by ADR-020 Collection auto-unpack).
 
 ---
 
@@ -498,8 +498,9 @@ The framework never reimplements functionality that existing tools do well. Inst
 
 ## ADR-016: Per-port InputDelivery for CodeBlock data handoff
 
-**Status**: accepted  
-**Date**: 2026-04-02
+**Status**: partially superseded by ADR-020  
+**Date**: 2026-04-02  
+**Supersession note**: ADR-020 introduces Collection-based transport with auto-unpack/repack for CodeBlock (ADR-020-Add4). MEMORY is now the only delivery mode; PROXY and CHUNKED are removed. Users who need lazy access should write a ProcessBlock instead. The `InputDelivery` enum has been deleted.
 
 ### Context
 

@@ -513,32 +513,41 @@ class OutputPort(Port):
 
 1. **Design-time (fast)**: when the user draws a connection in ReactFlow, the frontend checks whether the source port's output type is in the target port's `accepted_types`, accounting for inheritance. Invalid connections are visually rejected. This check is purely structural — it only considers the class hierarchy.
 
-2. **Pre-execution (precise)**: before a block runs, the engine calls the optional `constraint` function on each input, passing the actual `DataObject`. This catches semantic mismatches that type alone cannot express.
+2. **Pre-execution (precise)**: before a block runs, the engine calls the optional `constraint` function on each input, passing the **Collection** (ADR-020). Constraint functions that need per-item checks should iterate over the Collection. This catches semantic mismatches that type alone cannot express.
 
-Example constraints:
+Example constraints (ADR-020: constraints receive Collection):
 
 ```python
-# A 2D convolution block needs spatial axes (using named axes)
+# A 2D convolution block needs all images to have spatial axes
 InputPort(
-    name="image",
+    name="images",
     accepted_types=[Image],
-    constraint=lambda img: img.axes is not None and {"y", "x"}.issubset(set(img.axes)),
-    constraint_description="Image must have spatial axes (y, x)",
+    constraint=lambda col: all(
+        img.axes is not None and {"y", "x"}.issubset(set(img.axes))
+        for img in col
+    ),
+    constraint_description="All images must have spatial axes (y, x)",
 )
 
-# A broadcast block needs the mask axes to be a subset of the target axes
+# A broadcast block needs all masks to be 2D spatial
 InputPort(
-    name="mask",
+    name="masks",
     accepted_types=[Image],
-    constraint=lambda img: img.axes is not None and set(img.axes) == {"y", "x"},
-    constraint_description="Mask must be 2D spatial (y, x) for broadcasting over target channels",
+    constraint=lambda col: all(
+        img.axes is not None and set(img.axes) == {"y", "x"}
+        for img in col
+    ),
+    constraint_description="All masks must be 2D spatial (y, x) for broadcasting over target channels",
 )
 
 # A merge block needs two DataFrames with at least one shared column
 InputPort(
     name="right",
     accepted_types=[DataFrame],
-    constraint=lambda df: len(set(df.columns) & set(self._left_columns)) > 0,
+    constraint=lambda col: all(
+        len(set(df.columns) & set(self._left_columns)) > 0
+        for df in col
+    ),
     constraint_description="Must share at least one column with the left input",
 )
 
@@ -546,7 +555,10 @@ InputPort(
 InputPort(
     name="spatial_data",
     accepted_types=[CompositeData],
-    constraint=lambda cd: "images" in cd.slot_names and "table" in cd.slot_names,
+    constraint=lambda col: all(
+        "images" in cd.slot_names and "table" in cd.slot_names
+        for cd in col
+    ),
     constraint_description="Must contain 'images' (Array) and 'table' slots",
 )
 ```
@@ -635,7 +647,7 @@ Each `ProcessBlock` subclass declares its input/output ports with specific type 
 
 #### CodeBlock
 
-Enables zero-friction integration of existing scripts. Supports two execution modes (inline, script) and three data delivery modes per input port.
+Enables zero-friction integration of existing scripts. Supports two execution modes (inline, script) with automatic Collection unpack/repack (ADR-020-Add4).
 
 ##### Execution modes
 
@@ -704,75 +716,15 @@ run <- function(inputs, config) {
 }
 ```
 
-##### Input delivery modes
+##### Input handling (ADR-020)
 
-CodeBlock is the boundary between the framework (ViewProxy-based lazy loading) and user scripts (which expect native Python/R objects). The framework must decide **how** to deliver data from each input port to the user's code. This is controlled per-port via `InputDelivery`:
+CodeBlock inputs are handled via the Collection auto-unpack/repack layer (ADR-020-Add4). All inputs are delivered as native in-memory objects — equivalent to the former MEMORY delivery mode. The `InputDelivery` enum has been removed (see ADR-016, now partially superseded by ADR-020).
 
-```python
-class InputDelivery(Enum):
-    MEMORY = "memory"       # to_memory() — full load as native object (numpy, pandas, etc.)
-    PROXY = "proxy"         # pass ViewProxy directly — user controls slice/iter_chunks
-    CHUNKED = "chunked"     # framework iterates chunks, calls run() once per chunk
-```
+For each input port:
+- **Collection length=1**: the single item is materialised via `.view().to_memory()` (e.g., a numpy array).
+- **Collection length>1**: replaced with a `LazyList` that loads items on demand, keeping peak memory at O(1) per iteration step.
 
-**MEMORY (default)** — full load, maximum compatibility:
-
-The input is fully loaded into memory as a native object. Compatible with any script — numpy, pandas, scipy, R, all just work. This is the correct default because 90% of CodeBlock usage involves small-to-medium data.
-
-```python
-# Inline mode: input_0 is a numpy array, just use it normally
-result = savgol_filter(input_0, 11, 3)
-output_0 = result
-```
-
-If an input exceeds a configurable threshold (default: 2 GB), the framework displays a warning in the block's config panel: *"Input 'msi' is 47 GB. Consider switching to proxy or chunked delivery in script mode."*
-
-**PROXY** — lazy access for large data, user controls memory:
-
-The input is delivered as a `ViewProxy` object. The user script decides what to load and when. Only available in script mode (inline scripts are too short to justify proxy manipulation).
-
-```python
-# large_msi_analysis.py
-
-def configure():
-    return {
-        "input_delivery": {
-            "msi": "proxy",             # I'll manage memory myself
-            "cell_metadata": "memory",  # small table, load fully
-        },
-    }
-
-def run(inputs, config):
-    msi_proxy = inputs["msi"]               # ViewProxy, nothing loaded yet
-    metadata = inputs["cell_metadata"]       # pandas DataFrame, already in memory
-
-    # Only load one m/z channel at a time — memory stays bounded
-    ion_image = msi_proxy.slice({"mz": 885.5})      # ~50 MB, not 100 GB
-    cell_means = extract_per_cell(ion_image, metadata)
-    return {"output_0": cell_means}
-```
-
-**CHUNKED** — framework-driven iteration, user writes single-chunk logic:
-
-The user's `run()` function processes one chunk at a time. The framework handles iteration and result assembly. The user never sees the full dataset.
-
-```python
-# batch_spectral_smooth.py
-
-def configure():
-    return {
-        "input_delivery": {"spectra": "chunked"},
-        "chunk_size": 100,      # 100 spectra per chunk
-        "window": {"type": "int", "default": 11},
-    }
-
-def run(inputs, config):
-    # inputs["spectra"] is a small numpy array (100, n_wavelengths) — not the full dataset
-    batch = inputs["spectra"]
-    smoothed = savgol_filter(batch, config["window"], 3, axis=1)
-    return {"output_0": smoothed}
-    # Framework calls run() repeatedly for each chunk, concatenates results
-```
+Users who need fine-grained control over data loading (slicing, chunked iteration) should write a **ProcessBlock** instead of a CodeBlock. ProcessBlock authors receive `ViewProxy` directly and decide for themselves when to materialise.
 
 ##### Framework bridge implementation
 
@@ -785,82 +737,33 @@ class CodeBlock(Block):
 
         The engine serialises StorageReference pointers and config to the
         subprocess. The subprocess reconstructs ViewProxy instances from
-        storage, applies InputDelivery modes, and calls this method.
+        storage, unpacks Collection inputs, and calls this method.
         """
         language = config["language"]
         runner = CodeRunnerRegistry.get(language)
-        delivery_map = config.get("input_delivery", {})
+
+        # Unpack Collection inputs for user scripts (ADR-020-Add4)
+        unpacked = self._unpack_inputs(inputs)
 
         if config["mode"] == "inline":
-            # Inline mode: always MEMORY (simple mental model)
-            namespace = {name: proxy.to_memory() for name, proxy in inputs.items()}
-            result = runner.execute_inline(config["script"], namespace)
-
+            result = runner.execute_inline(config["script"], unpacked)
         else:
-            # Script mode: respect per-port delivery settings
-            chunked_ports = {
-                name: proxy for name, proxy in inputs.items()
-                if delivery_map.get(name) == "chunked"
-            }
+            result = runner.execute_script(
+                script_path=config["script_path"],
+                entry_function=config.get("entry_function", "run"),
+                inputs=unpacked,
+                config=config.get("script_config", {}),
+            )
 
-            if chunked_ports:
-                # CHUNKED path: framework drives iteration
-                result = self._run_chunked(runner, inputs, config, chunked_ports)
-            else:
-                # MEMORY / PROXY path: single invocation
-                input_data = {}
-                for name, proxy in inputs.items():
-                    delivery = delivery_map.get(name, "memory")
-                    if delivery == "proxy":
-                        input_data[name] = proxy           # pass ViewProxy as-is
-                    else:
-                        input_data[name] = proxy.to_memory()  # full load
-
-                result = runner.execute_script(
-                    script_path=config["script_path"],
-                    entry_function=config.get("entry_function", "run"),
-                    inputs=input_data,
-                    config=config.get("script_config", {}),
-                )
-
-        return {name: wrap_as_dataobject(v) for name, v in result.items()}
-
-    def _run_chunked(self, runner, inputs, config, chunked_ports):
-        chunk_size = config.get("chunk_size", 1000)
-        all_results = []
-
-        # Build non-chunked inputs once (MEMORY or PROXY)
-        static_inputs = {}
-        delivery_map = config.get("input_delivery", {})
-        for name, proxy in inputs.items():
-            if name not in chunked_ports:
-                delivery = delivery_map.get(name, "memory")
-                static_inputs[name] = proxy if delivery == "proxy" else proxy.to_memory()
-
-        # Iterate over chunks of the chunked port(s)
-        # (For simplicity, one chunked port at a time; multiple chunked ports
-        #  iterate in lockstep if they have the same length.)
-        for name, proxy in chunked_ports.items():
-            for chunk in proxy.iter_chunks(chunk_size):
-                chunk_inputs = {**static_inputs, name: chunk}
-                chunk_result = runner.execute_script(
-                    script_path=config["script_path"],
-                    entry_function=config.get("entry_function", "run"),
-                    inputs=chunk_inputs,
-                    config=config.get("script_config", {}),
-                )
-                all_results.append(chunk_result)
-
-        return concatenate_results(all_results)
+        # Repack outputs into Collections (ADR-020-Add4)
+        return self._repack_outputs(result)
 ```
 
-Note: `proxy.to_memory()` and `proxy.iter_chunks()` calls happen inside the subprocess, loading data into the subprocess's memory — not the engine's. This preserves the lazy-loading contract (ADR-007): the engine process never touches the actual data.
+Note: data materialisation calls happen inside the subprocess, loading data into the subprocess's memory — not the engine's. This preserves the lazy-loading contract (ADR-007): the engine process never touches the actual data.
 
 ##### Script discovery and UI integration
 
-The frontend provides a file picker for `.py` / `.R` / `.jl` files. When a script is selected, the framework introspects it — reads port names from the `run()` function signature, config schema and `input_delivery` declarations from `configure()` (if present) — and auto-populates the block's port declarations, config form, and per-port delivery dropdowns. The user's script does not need to be modified beyond adding the `run()` convention.
-
-In the config panel, each input port shows a delivery mode selector (defaulting to MEMORY). For inline mode, delivery is locked to MEMORY and the selector is hidden.
+The frontend provides a file picker for `.py` / `.R` / `.jl` files. When a script is selected, the framework introspects it — reads port names from the `run()` function signature and config schema from `configure()` (if present) — and auto-populates the block's port declarations and config form. The user's script does not need to be modified beyond adding the `run()` convention.
 
 **Code runners** are isolated subprocess execution environments (ADR-017):
 - **Python**: the subprocess worker calls `exec()` for inline mode or `importlib` for script mode — both inside the subprocess, never in the engine process.

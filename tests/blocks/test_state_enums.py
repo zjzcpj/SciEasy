@@ -1,12 +1,11 @@
-"""Tests for state enums — BlockState, ExecutionMode, BatchMode, InputDelivery, BatchErrorStrategy."""
+"""Tests for state enums — BlockState, ExecutionMode."""
 
 from __future__ import annotations
 
 from scieasy.blocks.base.state import (
-    # ADR-020: BatchErrorStrategy and BatchMode removed
+    # ADR-020: BatchErrorStrategy, BatchMode, InputDelivery removed
     BlockState,
     ExecutionMode,
-    InputDelivery,
 )
 
 
@@ -43,18 +42,5 @@ class TestExecutionModeValues:
 
 
 # ADR-020: TestBatchModeValues removed — BatchMode enum deleted.
-
-
-class TestInputDeliveryValues:
-    """InputDelivery — how input data is delivered to the block."""
-
-    def test_all_values(self) -> None:
-        assert InputDelivery.MEMORY.value == "memory"
-        assert InputDelivery.PROXY.value == "proxy"
-        assert InputDelivery.CHUNKED.value == "chunked"
-
-    def test_member_count(self) -> None:
-        assert len(InputDelivery) == 3
-
-
+# ADR-020: TestInputDeliveryValues removed — InputDelivery enum deleted.
 # ADR-020: TestBatchErrorStrategyValues removed — BatchErrorStrategy enum deleted.

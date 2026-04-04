@@ -75,6 +75,10 @@ class DataObject:
 
     Subclasses represent concrete scientific data kinds (arrays, series,
     dataframes, text, artifacts, composites).
+
+    ADR-017: ``metadata`` must be JSON-serializable for subprocess transport.
+    Non-serializable values (numpy arrays, custom objects, lambdas) raise
+    ``TypeError`` at construction time.
     """
 
     def __init__(
@@ -83,7 +87,18 @@ class DataObject:
         storage_ref: StorageReference | None = None,
     ) -> None:
         self._metadata: dict[str, Any] = metadata or {}
+        self._validate_metadata(self._metadata)
         self._storage_ref: StorageReference | None = storage_ref
+
+    @staticmethod
+    def _validate_metadata(metadata: dict[str, Any]) -> None:
+        """Validate that *metadata* is JSON-serializable (ADR-017)."""
+        import json
+
+        try:
+            json.dumps(metadata)
+        except (TypeError, ValueError) as exc:
+            raise TypeError(f"DataObject metadata must be JSON-serializable: {exc}") from exc
 
     # -- properties ----------------------------------------------------------
 

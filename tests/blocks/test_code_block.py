@@ -1,18 +1,15 @@
-"""Tests for CodeBlock — inline Python, script Python, PROXY mode, CHUNKED mode."""
+"""Tests for CodeBlock — inline Python, script Python, Collection unpack/repack."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock
 
-import numpy as np
 import pytest
 
 from scieasy.blocks.base.state import BlockState
 from scieasy.blocks.code.code_block import CodeBlock
 from scieasy.blocks.code.introspect import introspect_script
 from scieasy.blocks.code.runners.python_runner import PythonRunner
-from scieasy.core.proxy import ViewProxy
 
 
 class TestPythonRunnerInline:
@@ -60,16 +57,16 @@ class TestPythonRunnerScript:
 
 
 class TestCodeBlockInline:
-    """CodeBlock inline mode with MEMORY delivery."""
+    """CodeBlock inline mode."""
 
     def test_inline_execution(self) -> None:
-        block = CodeBlock(config={"params": {"script": "result = 42", "delivery": "memory"}})
+        block = CodeBlock(config={"params": {"script": "result = 42"}})
         block.transition(BlockState.READY)
         result = block.run({}, block.config)
         assert result["result"] == 42
 
     def test_inline_with_input(self) -> None:
-        block = CodeBlock(config={"params": {"script": "output = data * 2", "delivery": "memory"}})
+        block = CodeBlock(config={"params": {"script": "output = data * 2"}})
         block.transition(BlockState.READY)
         result = block.run({"data": 10}, block.config)
         assert result["output"] == 20
@@ -81,46 +78,16 @@ class TestCodeBlockScript:
     def test_script_execution(self, tmp_path: Path) -> None:
         script = tmp_path / "block_script.py"
         script.write_text("def run(inputs, config):\n    return {'result': sum(inputs.get('values', []))}\n")
-        block = CodeBlock(config={"params": {"script_path": str(script), "delivery": "memory"}})
+        block = CodeBlock(config={"params": {"script_path": str(script)}})
         block.mode = "script"
         block.transition(BlockState.READY)
         result = block.run({"values": [1, 2, 3]}, block.config)
         assert result["result"] == 6
 
 
-class TestCodeBlockProxyMode:
-    """CodeBlock PROXY delivery — passes ViewProxy directly."""
-
-    def test_proxy_passthrough(self) -> None:
-        """Verify that PROXY mode passes the ViewProxy without materialising."""
-        block = CodeBlock(config={"params": {"script": "result = type(data).__name__", "delivery": "proxy"}})
-        block.transition(BlockState.READY)
-
-        # Create a mock ViewProxy.
-        proxy = MagicMock(spec=ViewProxy)
-        proxy.to_memory = MagicMock(return_value="should not be called")
-
-        result = block.run({"data": proxy}, block.config)
-        assert result["result"] == "MagicMock"
-        # to_memory should NOT have been called.
-        proxy.to_memory.assert_not_called()
-
-
-class TestCodeBlockChunkedMode:
-    """CodeBlock CHUNKED delivery — iterates chunks."""
-
-    def test_chunked_delivery(self) -> None:
-        """Verify CHUNKED mode calls iter_chunks and delivers a list."""
-        block = CodeBlock(config={"params": {"script": "result = len(data)", "delivery": "chunked", "chunk_size": 2}})
-        block.transition(BlockState.READY)
-
-        proxy = MagicMock(spec=ViewProxy)
-        proxy.iter_chunks = MagicMock(return_value=iter([np.array([1, 2]), np.array([3, 4])]))
-
-        result = block.run({"data": proxy}, block.config)
-        # The input 'data' should be a list of chunks.
-        assert result["result"] == 2
-        proxy.iter_chunks.assert_called_once_with(2)
+# ADR-020: TestCodeBlockProxyMode and TestCodeBlockChunkedMode removed.
+# InputDelivery enum deleted — CodeBlock uses Collection auto-unpack only.
+# PROXY and CHUNKED delivery are superseded by ProcessBlock.
 
 
 class TestIntrospectScript:

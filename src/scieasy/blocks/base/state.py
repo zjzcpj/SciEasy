@@ -1,4 +1,4 @@
-"""BlockState, ExecutionMode, BatchMode, InputDelivery, BatchErrorStrategy enums."""
+"""BlockState, ExecutionMode enums."""
 
 from __future__ import annotations
 
@@ -30,13 +30,9 @@ class ExecutionMode(Enum):
 # Collection iteration is block-internal (see process_item(), map_items(), parallel_map()).
 
 
-class InputDelivery(Enum):
-    """How input data is delivered to the block."""
-
-    MEMORY = "memory"
-    PROXY = "proxy"
-    CHUNKED = "chunked"
-
+# ADR-020: InputDelivery enum REMOVED — CodeBlock uses Collection auto-unpack
+# only (LazyList for length>1, to_memory() for length=1). PROXY and CHUNKED
+# delivery modes superseded by ProcessBlock for framework-aware code.
 
 # ADR-020: BatchErrorStrategy enum REMOVED — block authors handle item-level
 # errors internally. Engine only sees DONE, ERROR, CANCELLED, SKIPPED.
