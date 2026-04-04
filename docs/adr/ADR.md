@@ -2266,3 +2266,646 @@ GPU resource management retains the declaration-based model: `requires_gpu: bool
 | `docs/roadmap/ROADMAP_v0.1.md` | **Update** ResourceRequest description |
 | `docs/testing/phase-5-ai-tests.md` | **Rewrite** `test_memory_budget_enforcement()` → `test_memory_watermark_enforcement()`: mock `psutil.virtual_memory()` at different usage levels, verify dispatch gating |
 | `docs/testing/phase-5-human-tests.md` | **Update** ResourceManager test: remove `memory_mb` from ResourceRequest, add watermark check test |
+
+---
+
+## ADR-023: Frontend layout redesign — three-column canvas with inline config, data preview, and "Start from here" execution
+
+**Status**: proposed
+**Date**: 2026-04-04
+
+### Context
+
+The original frontend specification (ARCHITECTURE.md Section 9 and ADR-014) defined a basic three-panel layout: Block Palette | ReactFlow Canvas | Config Panel. This layout was sufficient as an initial sketch but lacks several capabilities required by real scientific workflow editing:
+
+1. **No data preview.** Users need to inspect block outputs (DataFrames, images, spectra) during and after execution without leaving the editor. The original design requires a separate step to view data.
+
+2. **Config panel placement conflict.** The original design uses the right panel for block configuration. But data preview is more important during execution, and configuration is more important during editing. These two use cases compete for the same screen space.
+
+3. **No structured bottom panel.** There is no designated space for logs, AI chat, lineage, or detailed config editing. Users have no visibility into execution progress or AI-assisted authoring.
+
+4. **Block nodes are too sparse.** The original block node shows only name + ports + state badge. Users must click and switch panels to see or change parameters. This breaks the "see everything at a glance" principle that makes visual editors productive.
+
+5. **No port type differentiation.** All ports look identical. Users cannot visually distinguish whether a connection carries an Image, a DataFrame, or a Spectrum without clicking to inspect.
+
+6. **No partial re-execution.** The original architecture supports pause/resume (ADR-018) and checkpoint (Phase 5.4), but there is no mechanism for a user to say "re-run from this block" — a critical workflow for iterative scientific analysis where users adjust parameters on one block and want to re-run only the downstream portion.
+
+### Decision
+
+Redesign the frontend layout with the following structure, block node design, port colour system, data preview panel, and "Start from here" execution mechanism.
+
+---
+
+#### 1. Layout: Three-column with toolbar and bottom panel
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Toolbar                                                                      │
+├───────────┬──────────────────────────────────────────────────┬──────────────┤
+│           │              ReactFlow Canvas                    │              │
+│  Block    │              (with minimap inside)               │    Data      │
+│  Palette  │                                                  │   Preview    │
+│           │                                                  │    Panel     │
+│           │                                                  │              │
+│           │                                                  │              │
+│           │                                                  │              │
+│           ├──────────────────────────────────────────────────┤              │
+│           │ Bottom Panel (browser-style tabs)                │              │
+│           │                                                  │              │
+│           │                                                  │              │
+└───────────┴──────────────────────────────────────────────────┴──────────────┘
+```
+
+**Structural rules:**
+
+| Element | Behaviour |
+|---------|-----------|
+| Block Palette (left column) | Full height from toolbar to window bottom. Does not share vertical space with bottom panel. |
+| ReactFlow Canvas (centre top) | Fills remaining horizontal space between palette and preview panel. Contains ReactFlow minimap (configurable position, default bottom-right of canvas viewport). |
+| Bottom Panel (centre bottom) | Same width as canvas. Height adjustable via drag handle. Can be collapsed. |
+| Data Preview Panel (right column) | Full height from toolbar to window bottom. Does not share vertical space with bottom panel. |
+| Toolbar (top) | Full width. Fixed position. |
+
+**All three columns are resizable via drag handles:**
+
+| Panel | Default width/height | Min | Max | Drag direction |
+|-------|---------------------|-----|-----|----------------|
+| Block Palette | 220px | 160px | 400px | Horizontal (right edge) |
+| Data Preview Panel | 320px | 240px | 600px | Horizontal (left edge) |
+| Bottom Panel | 200px | 100px | 50% of canvas height | Vertical (top edge) |
+| Canvas | Fills remaining space | — | — | — |
+
+**Collapse behaviour:**
+
+| Panel | Collapse trigger | Collapsed state |
+|-------|-----------------|-----------------|
+| Block Palette | Toggle button or `Ctrl+B` | Icon-only mode (~48px) showing category icons |
+| Data Preview | Toggle button or `Ctrl+D` | Hidden (0px). Auto-shows when a block with output is selected. |
+| Bottom Panel | Toggle button or `Ctrl+J` | Collapsed to tab bar only (~32px). Auto-expands when execution starts. |
+
+---
+
+#### 2. Toolbar
+
+Fixed horizontal bar at the top. Grouped by function:
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ [📂 Import][💾 Save][📤 Export] │ [▶ Run][⏸ Pause][■ Stop][↻ Reset] │ [🗑 Delete][🔄 Reload Blocks] │
+└──────────────────────────────────────────────────────────────────────────────┘
+  File operations               Execution controls                 Edit operations
+```
+
+| Button | Action | Keyboard shortcut |
+|--------|--------|-------------------|
+| Import | Open file dialog → load workflow YAML | `Ctrl+O` |
+| Save | Save current workflow to YAML | `Ctrl+S` |
+| Export | Export workflow as YAML / JSON / PNG | `Ctrl+Shift+S` |
+| Run | Execute workflow from beginning | `Ctrl+Enter` |
+| Pause | Pause execution after current blocks complete (ADR-018) | — |
+| Stop | Cancel entire workflow (ADR-018 `CANCEL_WORKFLOW_REQUEST`) | `Ctrl+.` |
+| Reset | Clear all block states and outputs, return to IDLE | — |
+| Delete | Delete selected block(s) or edge(s) | `Delete` or `Backspace` |
+| Reload Blocks | Re-scan block registry and refresh palette | — |
+
+**Additional keyboard shortcuts:**
+
+| Shortcut | Action |
+|----------|--------|
+| `Delete` / `Backspace` | Delete selected block(s) or edge(s) |
+| `Ctrl+Z` | Undo |
+| `Ctrl+Y` / `Ctrl+Shift+Z` | Redo |
+| `Ctrl+A` | Select all nodes and edges |
+| `Escape` | Deselect all |
+| `Space` (hold) | Pan canvas |
+| `Ctrl+Mouse wheel` | Zoom canvas |
+
+---
+
+#### 3. Block Palette (left column)
+
+Full-height left sidebar with searchable, categorised block list.
+
+```
+┌───────────┐
+│ [🔍 Search]│
+├───────────┤
+│ ▸ IO       │  Categories match block system:
+│ ▸ Process  │    IO, Process, Code, App, AI, SubWorkflow
+│ ▸ Code     │
+│ ▸ App      │  Expand category → show individual blocks
+│ ▸ AI       │  Drag block from palette onto canvas
+│ ▸ SubWF    │
+├───────────┤
+│ ▸ Custom   │  User/project-local blocks (~/.scieasy/blocks/, project/blocks/)
+└───────────┘
+```
+
+- Blocks are fetched from `GET /api/blocks/` on mount and after "Reload Blocks."
+- Search filters by block name, category, and description.
+- Drag-and-drop: dragging a block onto the canvas creates a new node with default config.
+
+---
+
+#### 4. Block node design
+
+Each block on the canvas renders as a ReactFlow custom node with header, inline config, ports, and status footer.
+
+```
+┌────────────────────────────────────┐
+│ 📦 Cellpose Segmentation   [▶][↻] │  ← Header
+├────────────────────────────────────┤
+│  Model:    [▼ cyto2       ]        │  ← Inline config (top N params)
+│  Diameter: [  30.0        ]        │
+│  Channels: [▼ [0,1]       ]        │
+│                                    │
+◯ images                     masks ◉ │  ← Ports (type-coloured)
+◯ config                   errors  ◉ │
+├────────────────────────────────────┤
+│ ✅ Done · 3.2s · 47 items          │  ← Footer: state badge
+└────────────────────────────────────┘
+```
+
+**Header elements:**
+
+| Element | Description |
+|---------|-------------|
+| Icon | Block category icon (IO, Process, Code, App, AI, SubWF) |
+| Name | Block display name (from block metadata or user-assigned) |
+| `[▶]` button | Run this single block only (uses cached upstream outputs if available) |
+| `[↻]` button | "Start from here" — re-run from this block through all downstream (see Section 8 below) |
+
+**Inline config (hybrid approach):**
+
+- Each block's JSON Schema may declare `"ui_priority"` on parameters. The block node displays the **top 3 parameters** by `ui_priority` (default: first 3 in schema order).
+- Parameters are rendered as compact form controls (dropdowns, number inputs, text fields) directly in the node body.
+- Editing an inline parameter updates the block config immediately (no save button).
+- Clicking the block (single click) switches the bottom panel to the `[📋 Config]` tab, which shows the **complete parameter form** with all parameters, descriptions, validation, and advanced options.
+
+**Port rendering:**
+
+- Input ports on the **left** edge of the node. Output ports on the **right** edge.
+- Each port displays its name and a coloured handle (circle). Colour is determined by the port's data type (see Section 5).
+- Hovering over a port shows a tooltip with: type name, constraint (if any), and connection status.
+- Drawing a connection from an output port to an input port triggers backend validation (`POST /api/blocks/validate-connection`). Invalid connections are rejected with a visual indicator (red flash, shake animation).
+
+**State badge (footer):**
+
+| State | Display | Colour |
+|-------|---------|--------|
+| IDLE | `○ Idle` | Grey `#9CA3AF` |
+| READY | `◉ Ready` | Blue `#3B82F6` |
+| RUNNING | `⟳ Running · {elapsed}` | Blue `#3B82F6` with spinner animation |
+| PAUSED | `⏸ Paused` | Amber `#F59E0B` |
+| DONE | `✅ Done · {elapsed} · {item_count} items` | Green `#22C55E` |
+| ERROR | `❌ Error: {short_message}` | Red `#EF4444`. Clickable → expands traceback in bottom panel. |
+| CANCELLED | `⊘ Cancelled` | Orange `#F97316` |
+| SKIPPED | `⊘ Skipped: {reason}` | Grey `#9CA3AF` italic |
+
+**Node sizing:**
+
+- Width: fixed at 280px (fits 3 inline params comfortably).
+- Height: dynamic based on number of inline params and ports. Minimum height for a zero-param, single-port block: ~80px.
+- Nodes are not user-resizable (keeps canvas layout clean).
+
+---
+
+#### 5. Port type colour system
+
+Base data types receive a pure solid colour. Sub-types inherit the parent colour by default. Users may optionally define a `ring_color` on custom sub-types for visual distinction.
+
+**Base type colour table:**
+
+| Base Type | Colour Name | Hex | Port Shape |
+|-----------|-------------|-----|------------|
+| `Array` | Blue | `#3B82F6` | Solid circle |
+| `Series` | Green | `#22C55E` | Solid circle |
+| `DataFrame` | Orange | `#F97316` | Solid circle |
+| `Text` | Purple | `#A855F7` | Solid circle |
+| `Artifact` | Grey | `#6B7280` | Solid circle |
+| `CompositeData` | Red | `#EF4444` | Solid circle |
+| `DataObject` (fallback) | White/Light Grey | `#E5E7EB` | Solid circle |
+
+**Collection modifier:**
+
+When a port type is `Collection[T]`, the port handle renders as a **double ring** (concentric circles) using `T`'s colour. This provides instant visual distinction between single-item and collection ports.
+
+```
+Single DataObject port:  ◉  (solid filled circle)
+Collection port:         ◎  (double ring)
+```
+
+**Sub-type ring colour (user-extensible):**
+
+Sub-types (e.g. `Image(Array)`, `RamanSpectrum(Series)`) inherit the parent's solid colour by default. Users may optionally declare a ring colour:
+
+```python
+class MALDIImage(Image):
+    _ui_ring_color: ClassVar[str] = "#FFD700"  # gold ring around blue fill
+```
+
+If `_ui_ring_color` is defined, the port renders as the parent's solid colour with a coloured outer ring. If not defined, the port is indistinguishable from the parent type (acceptable — tooltip always shows the precise type).
+
+**Edge colour:**
+
+- Edges (connections) inherit the colour of the **source port's** base type.
+- Collection edges render as **dashed lines** to distinguish from single-item edges.
+- Invalid or disconnected edges render in red.
+
+**Frontend implementation:**
+
+The colour map is stored in a `typeColorMap.ts` configuration file:
+
+```typescript
+export const TYPE_COLORS: Record<string, string> = {
+  Array: "#3B82F6",
+  Series: "#22C55E",
+  DataFrame: "#F97316",
+  Text: "#A855F7",
+  Artifact: "#6B7280",
+  CompositeData: "#EF4444",
+  DataObject: "#E5E7EB",
+};
+```
+
+At runtime, the frontend resolves a port's colour by walking the type hierarchy (returned by `GET /api/blocks/{type}/schema`) until it finds a match in `TYPE_COLORS`. Sub-type ring colours are included in the block schema response as an optional `ui_ring_color` field.
+
+---
+
+#### 6. Data Preview Panel (right column)
+
+Full-height right sidebar that displays the output of the currently selected block. This replaces the original "Config Panel" in the right column position.
+
+**Panel structure:**
+
+```
+┌─────────────────────────────┐
+│ Preview: {block_name}       │  ← Selected block name
+├─────────────────────────────┤
+│ Port: [▼ {port_name}    ]  │  ← Dropdown to select output port (if multiple)
+├─────────────────────────────┤
+│ Collection[Image] · 47 items│  ← Type badge + item count
+├──┬──┬──┬──┬──┬──────────────┤
+│ 1│ 2│ 3│ 4│ 5│  ... ▶       │  ← Collection item tabs
+├──┴──┴──┴──┴──┴──────────────┤
+│                             │
+│   ┌─────────────────────┐   │
+│   │                     │   │
+│   │   Type-specific     │   │  ← Renderer area
+│   │   renderer          │   │
+│   │                     │   │
+│   └─────────────────────┘   │
+│                             │
+├─────────────────────────────┤
+│ Metadata:                   │  ← Item metadata
+│   shape: (1024, 1024)       │
+│   dtype: uint16             │
+│   axes: ['y', 'x']         │
+│   storage: zarr://data/...  │
+└─────────────────────────────┘
+```
+
+**Renderer selection by type:**
+
+| DataObject Type | Renderer | Description |
+|----------------|----------|-------------|
+| `DataFrame`, `PeakTable` | Table viewer | Paginated table showing first 100 rows. Column sorting. Search. |
+| `Array`, `Image` | Image viewer | Zoomable, pannable. Multi-channel images: channel selector dropdown. Brightness/contrast controls. |
+| `MSImage` | Image + spectrum | Click a pixel → display that pixel's mass spectrum in an overlay Plotly chart. |
+| `Series`, `Spectrum` | Plotly line chart | x = index, y = value. Zoom, pan, hover tooltips. |
+| `Text` | Monaco (read-only) | Syntax highlighting based on format (JSON, markdown, plain). |
+| `Artifact` | File preview | Images and PDFs render inline. Other types display metadata + download link. |
+| `CompositeData` | Slot list | Expandable list of slots. Each slot renders with its own type-appropriate renderer. |
+
+**Collection tab behaviour:**
+
+| Collection size | Tab rendering |
+|-----------------|---------------|
+| 1 item | No tab bar. Render directly. |
+| 2–20 items | Horizontal tab bar: `[1] [2] [3] ... [N]`. Tab labels show item metadata (e.g. filename) if available, otherwise sequential numbers. |
+| 21–100 items | Paginated tab bar with page navigation: `[◀ Prev] [1] [2] ... [10] [Next ▶]` showing 10 tabs per page. |
+| >100 items | Paginated + jump-to input field: `Page 3 of 47 [Go to: ___]`. |
+
+**Lazy loading:** Preview data is fetched on demand when a tab is clicked (`GET /api/data/{ref}/preview`). Previously fetched previews are cached in Zustand store. No eager loading of all Collection items.
+
+**Empty states:**
+
+| Scenario | Display |
+|----------|---------|
+| No block selected | "Select a block to preview its output" |
+| Block selected but not yet executed | "Run the workflow to see output" |
+| Block in ERROR state | Error message with traceback (scrollable) |
+| Block output is empty Collection | "Empty collection (0 items)" |
+
+---
+
+#### 7. Bottom Panel (browser-style tabs)
+
+A tabbed panel below the canvas, same width as the canvas area. Functions like a browser tab bar — tabs can be reordered, and each tab has independent scrollable content.
+
+**Tab definitions:**
+
+| Tab | Icon | Content | Phase |
+|-----|------|---------|-------|
+| **AI Chat** | 💬 | Conversational AI assistant. Users ask questions, request block generation, workflow suggestions. AI responses can include "Apply" buttons that modify the canvas. | Phase 8 MVP |
+| **Config** | 📋 | Complete parameter form for the selected block (JSON Schema → auto-generated form). Appears automatically when a block is clicked. Includes all parameters, descriptions, validation hints, and reset-to-default. | Phase 8 MVP |
+| **Logs** | 📜 | Real-time execution log stream (via SSE). Timestamps, block ID filter dropdown, severity filter (info/warn/error). Auto-scrolls during execution. | Phase 8 MVP |
+| **Lineage** | 🔗 | Provenance chain for the selected block's output. Shows upstream blocks and data transformations as a mini-graph or list. | Phase 8.5 |
+| **Jobs** | 📊 | List of current and historical workflow executions. Status, duration, block count, errors. Click to restore a previous run's checkpoint. | Phase 8.5 |
+| **Problems** | ⚠️ | Validation errors and warnings. Type mismatches, dangling ports, cycle detection results. Updated live as the user edits the workflow. | Phase 8.5 |
+
+**Tab interaction rules:**
+
+- Clicking a block auto-switches to the **Config** tab (unless the user has manually pinned another tab).
+- Starting execution auto-switches to the **Logs** tab and auto-expands the bottom panel if collapsed.
+- Clicking an ERROR state badge auto-switches to **Logs** tab filtered to that block.
+- AI Chat tab maintains conversation history across block selections.
+
+---
+
+#### 8. "Start from here" execution mechanism
+
+A new execution mode that enables iterative parameter tuning — the core workflow for scientific data analysis.
+
+**User story:** A user has a 5-block pipeline. Blocks A → B → C → D → E have all completed. The user changes a parameter on block C. They want to re-run C → D → E using the already-computed output of B, without re-running A and B.
+
+**UI interaction:**
+
+1. Each block node has a `[↻]` button in its header (visible when the block or any upstream block has completed at least once — i.e., cached outputs exist).
+
+2. Clicking `[↻]` on block C triggers the following:
+
+```
+User clicks [↻] on Block C
+        │
+        ▼
+Frontend sends: POST /api/workflows/{id}/execute-from
+                Body: { "block_id": "C" }
+        │
+        ▼
+Backend validates:
+  - All predecessors of C have cached outputs (in checkpoint intermediate_refs)?
+    ├── Yes → proceed
+    └── No → return 409 Conflict with list of missing predecessors
+        │
+        ▼
+Backend executes:
+  1. Load predecessor outputs from checkpoint/intermediate_refs
+  2. Set predecessors of C to state "done" with cached outputs
+  3. Reset C and all downstream blocks (D, E) to state "idle"
+  4. Clear cached outputs for C, D, E
+  5. Begin execution from C (normal DAGScheduler.execute() but with pre-loaded state)
+        │
+        ▼
+Frontend receives via WebSocket:
+  - C: IDLE → RUNNING → DONE
+  - D: IDLE → RUNNING → DONE
+  - E: IDLE → RUNNING → DONE
+  - A, B: remain DONE (unchanged)
+```
+
+**Backend API:**
+
+```
+POST /api/workflows/{workflow_id}/execute-from
+
+Request body:
+{
+  "block_id": "string"     // The block to start execution from
+}
+
+Success response (200):
+{
+  "execution_started": true,
+  "start_block": "C",
+  "reset_blocks": ["C", "D", "E"],       // Blocks whose state was reset to idle
+  "preserved_blocks": ["A", "B"],          // Blocks whose state remains done
+  "missing_predecessors": []               // Empty on success
+}
+
+Conflict response (409):
+{
+  "execution_started": false,
+  "start_block": "C",
+  "missing_predecessors": ["B"],           // Predecessors without cached output
+  "message": "Upstream block 'B' has no cached output. Run the full workflow first."
+}
+```
+
+**DAGScheduler changes:**
+
+A new method `execute_from(block_id: str)` is added to `DAGScheduler`:
+
+```python
+async def execute_from(self, block_id: str) -> None:
+    """Execute workflow starting from a specific block.
+
+    Prerequisites:
+    - All predecessors of block_id must have cached outputs in
+      the checkpoint's intermediate_refs.
+
+    Behaviour:
+    1. Validate all predecessors have cached outputs.
+    2. Set all predecessors to "done" state with their cached outputs.
+    3. Reset block_id and all its downstream blocks to "idle".
+    4. Clear cached outputs for reset blocks.
+    5. Call execute() — normal event-driven dispatch picks up
+       from the first ready block (which will be block_id).
+
+    Raises:
+        ValueError: If any predecessor lacks cached output.
+    """
+```
+
+**Interaction with existing mechanisms:**
+
+| Mechanism | Relationship |
+|-----------|-------------|
+| **Checkpoint (ADR-018)** | "Start from here" reads `intermediate_refs` from the last checkpoint. Checkpoints must store per-block output references. |
+| **Pause/Resume** | Resume continues from the pause point. "Start from here" goes back to an arbitrary completed block. They are complementary, not competing. |
+| **Cancel + SKIPPED (ADR-018)** | If a user cancels block C and blocks D, E become SKIPPED, the user can fix the issue, then use "Start from here" on C to re-run C → D → E. The SKIPPED blocks are reset to IDLE. |
+| **_auto_flush (ADR-020)** | auto_flush writes intermediate outputs to storage. These persisted outputs are what "Start from here" loads as predecessor inputs. Without auto_flush or explicit storage, cached outputs would not exist. |
+
+**Edge cases:**
+
+| Scenario | Behaviour |
+|----------|-----------|
+| "Start from here" on a root block (no predecessors) | Equivalent to a full `execute()` — all blocks reset to IDLE. |
+| "Start from here" on the last block | Only that block re-runs. No downstream to reset. |
+| Predecessor output was manually deleted from storage | Return 409 with `missing_predecessors`. User must re-run from an earlier point. |
+| Workflow has been modified since last execution (new blocks/edges) | Validate the new DAG topology. If new predecessors of block_id exist that have no output, return 409. |
+| Concurrent execution already running | Return 409 "Workflow is already executing." |
+
+---
+
+#### 9. Minimap
+
+ReactFlow's built-in `<MiniMap>` component, rendered **inside** the canvas viewport.
+
+- Position: bottom-right corner of the canvas (ReactFlow default).
+- Shows all nodes as coloured rectangles (colour = state badge colour).
+- Click on minimap to pan the canvas.
+- Viewport rectangle shows current visible area.
+- Can be toggled via `Ctrl+M`.
+
+---
+
+#### 10. State management (Zustand)
+
+The frontend uses a single Zustand store with slices:
+
+| Slice | Responsibility |
+|-------|----------------|
+| `workflowSlice` | Nodes, edges, workflow metadata (the source-of-truth mirror of backend state) |
+| `executionSlice` | Per-block execution state, timing, output refs (updated via WebSocket) |
+| `uiSlice` | Panel widths, collapsed states, selected block ID, active bottom tab |
+| `previewSlice` | Cached preview data (keyed by StorageReference), loading states |
+| `paletteSlice` | Available blocks from registry, search filter state |
+| `chatSlice` | AI chat message history |
+
+**Data flow:**
+
+```
+User edits workflow → Zustand workflowSlice → debounced PUT /api/workflows/{id}
+                                                              │
+WebSocket events ──────────────→ Zustand executionSlice ──→ ReactFlow node state badges
+                                                              │
+User clicks block ──→ Zustand uiSlice (selectedBlockId) ──→ Preview panel fetches data
+                                          │                    Bottom panel shows Config tab
+                                          ▼
+                                 GET /api/data/{ref}/preview → Zustand previewSlice
+```
+
+**Key principle**: The backend is the source of truth for workflow definition and execution state. The frontend is a read-mostly mirror that sends mutations via REST and receives state updates via WebSocket. The frontend never computes execution state locally.
+
+---
+
+### Alternatives considered
+
+**1. Config panel in the right column (original design)**
+
+The original ARCHITECTURE.md Section 9 placed block configuration in the right panel. This was rejected because:
+- Data preview during execution is more valuable than configuration editing.
+- Configuration can be split: top-N params inline in the node, full form in the bottom panel.
+- Right panel width is better used for tables, images, and charts that need horizontal space.
+
+**2. Floating/modal config panel**
+
+Show block config as a floating dialog or modal when double-clicking a block. Rejected because:
+- Modals block interaction with the canvas.
+- Floating panels clutter the workspace.
+- Bottom panel tabs provide a non-blocking, always-accessible location.
+
+**3. No inline config (all config in bottom panel)**
+
+Keep block nodes minimal (name + ports + state only). All config editing in the bottom panel. Rejected because:
+- Users must constantly switch between canvas and bottom panel to see what parameters are set.
+- The hybrid approach (top-3 inline + full in bottom) provides best of both worlds.
+
+**4. Port colours via shape instead of colour**
+
+Use different shapes (circle, triangle, square, diamond) instead of colours for type distinction. Rejected because:
+- ReactFlow handles are circular by default; custom shapes require significant SVG work.
+- Colour is more immediately distinguishable than shape at small sizes.
+- Colour + shape (double ring for Collection) provides two visual channels.
+
+**5. Re-run via "invalidate and propagate" (no explicit "Start from here" button)**
+
+Automatically detect when a block's config changes and mark it + downstream as "stale." Re-run stale blocks when the user clicks Run. Considered but deferred because:
+- Requires tracking config diffs and "staleness" state — added complexity.
+- Users may want to change multiple parameters before re-running.
+- Explicit "Start from here" gives users precise control over what re-executes.
+- Could be added as a future enhancement alongside the explicit button.
+
+### Updates to previous ADRs and architecture documents
+
+| Document | Section | Update |
+|----------|---------|--------|
+| **ADR-014** | Decision | Add note: "Layout redesigned in ADR-023. Right panel repurposed from Config to Data Preview." |
+| **ARCHITECTURE.md** | Section 9 (Layer 6 — Frontend) | **Full rewrite** per this ADR: new layout, block node design, port colours, data preview, bottom panel. |
+| **ARCHITECTURE.md** | Section 8.2 (REST endpoints) | **Add** `POST /api/workflows/{id}/execute-from` endpoint. |
+| **ARCHITECTURE.md** | Appendix C.2 (ReactFlow layout persistence) | **Update** to reflect new panel structure. |
+| **ROADMAP.md** | Phase 8 | **Rewrite** all sub-phases (8.1–8.4) to match new component breakdown. |
+| **PROJECT_TREE.md** | `frontend/` | **Add** detailed directory structure for React components. |
+
+### Impact on backend (new requirements)
+
+| Requirement | Component | Description |
+|-------------|-----------|-------------|
+| `execute-from` endpoint | `routes/workflows.py` | New `POST /api/workflows/{id}/execute-from` REST endpoint. |
+| `DAGScheduler.execute_from()` | `engine/scheduler.py` | New method: validate predecessors, load cached outputs, reset downstream, execute. |
+| Block schema `ui_priority` | `blocks/base/config.py` or JSON Schema | Block parameter schemas should support an optional `ui_priority` integer for inline display ordering. |
+| Block schema `ui_ring_color` | `core/types/base.py` | Optional `_ui_ring_color: ClassVar[str]` on DataObject subclasses, exposed via block schema API. |
+| Preview endpoint enhancement | `routes/data.py` | `GET /api/data/{ref}/preview` must return type-appropriate preview data (table rows, image thumbnail, chart data). |
+
+### Consequences
+
+1. **Right panel is now Data Preview, not Config.** This is the largest visual change from the original design. Configuration editing moves to inline params (top-3) + bottom panel Config tab.
+
+2. **Block nodes are larger and richer.** Each node carries inline params, type-coloured ports, and state badges. This means fewer blocks visible at once on the same screen area, but each block is self-documenting. The minimap compensates for reduced viewport.
+
+3. **Bottom panel is a major new UI surface.** It hosts AI Chat, Config, Logs, Lineage, Jobs, and Problems — a significant frontend development effort. MVP should include AI Chat, Config, and Logs only.
+
+4. **"Start from here" requires checkpoint infrastructure.** This feature depends on `intermediate_refs` being populated in checkpoints (Phase 5.4) and `_auto_flush` persisting block outputs (ADR-020). Without these, the button will be disabled with a tooltip explaining why.
+
+5. **Port colour system requires type hierarchy in block schema API.** The `GET /api/blocks/{type}/schema` response must include port type names that the frontend can resolve to base types via the colour map. Sub-type ring colours require an optional field in the schema.
+
+6. **New REST endpoint and scheduler method.** `execute-from` is a moderate backend change that builds naturally on existing checkpoint and scheduler infrastructure.
+
+7. **Lazy preview loading adds API traffic.** Each Collection tab click triggers a preview fetch. Backend must support efficient preview generation (e.g. first 100 rows of a DataFrame, thumbnail of an Image). Caching in Zustand prevents redundant fetches.
+
+### Detailed impact scope
+
+#### New frontend files
+
+| File | Purpose |
+|------|---------|
+| `frontend/src/App.tsx` | Root layout with resizable three-column + toolbar + bottom panel |
+| `frontend/src/components/Toolbar.tsx` | File, execution, and edit operation buttons |
+| `frontend/src/components/BlockPalette.tsx` | Left column: searchable categorised block list |
+| `frontend/src/components/Canvas.tsx` | ReactFlow wrapper with minimap, zoom, pan |
+| `frontend/src/components/BlockNode.tsx` | Custom ReactFlow node: header, inline config, ports, state badge |
+| `frontend/src/components/PortHandle.tsx` | Custom ReactFlow handle: type-coloured circle/double-ring |
+| `frontend/src/components/DataPreview.tsx` | Right column: port selector, collection tabs, renderer |
+| `frontend/src/components/preview/TableRenderer.tsx` | DataFrame/PeakTable preview |
+| `frontend/src/components/preview/ImageRenderer.tsx` | Array/Image preview with zoom |
+| `frontend/src/components/preview/ChartRenderer.tsx` | Series/Spectrum Plotly chart |
+| `frontend/src/components/preview/TextRenderer.tsx` | Text preview with Monaco |
+| `frontend/src/components/preview/ArtifactRenderer.tsx` | File/PDF/generic preview |
+| `frontend/src/components/preview/CompositeRenderer.tsx` | CompositeData slot list |
+| `frontend/src/components/BottomPanel.tsx` | Tab container with AI Chat, Config, Logs, etc. |
+| `frontend/src/components/bottom/AIChat.tsx` | AI conversational interface |
+| `frontend/src/components/bottom/ConfigPanel.tsx` | Full parameter form from JSON Schema |
+| `frontend/src/components/bottom/LogViewer.tsx` | SSE log stream with filters |
+| `frontend/src/store/index.ts` | Zustand store with slices |
+| `frontend/src/store/workflowSlice.ts` | Nodes, edges, metadata |
+| `frontend/src/store/executionSlice.ts` | Block states, timing, output refs |
+| `frontend/src/store/uiSlice.ts` | Panel widths, selections, active tab |
+| `frontend/src/store/previewSlice.ts` | Cached preview data |
+| `frontend/src/store/paletteSlice.ts` | Block registry data |
+| `frontend/src/store/chatSlice.ts` | AI chat history |
+| `frontend/src/config/typeColorMap.ts` | Base type → colour hex mapping |
+| `frontend/src/hooks/useWebSocket.ts` | WebSocket connection + event dispatch to Zustand |
+| `frontend/src/hooks/useSSE.ts` | SSE connection for log streaming |
+| `frontend/src/lib/api.ts` | REST API client (fetch wrappers) |
+
+#### Backend files to modify
+
+| File | Change |
+|------|--------|
+| `src/scieasy/api/routes/workflows.py` | Add `execute_from()` endpoint |
+| `src/scieasy/engine/scheduler.py` | Add `execute_from()` method |
+| `src/scieasy/api/routes/data.py` | Implement preview endpoint with type-appropriate responses |
+| `src/scieasy/api/schemas.py` | Add `ExecuteFromRequest`, `ExecuteFromResponse` models |
+| `src/scieasy/blocks/base/config.py` | Support `ui_priority` in parameter schema |
+| `src/scieasy/core/types/base.py` | Add optional `_ui_ring_color: ClassVar[str]` |
+
+#### Documentation files to update
+
+| File | Change |
+|------|--------|
+| `docs/architecture/ARCHITECTURE.md` Section 9 | Full rewrite of Layer 6 — Frontend |
+| `docs/architecture/ARCHITECTURE.md` Section 8.2 | Add `execute-from` endpoint |
+| `docs/architecture/PROJECT_TREE.md` | Add `frontend/src/` directory structure |
+| `docs/roadmap/ROADMAP.md` Phase 8 | Rewrite to match new frontend component breakdown |
+| `docs/testing/phase-5-to-8-human-tests.md` | Update Phase 8 test cases for new layout |
