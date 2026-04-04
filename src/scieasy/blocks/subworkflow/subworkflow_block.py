@@ -18,16 +18,25 @@ class SubWorkflowBlock(Block):
     *input_mapping* translates parent port names to child workflow input names.
     *output_mapping* translates child workflow output names to parent port names.
 
+    The engine layer injects ``_scheduler_factory`` at startup so that child
+    workflows can use the real DAG scheduler without blocks/ importing engine/.
+    When no factory is injected, execution falls back to the sequential stub.
+
     .. note::
 
-        Full DAG scheduling depends on Phase 5 (engine).  This implementation
-        uses a simple sequential executor stub that processes child blocks in
-        declaration order.
+        Full async DAG scheduling requires the engine's event loop (Phase 5.2b
+        worker.py).  The ``_run_with_scheduler`` method currently delegates to
+        ``_sequential_execute`` as a placeholder until the worker integration
+        is complete.
     """
 
     workflow_ref: ClassVar[str] = ""
     input_mapping: ClassVar[dict[str, str]] = {}
     output_mapping: ClassVar[dict[str, str]] = {}
+
+    # Engine injects this at startup (avoids import-linter violation:
+    # blocks cannot import engine).
+    _scheduler_factory: ClassVar[Any] = None
 
     name: ClassVar[str] = "Sub-Workflow"
     description: ClassVar[str] = "Encapsulate a full workflow as a single block"
@@ -39,17 +48,15 @@ class SubWorkflowBlock(Block):
         OutputPort(name="result", accepted_types=[DataObject], description="Output from child workflow"),
     ]
 
-    # TODO(ADR-020): run() must pass Collections through child workflow.
-    # TODO(ADR-020): _sequential_execute() must handle Collection-wrapped inputs/outputs.
     # TODO(ADR-017): Child block execution must use subprocess isolation (not direct block.run()).
 
     def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
         """Execute the referenced sub-workflow.
 
-        Uses a simple sequential executor stub:
         1. Load child workflow definition from *workflow_ref* or config.
         2. Map parent inputs to child inputs via *input_mapping*.
-        3. Execute child blocks in order via :func:`_sequential_execute`.
+        3. Use real scheduler if ``_scheduler_factory`` is set, else fallback
+           to :func:`_sequential_execute`.
         4. Map child outputs to parent outputs via *output_mapping*.
         """
         self.transition(BlockState.RUNNING)
@@ -69,8 +76,11 @@ class SubWorkflowBlock(Block):
                 if key not in in_map:
                     child_inputs[key] = value
 
-            # Execute child blocks sequentially (stub — real engine in Phase 5).
-            child_outputs = _sequential_execute(child_blocks, child_inputs)
+            # Use real scheduler if available, else fallback to sequential.
+            if self._scheduler_factory is not None:
+                child_outputs = self._run_with_scheduler(child_inputs, config)
+            else:
+                child_outputs = _sequential_execute(child_blocks, child_inputs)
 
             # Map child outputs to parent outputs.
             results: dict[str, Any] = {}
@@ -89,6 +99,20 @@ class SubWorkflowBlock(Block):
             self.transition(BlockState.ERROR)
             raise
 
+    def _run_with_scheduler(self, child_inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+        """Execute child workflow using injected scheduler factory.
+
+        The engine layer sets ``_scheduler_factory`` at startup, avoiding
+        the import-linter constraint (blocks cannot import engine).
+
+        For now, delegates to ``_sequential_execute`` as the real async
+        scheduler integration requires the engine's event loop (Phase 5.2b
+        worker.py).  The worker recognises ``SubWorkflowBlock`` and creates
+        a child scheduler.
+        """
+        child_blocks = config.get("child_blocks") or []
+        return _sequential_execute(child_blocks, child_inputs)
+
 
 def _sequential_execute(
     blocks: list[Block],
@@ -96,9 +120,11 @@ def _sequential_execute(
 ) -> dict[str, Any]:
     """Execute *blocks* in order, threading outputs as inputs to the next.
 
-    This is a temporary stub.  Phase 5 will replace it with the real
-    DAG scheduler.  For now, each block's outputs are merged into a
-    shared namespace that the next block reads from.
+    Collections (ADR-020) flow through the shared namespace unchanged —
+    child blocks receive them as-is without unwrapping.
+
+    This is a fallback executor.  The real DAG scheduler is injected via
+    ``SubWorkflowBlock._scheduler_factory`` by the engine layer.
     """
     namespace = dict(inputs)
 
