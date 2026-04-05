@@ -356,38 +356,27 @@ scieasy/                               # ← repo root
 │       ├── App.tsx                     # Root layout: three-column + toolbar + bottom panel (ADR-023)
 │       │
 │       ├── components/
-│       │   ├── Toolbar.tsx             # Projects menu, file, execution, edit buttons (ADR-023-Add1)
+│       │   ├── Toolbar.tsx             # Projects dropdown, grouped buttons, shortcuts (ADR-023-Add1)
 │       │   ├── ProjectDialog.tsx       # New/Open project modal dialogs (ADR-023-Add1)
 │       │   ├── WelcomeScreen.tsx       # Welcome screen when no project is open (ADR-023-Add1)
+│       │   ├── BlockPalette.tsx        # Left column: searchable, categorised block list
+│       │   ├── BottomPanel.tsx         # 6-tab panel (AI Chat, Config, Logs, Lineage, Jobs, Problems)
+│       │   ├── DataPreview.tsx         # Right column: type-specific data preview
+│       │   ├── WorkflowCanvas.tsx      # ReactFlow instance, minimap, zoom, pan
+│       │   ├── TypedEdge.tsx           # Custom edge: color-coded by source port type
 │       │   │
-│       │   ├── canvas/                 # ReactFlow integration
-│       │   │   ├── WorkflowCanvas.tsx  # ReactFlow instance, minimap, zoom, pan
-│       │   │   ├── BlockNode.tsx       # Custom node: header, inline config, ports, state badge
-│       │   │   ├── PortHandle.tsx      # Custom handle: type-coloured circle / double-ring
-│       │   │   ├── TypedEdge.tsx       # Custom edge: color-coded by source port type
-│       │   │   └── SubWorkflowNode.tsx # Drill-down node for SubWorkflowBlock
+│       │   ├── nodes/                  # Custom ReactFlow node components
+│       │   │   └── BlockNode.tsx       # 3-part node: header (icon+name+run/restart),
+│       │   │                           #   inline config (top 3 params by ui_priority),
+│       │   │                           #   footer (state badge). Per-port type colouring.
 │       │   │
-│       │   ├── palette/                # Block palette (left column, full height)
-│       │   │   ├── BlockPalette.tsx    # Searchable, categorised block list
-│       │   │   └── BlockCard.tsx       # Draggable block card (icon, name, port summary)
-│       │   │
-│       │   ├── preview/                # Data preview (right column, full height)
-│       │   │   ├── DataPreview.tsx     # Port selector, collection tabs, renderer dispatch
-│       │   │   ├── TableRenderer.tsx   # DataFrame/PeakTable: paginated table, sort, search
-│       │   │   ├── ImageRenderer.tsx   # Array/Image: zoomable, channel selector, brightness
-│       │   │   ├── ChartRenderer.tsx   # Series/Spectrum: Plotly line chart
-│       │   │   ├── TextRenderer.tsx    # Text: Monaco read-only with syntax highlighting
-│       │   │   ├── ArtifactRenderer.tsx # Artifact: PDF/image inline, others metadata+download
-│       │   │   └── CompositeRenderer.tsx # CompositeData: expandable slot list
-│       │   │
-│       │   └── bottom/                 # Bottom panel (browser-style tabs)
-│       │       ├── BottomPanel.tsx      # Tab container with drag-resize handle
-│       │       ├── AIChat.tsx           # AI conversational interface
-│       │       ├── ConfigPanel.tsx      # Full parameter form from JSON Schema
-│       │       ├── LogViewer.tsx        # SSE log stream with block/severity filters
-│       │       ├── LineageView.tsx      # Provenance chain visualisation (Phase 8.5)
-│       │       ├── JobsList.tsx         # Current/historical execution list (Phase 8.5)
-│       │       └── ProblemsPanel.tsx    # Validation errors and warnings (Phase 8.5)
+│       │   └── ui/                     # shadcn/ui component library (Radix UI primitives)
+│       │       ├── button.tsx          # Button with toolbar/toolbar-dark variants
+│       │       ├── dropdown-menu.tsx   # Radix dropdown menu (Projects menu)
+│       │       ├── resizable.tsx       # react-resizable-panels wrapper (3-column layout)
+│       │       ├── separator.tsx       # Vertical/horizontal separator
+│       │       ├── tabs.tsx            # Radix tabs (bottom panel tabs)
+│       │       └── tooltip.tsx         # Radix tooltip (keyboard shortcut hints)
 │       │
 │       ├── hooks/
 │       │   ├── useWebSocket.ts         # WebSocket connection + event dispatch to Zustand
