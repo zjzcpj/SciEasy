@@ -222,15 +222,12 @@ class Block(ABC):
 
     @staticmethod
     def _auto_flush(obj: Any) -> Any:
-        """Write in-memory DataObject to storage, return lightweight reference.
+        """Write in-memory DataObject to storage, return with StorageReference set.
 
         If the object already has a ``StorageReference``, return as-is (no-op).
+        If no flush context output directory is configured, return as-is.
         Called internally by ``map_items``, ``parallel_map``, ``pack``, and
         the ``process_item`` default ``run()``.
-
-        Note: In subprocess execution (Phase 5.2), the worker also performs a
-        final force-write scan after ``block.run()`` to catch any items that
-        were not flushed during execution.
         """
         from scieasy.core.types.base import DataObject
 
@@ -238,8 +235,31 @@ class Block(ABC):
             return obj
         if obj.storage_ref is not None:
             return obj
-        # Object has no storage ref — it is in-memory only.
-        # For now, return as-is. The subprocess worker (Phase 5.2) will
-        # perform the final force-write scan using the appropriate storage
-        # backend for the output directory.
+
+        from scieasy.core.storage.flush_context import get_output_dir
+
+        output_dir = get_output_dir()
+        if output_dir is None:
+            return obj
+
+        import logging
+        import uuid
+        from pathlib import Path
+
+        from scieasy.core.storage.backend_router import get_router
+
+        router = get_router()
+        ext = router.extension_for(type(obj))
+        filename = f"{uuid.uuid4()}{ext}"
+        target_path = str(Path(output_dir) / filename)
+
+        try:
+            obj.save(target_path)
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "auto_flush failed for %s: %s",
+                type(obj).__name__,
+                exc,
+            )
+            return obj
         return obj

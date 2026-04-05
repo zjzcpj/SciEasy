@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- [#127] Auto-flush data persistence pipeline: BackendRouter MRO resolution, flush_context, DataObject.save() with idempotency, _auto_flush() safety net (@claude, 2026-04-05, branch: fix/batch-a1/issues-127-49-52-67)
 ### Fixed
 
 - [#125] Add AIBlock to _infer_category() so AIBlock subclasses get category "ai" instead of "unknown" (@claude, 2026-04-05, branch: fix/issue-125/aiblock-infer-category, session: 20260405-004900-issue-125-add-aiblock-to-infer-category)
