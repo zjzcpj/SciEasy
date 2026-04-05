@@ -108,42 +108,35 @@ class CodeBlock(Block):
             3. Dispatch to runner (inline or script mode).
             4. Repack outputs into Collections (ADR-020-Add4).
         """
-        from scieasy.blocks.base.state import BlockState
         from scieasy.blocks.code.runner_registry import RunnerRegistry
 
-        self.transition(BlockState.RUNNING)
-        try:
-            language = config.get("language") or self.language
-            mode = config.get("mode") or self.mode
+        language = config.get("language") or self.language
+        mode = config.get("mode") or self.mode
 
-            # Step 1: Get runner
-            registry = RunnerRegistry()
-            registry.register_defaults()
-            runner = registry.get(language)()
+        # Step 1: Get runner
+        registry = RunnerRegistry()
+        registry.register_defaults()
+        runner = registry.get(language)()
 
-            # Step 2: Unpack Collection inputs
-            unpacked = self._unpack_inputs(inputs)
+        # Step 2: Unpack Collection inputs
+        unpacked = self._unpack_inputs(inputs)
 
-            # Step 3: Dispatch to runner
-            if mode == "inline":
-                script = config.get("script", "")
-                if not script:
-                    raise ValueError("Inline mode requires 'script' in config")
-                raw_outputs = runner.execute_inline(script, unpacked)
-            elif mode == "script":
-                script_path = config.get("script_path", "")
-                if not script_path:
-                    raise ValueError("Script mode requires 'script_path' in config")
-                entry = config.get("entry_function", "run")
-                raw_outputs = runner.execute_script(script_path, entry, unpacked, dict(config.params))
-            else:
-                raise ValueError(f"Unknown CodeBlock mode: '{mode}'")
+        # Step 3: Dispatch to runner
+        if mode == "inline":
+            script = config.get("script", "")
+            if not script:
+                raise ValueError("Inline mode requires 'script' in config")
+            raw_outputs = runner.execute_inline(script, unpacked)
+        elif mode == "script":
+            script_path = config.get("script_path", "")
+            if not script_path:
+                raise ValueError("Script mode requires 'script_path' in config")
+            entry = config.get("entry_function", "run")
+            raw_outputs = runner.execute_script(script_path, entry, unpacked, dict(config.params))
+        else:
+            raise ValueError(f"Unknown CodeBlock mode: '{mode}'")
 
-            # Step 4: Repack outputs
-            result = self._repack_outputs(raw_outputs)
+        # Step 4: Repack outputs
+        result = self._repack_outputs(raw_outputs)
 
-            self.transition(BlockState.DONE)
-            return result
-        except Exception:
-            self.transition(BlockState.ERROR)
-            raise
+        return result

@@ -44,21 +44,14 @@ class SliceCollection(ProcessBlock):
         Raises:
             TypeError: If input is not a Collection.
         """
-        from scieasy.blocks.base.state import BlockState
         from scieasy.core.types.collection import Collection
 
-        self.transition(BlockState.RUNNING)
-        try:
-            collection = inputs["input"]
-            if not isinstance(collection, Collection):
-                raise TypeError("SliceCollection requires a Collection input")
-            items = list(collection)
-            start = config.params.get("start", 0)
-            end = config.params.get("end", len(items))
-            sliced = items[start:end]
-            result = Collection(sliced, item_type=collection.item_type)
-            self.transition(BlockState.DONE)
-            return {"output": result}
-        except Exception:
-            self.transition(BlockState.ERROR)
-            raise
+        collection = inputs["input"]
+        if not isinstance(collection, Collection):
+            raise TypeError("SliceCollection requires a Collection input")
+        items = list(collection)
+        start = config.params.get("start", 0)
+        end = config.params.get("end", len(items))
+        sliced = items[start:end]
+        result = Collection(sliced, item_type=collection.item_type)
+        return {"output": result}

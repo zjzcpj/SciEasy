@@ -320,7 +320,6 @@ class TestCodeBlockRunIntegration:
         block.transition(BlockState.READY)
         outputs = block.run({}, block.config)
         assert outputs["result"] == 42
-        assert block.state == BlockState.DONE
 
     def test_run_inline_with_inputs(self) -> None:
         """run() passes inputs to the user script namespace."""
