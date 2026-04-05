@@ -60,6 +60,19 @@ class CompositeStore:
 
         *data* must be a dict of ``{slot_name: (backend_name, slot_data)}``.
         Each slot is stored in a subdirectory using the appropriate backend.
+
+        .. warning::
+            Multi-slot writes are **not atomic**.  Slots are written
+            sequentially; a crash or cancellation mid-way may leave some
+            slots persisted and others missing.  The manifest is written
+            last, so a missing manifest indicates an incomplete write.
+            The checkpoint-resume strategy re-runs the producing block,
+            which overwrites incomplete output (ADR-018).
+
+        .. todo::
+            Implement atomic composite write via write-to-temp-directory
+            then rename (requires directory-level atomicity across all
+            slot backends).
         """
         if not isinstance(data, dict):
             raise TypeError("CompositeStore.write expects a dict of {slot_name: (backend, data)}.")
@@ -104,6 +117,11 @@ class CompositeStore:
             format="composite",
             metadata=metadata,
         )
+
+    def write_from_memory(self, data: Any, path: str) -> StorageReference:
+        """Write raw in-memory composite data to a directory at *path*."""
+        ref = StorageReference(backend="composite", path=path)
+        return self.write(data, ref)
 
     def slice(self, ref: StorageReference, *args: Any) -> Any:
         """Return a subset of slots from the composite at *ref*.

@@ -5,12 +5,15 @@ ADR-021: Built-in utility block for Collection operations.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.process.process_block import ProcessBlock
 from scieasy.core.types.base import DataObject
+
+if TYPE_CHECKING:
+    from scieasy.core.types.collection import Collection
 
 
 class FilterCollection(ProcessBlock):
@@ -32,7 +35,7 @@ class FilterCollection(ProcessBlock):
         OutputPort(name="output", accepted_types=[DataObject], description="Filtered Collection"),
     ]
 
-    def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+    def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, Collection]:
         """Filter items by metadata key/value match.
 
         Config params:
@@ -43,22 +46,15 @@ class FilterCollection(ProcessBlock):
             TypeError: If input is not a Collection.
             ValueError: If predicate_key is not specified.
         """
-        from scieasy.blocks.base.state import BlockState
         from scieasy.core.types.collection import Collection
 
-        self.transition(BlockState.RUNNING)
-        try:
-            collection = inputs["input"]
-            if not isinstance(collection, Collection):
-                raise TypeError("FilterCollection requires a Collection input")
-            predicate_key = config.params.get("predicate_key")
-            if predicate_key is None:
-                raise ValueError("FilterCollection requires 'predicate_key' in config.params")
-            predicate_value = config.params.get("predicate_value")
-            filtered = [item for item in collection if item.metadata.get(predicate_key) == predicate_value]
-            result = Collection(filtered, item_type=collection.item_type)
-            self.transition(BlockState.DONE)
-            return {"output": result}
-        except Exception:
-            self.transition(BlockState.ERROR)
-            raise
+        collection = inputs["input"]
+        if not isinstance(collection, Collection):
+            raise TypeError("FilterCollection requires a Collection input")
+        predicate_key = config.params.get("predicate_key")
+        if predicate_key is None:
+            raise ValueError("FilterCollection requires 'predicate_key' in config.params")
+        predicate_value = config.params.get("predicate_value")
+        filtered = [item for item in collection if item.metadata.get(predicate_key) == predicate_value]
+        result = Collection(filtered, item_type=collection.item_type)
+        return {"output": result}

@@ -9,6 +9,7 @@ import pytest
 
 from scieasy.engine.events import (
     BLOCK_DONE,
+    BLOCK_ERROR,
     CANCEL_BLOCK_REQUEST,
     CANCEL_WORKFLOW_REQUEST,
     WORKFLOW_COMPLETED,
@@ -397,6 +398,99 @@ class TestSchedulerState:
 
 
 # ---------------------------------------------------------------------------
+# Registry injection (#119)
+# ---------------------------------------------------------------------------
+
+
+class TestSchedulerRegistryInjection:
+    """Test BlockRegistry integration in DAGScheduler."""
+
+    def test_dispatch_uses_registry_to_instantiate_block(self) -> None:
+        """When registry is provided, runner receives Block instance, not NodeDef."""
+        wf = _wf(nodes=[("A", "proc")])
+
+        mock_block = MagicMock()
+        mock_block.name = "MockBlock"
+
+        registry = MagicMock()
+        registry.instantiate.return_value = mock_block
+
+        event_bus = EventBus()
+        resource_manager = MagicMock()
+        resource_manager.can_dispatch.return_value = True
+
+        runner = AsyncMock()
+        runner.run.return_value = {"output": "result"}
+
+        scheduler = DAGScheduler(
+            workflow=wf,
+            event_bus=event_bus,
+            resource_manager=resource_manager,
+            process_registry=MagicMock(),
+            runner=runner,
+            registry=registry,
+        )
+        asyncio.run(scheduler.execute())
+
+        # Registry was called with the block_type from NodeDef
+        registry.instantiate.assert_called_once_with("proc", {})
+        # Runner received the mock Block, not the NodeDef
+        call_args = runner.run.call_args[0]
+        assert call_args[0] is mock_block
+
+    def test_dispatch_without_registry_passes_nodedef(self) -> None:
+        """When registry is None, runner receives NodeDef (backward compat)."""
+        wf = _wf(nodes=[("A", "proc")])
+        scheduler, _event_bus, runner = _make_scheduler(wf)
+
+        asyncio.run(scheduler.execute())
+
+        call_args = runner.run.call_args[0]
+        assert isinstance(call_args[0], NodeDef)
+        assert call_args[0].id == "A"
+
+    def test_dispatch_unregistered_block_type_emits_error(self) -> None:
+        """When registry.instantiate raises KeyError, block state becomes error."""
+        wf = _wf(
+            nodes=[("A", "proc"), ("B", "proc")],
+            edges=[("A:out", "B:in")],
+        )
+
+        registry = MagicMock()
+        registry.instantiate.side_effect = KeyError("Block 'proc' is not registered.")
+
+        event_bus = EventBus()
+        resource_manager = MagicMock()
+        resource_manager.can_dispatch.return_value = True
+
+        error_blocks: list[str] = []
+        event_bus.subscribe(
+            BLOCK_ERROR,
+            lambda e: error_blocks.append(e.block_id) if e.block_id else None,
+        )
+
+        runner = AsyncMock()
+        runner.run.return_value = {"output": "result"}
+
+        scheduler = DAGScheduler(
+            workflow=wf,
+            event_bus=event_bus,
+            resource_manager=resource_manager,
+            process_registry=MagicMock(),
+            runner=runner,
+            registry=registry,
+        )
+        asyncio.run(scheduler.execute())
+
+        assert scheduler._block_states["A"] == "error"
+        assert "A" in error_blocks
+        # B should be skipped because A errored
+        assert scheduler._block_states["B"] == "skipped"
+        # Runner was never called because instantiate failed
+        runner.run.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # Selective re-run (reset_block)
 # ---------------------------------------------------------------------------
 
@@ -509,3 +603,17 @@ class TestResetBlock:
         # C reset from skipped to idle
         assert scheduler._block_states["C"] == "idle"
         assert "C" not in scheduler.skip_reasons
+
+    def test_reset_triggers_reexecution(self) -> None:
+        """reset_block on errored block causes actual re-execution."""
+        wf = _wf(nodes=[("A", "proc")])
+        scheduler, _event_bus, runner = _make_scheduler(wf)
+        asyncio.run(scheduler.execute())
+        assert runner.run.call_count == 1
+
+        # Simulate error state
+        scheduler._block_states["A"] = "error"
+        scheduler._block_outputs.pop("A", None)
+
+        asyncio.run(scheduler.reset_block("A"))
+        assert runner.run.call_count == 2

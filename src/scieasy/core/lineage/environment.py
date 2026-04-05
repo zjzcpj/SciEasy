@@ -7,6 +7,7 @@ import platform as platform_mod
 import sys
 from dataclasses import dataclass, field
 from importlib.metadata import PackageNotFoundError, version
+from typing import Any
 
 
 @dataclass
@@ -47,4 +48,25 @@ class EnvironmentSnapshot:
             python_version=sys.version,
             platform=platform_mod.platform(),
             key_packages=key_packages,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-compatible dict for subprocess transport."""
+        return {
+            "python_version": self.python_version,
+            "platform": self.platform,
+            "key_packages": dict(self.key_packages),
+            "full_freeze": self.full_freeze,
+            "conda_env": self.conda_env,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> EnvironmentSnapshot:
+        """Reconstruct from a dict produced by :meth:`to_dict`."""
+        return cls(
+            python_version=data["python_version"],
+            platform=data["platform"],
+            key_packages=data.get("key_packages", {}),
+            full_freeze=data.get("full_freeze"),
+            conda_env=data.get("conda_env"),
         )

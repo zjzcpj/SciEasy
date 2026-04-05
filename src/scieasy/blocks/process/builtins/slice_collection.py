@@ -5,12 +5,15 @@ ADR-021: Built-in utility block for Collection operations.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.process.process_block import ProcessBlock
 from scieasy.core.types.base import DataObject
+
+if TYPE_CHECKING:
+    from scieasy.core.types.collection import Collection
 
 
 class SliceCollection(ProcessBlock):
@@ -31,7 +34,7 @@ class SliceCollection(ProcessBlock):
         OutputPort(name="output", accepted_types=[DataObject], description="Sliced Collection"),
     ]
 
-    def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+    def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, Collection]:
         """Slice a Collection from ``start`` to ``end``.
 
         Config params:
@@ -41,21 +44,14 @@ class SliceCollection(ProcessBlock):
         Raises:
             TypeError: If input is not a Collection.
         """
-        from scieasy.blocks.base.state import BlockState
         from scieasy.core.types.collection import Collection
 
-        self.transition(BlockState.RUNNING)
-        try:
-            collection = inputs["input"]
-            if not isinstance(collection, Collection):
-                raise TypeError("SliceCollection requires a Collection input")
-            items = list(collection)
-            start = config.params.get("start", 0)
-            end = config.params.get("end", len(items))
-            sliced = items[start:end]
-            result = Collection(sliced, item_type=collection.item_type)
-            self.transition(BlockState.DONE)
-            return {"output": result}
-        except Exception:
-            self.transition(BlockState.ERROR)
-            raise
+        collection = inputs["input"]
+        if not isinstance(collection, Collection):
+            raise TypeError("SliceCollection requires a Collection input")
+        items = list(collection)
+        start = config.params.get("start", 0)
+        end = config.params.get("end", len(items))
+        sliced = items[start:end]
+        result = Collection(sliced, item_type=collection.item_type)
+        return {"output": result}
