@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from scieasy.blocks.app.bridge import FileExchangeBridge
+from scieasy.blocks.app.command_validator import validate_app_command
 from scieasy.blocks.base.block import Block
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
@@ -98,6 +99,12 @@ class AppBlock(Block):
             # Step 1: Prepare inputs.
             bridge.prepare(unpacked_inputs, exchange_dir)
 
+            # Issue #70: Validate command to prevent shell injection.
+            try:
+                validate_app_command(command)
+            except ValueError as exc:
+                raise ValueError(f"AppBlock command validation failed: {exc}") from exc
+
             # Step 2: Launch and pause (waiting for external interaction).
             self.transition(BlockState.PAUSED)
             proc = bridge.launch(command, exchange_dir)
@@ -110,11 +117,15 @@ class AppBlock(Block):
 
             output_dir = exchange_dir / "outputs"
             output_dir.mkdir(exist_ok=True)
+            stability_period = float(config.get("stability_period", 2.0))
+            done_marker = config.get("done_marker")
             watcher = FileWatcher(
                 directory=output_dir,
                 patterns=patterns,
                 timeout=timeout,
                 process_handle=process_adapter,
+                stability_period=stability_period,
+                done_marker=done_marker,
             )
             watcher.start()
             try:
