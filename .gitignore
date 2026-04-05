@@ -57,5 +57,9 @@ node_modules/
 .next/
 
 
+# Playwright (frontend E2E)
+frontend/playwright-report/
+frontend/test-results/
+
 # Workflow gate state files (local per-developer)
 .workflow/active/
