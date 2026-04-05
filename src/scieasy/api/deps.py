@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import HTTPException, Request
 
 from scieasy.api.runtime import ApiRuntime
+from scieasy.engine.runners.process_handle import ProcessRegistry
 
 
 def get_runtime(request: Request) -> ApiRuntime:
@@ -41,3 +42,11 @@ def get_lineage_store(request: Request) -> Any:
     from scieasy.core.lineage.store import LineageStore
 
     return LineageStore(Path(project.path) / "lineage" / "lineage.db")
+
+
+def get_process_registry(request: Request) -> ProcessRegistry:
+    """Retrieve the shared ProcessRegistry from app state."""
+    registry: ProcessRegistry | None = getattr(request.app.state, "registry", None)
+    if registry is None:
+        raise RuntimeError("ProcessRegistry not initialized -- app lifespan not started")
+    return registry

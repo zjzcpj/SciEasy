@@ -40,17 +40,25 @@ def _load_workflow(path: Path) -> Any:
         raise typer.Exit(code=1) from None
 
 
-def _validate_workflow(definition: Any, *, exit_on_stub: bool = True) -> list[str]:
+def _validate_workflow(
+    definition: Any,
+    *,
+    exit_on_stub: bool = True,
+    registry: Any = None,
+) -> list[str]:
     """Run workflow validation, returning a list of errors.
 
     When *exit_on_stub* is ``True`` (the ``validate`` command), a stub
     validator causes an immediate exit.  When ``False`` (the ``run``
     command), a stub validator is silently skipped so execution can proceed.
+
+    When *registry* is provided, the validator can perform type-compatibility
+    and dangling-port checks (Checks 5-6).
     """
     try:
         from scieasy.workflow.validator import validate_workflow
 
-        return validate_workflow(definition)
+        return validate_workflow(definition, registry=registry)
     except NotImplementedError:
         if exit_on_stub:
             typer.echo("Error: workflow validator not yet implemented.", err=True)
@@ -87,6 +95,7 @@ def init(name: str = typer.Argument("my_project", help="Project workspace name")
         "data/zarr",
         "data/parquet",
         "data/artifacts",
+        "data/exchange",
         "blocks",
         "types",
         "checkpoints",
@@ -113,7 +122,15 @@ def validate(workflow: str = typer.Argument(..., help="Path to workflow YAML")) 
     """Validate a workflow YAML file."""
     path = _check_file_exists(workflow)
     definition = _load_workflow(path)
-    errors = _validate_workflow(definition, exit_on_stub=True)
+    from scieasy.blocks.registry import BlockRegistry
+
+    registry = BlockRegistry()
+    try:
+        registry.scan()
+    except Exception as exc:
+        typer.echo(f"Warning: registry scan encountered errors: {exc}", err=True)
+
+    errors = _validate_workflow(definition, exit_on_stub=True, registry=registry)
     _report_validation_errors(errors)
     typer.echo("Valid.")
 
@@ -123,7 +140,15 @@ def run(workflow: str = typer.Argument(..., help="Path to workflow YAML")) -> No
     """Run a workflow headless."""
     path = _check_file_exists(workflow)
     definition = _load_workflow(path)
-    errors = _validate_workflow(definition, exit_on_stub=False)
+    from scieasy.blocks.registry import BlockRegistry
+
+    registry = BlockRegistry()
+    try:
+        registry.scan()
+    except Exception as exc:
+        typer.echo(f"Warning: registry scan encountered errors: {exc}", err=True)
+
+    errors = _validate_workflow(definition, exit_on_stub=False, registry=registry)
     _report_validation_errors(errors)
 
     # Build DAG and show execution order.
@@ -155,6 +180,7 @@ def run(workflow: str = typer.Argument(..., help="Path to workflow YAML")) -> No
             resource_manager=resource_mgr,
             process_registry=None,
             runner=runner,
+            registry=registry,
         )
         asyncio.run(scheduler.execute())
         typer.echo("Workflow completed.")

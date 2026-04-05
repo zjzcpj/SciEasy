@@ -13,6 +13,7 @@ from scieasy.api.routes import ai, blocks, data, projects, workflows
 from scieasy.api.runtime import ApiRuntime
 from scieasy.api.sse import sse_handler
 from scieasy.api.ws import websocket_handler
+from scieasy.engine.runners.process_handle import ProcessRegistry
 
 
 @asynccontextmanager
@@ -20,12 +21,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Create and tear down the shared API runtime."""
     runtime = ApiRuntime()
     app.state.runtime = runtime
+    app.state.registry = ProcessRegistry()
     try:
         yield
     finally:
         for run in runtime.workflow_runs.values():
             if not run.task.done():
                 run.task.cancel()
+        app.state.registry.terminate_all(grace_period_sec=5.0)
 
 
 def create_app() -> FastAPI:
@@ -34,7 +37,7 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
-        allow_credentials=True,
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )

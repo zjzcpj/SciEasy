@@ -257,6 +257,8 @@ def _infer_category(cls: type) -> str:
         return "ai"
     if issubclass(cls, SubWorkflowBlock):
         return "subworkflow"
+    if issubclass(cls, AIBlock):
+        return "ai"
     return "unknown"
 
 

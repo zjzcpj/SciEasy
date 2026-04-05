@@ -47,7 +47,8 @@ def reconstruct_inputs(payload: dict[str, Any]) -> dict[str, Any]:
                 format=value.get("format"),
                 metadata=value.get("metadata"),
             )
-            sig = TypeSignature(type_chain=["DataObject"])
+            type_chain = value.get("metadata", {}).get("type_chain", ["DataObject"])
+            sig = TypeSignature(type_chain=type_chain)
             result[key] = ViewProxy(storage_ref=ref, dtype_info=sig)
         else:
             # Scalar or other value — pass through.
@@ -83,12 +84,15 @@ def serialise_outputs(outputs: dict[str, Any], output_dir: str) -> dict[str, Any
                 item = Block._auto_flush(item)
                 if hasattr(item, "storage_ref") and item.storage_ref is not None:
                     ref = item.storage_ref
+                    item_meta = {**(ref.metadata or {})}
+                    if hasattr(item, "dtype_info"):
+                        item_meta["type_chain"] = item.dtype_info.type_chain
                     item_refs.append(
                         {
                             "backend": ref.backend,
                             "path": ref.path,
                             "format": ref.format,
-                            "metadata": ref.metadata,
+                            "metadata": item_meta,
                         }
                     )
                 else:
@@ -107,11 +111,14 @@ def serialise_outputs(outputs: dict[str, Any], output_dir: str) -> dict[str, Any
         # Serialize StorageReference-backed objects.
         if hasattr(value, "storage_ref") and value.storage_ref is not None:
             ref = value.storage_ref
+            obj_meta = {**(ref.metadata or {})}
+            if hasattr(value, "dtype_info"):
+                obj_meta["type_chain"] = value.dtype_info.type_chain
             result[key] = {
                 "backend": ref.backend,
                 "path": ref.path,
                 "format": ref.format,
-                "metadata": ref.metadata,
+                "metadata": obj_meta,
             }
         elif isinstance(value, (str, int, float, bool, type(None), list, dict)):
             result[key] = value
@@ -164,10 +171,15 @@ def main() -> None:
         # Execute
         outputs = block.run(inputs, block_config)
 
+        # Capture environment inside subprocess for accurate lineage (issue #54).
+        from scieasy.core.lineage.environment import EnvironmentSnapshot
+
+        env_snapshot = EnvironmentSnapshot.capture()
+
         # Serialize outputs
         result = serialise_outputs(outputs, output_dir) if isinstance(outputs, dict) else {"_result": str(outputs)}
 
-        print(json.dumps({"outputs": result}))
+        print(json.dumps({"outputs": result, "environment": env_snapshot.to_dict()}))
     except Exception:
         print(json.dumps({"error": traceback.format_exc()}))
         sys.exit(1)

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
+import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -27,15 +29,35 @@ class FilesystemBackend:
         return path.read_bytes()
 
     def write(self, data: Any, ref: StorageReference) -> StorageReference:
-        """Write *data* (str or bytes) to the filesystem at *ref*."""
+        """Write *data* (str or bytes) to the filesystem at *ref* atomically.
+
+        Uses write-to-temp-then-rename to prevent partial writes on crash or
+        cancellation.  ``os.replace()`` is atomic on both POSIX and Windows
+        (Python 3.3+).
+        """
         path = Path(ref.path)
         path.parent.mkdir(parents=True, exist_ok=True)
+
         if isinstance(data, str):
-            path.write_text(data, encoding="utf-8")
+            content_bytes = data.encode("utf-8")
         elif isinstance(data, bytes):
-            path.write_bytes(data)
+            content_bytes = data
         else:
             raise TypeError(f"FilesystemBackend.write expects str or bytes, got {type(data).__name__}")
+
+        fd, tmp_path = tempfile.mkstemp(dir=path.parent, prefix=".tmp_")
+        try:
+            os.write(fd, content_bytes)
+            os.close(fd)
+            fd = -1  # Mark as closed
+            os.replace(tmp_path, str(path))
+        except BaseException:
+            if fd >= 0:
+                os.close(fd)
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_path)
+            raise
+
         metadata = dict(ref.metadata) if ref.metadata else {}
         metadata["size"] = path.stat().st_size
         return StorageReference(
@@ -44,6 +66,11 @@ class FilesystemBackend:
             format=ref.format,
             metadata=metadata,
         )
+
+    def write_from_memory(self, data: Any, path: str) -> StorageReference:
+        """Write raw in-memory str/bytes data to the filesystem at *path*."""
+        ref = StorageReference(backend="filesystem", path=path)
+        return self.write(data, ref)
 
     def slice(self, ref: StorageReference, *args: Any) -> Any:
         """Return a byte-range slice from *ref*.

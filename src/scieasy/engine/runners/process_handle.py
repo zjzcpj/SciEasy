@@ -151,6 +151,7 @@ def spawn_block_process(
     block_id: str | None = None,
     resource_request: Any | None = None,
     output_dir: str | None = None,
+    job_handle: Any | None = None,
 ) -> ProcessHandle:
     """Single entry point for ALL subprocess creation (ADR-017, ADR-019).
 
@@ -199,6 +200,10 @@ def spawn_block_process(
         **popen_kwargs,
     )
 
+    # Assign to Job Object for nested cleanup (Windows; no-op on POSIX).
+    if job_handle is not None:
+        platform_ops.assign_to_job(job_handle, proc.pid)
+
     # Build the ProcessHandle
     rr = resource_request if resource_request is not None else ResReq()
     handle = ProcessHandle(
@@ -214,19 +219,18 @@ def spawn_block_process(
     # Register in the registry
     registry.register(handle)
 
-    # Emit PROCESS_SPAWNED event
+    # Emit PROCESS_SPAWNED event.  emit() is async but this function is
+    # sync, so schedule the coroutine on the running loop if one exists.
     if event_bus is not None:
-        coro = event_bus.emit(
-            EngineEvent(
-                event_type=PROCESS_SPAWNED,
-                block_id=handle.block_id,
-                data={"pid": proc.pid},
-            )
+        _event = EngineEvent(
+            event_type=PROCESS_SPAWNED,
+            block_id=handle.block_id,
+            data={"pid": proc.pid},
         )
-        if asyncio.iscoroutine(coro):
-            try:
-                asyncio.get_running_loop().create_task(coro)
-            except RuntimeError:
-                asyncio.run(coro)
+        try:
+            loop = asyncio.get_running_loop()
+            _task = loop.create_task(event_bus.emit(_event))  # noqa: RUF006
+        except RuntimeError:
+            logger.debug("No running event loop; PROCESS_SPAWNED event not emitted")
 
     return handle

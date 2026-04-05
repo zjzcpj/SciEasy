@@ -1,4 +1,4 @@
-"""LocalRunner — subprocess execution on the local machine.
+"""LocalRunner -- subprocess execution on the local machine.
 
 ADR-017: All block execution in isolated subprocesses. No in-process execution.
 Uses spawn_block_process() as the single subprocess creation entry point.
@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from scieasy.engine.runners.process_handle import ProcessRegistry
@@ -109,20 +109,19 @@ class LocalRunner:
                     outputs = payload.get("outputs", payload)
                     if not isinstance(outputs, dict):
                         raise RuntimeError("Worker returned a non-dict output payload.")
-                    return cast(dict[str, Any], outputs)
+                    return outputs
                 except (json.JSONDecodeError, UnicodeDecodeError):
                     pass
             raise RuntimeError(error_msg)
 
         if stdout:
             try:
-                payload = dict(json.loads(stdout.decode()))
-                if "error" in payload:
-                    raise RuntimeError(str(payload["error"]))
-                outputs = payload.get("outputs", payload)
-                if not isinstance(outputs, dict):
-                    raise RuntimeError("Worker returned a non-dict output payload.")
-                return cast(dict[str, Any], outputs)
+                parsed = json.loads(stdout.decode())
+                # Worker wraps outputs as {"outputs": {...}}. Unwrap the
+                # envelope so callers see port names at the top level.
+                if isinstance(parsed, dict) and "outputs" in parsed:
+                    return dict(parsed["outputs"])
+                return dict(parsed)
             except (json.JSONDecodeError, UnicodeDecodeError) as exc:
                 raise RuntimeError(f"Failed to parse worker output: {exc}") from exc
 

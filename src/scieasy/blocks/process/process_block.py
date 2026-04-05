@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from scieasy.blocks.base.block import Block
 from scieasy.blocks.base.config import BlockConfig
+
+if TYPE_CHECKING:
+    from scieasy.core.types.collection import Collection
 
 
 class ProcessBlock(Block):
@@ -25,7 +28,7 @@ class ProcessBlock(Block):
 
     algorithm: ClassVar[str] = ""
 
-    def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+    def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, Collection]:
         """Default Collection-aware execution via process_item().
 
         Iterates the primary input Collection (first value in *inputs*),

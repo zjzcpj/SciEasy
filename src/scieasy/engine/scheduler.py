@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from scieasy.blocks.base.state import BlockState
 from scieasy.engine.dag import build_dag, get_downstream_blocks, topological_sort
 from scieasy.engine.events import (
     BLOCK_CANCELLED,
@@ -24,6 +25,9 @@ from scieasy.engine.events import (
 from scieasy.engine.resources import ResourceRequest
 from scieasy.workflow.definition import WorkflowDefinition
 
+if TYPE_CHECKING:
+    from scieasy.blocks.registry import BlockRegistry
+
 logger = logging.getLogger(__name__)
 
 
@@ -37,7 +41,32 @@ class RunHandle:
 
 
 class DAGScheduler:
-    """Execute a workflow by reacting to EventBus events."""
+    """Execute a workflow by reacting to EventBus events.
+
+    The scheduler builds a DAG from the workflow definition, computes
+    topological order, and dispatches blocks as their predecessors complete.
+    On error or cancellation, downstream blocks are marked SKIPPED.
+
+    Parameters
+    ----------
+    workflow:
+        The workflow to execute.
+    event_bus:
+        EventBus instance for publish/subscribe coordination.
+    resource_manager:
+        ResourceManager for dispatch gating (can_dispatch check).
+    process_registry:
+        ProcessRegistry for active subprocess tracking.
+    runner:
+        BlockRunner implementation (e.g. LocalRunner) for executing blocks.
+    registry:
+        Optional BlockRegistry for resolving NodeDef.block_type to Block
+        instances.  When provided, _dispatch instantiates a real Block
+        before passing it to the runner.  When None (default), the raw
+        NodeDef is forwarded.
+    checkpoint_manager:
+        Optional checkpoint manager for persisting execution state.
+    """
 
     def __init__(
         self,
@@ -46,7 +75,7 @@ class DAGScheduler:
         resource_manager: Any,
         process_registry: Any,
         runner: Any,
-        block_registry: Any | None = None,
+        registry: BlockRegistry | None = None,
         checkpoint_manager: Any | None = None,
     ) -> None:
         self._workflow = workflow
@@ -54,18 +83,20 @@ class DAGScheduler:
         self._resource_manager = resource_manager
         self._process_registry = process_registry
         self._runner = runner
-        self._block_registry = block_registry
+        self._registry = registry
         self._checkpoint_manager = checkpoint_manager
 
         self._dag = build_dag(workflow)
         self._order = topological_sort(self._dag)
 
-        self._block_states: dict[str, str] = {node_id: "idle" for node_id in self._dag.nodes}
+        # Block state tracking: IDLE -> READY -> RUNNING -> DONE/ERROR/CANCELLED/SKIPPED
+        self._block_states: dict[str, BlockState] = {n: BlockState.IDLE for n in self._dag.nodes}
         self._block_outputs: dict[str, Any] = {}
         self.skip_reasons: dict[str, str] = {}
 
         self._completed_event = asyncio.Event()
         self._paused = False
+        self._reset_lock = asyncio.Lock()
 
         self._event_bus.subscribe(BLOCK_DONE, self._on_block_done)
         self._event_bus.subscribe(BLOCK_ERROR, self._on_block_error)
@@ -84,8 +115,8 @@ class DAGScheduler:
             return
 
         for node_id in self._order:
-            if self._block_states[node_id] == "idle" and self._check_readiness(node_id):
-                self._block_states[node_id] = "ready"
+            if self._block_states[node_id] == BlockState.IDLE and self._check_readiness(node_id):
+                self._block_states[node_id] = BlockState.READY
                 await self._dispatch(node_id)
 
         await self._completed_event.wait()
@@ -99,7 +130,7 @@ class DAGScheduler:
         if not self._resource_manager.can_dispatch(ResourceRequest()):
             return
 
-        self._block_states[node_id] = "running"
+        self._block_states[node_id] = BlockState.RUNNING
         await self._event_bus.emit(
             EngineEvent(
                 event_type=BLOCK_RUNNING,
@@ -110,12 +141,12 @@ class DAGScheduler:
 
         inputs = self._gather_inputs(node_id)
         node = self._dag.nodes[node_id]
-        block = self._instantiate_block(node_id)
 
         try:
+            block = self._instantiate_block(node_id)
             result = await self._runner.run(block, inputs, node.config)
             self._block_outputs[node_id] = result
-            self._block_states[node_id] = "done"
+            self._block_states[node_id] = BlockState.DONE
             await self._event_bus.emit(
                 EngineEvent(
                     event_type=BLOCK_DONE,
@@ -125,13 +156,13 @@ class DAGScheduler:
             )
             self.save_checkpoint(self._checkpoint_manager)
         except Exception as exc:
-            if self._block_states.get(node_id) == "cancelled":
+            if self._block_states.get(node_id) == BlockState.CANCELLED:
                 logger.info("Block %s exited after cancellation", node_id)
                 self._check_completion()
                 self.save_checkpoint(self._checkpoint_manager)
                 return
             logger.exception("Block %s failed with exception", node_id)
-            self._block_states[node_id] = "error"
+            self._block_states[node_id] = BlockState.ERROR
             await self._event_bus.emit(
                 EngineEvent(
                     event_type=BLOCK_ERROR,
@@ -142,15 +173,16 @@ class DAGScheduler:
             self.save_checkpoint(self._checkpoint_manager)
 
     def _instantiate_block(self, node_id: str) -> Any:
-        """Instantiate the concrete block for a DAG node."""
+        """Instantiate the concrete block for a DAG node.
+
+        Uses the BlockRegistry when available. Falls back to the raw
+        NodeDef for backward compatibility with tests using mock runners.
+        """
         node = self._dag.nodes[node_id]
-        if self._block_registry is not None:
-            try:
-                block = self._block_registry.instantiate(node.block_type, config=node.config)
-                block.id = node_id
-                return block
-            except Exception:
-                logger.exception("Falling back to raw DAG node for block %s", node_id)
+        if self._registry is not None:
+            block = self._registry.instantiate(node.block_type, node.config)
+            block.id = node_id
+            return block
         node.id = node_id
         return node
 
@@ -176,10 +208,10 @@ class DAGScheduler:
             return
 
         for node_id in self._order:
-            if self._block_states[node_id] != "idle":
+            if self._block_states[node_id] != BlockState.IDLE:
                 continue
             if self._check_readiness(node_id):
-                self._block_states[node_id] = "ready"
+                self._block_states[node_id] = BlockState.READY
                 await self._dispatch(node_id)
 
         self._check_completion()
@@ -190,7 +222,7 @@ class DAGScheduler:
         if event.block_id is None:
             return
 
-        self._block_states[event.block_id] = "error"
+        self._block_states[event.block_id] = BlockState.ERROR
         await self._propagate_skip(event.block_id, "error")
         self._check_completion()
         self.save_checkpoint(self._checkpoint_manager)
@@ -212,7 +244,7 @@ class DAGScheduler:
             except Exception:
                 logger.exception("Failed to cancel block %s via runner", block_id)
 
-        self._block_states[block_id] = "cancelled"
+        self._block_states[block_id] = BlockState.CANCELLED
         await self._event_bus.emit(
             EngineEvent(
                 event_type=BLOCK_CANCELLED,
@@ -225,8 +257,8 @@ class DAGScheduler:
         self.save_checkpoint(self._checkpoint_manager)
 
     async def _on_cancel_workflow(self, event: EngineEvent) -> None:
-        """Handle a workflow cancellation request."""
-        running_blocks = [block_id for block_id, state in self._block_states.items() if state == "running"]
+        """Handle a workflow cancellation: cancel all running blocks."""
+        running_blocks = [bid for bid, state in self._block_states.items() if state == BlockState.RUNNING]
 
         for block_id in running_blocks:
             if self._process_registry is not None:
@@ -240,7 +272,7 @@ class DAGScheduler:
                 except Exception:
                     logger.exception("Failed to cancel block %s during workflow cancel", block_id)
 
-            self._block_states[block_id] = "cancelled"
+            self._block_states[block_id] = BlockState.CANCELLED
             await self._event_bus.emit(
                 EngineEvent(
                     event_type=BLOCK_CANCELLED,
@@ -250,8 +282,8 @@ class DAGScheduler:
             )
 
         for block_id, state in list(self._block_states.items()):
-            if state in ("idle", "ready"):
-                self._block_states[block_id] = "skipped"
+            if state in (BlockState.IDLE, BlockState.READY):
+                self._block_states[block_id] = BlockState.SKIPPED
                 self.skip_reasons[block_id] = "workflow cancelled"
                 await self._event_bus.emit(
                     EngineEvent(
@@ -270,14 +302,19 @@ class DAGScheduler:
 
         while queue:
             node_id = queue.pop(0)
-            if self._block_states[node_id] in {"done", "error", "cancelled", "skipped"}:
+            if self._block_states[node_id] in (
+                BlockState.DONE,
+                BlockState.ERROR,
+                BlockState.CANCELLED,
+                BlockState.SKIPPED,
+            ):
                 continue
 
             predecessors = self._dag.reverse_adjacency.get(node_id, [])
-            all_satisfied = all(self._block_states[pred] == "done" for pred in predecessors)
+            all_satisfied = all(self._block_states[p] == BlockState.DONE for p in predecessors)
 
             if not all_satisfied:
-                self._block_states[node_id] = "skipped"
+                self._block_states[node_id] = BlockState.SKIPPED
                 self.skip_reasons[node_id] = f"upstream {failed_id} {reason}"
                 await self._event_bus.emit(
                     EngineEvent(
@@ -289,14 +326,14 @@ class DAGScheduler:
                 queue.extend(self._dag.adjacency.get(node_id, []))
 
     def _check_readiness(self, node_id: str) -> bool:
-        """Return True if all predecessors of *node_id* are done."""
+        """Return True if all predecessors of *node_id* are in DONE state."""
         predecessors = self._dag.reverse_adjacency.get(node_id, [])
-        return all(self._block_states[pred] == "done" for pred in predecessors)
+        return all(self._block_states[p] == BlockState.DONE for p in predecessors)
 
     def _check_completion(self) -> None:
-        """Set the completed event if all blocks are terminal."""
-        terminal = {"done", "error", "cancelled", "skipped"}
-        if all(state in terminal for state in self._block_states.values()):
+        """Set the completed event if all blocks are in a terminal state."""
+        terminal = {BlockState.DONE, BlockState.ERROR, BlockState.CANCELLED, BlockState.SKIPPED}
+        if all(s in terminal for s in self._block_states.values()):
             self._completed_event.set()
 
     async def pause(self) -> None:
@@ -307,10 +344,10 @@ class DAGScheduler:
         """Resume a previously paused workflow execution."""
         self._paused = False
         for node_id in self._order:
-            if self._block_states[node_id] == "ready":
+            if self._block_states[node_id] == BlockState.READY:
                 await self._dispatch(node_id)
-            elif self._block_states[node_id] == "idle" and self._check_readiness(node_id):
-                self._block_states[node_id] = "ready"
+            elif self._block_states[node_id] == BlockState.IDLE and self._check_readiness(node_id):
+                self._block_states[node_id] = BlockState.READY
                 await self._dispatch(node_id)
 
     async def cancel_workflow(self) -> None:
@@ -332,29 +369,54 @@ class DAGScheduler:
             )
         )
 
-    def block_states(self) -> dict[str, str]:
+    def block_states(self) -> dict[str, BlockState]:
         """Return a snapshot of current block execution states."""
         return dict(self._block_states)
 
-    def set_state(self, block_id: str, state: str) -> None:
-        """Manually override the execution state of a single block."""
+    def set_state(self, block_id: str, state: BlockState) -> None:
+        """Manually override the execution state of a single block.
+
+        Parameters
+        ----------
+        block_id:
+            The block whose state to override.
+        state:
+            The new BlockState value.
+        """
         self._block_states[block_id] = state
 
     async def reset_block(self, block_id: str) -> None:
-        """Reset a block and its dependency chain for selective re-run."""
-        if block_id not in self._block_states:
-            raise ValueError(f"Unknown block: {block_id}")
+        """Reset a block and its dependency chain for selective re-run.
 
-        self._block_states[block_id] = "idle"
-        self._block_outputs.pop(block_id, None)
-        self.skip_reasons.pop(block_id, None)
+        Algorithm (ADR-018):
+            1. Validate block exists.
+            2. Set target block to IDLE, clear cached outputs and skip reasons.
+            3. Walk upstream: recursively reset non-DONE predecessors to IDLE.
+            4. Walk downstream: reset SKIPPED blocks to IDLE.
+            5. Re-evaluate readiness and batch-dispatch ready blocks.
+        """
+        async with self._reset_lock:
+            if block_id not in self._block_states:
+                raise ValueError(f"Unknown block: {block_id}")
 
-        self._reset_upstream(block_id, visited=set())
-        self._reset_downstream_skipped(block_id)
+            # Step 2: Reset target block.
+            self._block_states[block_id] = BlockState.IDLE
+            self._block_outputs.pop(block_id, None)
+            self.skip_reasons.pop(block_id, None)
 
-        for node_id in self._order:
-            if self._block_states[node_id] == "idle" and self._check_readiness(node_id):
-                self._block_states[node_id] = "ready"
+            # Step 3: Walk upstream -- recursively reset non-DONE predecessors.
+            self._reset_upstream(block_id, visited=set())
+
+            # Step 4: Walk downstream -- reset SKIPPED blocks.
+            self._reset_downstream_skipped(block_id)
+
+            # Step 5: Re-evaluate readiness, collect ready IDs, then dispatch.
+            ready_ids: list[str] = []
+            for node_id in self._order:
+                if self._block_states[node_id] == BlockState.IDLE and self._check_readiness(node_id):
+                    self._block_states[node_id] = BlockState.READY
+                    ready_ids.append(node_id)
+            for node_id in ready_ids:
                 await self._dispatch(node_id)
 
     def _reset_upstream(self, block_id: str, visited: set[str]) -> None:
@@ -362,12 +424,13 @@ class DAGScheduler:
         if block_id in visited:
             return
         visited.add(block_id)
-        for predecessor in self._dag.reverse_adjacency.get(block_id, []):
-            if self._block_states[predecessor] != "done":
-                self._block_states[predecessor] = "idle"
-                self._block_outputs.pop(predecessor, None)
-                self.skip_reasons.pop(predecessor, None)
-                self._reset_upstream(predecessor, visited)
+        predecessors = self._dag.reverse_adjacency.get(block_id, [])
+        for pred in predecessors:
+            if self._block_states[pred] != BlockState.DONE:
+                self._block_states[pred] = BlockState.IDLE
+                self._block_outputs.pop(pred, None)
+                self.skip_reasons.pop(pred, None)
+                self._reset_upstream(pred, visited)
 
     def _reset_downstream_skipped(self, block_id: str) -> None:
         """Breadth-first reset of downstream SKIPPED blocks."""
@@ -378,8 +441,8 @@ class DAGScheduler:
             if node_id in visited:
                 continue
             visited.add(node_id)
-            if self._block_states[node_id] == "skipped":
-                self._block_states[node_id] = "idle"
+            if self._block_states[node_id] == BlockState.SKIPPED:
+                self._block_states[node_id] = BlockState.IDLE
                 self._block_outputs.pop(node_id, None)
                 self.skip_reasons.pop(node_id, None)
                 queue.extend(self._dag.adjacency.get(node_id, []))
@@ -391,13 +454,13 @@ class DAGScheduler:
 
         from datetime import datetime
 
-        from scieasy.engine.checkpoint import WorkflowCheckpoint
+        from scieasy.engine.checkpoint import WorkflowCheckpoint, serialize_intermediate_refs
 
         checkpoint = WorkflowCheckpoint(
             workflow_id=self._workflow.id if hasattr(self._workflow, "id") else "unknown",
             timestamp=datetime.now(),
-            block_states=dict(self._block_states),
-            intermediate_refs=dict(self._block_outputs),
+            block_states={k: v.value for k, v in self._block_states.items()},
+            intermediate_refs=serialize_intermediate_refs(self._block_outputs),
             skip_reasons=dict(self.skip_reasons),
         )
         checkpoint_manager.save(checkpoint)
@@ -428,22 +491,24 @@ class DAGScheduler:
         ancestors = self._ancestors_of(block_id)
         missing = [ancestor for ancestor in ancestors if ancestor not in checkpoint.intermediate_refs]
         if missing:
-            raise ValueError("Cannot execute from block without cached upstream outputs: " + ", ".join(sorted(missing)))
+            raise ValueError(
+                "Cannot execute from block without cached upstream outputs: " + ", ".join(sorted(missing))
+            )
 
         descendants = set(get_downstream_blocks(self._dag, block_id)) | {block_id}
         self._completed_event = asyncio.Event()
 
         for node_id in self._order:
             if node_id in ancestors:
-                self._block_states[node_id] = "done"
+                self._block_states[node_id] = BlockState.DONE
                 self._block_outputs[node_id] = checkpoint.intermediate_refs[node_id]
                 self.skip_reasons.pop(node_id, None)
             elif node_id in descendants:
-                self._block_states[node_id] = "idle"
+                self._block_states[node_id] = BlockState.IDLE
                 self._block_outputs.pop(node_id, None)
                 self.skip_reasons.pop(node_id, None)
             else:
-                self._block_states[node_id] = checkpoint.block_states.get(node_id, "idle")
+                self._block_states[node_id] = BlockState(checkpoint.block_states.get(node_id, "idle"))
                 if node_id in checkpoint.intermediate_refs:
                     self._block_outputs[node_id] = checkpoint.intermediate_refs[node_id]
 
@@ -455,8 +520,8 @@ class DAGScheduler:
         )
 
         for node_id in self._order:
-            if self._block_states[node_id] == "idle" and self._check_readiness(node_id):
-                self._block_states[node_id] = "ready"
+            if self._block_states[node_id] == BlockState.IDLE and self._check_readiness(node_id):
+                self._block_states[node_id] = BlockState.READY
                 await self._dispatch(node_id)
 
         await self._completed_event.wait()
