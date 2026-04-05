@@ -29,3 +29,9 @@ class Artifact(DataObject):
         self.file_path = file_path
         self.mime_type = mime_type
         self.description = description
+
+    def get_in_memory_data(self) -> Any:
+        """Return file bytes for persistence."""
+        if self.file_path is not None and self.file_path.exists():
+            return self.file_path.read_bytes()
+        return super().get_in_memory_data()
