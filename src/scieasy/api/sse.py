@@ -1,28 +1,43 @@
-"""Server-Sent Events --- log streaming from execution."""
+"""Server-Sent Events for execution log streaming."""
 
 from __future__ import annotations
+
+import asyncio
+import json
+from typing import Any
 
 from fastapi import Request
 from fastapi.responses import StreamingResponse
 
 
 async def sse_handler(request: Request) -> StreamingResponse:
-    """Stream execution logs to the client via Server-Sent Events.
+    """Stream execution logs to the client via Server-Sent Events."""
+    runtime = request.app.state.runtime
+    queue = runtime.log_broadcaster.subscribe()
+    workflow_filter = request.query_params.get("workflow_id")
+    block_filter = request.query_params.get("block_id")
+    level_filter = request.query_params.get("level")
 
-    Parameters
-    ----------
-    request:
-        The incoming HTTP request.  Used to detect client disconnects.
+    async def _stream() -> Any:
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=1.0)
+                except TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
 
-    Returns
-    -------
-    StreamingResponse
-        A ``text/event-stream`` response that yields log lines as SSE
-        frames until the execution completes or the client disconnects.
+                if workflow_filter and item.get("workflow_id") != workflow_filter:
+                    continue
+                if block_filter and item.get("block_id") != block_filter:
+                    continue
+                if level_filter and item.get("level") != level_filter:
+                    continue
 
-    Raises
-    ------
-    NotImplementedError
-        Phase-1 skeleton --- not yet implemented.
-    """
-    raise NotImplementedError
+                yield f"event: log\ndata: {json.dumps(item)}\n\n"
+        finally:
+            runtime.log_broadcaster.unsubscribe(queue)
+
+    return StreamingResponse(_stream(), media_type="text/event-stream")

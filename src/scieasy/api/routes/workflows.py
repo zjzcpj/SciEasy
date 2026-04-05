@@ -1,124 +1,174 @@
-"""Workflow CRUD, execute, pause, resume endpoints."""
+"""Workflow CRUD and execution endpoints."""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 
-from scieasy.api.schemas import WorkflowCreate, WorkflowResponse
+from scieasy.api.deps import get_runtime
+from scieasy.api.runtime import ApiRuntime
+from scieasy.api.schemas import (
+    CancelPropagationResponse,
+    ExecuteFromRequest,
+    ExecuteFromResponse,
+    WorkflowCreate,
+    WorkflowEdge,
+    WorkflowExecutionResponse,
+    WorkflowNode,
+    WorkflowResponse,
+)
 
 router = APIRouter(prefix="/api/workflows", tags=["workflows"])
+RuntimeDep = Annotated[ApiRuntime, Depends(get_runtime)]
+
+
+def _workflow_response(definition: Any) -> WorkflowResponse:
+    return WorkflowResponse(
+        id=definition.id,
+        version=definition.version,
+        description=definition.description,
+        nodes=[
+            WorkflowNode(
+                id=node.id,
+                block_type=node.block_type,
+                config=node.config,
+                execution_mode=node.execution_mode,
+                layout=node.layout,
+            )
+            for node in definition.nodes
+        ],
+        edges=[WorkflowEdge(source=edge.source, target=edge.target) for edge in definition.edges],
+        metadata=definition.metadata,
+    )
 
 
 @router.post("/", response_model=WorkflowResponse)
-async def create_workflow(body: WorkflowCreate) -> dict[str, Any]:
-    """Create a new workflow from the supplied graph definition.
-
-    Raises
-    ------
-    NotImplementedError
-        Phase-1 skeleton --- not yet implemented.
-    """
-    raise NotImplementedError
+async def create_workflow(body: WorkflowCreate, runtime: RuntimeDep) -> WorkflowResponse:
+    """Create a new workflow from the supplied graph definition."""
+    try:
+        definition = runtime.save_workflow(body.model_dump())
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _workflow_response(definition)
 
 
 @router.get("/{workflow_id}", response_model=WorkflowResponse)
-async def get_workflow(workflow_id: str) -> dict[str, Any]:
-    """Retrieve a workflow by its identifier.
-
-    Raises
-    ------
-    NotImplementedError
-        Phase-1 skeleton --- not yet implemented.
-    """
-    raise NotImplementedError
+async def get_workflow(workflow_id: str, runtime: RuntimeDep) -> WorkflowResponse:
+    """Retrieve a workflow by its identifier."""
+    try:
+        definition = runtime.load_workflow(workflow_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _workflow_response(definition)
 
 
 @router.put("/{workflow_id}", response_model=WorkflowResponse)
-async def update_workflow(workflow_id: str, body: WorkflowCreate) -> dict[str, Any]:
-    """Replace a workflow definition.
-
-    Raises
-    ------
-    NotImplementedError
-        Phase-1 skeleton --- not yet implemented.
-    """
-    raise NotImplementedError
+async def update_workflow(
+    workflow_id: str,
+    body: WorkflowCreate,
+    runtime: RuntimeDep,
+) -> WorkflowResponse:
+    """Replace a workflow definition."""
+    if workflow_id != body.id:
+        raise HTTPException(status_code=400, detail="Workflow path/body IDs must match.")
+    definition = runtime.save_workflow(body.model_dump())
+    return _workflow_response(definition)
 
 
 @router.delete("/{workflow_id}", status_code=204)
-async def delete_workflow(workflow_id: str) -> None:
-    """Delete a workflow.
-
-    Raises
-    ------
-    NotImplementedError
-        Phase-1 skeleton --- not yet implemented.
-    """
-    raise NotImplementedError
+async def delete_workflow(workflow_id: str, runtime: RuntimeDep) -> None:
+    """Delete a workflow."""
+    runtime.delete_workflow(workflow_id)
 
 
-@router.post("/{workflow_id}/execute")
-async def execute_workflow(workflow_id: str) -> dict[str, Any]:
-    """Start execution of a workflow.
-
-    Raises
-    ------
-    NotImplementedError
-        Phase-1 skeleton --- not yet implemented.
-    """
-    raise NotImplementedError
+@router.post("/{workflow_id}/execute", response_model=WorkflowExecutionResponse)
+async def execute_workflow(workflow_id: str, runtime: RuntimeDep) -> WorkflowExecutionResponse:
+    """Start execution of a workflow."""
+    try:
+        result = runtime.start_workflow(workflow_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return WorkflowExecutionResponse(**result)
 
 
-@router.post("/{workflow_id}/pause")
-async def pause_workflow(workflow_id: str) -> dict[str, Any]:
-    """Pause a running workflow.
-
-    Raises
-    ------
-    NotImplementedError
-        Phase-1 skeleton --- not yet implemented.
-    """
-    raise NotImplementedError
-
-
-@router.post("/{workflow_id}/resume")
-async def resume_workflow(workflow_id: str) -> dict[str, Any]:
-    """Resume a paused workflow.
-
-    Raises
-    ------
-    NotImplementedError
-        Phase-1 skeleton --- not yet implemented.
-    """
-    raise NotImplementedError
+@router.post("/{workflow_id}/pause", response_model=WorkflowExecutionResponse)
+async def pause_workflow(workflow_id: str, runtime: RuntimeDep) -> WorkflowExecutionResponse:
+    """Pause a running workflow."""
+    try:
+        run = runtime.get_run(workflow_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    await run.scheduler.pause()
+    return WorkflowExecutionResponse(workflow_id=workflow_id, status="paused", message="Pause requested.")
 
 
-# -- ADR-018: Cancellation endpoints ----------------------------------------
+@router.post("/{workflow_id}/resume", response_model=WorkflowExecutionResponse)
+async def resume_workflow(workflow_id: str, runtime: RuntimeDep) -> WorkflowExecutionResponse:
+    """Resume a paused workflow."""
+    try:
+        run = runtime.get_run(workflow_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    await run.scheduler.resume()
+    return WorkflowExecutionResponse(workflow_id=workflow_id, status="running", message="Workflow resumed.")
 
 
-@router.post("/{workflow_id}/cancel")
-async def cancel_workflow(workflow_id: str) -> dict[str, Any]:
-    """Cancel an entire workflow (ADR-018).
+@router.post("/{workflow_id}/cancel", response_model=CancelPropagationResponse)
+async def cancel_workflow(workflow_id: str, runtime: RuntimeDep) -> CancelPropagationResponse:
+    """Cancel an entire workflow."""
+    try:
+        run = runtime.get_run(workflow_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    Terminates all active block subprocesses and propagates SKIPPED
-    to downstream blocks with unsatisfiable inputs.
+    await run.scheduler.cancel_workflow()
+    block_states = run.scheduler.block_states()
+    cancelled = sorted(block_id for block_id, state in block_states.items() if state == "cancelled")
+    skipped = sorted(block_id for block_id, state in block_states.items() if state == "skipped")
+    return CancelPropagationResponse(
+        cancelled_blocks=cancelled,
+        skipped_blocks=skipped,
+        skip_reasons=dict(run.scheduler.skip_reasons),
+    )
 
-    ADR-018: Will emit CANCEL_WORKFLOW_REQUEST via EventBus when
-    workflow execution infrastructure is wired up (Phase 5.2).
-    """
-    raise NotImplementedError
+
+@router.post("/{workflow_id}/blocks/{block_id}/cancel", response_model=CancelPropagationResponse)
+async def cancel_block(
+    workflow_id: str,
+    block_id: str,
+    runtime: RuntimeDep,
+) -> CancelPropagationResponse:
+    """Cancel a single block within a workflow."""
+    try:
+        run = runtime.get_run(workflow_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    await run.scheduler.cancel_block(block_id)
+    block_states = run.scheduler.block_states()
+    cancelled = [node_id for node_id, state in block_states.items() if state == "cancelled"]
+    skipped = [node_id for node_id, state in block_states.items() if state == "skipped"]
+    return CancelPropagationResponse(
+        cancelled_blocks=sorted(cancelled),
+        skipped_blocks=sorted(skipped),
+        skip_reasons=dict(run.scheduler.skip_reasons),
+    )
 
 
-@router.post("/{workflow_id}/blocks/{block_id}/cancel")
-async def cancel_block(workflow_id: str, block_id: str) -> dict[str, Any]:
-    """Cancel a single block within a workflow (ADR-018).
-
-    Terminates the block's subprocess and propagates SKIPPED to
-    downstream blocks whose required inputs are now unsatisfiable.
-
-    ADR-018: Will emit CANCEL_BLOCK_REQUEST via EventBus when
-    workflow execution infrastructure is wired up (Phase 5.2).
-    """
-    raise NotImplementedError
+@router.post("/{workflow_id}/execute-from", response_model=ExecuteFromResponse)
+async def execute_from_workflow(
+    workflow_id: str,
+    body: ExecuteFromRequest,
+    runtime: RuntimeDep,
+) -> ExecuteFromResponse:
+    """Re-run a workflow from a specific block using checkpointed inputs."""
+    try:
+        result = runtime.start_workflow(workflow_id, execute_from=body.block_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ExecuteFromResponse(**result)

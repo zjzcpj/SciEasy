@@ -11,7 +11,8 @@ import logging
 import subprocess
 import sys
 import time
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 if TYPE_CHECKING:
     from scieasy.engine.runners.process_handle import ProcessExitInfo
@@ -77,8 +78,12 @@ class PosixOps:
 
         from scieasy.engine.runners.process_handle import ProcessExitInfo
 
+        getpgid = cast(Callable[[int], int], os.getpgid)  # type: ignore[attr-defined]
+        killpg = cast(Callable[[int, int], None], os.killpg)  # type: ignore[attr-defined]
+        sigkill = cast(int, signal.SIGKILL)  # type: ignore[attr-defined]
+
         try:
-            pgid = os.getpgid(pid)
+            pgid = getpgid(pid)
         except ProcessLookupError:
             return ProcessExitInfo(
                 exit_code=None,
@@ -89,7 +94,7 @@ class PosixOps:
 
         # Phase 1: SIGTERM
         try:
-            os.killpg(pgid, signal.SIGTERM)
+            killpg(pgid, signal.SIGTERM)
         except ProcessLookupError:
             return ProcessExitInfo(
                 exit_code=None,
@@ -116,11 +121,11 @@ class PosixOps:
 
         # Phase 2: SIGKILL if still alive
         with contextlib.suppress(ProcessLookupError):
-            os.killpg(pgid, signal.SIGKILL)
+            killpg(pgid, sigkill)
 
         return ProcessExitInfo(
             exit_code=None,
-            signal_number=signal.SIGKILL,
+            signal_number=sigkill,
             was_killed_by_framework=True,
             platform_detail="killed by SIGKILL after grace period",
         )
@@ -132,15 +137,19 @@ class PosixOps:
 
         from scieasy.engine.runners.process_handle import ProcessExitInfo
 
+        getpgid = cast(Callable[[int], int], os.getpgid)  # type: ignore[attr-defined]
+        killpg = cast(Callable[[int, int], None], os.killpg)  # type: ignore[attr-defined]
+        sigkill = cast(int, signal.SIGKILL)  # type: ignore[attr-defined]
+
         try:
-            pgid = os.getpgid(pid)
-            os.killpg(pgid, signal.SIGKILL)
+            pgid = getpgid(pid)
+            killpg(pgid, sigkill)
         except ProcessLookupError:
             pass
 
         return ProcessExitInfo(
             exit_code=None,
-            signal_number=signal.SIGKILL,
+            signal_number=sigkill,
             was_killed_by_framework=True,
             platform_detail="killed by SIGKILL",
         )
@@ -168,8 +177,15 @@ class PosixOps:
 
         from scieasy.engine.runners.process_handle import ProcessExitInfo
 
+        waitpid = cast(Callable[[int, int], tuple[int, int]], os.waitpid)  # type: ignore[attr-defined]
+        wnohang = cast(int, os.WNOHANG)  # type: ignore[attr-defined]
+        wifexited = cast(Callable[[int], bool], os.WIFEXITED)  # type: ignore[attr-defined]
+        wexitstatus = cast(Callable[[int], int], os.WEXITSTATUS)  # type: ignore[attr-defined]
+        wifsignaled = cast(Callable[[int], bool], os.WIFSIGNALED)  # type: ignore[attr-defined]
+        wtermsig = cast(Callable[[int], int], os.WTERMSIG)  # type: ignore[attr-defined]
+
         try:
-            wpid, status = os.waitpid(pid, os.WNOHANG)
+            wpid, status = waitpid(pid, wnohang)
         except ChildProcessError:
             # Not our child or already reaped
             if not self.is_alive(pid):
@@ -183,13 +199,13 @@ class PosixOps:
             # Still running
             return None
 
-        if os.WIFEXITED(status):
+        if wifexited(status):
             return ProcessExitInfo(
-                exit_code=os.WEXITSTATUS(status),
+                exit_code=wexitstatus(status),
                 platform_detail="exited normally",
             )
-        if os.WIFSIGNALED(status):
-            sig = os.WTERMSIG(status)
+        if wifsignaled(status):
+            sig = wtermsig(status)
             return ProcessExitInfo(
                 exit_code=None,
                 signal_number=sig,

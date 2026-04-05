@@ -50,6 +50,7 @@ def serialise_event(event: EngineEvent) -> dict[str, Any]:
     return {
         "type": event.event_type,
         "block_id": event.block_id,
+        "workflow_id": event.data.get("workflow_id") if isinstance(event.data, dict) else None,
         "data": event.data,
         "timestamp": event.timestamp.isoformat(),
     }

@@ -126,7 +126,7 @@ class TestLocalRunnerCancel:
 class TestLocalRunnerRun:
     @patch("scieasy.engine.runners.process_handle.subprocess.Popen")
     def test_run_returns_parsed_output(self, mock_popen_cls: MagicMock) -> None:
-        """run() should return parsed JSON from subprocess stdout."""
+        """run() should return the worker output payload from subprocess stdout."""
         output_data = {"outputs": {"result": "42"}}
         mock_proc = MagicMock()
         mock_proc.pid = 100
@@ -149,12 +149,12 @@ class TestLocalRunnerRun:
         block = FakeBlock()
         result = asyncio.run(runner.run(block, {"input": "ref1"}, {"param": 1}))
 
-        assert result == output_data
+        assert result == {"result": "42"}
         mock_proc.communicate.assert_called_once()
 
     @patch("scieasy.engine.runners.process_handle.subprocess.Popen")
-    def test_run_returns_error_on_nonzero_exit(self, mock_popen_cls: MagicMock) -> None:
-        """run() should return error dict when subprocess exits with non-zero code."""
+    def test_run_raises_on_nonzero_exit(self, mock_popen_cls: MagicMock) -> None:
+        """run() should raise when the subprocess exits with a non-zero code."""
         mock_proc = MagicMock()
         mock_proc.pid = 101
         mock_proc.stdin = MagicMock()
@@ -169,10 +169,13 @@ class TestLocalRunnerRun:
         class FakeBlock:
             pass
 
-        result = asyncio.run(runner.run(FakeBlock(), {}, {}))
-
-        assert "error" in result
-        assert "traceback here" in result["error"]
+        with patch("asyncio.to_thread", side_effect=lambda func, *args: func(*args)):
+            try:
+                asyncio.run(runner.run(FakeBlock(), {}, {}))
+            except RuntimeError as exc:
+                assert "traceback here" in str(exc)
+            else:
+                raise AssertionError("Expected LocalRunner.run() to raise RuntimeError")
 
     @patch("scieasy.engine.runners.process_handle.subprocess.Popen")
     def test_run_returns_empty_dict_on_no_stdout(self, mock_popen_cls: MagicMock) -> None:

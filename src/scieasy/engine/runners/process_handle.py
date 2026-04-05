@@ -6,6 +6,7 @@ ADR-017: spawn_block_process() is the single entry point for ALL subprocess crea
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import subprocess
@@ -146,6 +147,7 @@ def spawn_block_process(
     config: dict[str, Any],
     event_bus: Any,
     registry: ProcessRegistry,
+    block_id: str | None = None,
     resource_request: Any | None = None,
     output_dir: str | None = None,
 ) -> ProcessHandle:
@@ -204,7 +206,7 @@ def spawn_block_process(
     # Build the ProcessHandle
     rr = resource_request if resource_request is not None else ResReq()
     handle = ProcessHandle(
-        block_id=block_class_path,
+        block_id=block_id or block_class_path,
         pid=proc.pid,
         start_time=datetime.now(),
         resource_request=rr,
@@ -216,12 +218,18 @@ def spawn_block_process(
     registry.register(handle)
 
     # Emit PROCESS_SPAWNED event
-    event_bus.emit(
-        EngineEvent(
-            event_type=PROCESS_SPAWNED,
-            block_id=handle.block_id,
-            data={"pid": proc.pid},
+    if event_bus is not None:
+        coro = event_bus.emit(
+            EngineEvent(
+                event_type=PROCESS_SPAWNED,
+                block_id=handle.block_id,
+                data={"pid": proc.pid},
+            )
         )
-    )
+        if asyncio.iscoroutine(coro):
+            try:
+                asyncio.get_running_loop().create_task(coro)
+            except RuntimeError:
+                asyncio.run(coro)
 
     return handle

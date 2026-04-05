@@ -1,49 +1,43 @@
-"""FastAPI dependency injection (engine, registry, etc.)."""
+"""FastAPI dependency injection for shared API runtime objects."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
+from fastapi import HTTPException, Request
 
-def get_engine() -> Any:
-    """Return the shared workflow execution engine instance.
-
-    Raises
-    ------
-    NotImplementedError
-        Phase-1 skeleton --- not yet implemented.
-    """
-    raise NotImplementedError
+from scieasy.api.runtime import ApiRuntime
 
 
-def get_block_registry() -> Any:
-    """Return the shared block registry instance.
-
-    Raises
-    ------
-    NotImplementedError
-        Phase-1 skeleton --- not yet implemented.
-    """
-    raise NotImplementedError
+def get_runtime(request: Request) -> ApiRuntime:
+    """Return the shared API runtime."""
+    return request.app.state.runtime  # type: ignore[no-any-return]
 
 
-def get_type_registry() -> Any:
-    """Return the shared type registry instance.
-
-    Raises
-    ------
-    NotImplementedError
-        Phase-1 skeleton --- not yet implemented.
-    """
-    raise NotImplementedError
+def get_engine(request: Request) -> ApiRuntime:
+    """Return the workflow execution runtime."""
+    return get_runtime(request)
 
 
-def get_lineage_store() -> Any:
-    """Return the shared lineage / provenance store instance.
+def get_block_registry(request: Request) -> Any:
+    """Return the shared block registry instance."""
+    return get_runtime(request).block_registry
 
-    Raises
-    ------
-    NotImplementedError
-        Phase-1 skeleton --- not yet implemented.
-    """
-    raise NotImplementedError
+
+def get_type_registry(request: Request) -> Any:
+    """Return the shared type registry instance."""
+    return get_runtime(request).type_registry
+
+
+def get_lineage_store(request: Request) -> Any:
+    """Return the lineage store for the active project."""
+    runtime = get_runtime(request)
+    try:
+        project = runtime.require_active_project()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    from scieasy.core.lineage.store import LineageStore
+
+    return LineageStore(Path(project.path) / "lineage" / "lineage.db")

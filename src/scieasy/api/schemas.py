@@ -1,45 +1,109 @@
-"""Pydantic models for all API request/response shapes."""
+"""Pydantic models for API request and response shapes."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-# ---------------------------------------------------------------------------
-# Workflow
-# ---------------------------------------------------------------------------
+
+class WorkflowNode(BaseModel):
+    """Serializable workflow node payload."""
+
+    id: str
+    block_type: str
+    config: dict[str, Any] = Field(default_factory=dict)
+    execution_mode: str | None = None
+    layout: dict[str, float] | None = None
+
+
+class WorkflowEdge(BaseModel):
+    """Serializable workflow edge payload."""
+
+    source: str
+    target: str
 
 
 class WorkflowCreate(BaseModel):
-    """Request body for creating a new workflow."""
-
-    id: str
-    description: str = ""
-    nodes: list[dict[str, Any]] = []
-    edges: list[dict[str, Any]] = []
-
-
-class WorkflowResponse(BaseModel):
-    """Response body returned when reading a workflow."""
+    """Request body for creating or replacing a workflow."""
 
     id: str
     version: str = "1.0.0"
     description: str = ""
-    nodes: list[dict[str, Any]] = []
-    edges: list[dict[str, Any]] = []
-    metadata: dict[str, Any] = {}
+    nodes: list[WorkflowNode] = Field(default_factory=list)
+    edges: list[WorkflowEdge] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-# ---------------------------------------------------------------------------
-# Blocks
-# ---------------------------------------------------------------------------
+class WorkflowResponse(WorkflowCreate):
+    """Response body returned when reading a workflow."""
+
+
+class WorkflowExecutionResponse(BaseModel):
+    """Response body for workflow execution control endpoints."""
+
+    workflow_id: str
+    status: str
+    message: str
+
+
+class ExecuteFromRequest(BaseModel):
+    """Request body for selective re-run."""
+
+    block_id: str
+
+
+class ExecuteFromResponse(WorkflowExecutionResponse):
+    """Response body for execute-from."""
+
+    reused_blocks: list[str] = Field(default_factory=list)
+    reset_blocks: list[str] = Field(default_factory=list)
+
+
+class BlockPortResponse(BaseModel):
+    """Serializable block-port metadata."""
+
+    name: str
+    direction: str
+    accepted_types: list[str] = Field(default_factory=list)
+    required: bool = True
+    description: str = ""
+    constraint_description: str = ""
+    is_collection: bool = False
+
+
+class TypeHierarchyEntry(BaseModel):
+    """Type hierarchy metadata for frontend color resolution."""
+
+    name: str
+    base_type: str = ""
+    description: str = ""
+    ui_ring_color: str | None = None
+
+
+class BlockSummary(BaseModel):
+    """Condensed block metadata for the palette."""
+
+    name: str
+    type_name: str
+    category: str
+    description: str = ""
+    version: str = "0.1.0"
+    input_ports: list[BlockPortResponse] = Field(default_factory=list)
+    output_ports: list[BlockPortResponse] = Field(default_factory=list)
 
 
 class BlockListResponse(BaseModel):
     """Response body for the block palette listing."""
 
-    blocks: list[dict[str, Any]] = []
+    blocks: list[BlockSummary] = Field(default_factory=list)
+
+
+class BlockSchemaResponse(BlockSummary):
+    """Detailed schema payload for a single block type."""
+
+    config_schema: dict[str, Any] = Field(default_factory=dict)
+    type_hierarchy: list[TypeHierarchyEntry] = Field(default_factory=list)
 
 
 class BlockConnectionValidation(BaseModel):
@@ -51,9 +115,11 @@ class BlockConnectionValidation(BaseModel):
     target_port: str
 
 
-# ---------------------------------------------------------------------------
-# Data
-# ---------------------------------------------------------------------------
+class ConnectionValidationResponse(BaseModel):
+    """Response body for a proposed port connection."""
+
+    compatible: bool
+    reason: str = ""
 
 
 class DataUploadResponse(BaseModel):
@@ -61,7 +127,15 @@ class DataUploadResponse(BaseModel):
 
     ref: str
     type_name: str
-    metadata: dict[str, Any] = {}
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class DataMetadataResponse(BaseModel):
+    """Metadata for a stored data object."""
+
+    ref: str
+    type_name: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class DataPreviewResponse(BaseModel):
@@ -69,12 +143,35 @@ class DataPreviewResponse(BaseModel):
 
     ref: str
     type_name: str
-    preview: dict[str, Any] = {}
+    preview: dict[str, Any] = Field(default_factory=dict)
 
 
-# ---------------------------------------------------------------------------
-# AI
-# ---------------------------------------------------------------------------
+class ProjectCreate(BaseModel):
+    """Request body for creating a project workspace."""
+
+    name: str
+    description: str = ""
+    path: str | None = None
+
+
+class ProjectUpdate(BaseModel):
+    """Request body for updating project metadata."""
+
+    name: str | None = None
+    description: str | None = None
+
+
+class ProjectResponse(BaseModel):
+    """Response body for project management endpoints."""
+
+    id: str
+    name: str
+    path: str
+    description: str = ""
+    last_opened: str | None = None
+    workflow_count: int = 0
+    workflows: list[str] = Field(default_factory=list)
+    current_workflow_id: str | None = None
 
 
 class AIGenerateBlockRequest(BaseModel):
@@ -102,46 +199,30 @@ class AISuggestWorkflowRequest(BaseModel):
 class AISuggestWorkflowResponse(BaseModel):
     """Response body after AI workflow suggestion."""
 
-    workflow: dict[str, Any] = {}
+    workflow: dict[str, Any] = Field(default_factory=dict)
     explanation: str = ""
 
 
-# ---------------------------------------------------------------------------
-# Errors
-# ---------------------------------------------------------------------------
-
-
-# -- ADR-018: Cancellation schemas ----------------------------------------
-
-
 class CancelBlockRequest(BaseModel):
-    """Request body for cancelling a single block (ADR-018)."""
+    """Request body for cancelling a single block."""
 
     block_id: str
 
 
 class CancelWorkflowRequest(BaseModel):
-    """Request body for cancelling an entire workflow (ADR-018).
-
-    Empty body — workflow_id comes from the URL path parameter.
-    """
+    """Request body for cancelling an entire workflow."""
 
 
 class CancelPropagationResponse(BaseModel):
-    """Response body after cancellation propagation (ADR-018)."""
+    """Response body after cancellation propagation."""
 
-    cancelled_blocks: list[str] = []
-    skipped_blocks: list[str] = []
-    skip_reasons: dict[str, str] = {}
-
-
-# ---------------------------------------------------------------------------
-# Errors
-# ---------------------------------------------------------------------------
+    cancelled_blocks: list[str] = Field(default_factory=list)
+    skipped_blocks: list[str] = Field(default_factory=list)
+    skip_reasons: dict[str, str] = Field(default_factory=dict)
 
 
 class ErrorResponse(BaseModel):
-    """Standard error envelope returned by all endpoints on failure."""
+    """Standard error envelope returned by endpoints on failure."""
 
     detail: str
     error_code: str | None = None

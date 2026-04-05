@@ -87,22 +87,57 @@ class TestCLIBlocks:
 class TestCLIServe:
     """Tests for the ``scieasy serve`` command."""
 
-    def test_serve_shows_phase7_message(self) -> None:
+    def test_serve_starts_uvicorn_with_factory(self, monkeypatch: object) -> None:
+        calls: dict[str, object] = {}
+
+        def fake_run(app_target: str, *, host: str, port: int, factory: bool) -> None:
+            calls.update(
+                {
+                    "app_target": app_target,
+                    "host": host,
+                    "port": port,
+                    "factory": factory,
+                }
+            )
+
+        monkeypatch.setattr("uvicorn.run", fake_run)  # type: ignore[union-attr]
         result = runner.invoke(app, ["serve"])
         assert result.exit_code == 0
-        assert "Phase 7" in result.output
+        assert "Starting SciEasy server on 0.0.0.0:8000" in result.output
+        assert calls == {
+            "app_target": "scieasy.api.app:create_app",
+            "host": "0.0.0.0",
+            "port": 8000,
+            "factory": True,
+        }
 
-    def test_serve_shows_host_and_port(self) -> None:
+    def test_serve_shows_host_and_port(self, monkeypatch: object) -> None:
+        monkeypatch.setattr("uvicorn.run", lambda *args, **kwargs: None)  # type: ignore[union-attr]
         result = runner.invoke(app, ["serve"])
         assert result.exit_code == 0
         assert "0.0.0.0" in result.output
         assert "8000" in result.output
 
-    def test_serve_custom_host_port(self) -> None:
+    def test_serve_custom_host_port(self, monkeypatch: object) -> None:
+        calls: dict[str, object] = {}
+
+        def fake_run(app_target: str, *, host: str, port: int, factory: bool) -> None:
+            calls.update(
+                {
+                    "app_target": app_target,
+                    "host": host,
+                    "port": port,
+                    "factory": factory,
+                }
+            )
+
+        monkeypatch.setattr("uvicorn.run", fake_run)  # type: ignore[union-attr]
         result = runner.invoke(app, ["serve", "--host", "127.0.0.1", "--port", "9000"])
         assert result.exit_code == 0
         assert "127.0.0.1" in result.output
         assert "9000" in result.output
+        assert calls["host"] == "127.0.0.1"
+        assert calls["port"] == 9000
 
 
 class TestCLIValidate:

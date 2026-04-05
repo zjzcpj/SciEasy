@@ -1,28 +1,61 @@
-"""FastAPI app factory, lifespan, CORS, middleware."""
+"""FastAPI app factory, lifespan, CORS, and realtime endpoints."""
 
 from __future__ import annotations
 
-from fastapi import FastAPI
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
+
+from scieasy.api.routes import ai, blocks, data, projects, workflows
+from scieasy.api.runtime import ApiRuntime
+from scieasy.api.sse import sse_handler
+from scieasy.api.ws import websocket_handler
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Create and tear down the shared API runtime."""
+    runtime = ApiRuntime()
+    app.state.runtime = runtime
+    try:
+        yield
+    finally:
+        for run in runtime.workflow_runs.values():
+            if not run.task.done():
+                run.task.cancel()
 
 
 def create_app() -> FastAPI:
-    """Create and configure the FastAPI application.
+    """Create and configure the FastAPI application."""
+    app = FastAPI(title="SciEasy API", version="0.1.0", lifespan=lifespan)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
-    This factory wires up:
+    @app.get("/", include_in_schema=False)
+    async def root() -> RedirectResponse:
+        return RedirectResponse(url="/docs")
 
-    * CORS middleware
-    * route routers (workflows, blocks, data, ai, projects)
-    * WebSocket and SSE endpoints
-    * lifespan context manager for startup/shutdown
+    app.include_router(workflows.router)
+    app.include_router(blocks.router)
+    app.include_router(data.router)
+    app.include_router(projects.router)
+    app.include_router(ai.router)
 
-    Returns
-    -------
-    FastAPI
-        A fully configured but *not yet started* application instance.
+    @app.get("/api/logs/stream")
+    async def logs_stream(request: Request) -> object:
+        return await sse_handler(request)
 
-    Raises
-    ------
-    NotImplementedError
-        Phase-1 skeleton --- not yet implemented.
-    """
-    raise NotImplementedError
+    @app.websocket("/ws")
+    async def ws_endpoint(websocket: WebSocket) -> None:
+        runtime = app.state.runtime
+        await websocket_handler(websocket, runtime.event_bus)
+
+    return app

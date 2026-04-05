@@ -6,9 +6,10 @@ Uses spawn_block_process() as the single subprocess creation entry point.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from scieasy.engine.runners.process_handle import ProcessRegistry
@@ -69,6 +70,7 @@ class LocalRunner:
 
         block_class_path = f"{block.__class__.__module__}.{block.__class__.__qualname__}"
         registry = self._registry if self._registry is not None else ProcessRegistry()
+        block_id = getattr(block, "id", block_class_path)
 
         handle = spawn_block_process(
             block_class=block_class_path,
@@ -76,6 +78,7 @@ class LocalRunner:
             config=config,
             event_bus=self._event_bus,
             registry=registry,
+            block_id=block_id,
         )
 
         # Wait for subprocess to complete by reading stdout.
@@ -85,7 +88,7 @@ class LocalRunner:
         if popen is None:
             return {"error": "No subprocess handle available"}
 
-        stdout, stderr = popen.communicate()
+        stdout, stderr = await asyncio.to_thread(popen.communicate)
 
         if popen.returncode != 0:
             error_msg = stderr.decode(errors="replace") if stderr else "unknown error"
@@ -98,16 +101,28 @@ class LocalRunner:
             # Try to parse stdout for structured error from worker
             if stdout:
                 try:
-                    return dict(json.loads(stdout.decode()))
+                    payload = dict(json.loads(stdout.decode()))
+                    if "error" in payload:
+                        raise RuntimeError(str(payload["error"]))
+                    outputs = payload.get("outputs", payload)
+                    if not isinstance(outputs, dict):
+                        raise RuntimeError("Worker returned a non-dict output payload.")
+                    return cast(dict[str, Any], outputs)
                 except (json.JSONDecodeError, UnicodeDecodeError):
                     pass
-            return {"error": error_msg}
+            raise RuntimeError(error_msg)
 
         if stdout:
             try:
-                return dict(json.loads(stdout.decode()))
+                payload = dict(json.loads(stdout.decode()))
+                if "error" in payload:
+                    raise RuntimeError(str(payload["error"]))
+                outputs = payload.get("outputs", payload)
+                if not isinstance(outputs, dict):
+                    raise RuntimeError("Worker returned a non-dict output payload.")
+                return cast(dict[str, Any], outputs)
             except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-                return {"error": f"Failed to parse worker output: {exc}"}
+                raise RuntimeError(f"Failed to parse worker output: {exc}") from exc
 
         return {}
 

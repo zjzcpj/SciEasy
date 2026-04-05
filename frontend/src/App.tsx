@@ -1,0 +1,468 @@
+import { ReactFlowProvider } from "@xyflow/react";
+import { startTransition, useEffect, useMemo, useRef, useState } from "react";
+
+import { api } from "./lib/api";
+import { useLogStream } from "./hooks/useSSE";
+import { useWorkflowWebSocket } from "./hooks/useWebSocket";
+import { useAppStore } from "./store";
+import type { ProjectResponse, WorkflowResponse } from "./types/api";
+import { BlockPalette } from "./components/BlockPalette";
+import { BottomPanel } from "./components/BottomPanel";
+import { DataPreview } from "./components/DataPreview";
+import { ProjectDialog } from "./components/ProjectDialog";
+import { Toolbar } from "./components/Toolbar";
+import { WelcomeScreen } from "./components/WelcomeScreen";
+import { WorkflowCanvas } from "./components/WorkflowCanvas";
+
+function emptyWorkflow(id = "main"): WorkflowResponse {
+  return {
+    id,
+    version: "1.0.0",
+    description: "",
+    nodes: [],
+    edges: [],
+    metadata: {},
+  };
+}
+
+export default function App() {
+  const currentProject = useAppStore((state) => state.currentProject);
+  const recentProjects = useAppStore((state) => state.recentProjects);
+  const projectDialogOpen = useAppStore((state) => state.projectDialogOpen);
+  const projectDialog = useAppStore((state) => state.projectDialog);
+  const setProjects = useAppStore((state) => state.setProjects);
+  const setCurrentProject = useAppStore((state) => state.setCurrentProject);
+  const openProjectDialog = useAppStore((state) => state.openProjectDialog);
+  const closeProjectDialog = useAppStore((state) => state.closeProjectDialog);
+  const updateProjectDialog = useAppStore((state) => state.updateProjectDialog);
+
+  const workflowId = useAppStore((state) => state.workflowId);
+  const workflowDescription = useAppStore((state) => state.workflowDescription);
+  const workflowVersion = useAppStore((state) => state.workflowVersion);
+  const workflowMetadata = useAppStore((state) => state.workflowMetadata);
+  const workflowNodes = useAppStore((state) => state.workflowNodes);
+  const workflowEdges = useAppStore((state) => state.workflowEdges);
+  const workflowDirty = useAppStore((state) => state.workflowDirty);
+  const setWorkflow = useAppStore((state) => state.setWorkflow);
+  const addNode = useAppStore((state) => state.addNode);
+  const updateNodeConfig = useAppStore((state) => state.updateNodeConfig);
+  const updateNodeLayout = useAppStore((state) => state.updateNodeLayout);
+  const connectNodes = useAppStore((state) => state.connectNodes);
+  const removeNode = useAppStore((state) => state.removeNode);
+  const removeEdge = useAppStore((state) => state.removeEdge);
+  const markWorkflowSaved = useAppStore((state) => state.markWorkflowSaved);
+  const undoWorkflow = useAppStore((state) => state.undoWorkflow);
+  const redoWorkflow = useAppStore((state) => state.redoWorkflow);
+
+  const blockStates = useAppStore((state) => state.blockStates);
+  const blockOutputs = useAppStore((state) => state.blockOutputs);
+  const logEntries = useAppStore((state) => state.logEntries);
+  const resetExecution = useAppStore((state) => state.resetExecution);
+
+  const selectedNodeId = useAppStore((state) => state.selectedNodeId);
+  const activeBottomTab = useAppStore((state) => state.activeBottomTab);
+  const paletteCollapsed = useAppStore((state) => state.paletteCollapsed);
+  const previewCollapsed = useAppStore((state) => state.previewCollapsed);
+  const bottomPanelCollapsed = useAppStore((state) => state.bottomPanelCollapsed);
+  const panelSizes = useAppStore((state) => state.panelSizes);
+  const lastError = useAppStore((state) => state.lastError);
+  const setSelectedNodeId = useAppStore((state) => state.setSelectedNodeId);
+  const setActiveBottomTab = useAppStore((state) => state.setActiveBottomTab);
+  const togglePalette = useAppStore((state) => state.togglePalette);
+  const togglePreview = useAppStore((state) => state.togglePreview);
+  const toggleBottomPanel = useAppStore((state) => state.toggleBottomPanel);
+  const setLastError = useAppStore((state) => state.setLastError);
+
+  const blocks = useAppStore((state) => state.blocks);
+  const blockSchemas = useAppStore((state) => state.blockSchemas);
+  const paletteSearch = useAppStore((state) => state.paletteSearch);
+  const setBlocks = useAppStore((state) => state.setBlocks);
+  const setBlockSchema = useAppStore((state) => state.setBlockSchema);
+  const setPaletteSearch = useAppStore((state) => state.setPaletteSearch);
+
+  const previewCache = useAppStore((state) => state.previewCache);
+  const previewLoading = useAppStore((state) => state.previewLoading);
+  const cachePreview = useAppStore((state) => state.cachePreview);
+  const setPreviewLoading = useAppStore((state) => state.setPreviewLoading);
+
+  const chatMessages = useAppStore((state) => state.chatMessages);
+  const pushChatMessage = useAppStore((state) => state.pushChatMessage);
+
+  const [busy, setBusy] = useState(false);
+  const bootedRef = useRef(false);
+
+  const { connected: wsConnected } = useWorkflowWebSocket(Boolean(currentProject));
+  const { connected: sseConnected } = useLogStream(workflowId, activeBottomTab === "logs" ? selectedNodeId : null);
+
+  const selectedNode = useMemo(
+    () => workflowNodes.find((node) => node.id === selectedNodeId) ?? null,
+    [selectedNodeId, workflowNodes],
+  );
+  const selectedSchema = selectedNode ? blockSchemas[selectedNode.block_type] : undefined;
+  const selectedNodeLabel =
+    blocks.find((block) => block.type_name === selectedNode?.block_type)?.name ?? selectedNode?.block_type ?? "";
+
+  const workflowPayload = useMemo<WorkflowResponse>(
+    () => ({
+      id: workflowId ?? "main",
+      version: workflowVersion,
+      description: workflowDescription,
+      metadata: workflowMetadata,
+      nodes: workflowNodes,
+      edges: workflowEdges,
+    }),
+    [workflowDescription, workflowEdges, workflowId, workflowMetadata, workflowNodes, workflowVersion],
+  );
+
+  async function refreshProjects() {
+    const projects = await api.listProjects();
+    startTransition(() => setProjects(projects));
+  }
+
+  async function refreshBlocks() {
+    const payload = await api.listBlocks();
+    startTransition(() => setBlocks(payload.blocks));
+    const schemas = await Promise.all(payload.blocks.map((block) => api.getBlockSchema(block.type_name)));
+    startTransition(() => {
+      schemas.forEach((schema) => setBlockSchema(schema));
+    });
+  }
+
+  async function loadWorkflowForProject(project: ProjectResponse) {
+    if (project.current_workflow_id) {
+      const workflow = await api.getWorkflow(project.current_workflow_id);
+      startTransition(() => setWorkflow(workflow));
+      return;
+    }
+    startTransition(() => setWorkflow(emptyWorkflow("main")));
+  }
+
+  async function openProject(projectIdOrPath: string) {
+    setBusy(true);
+    try {
+      const project = await api.openProject(projectIdOrPath);
+      setCurrentProject(project);
+      await refreshProjects();
+      await loadWorkflowForProject(project);
+      resetExecution();
+      setLastError(null);
+      closeProjectDialog();
+    } catch (error) {
+      setLastError((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitProjectDialog() {
+    setBusy(true);
+    try {
+      if (projectDialog.mode === "new") {
+        const project = await api.createProject({
+          name: projectDialog.name,
+          description: projectDialog.description,
+          path: projectDialog.path,
+        });
+        setCurrentProject(project);
+        startTransition(() => setWorkflow(emptyWorkflow("main")));
+        await refreshProjects();
+      } else {
+        await openProject(projectDialog.path);
+        return;
+      }
+      closeProjectDialog();
+      setLastError(null);
+    } catch (error) {
+      setLastError((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveWorkflow() {
+    if (!currentProject) {
+      return;
+    }
+    try {
+      let saved: WorkflowResponse;
+      try {
+        saved = await api.updateWorkflow(workflowPayload.id, workflowPayload);
+      } catch {
+        saved = await api.createWorkflow(workflowPayload);
+      }
+      markWorkflowSaved();
+      await refreshProjects();
+      setCurrentProject({
+        ...currentProject,
+        current_workflow_id: saved.id,
+        workflows: currentProject.workflows.includes(saved.id)
+          ? currentProject.workflows
+          : [...currentProject.workflows, saved.id],
+      });
+    } catch (error) {
+      setLastError((error as Error).message);
+    }
+  }
+
+  async function loadPreview(dataRef: string) {
+    try {
+      setPreviewLoading(dataRef, true);
+      const payload = await api.getDataPreview(dataRef);
+      cachePreview(payload);
+    } catch (error) {
+      setPreviewLoading(dataRef, false);
+      setLastError((error as Error).message);
+    }
+  }
+
+  async function runWorkflow() {
+    if (!currentProject) {
+      return;
+    }
+    await saveWorkflow();
+    const targetWorkflowId = workflowPayload.id;
+    await api.executeWorkflow(targetWorkflowId);
+    setActiveBottomTab("logs");
+  }
+
+  async function pauseWorkflow() {
+    if (!workflowId) {
+      return;
+    }
+    await api.pauseWorkflow(workflowId);
+  }
+
+  async function resumeWorkflow() {
+    if (!workflowId) {
+      return;
+    }
+    await api.resumeWorkflow(workflowId);
+  }
+
+  async function cancelWorkflow() {
+    if (!workflowId) {
+      return;
+    }
+    await api.cancelWorkflow(workflowId);
+  }
+
+  async function startFromSelected() {
+    if (!workflowId || !selectedNodeId) {
+      return;
+    }
+    await saveWorkflow();
+    await api.executeFrom(workflowId, selectedNodeId);
+    setActiveBottomTab("logs");
+  }
+
+  async function cancelSelectedBlock() {
+    if (!workflowId || !selectedNodeId) {
+      return;
+    }
+    await api.cancelBlock(workflowId, selectedNodeId);
+  }
+
+  useEffect(() => {
+    if (bootedRef.current) {
+      return;
+    }
+    bootedRef.current = true;
+    void (async () => {
+      setBusy(true);
+      try {
+        await Promise.all([refreshProjects(), refreshBlocks()]);
+      } catch (error) {
+        setLastError((error as Error).message);
+      } finally {
+        setBusy(false);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!currentProject || !workflowDirty) {
+      return undefined;
+    }
+    const timeout = window.setTimeout(() => {
+      void saveWorkflow();
+    }, 800);
+    return () => window.clearTimeout(timeout);
+  }, [currentProject, workflowDirty, workflowPayload]);
+
+  useEffect(() => {
+    const listener = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void saveWorkflow();
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        undoWorkflow();
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") {
+        event.preventDefault();
+        redoWorkflow();
+      }
+      if ((event.key === "Delete" || event.key === "Backspace") && selectedNodeId) {
+        removeNode(selectedNodeId);
+      }
+    };
+    window.addEventListener("keydown", listener);
+    return () => window.removeEventListener("keydown", listener);
+  }, [redoWorkflow, removeNode, saveWorkflow, selectedNodeId, undoWorkflow]);
+
+  return (
+    <ReactFlowProvider>
+      <div className="flex h-screen flex-col bg-canvas text-stone-800">
+        <Toolbar
+          currentProject={currentProject}
+          onNewProject={() => openProjectDialog("new", { path: projectDialog.path })}
+          onOpenProject={() => openProjectDialog("open")}
+          onPause={() => void pauseWorkflow()}
+          onReloadBlocks={() => void refreshBlocks()}
+          onResume={() => void resumeWorkflow()}
+          onRun={() => void runWorkflow()}
+          onSave={() => void saveWorkflow()}
+          onStartFromSelected={() => void startFromSelected()}
+          onStop={() => void cancelWorkflow()}
+          onTogglePalette={togglePalette}
+          onTogglePreview={togglePreview}
+          selectedNodeId={selectedNodeId}
+          sseConnected={sseConnected}
+          workflowId={workflowId}
+          wsConnected={wsConnected}
+        />
+
+        {lastError ? (
+          <div className="border-b border-red-200 bg-red-50 px-5 py-3 text-sm text-red-700">{lastError}</div>
+        ) : null}
+
+        <div
+          className="grid min-h-0 flex-1"
+          style={{
+            gridTemplateColumns: paletteCollapsed ? "0px 1fr" : `${panelSizes.palette}px 1fr`,
+          }}
+        >
+          {paletteCollapsed ? null : (
+            <BlockPalette
+              blocks={blocks}
+              collapsed={paletteCollapsed}
+              onAddBlock={(block) => addNode(block, { x: 160, y: 160 })}
+              onReload={() => void refreshBlocks()}
+              onSearch={setPaletteSearch}
+              search={paletteSearch}
+            />
+          )}
+
+          {currentProject ? (
+            <div className="grid min-h-0" style={{ gridTemplateColumns: previewCollapsed ? "1fr" : `1fr ${panelSizes.preview}px` }}>
+              <div className="grid min-h-0 grid-rows-[1fr_auto]">
+                <WorkflowCanvas
+                  blockStates={blockStates}
+                  blocks={blocks.filter((block) => {
+                    const value = `${block.name} ${block.description} ${block.category}`.toLowerCase();
+                    return value.includes(paletteSearch.toLowerCase());
+                  })}
+                  edges={workflowEdges}
+                  nodes={workflowNodes}
+                  onAddNode={addNode}
+                  onConnect={async (edge) => {
+                    try {
+                      const sourceNode = workflowNodes.find((node) => node.id === edge.source.split(":")[0]);
+                      const targetNode = workflowNodes.find((node) => node.id === edge.target.split(":")[0]);
+                      if (!sourceNode || !targetNode) {
+                        return;
+                      }
+                      const sourcePort = edge.source.split(":")[1];
+                      const targetPort = edge.target.split(":")[1];
+                      const validation = await api.validateConnection({
+                        source_block: sourceNode.block_type,
+                        source_port: sourcePort,
+                        target_block: targetNode.block_type,
+                        target_port: targetPort,
+                      });
+                      if (!validation.compatible) {
+                        setLastError(validation.reason);
+                        return;
+                      }
+                      connectNodes(edge);
+                      setLastError(null);
+                    } catch (error) {
+                      setLastError((error as Error).message);
+                    }
+                  }}
+                  onDeleteEdge={removeEdge}
+                  onDeleteNode={removeNode}
+                  onSelectNode={setSelectedNodeId}
+                  onUpdateNodePosition={updateNodeLayout}
+                  schemas={blockSchemas}
+                  selectedNodeId={selectedNodeId}
+                />
+                <BottomPanel
+                  activeTab={activeBottomTab}
+                  chatMessages={chatMessages}
+                  collapsed={bottomPanelCollapsed}
+                  logEntries={logEntries}
+                  onSendChat={(message) => {
+                    const timestamp = new Date().toISOString();
+                    pushChatMessage({ id: `${timestamp}-user`, role: "user", content: message, timestamp });
+                    pushChatMessage({
+                      id: `${timestamp}-assistant`,
+                      role: "assistant",
+                      content: "Phase 9 will provide actual AI-backed generation, synthesis, and optimization. This Phase 8 tab is a persisted shell.",
+                      timestamp,
+                    });
+                  }}
+                  onTabChange={setActiveBottomTab}
+                  onToggle={toggleBottomPanel}
+                  onUpdateConfig={(patch) => {
+                    if (selectedNodeId) {
+                      updateNodeConfig(selectedNodeId, patch);
+                    }
+                  }}
+                  selectedNode={selectedNode}
+                  selectedSchema={selectedSchema}
+                />
+              </div>
+
+              {previewCollapsed ? null : (
+                <DataPreview
+                  blockOutputs={blockOutputs}
+                  onCancelSelected={() => void cancelSelectedBlock()}
+                  onLoadPreview={loadPreview}
+                  onStartFromHere={() => void startFromSelected()}
+                  previewCache={previewCache}
+                  previewLoading={previewLoading}
+                  selectedNodeId={selectedNodeId}
+                  selectedNodeLabel={selectedNodeLabel}
+                />
+              )}
+            </div>
+          ) : (
+            <WelcomeScreen
+              onNewProject={() => openProjectDialog("new")}
+              onOpenProject={() => openProjectDialog("open")}
+              onOpenRecent={(projectId) => void openProject(projectId)}
+              recentProjects={recentProjects}
+            />
+          )}
+        </div>
+
+        <ProjectDialog
+          description={projectDialog.description}
+          mode={projectDialog.mode}
+          name={projectDialog.name}
+          onChange={updateProjectDialog}
+          onClose={closeProjectDialog}
+          onOpenRecent={(projectId) => void openProject(projectId)}
+          onSubmit={() => void submitProjectDialog()}
+          open={projectDialogOpen}
+          path={projectDialog.path}
+          recentProjects={recentProjects}
+        />
+
+        {busy ? <div className="fixed bottom-4 right-4 rounded-full bg-ink px-4 py-2 text-sm text-white">Working…</div> : null}
+      </div>
+    </ReactFlowProvider>
+  );
+}

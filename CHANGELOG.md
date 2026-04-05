@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- [#159] Deliver Phase 7-8 project-first API and React workflow editor with live execution, previews, and frontend/backend test coverage (@Codex, 2026-04-05, branch: codex/phase7-8, session: 20260405-025125-phase-7-8-full-stack-delivery-api-layer)
+
 - [#61] Selective re-run logic — reset_block() with dependency chain validation (@claude, 2026-04-05, branch: feat/issue-61/selective-rerun, session: 20260405-010832-feat-selective-re-run-reset-block-in-dag)
 - [#48] Enforce JSON-serializable metadata on DataObject construction (@claude, 2026-04-04, branch: fix/batch-1/issues-59-57-58-48, session: 20260404-192842-batch-1-remove-inputdelivery-postprocess)
 
