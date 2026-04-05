@@ -2,6 +2,7 @@
 
 ADR-019: PlatformOps protocol + PosixOps + WindowsOps implementations.
 Isolates all OS-specific process management behind a single protocol.
+ADR-017: Job Object support for nested SubWorkflowBlock subprocess cleanup.
 """
 
 from __future__ import annotations
