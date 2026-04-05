@@ -283,6 +283,58 @@ class TestTerminateGraceSec:
         assert block.terminate_grace_sec == 10.0
 
 
+class TestValidateCollectionTransparency:
+    """Issue #129: Block.validate() correctly validates Collection inputs via item_type."""
+
+    def test_validate_collection_with_matching_item_type(self) -> None:
+        """Collection[Image] should pass validation for a port accepting Array."""
+        from scieasy.core.types.collection import Collection
+
+        block = _DummyBlock()
+        img = Image(shape=(10, 10), ndim=2, dtype="float64")
+        c = Collection([img])
+        # Collection[Image] -> port accepts Array -> Image is subtype of Array -> pass
+        assert block.validate({"image": c}) is True
+
+    def test_validate_collection_with_wrong_item_type(self) -> None:
+        """Collection[DataFrame] should fail validation for a port accepting Array."""
+        from scieasy.core.types.collection import Collection
+
+        block = _DummyBlock()
+        df = DataFrame(columns=["a"], row_count=1)
+        c = Collection([df])
+        with pytest.raises(ValueError, match="Collection item type"):
+            block.validate({"image": c})
+
+    def test_validate_collection_exact_item_type(self) -> None:
+        """Collection[Image] should pass validation for a port accepting Image."""
+        from scieasy.core.types.collection import Collection
+
+        class _ImageBlock(Block):
+            name: ClassVar[str] = "ImageOnly"
+            input_ports: ClassVar[list[InputPort]] = [
+                InputPort(name="img", accepted_types=[Image]),
+            ]
+            output_ports: ClassVar[list[OutputPort]] = []
+
+            def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+                return {}
+
+        block = _ImageBlock()
+        img = Image(shape=(5, 5), ndim=2, dtype="uint8")
+        c = Collection([img])
+        assert block.validate({"img": c}) is True
+
+    def test_validate_collection_empty_accepted_types(self) -> None:
+        """Collection should pass validation for a port accepting anything."""
+        from scieasy.core.types.collection import Collection
+
+        block = _EmptyAcceptBlock()
+        img = Image(shape=(5, 5), ndim=2, dtype="uint8")
+        c = Collection([img])
+        assert block.validate({"anything": c}) is True
+
+
 class TestCollectionUtilities:
     """ADR-020: pack(), unpack(), unpack_single(), map_items(), parallel_map()."""
 
