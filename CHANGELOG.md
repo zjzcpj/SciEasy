@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- [#52] BackendRouter -- type-to-backend mapping with MRO resolution for auto-flush (@claude, 2026-04-05, branch: fix/batch-a1/issues-127-49-52-67, session: 20260405-005036-wave-a1-implement-auto-flush-data-persis)
+- [#67] Storage path convention data/runs/{run_id}/{block_name}/ for intermediate outputs (@claude, 2026-04-05, branch: fix/batch-a1/issues-127-49-52-67, session: 20260405-005036-wave-a1-implement-auto-flush-data-persis)
+
+### Fixed
+
+- [#127] Implement _auto_flush() -- wire DataObject persistence via BackendRouter + flush_context (@claude, 2026-04-05, branch: fix/batch-a1/issues-127-49-52-67, session: 20260405-005036-wave-a1-implement-auto-flush-data-persis)
+- [#49] Implement DataObject.save() with get_in_memory_data() and BackendRouter integration (@claude, 2026-04-05, branch: fix/batch-a1/issues-127-49-52-67, session: 20260405-005036-wave-a1-implement-auto-flush-data-persis)
+
 ### Removed
 
 - [#59] Remove InputDelivery enum — MEMORY-only delivery via ADR-020 Collection auto-unpack (@claude, 2026-04-04, branch: fix/batch-1/issues-59-57-58-48, session: 20260404-192842-batch-1-remove-inputdelivery-postprocess)
