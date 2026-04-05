@@ -67,6 +67,11 @@ class FilesystemBackend:
             metadata=metadata,
         )
 
+    def write_from_memory(self, data: Any, path: str) -> StorageReference:
+        """Write raw in-memory str/bytes data to the filesystem at *path*."""
+        ref = StorageReference(backend="filesystem", path=path)
+        return self.write(data, ref)
+
     def slice(self, ref: StorageReference, *args: Any) -> Any:
         """Return a byte-range slice from *ref*.
 

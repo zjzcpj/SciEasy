@@ -118,6 +118,11 @@ class CompositeStore:
             metadata=metadata,
         )
 
+    def write_from_memory(self, data: Any, path: str) -> StorageReference:
+        """Write raw in-memory composite data to a directory at *path*."""
+        ref = StorageReference(backend="composite", path=path)
+        return self.write(data, ref)
+
     def slice(self, ref: StorageReference, *args: Any) -> Any:
         """Return a subset of slots from the composite at *ref*.
 

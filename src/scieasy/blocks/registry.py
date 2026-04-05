@@ -188,6 +188,7 @@ def _spec_from_class(cls: type, source: str = "") -> BlockSpec:
 def _infer_category(cls: type) -> str:
     """Infer the block category from the class hierarchy."""
     # Lazy imports to avoid circular dependencies.
+    from scieasy.blocks.ai.ai_block import AIBlock
     from scieasy.blocks.app.app_block import AppBlock
     from scieasy.blocks.code.code_block import CodeBlock
     from scieasy.blocks.io.io_block import IOBlock
@@ -204,4 +205,6 @@ def _infer_category(cls: type) -> str:
         return "app"
     if issubclass(cls, SubWorkflowBlock):
         return "subworkflow"
+    if issubclass(cls, AIBlock):
+        return "ai"
     return "unknown"

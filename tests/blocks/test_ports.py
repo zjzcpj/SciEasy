@@ -190,3 +190,20 @@ class TestCollectionTransparency:
         img = Image(shape=(5, 5), ndim=2, dtype="uint8")
         c = Collection([img])
         assert port_accepts_type(port, c)
+
+    def test_collection_type_object_does_not_match(self) -> None:
+        """Issue #129: passing type(collection) instead of instance fails.
+
+        This documents the old bug — Block.validate() was calling
+        port_accepts_type(port, type(value)) which passes the Collection
+        *class*, not a Collection *instance*. The isinstance check in
+        port_accepts_type() correctly requires an instance.
+        """
+        from scieasy.core.types.collection import Collection
+
+        port = InputPort(name="in", accepted_types=[Image])
+        img = Image(shape=(5, 5), ndim=2, dtype="uint8")
+        c = Collection([img])
+        # type(c) is the Collection class, not a Collection instance
+        # This should NOT match — Collection class is not a subclass of Image
+        assert not port_accepts_type(port, type(c))
