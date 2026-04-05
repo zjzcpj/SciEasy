@@ -79,6 +79,43 @@ class TestZarrBackend:
         meta = backend.get_metadata(result_ref)
         assert meta["axes"] == ["y", "x"]
 
+    def test_zarr_write_atomic_no_partial_on_failure(self, tmp_path: Path) -> None:
+        """If write fails mid-way, no partial .zarr directory remains at target path."""
+        backend = ZarrBackend()
+        target = str(tmp_path / "test_atomic.zarr")
+        ref = StorageReference(backend="zarr", path=target)
+
+        with pytest.raises((TypeError, ValueError)):
+            # object() will fail during np.asarray or z[:] = arr
+            backend.write(object(), ref)
+
+        assert not Path(target).exists(), "Partial .zarr directory should not remain"
+
+    def test_zarr_write_atomic_overwrites_existing(self, tmp_path: Path) -> None:
+        """Atomic write replaces old data cleanly."""
+        backend = ZarrBackend()
+        target = str(tmp_path / "overwrite.zarr")
+        ref = StorageReference(backend="zarr", path=target)
+
+        old_data = np.zeros((3, 3), dtype="float32")
+        backend.write(old_data, ref)
+
+        new_data = np.ones((5, 5), dtype="float64")
+        result_ref = backend.write(new_data, ref)
+
+        loaded = backend.read(result_ref)
+        np.testing.assert_array_equal(loaded, new_data)
+
+    def test_zarr_write_atomic_no_temp_dirs_remain(self, tmp_path: Path) -> None:
+        """After successful write, no .zarr_tmp_ directories remain."""
+        backend = ZarrBackend()
+        target = str(tmp_path / "clean.zarr")
+        ref = StorageReference(backend="zarr", path=target)
+
+        backend.write(np.arange(10), ref)
+        tmp_dirs = list(tmp_path.glob(".zarr_tmp_*"))
+        assert tmp_dirs == [], f"Leftover temp dirs: {tmp_dirs}"
+
     def test_axes_roundtrip_via_viewproxy(self, tmp_path: Path) -> None:
         """ViewProxy.axes returns correct axes after Zarr round-trip."""
         from scieasy.core.proxy import ViewProxy

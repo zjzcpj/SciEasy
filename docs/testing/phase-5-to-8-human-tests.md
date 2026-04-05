@@ -1016,6 +1016,12 @@ scieasy run /tmp/scieasy_test/pipeline.yaml
 
 ---
 
+> **Current project requirement**: Phase 7 workflow and data routes are scoped to
+> the currently opened project. Before running any workflow CRUD/execution or
+> data upload test below, first create or open a project with `POST
+> /api/projects/` (or `GET /api/projects/{id}`) so the API has an active
+> workspace context.
+
 ## P7-H01: FastAPI Server Starts
 
 **What**: Verify the API server starts and responds.
@@ -1273,6 +1279,13 @@ curl -s -X POST http://localhost:8000/api/blocks/validate-connection \
 # PHASE 8: Frontend
 
 ---
+
+> **Phase 8 UI notes**:
+> - The welcome screen is the entry point when no project is open.
+> - "Open Project" uses manual path entry in the browser UI rather than a native
+>   file picker.
+> - The AI Chat tab is a persisted Phase 8 shell; real AI-backed generation,
+>   synthesis, and optimization remain Phase 9 work.
 
 ## P8-H01: Frontend Dev Server Starts
 

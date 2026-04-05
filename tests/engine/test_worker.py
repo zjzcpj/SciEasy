@@ -98,6 +98,18 @@ class TestSerialiseOutputs:
         # Should fall back to str()
         assert "data" in result
 
+    def test_serialise_collection_with_none_item_type(self) -> None:
+        """Collection with item_type=None should not crash the worker (#168)."""
+        from scieasy.core.types.collection import Collection
+
+        col = Collection.__new__(Collection)
+        col._items = []
+        col._item_type = None  # type: ignore[assignment]
+
+        result = serialise_outputs({"output": col}, "/tmp/out")
+        assert result["output"]["_collection"] is True
+        assert result["output"]["item_type"] == "DataObject"
+
     def test_empty_outputs(self) -> None:
         result = serialise_outputs({}, "")
         assert result == {}

@@ -120,7 +120,6 @@ def validate_workflow(
     if registry is None:
         return errors
 
-    specs = registry.all_specs()
     node_map = {node.id: node for node in workflow.nodes}
 
     # ------------------------------------------------------------------
@@ -140,7 +139,7 @@ def validate_workflow(
         if src_node is None or tgt_node is None:
             continue  # already reported in Check 3
 
-        src_spec = specs.get(src_node.block_type)
+        src_spec = registry.get_spec(src_node.block_type)
         if src_spec is None:
             errors.append(
                 f"Warning: block type '{src_node.block_type}' not in registry, "
@@ -148,7 +147,7 @@ def validate_workflow(
             )
             continue
 
-        tgt_spec = specs.get(tgt_node.block_type)
+        tgt_spec = registry.get_spec(tgt_node.block_type)
         if tgt_spec is None:
             errors.append(
                 f"Warning: block type '{tgt_node.block_type}' not in registry, "
@@ -184,7 +183,7 @@ def validate_workflow(
                 connected_inputs[tgt_node_id].add(tgt_port_name)
 
     for node in workflow.nodes:
-        spec: BlockSpec | None = specs.get(node.block_type)
+        spec: BlockSpec | None = registry.get_spec(node.block_type)
         if spec is None:
             continue  # unknown block type — already warned in Check 5
 

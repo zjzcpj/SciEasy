@@ -226,6 +226,7 @@ def blocks() -> None:
 @app.command()
 def serve(host: str = "0.0.0.0", port: int = 8000) -> None:
     """Start the FastAPI server."""
+    import uvicorn
+
     typer.echo(f"Starting SciEasy server on {host}:{port}...")
-    typer.echo("Full API server implementation coming in Phase 7.")
-    typer.echo("For now, use 'scieasy validate' and 'scieasy run' for headless workflows.")
+    uvicorn.run("scieasy.api.app:create_app", host=host, port=port, factory=True)
