@@ -141,7 +141,7 @@ class TestAppBlockExchangeDir:
         from scieasy.blocks.base.state import BlockState
 
         block = AppBlock()
-        # Simulate scheduler: IDLE -> READY -> RUNNING before run().
+        # Transition to RUNNING so run() can transition to PAUSED.
         block.transition(BlockState.READY)
         block.transition(BlockState.RUNNING)
 
@@ -196,7 +196,7 @@ class TestAppBlockExchangeDir:
         from scieasy.blocks.base.state import BlockState
 
         block = AppBlock()
-        # Simulate scheduler: IDLE -> READY -> RUNNING before run().
+        # Transition to RUNNING so run() can transition to PAUSED.
         block.transition(BlockState.READY)
         block.transition(BlockState.RUNNING)
 

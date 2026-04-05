@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [#120] Unwrap subprocess output envelope in LocalRunner so downstream sees port names at top level (@claude, 2026-04-05, branch: fix/batch-a3/issues-120-132-122, session: 20260405-014138-fix-subprocess-runner-output-pipeline-12)
 - [#132] Preserve TypeSignature type_chain across subprocess boundary in worker serialization/reconstruction (@claude, 2026-04-05, branch: fix/batch-a3/issues-120-132-122, session: 20260405-014138-fix-subprocess-runner-output-pipeline-12)
 - [#122] Fix unawaited async emit() in spawn_block_process by scheduling via create_task (@claude, 2026-04-05, branch: fix/batch-a3/issues-120-132-122, session: 20260405-014138-fix-subprocess-runner-output-pipeline-12)
+- [#128] Remove self.transition() calls from Block.run() methods — state management is scheduler responsibility, not block (@claude, 2026-04-05, branch: fix/issue-128/remove-block-self-transition)
 - [#119] Inject BlockRegistry into DAGScheduler — resolve NodeDef.block_type to Block instance before dispatch (@claude, 2026-04-05, branch: fix/batch-a2/issues-119-121, session: 20260405-003357-wave-a2-inject-blockregistry-into-dagsch)
 - [#121] Pass BlockRegistry to CLI validate/run commands — enable type-compatibility and dangling-port checks (@claude, 2026-04-05, branch: fix/batch-a2/issues-119-121, session: 20260405-003357-wave-a2-inject-blockregistry-into-dagsch)
 ### Added
@@ -46,6 +47,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- [#61] Selective re-run logic — reset_block() with dependency chain validation (@claude, 2026-04-05, branch: feat/issue-61/selective-rerun, session: 20260405-010832-feat-selective-re-run-reset-block-in-dag)
+- [#60] SubWorkflowBlock nested subprocess cleanup — SIGTERM callback and Windows Job Object (@claude, 2026-04-05, branch: feat/issue-60/subworkflow-cleanup, session: 20260405-010910-feat-subworkflowblock-nested-subprocess)
 - [#65] FastAPI lifespan shutdown terminates block subprocesses via ProcessRegistry (@claude, 2026-04-05, branch: feat/issue-65/fastapi-lifespan-shutdown, session: 20260405-010805-feat-fastapi-lifespan-shutdown-processre)
 - [#54] Capture EnvironmentSnapshot inside subprocess for accurate lineage data (@claude, 2026-04-05, branch: feat/issue-54/env-snapshot-subprocess, session: 20260405-005852-feat-capture-environmentsnapshot-in-subp)
 - [#62] Checkpoint intermediate_refs Collection serialization for resume support (@claude, 2026-04-05, branch: feat/issue-62/checkpoint-collection-refs, session: 20260405-005921-feat-checkpoint-intermediate-refs-collec)
