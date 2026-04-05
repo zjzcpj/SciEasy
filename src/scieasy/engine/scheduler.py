@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from scieasy.blocks.registry import BlockRegistry
 from scieasy.engine.dag import build_dag, topological_sort
@@ -30,6 +30,9 @@ from scieasy.engine.events import (
 )
 from scieasy.engine.resources import ResourceRequest
 from scieasy.workflow.definition import WorkflowDefinition
+
+if TYPE_CHECKING:
+    from scieasy.blocks.registry import BlockRegistry
 
 logger = logging.getLogger(__name__)
 

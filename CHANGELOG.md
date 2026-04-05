@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- [#119] Inject BlockRegistry into DAGScheduler — resolve NodeDef.block_type to Block instance before dispatch (@claude, 2026-04-05, branch: fix/batch-a2/issues-119-121, session: 20260405-003357-wave-a2-inject-blockregistry-into-dagsch)
+- [#121] Pass BlockRegistry to CLI validate/run commands — enable type-compatibility and dangling-port checks (@claude, 2026-04-05, branch: fix/batch-a2/issues-119-121, session: 20260405-003357-wave-a2-inject-blockregistry-into-dagsch)
 ### Added
 
 - [#127] Auto-flush data persistence pipeline: BackendRouter MRO resolution, flush_context, DataObject.save() with idempotency, _auto_flush() safety net (@claude, 2026-04-05, branch: fix/batch-a1/issues-127-49-52-67)
@@ -21,11 +25,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - [#123] Update Block.run() signature from dict[str, Any] to dict[str, Collection] across base + all subclasses, add architecture test; wrap MergeBlock/SplitBlock outputs in Collection (@claude, 2026-04-05, branch: fix/issue-123/block-run-collection-signature, session: 20260405-002441-issue-123-block-run-signature-dict-str-a)
+- [#126] Sync ARCHITECTURE.md run() signature and ADR-017/018 status (@claude, 2026-04-05, branch: docs/issue-126/docs-sync-adr-architecture, session: 20260405-003356-docs-sync-architecture-md-and-adr-status)
+- [#123] Update Block.run() signature from dict[str, Any] to dict[str, Collection] across base + all subclasses, add architecture test (@claude, 2026-04-05, branch: fix/issue-123/block-run-collection-signature, session: 20260405-002441-issue-123-block-run-signature-dict-str-a)
 - [#57] Update Block.postprocess() type annotation to dict[str, Collection] (@claude, 2026-04-04, branch: fix/batch-1/issues-59-57-58-48, session: 20260404-192842-batch-1-remove-inputdelivery-postprocess)
 - [#58] Document that port constraint functions receive Collection objects (@claude, 2026-04-04, branch: fix/batch-1/issues-59-57-58-48, session: 20260404-192842-batch-1-remove-inputdelivery-postprocess)
+- [#124] Distinguish planned vs existing files in PROJECT_TREE.md (@claude, 2026-04-05, branch: docs/issue-124/project-tree-clarity, session: 20260405-003343-docs-project-tree-md-planned-vs-existing)
+
+### Fixed
+
+- [#51] Atomic write for FilesystemBackend; document Zarr/Composite write atomicity risks (@claude, 2026-04-05, branch: fix/issue-51/storage-write-atomicity, session: 20260405-004830-fix-storage-write-atomicity-on-cancel-cr)
+
+### Fixed
+
+- [#68] Move AppBlock exchange directory from system temp to project workspace (@claude, 2026-04-05, branch: fix/issue-68/appblock-exchange-dir, session: 20260405-004749-fix-appblock-exchange-dir-in-project-wor)
 
 ### Added
 
+- [#72] ResourceRequest max_internal_workers for accurate CPU accounting with parallel_map (@claude, 2026-04-05, branch: feat/issue-72/resource-request-workers, session: 20260405-005829-feat-resourcerequest-max-internal-worker)
+- [#76] broadcast_apply memory guard, Array.__array__() protocol, in-memory scope docs (@claude, 2026-04-05, branch: feat/issue-76/broadcast-apply-improvements, session: 20260405-004843-feat-broadcast-apply-memory-guard-array)
 - [#133] Add example workflow YAML files for CLI testing — raman_preprocessing, simple_merge, image_pipeline (@claude, 2026-04-05, branch: chore/issue-133/example-workflows, session: 20260405-002958-add-example-workflow-yaml-files-for-cli)
 - [#48] Enforce JSON-serializable metadata on DataObject construction (@claude, 2026-04-04, branch: fix/batch-1/issues-59-57-58-48, session: 20260404-192842-batch-1-remove-inputdelivery-postprocess)
 
@@ -112,6 +129,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#70] AppBlock command injection guard + FileWatcher TOCTOU stability check (@claude, 2026-04-05, branch: fix/issue-70/appblock-security, session: 20260405-004432-fix-p1-appblock-command-injection-toctou)
 - [#129] Fix port_accepts_type() Collection transparency bug in Block.validate() — pass Collection instance directly instead of type(value) (@claude, 2026-04-05, branch: fix/issue-129/port-accepts-type-collection, session: 20260405-004832-issue-129-fix-port-accepts-type-collecti)
 - [#53] Normalize StorageReference.path to POSIX forward-slash format (@claude, 2026-04-05, branch: fix/issue-53/storage-ref-posix-paths, session: 20260405-004909-issue-53-storagereference-posix-path-nor)
 - [#130] Filter original namespace keys and imported modules from PythonRunner.execute_inline() output (@claude, 2026-04-05, branch: fix/issue-130/python-runner-namespace-filter, session: 20260405-004852-issue-130-pythonrunner-execute-inline-fi)
