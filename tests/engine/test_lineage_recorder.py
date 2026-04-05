@@ -30,9 +30,7 @@ class TestLineageRecorder:
         """Emit BLOCK_DONE -> LineageStore.write() called with termination='completed'."""
         _recorder, bus, store = _make_recorder()
 
-        asyncio.run(
-            bus.emit(EngineEvent(event_type=BLOCK_DONE, block_id="A", data={"outputs": {}}))
-        )
+        asyncio.run(bus.emit(EngineEvent(event_type=BLOCK_DONE, block_id="A", data={"outputs": {}})))
 
         assert store is not None
         store.write.assert_called_once()
@@ -64,9 +62,7 @@ class TestLineageRecorder:
         """Emit BLOCK_CANCELLED -> termination='cancelled'."""
         _recorder, bus, store = _make_recorder()
 
-        asyncio.run(
-            bus.emit(EngineEvent(event_type=BLOCK_CANCELLED, block_id="C"))
-        )
+        asyncio.run(bus.emit(EngineEvent(event_type=BLOCK_CANCELLED, block_id="C")))
 
         assert store is not None
         store.write.assert_called_once()
@@ -77,9 +73,7 @@ class TestLineageRecorder:
         """Emit BLOCK_SKIPPED -> termination='skipped'."""
         _recorder, bus, store = _make_recorder()
 
-        asyncio.run(
-            bus.emit(EngineEvent(event_type=BLOCK_SKIPPED, block_id="D"))
-        )
+        asyncio.run(bus.emit(EngineEvent(event_type=BLOCK_SKIPPED, block_id="D")))
 
         assert store is not None
         store.write.assert_called_once()
@@ -91,18 +85,14 @@ class TestLineageRecorder:
         _recorder, bus, _store = _make_recorder(with_store=False)
 
         # Should not raise
-        asyncio.run(
-            bus.emit(EngineEvent(event_type=BLOCK_DONE, block_id="A", data={"outputs": {}}))
-        )
+        asyncio.run(bus.emit(EngineEvent(event_type=BLOCK_DONE, block_id="A", data={"outputs": {}})))
 
     def test_duration_computed(self) -> None:
         """Call record_start, then emit BLOCK_DONE -> duration_ms > 0."""
         recorder, bus, store = _make_recorder()
         recorder.record_start("X")
 
-        asyncio.run(
-            bus.emit(EngineEvent(event_type=BLOCK_DONE, block_id="X", data={"outputs": {}}))
-        )
+        asyncio.run(bus.emit(EngineEvent(event_type=BLOCK_DONE, block_id="X", data={"outputs": {}})))
 
         assert store is not None
         store.write.assert_called_once()
@@ -116,9 +106,7 @@ class TestLineageRecorder:
         store.write.side_effect = RuntimeError("DB error")
 
         # Should not raise
-        asyncio.run(
-            bus.emit(EngineEvent(event_type=BLOCK_DONE, block_id="A", data={"outputs": {}}))
-        )
+        asyncio.run(bus.emit(EngineEvent(event_type=BLOCK_DONE, block_id="A", data={"outputs": {}})))
 
     def test_none_block_id_is_noop(self) -> None:
         """Events without block_id should be ignored."""
