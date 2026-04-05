@@ -123,7 +123,6 @@ class TestWorkerMain:
         import json
         import subprocess
         import sys
-        import textwrap
 
         # Create a minimal block that returns a scalar output.
         # The worker expects block_class as a dotted path that can be imported.
