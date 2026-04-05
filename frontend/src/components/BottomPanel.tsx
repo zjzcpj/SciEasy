@@ -5,16 +5,25 @@ import type { BottomTab } from "../types/ui";
 
 interface BottomPanelProps {
   activeTab: BottomTab;
-  collapsed: boolean;
   selectedNode: WorkflowNode | null;
   selectedSchema?: BlockSchemaResponse;
   chatMessages: ChatMessage[];
   logEntries: LogEntry[];
   onTabChange: (tab: BottomTab) => void;
-  onToggle: () => void;
   onUpdateConfig: (patch: Record<string, unknown>) => void;
   onSendChat: (message: string) => void;
 }
+
+const TAB_LABELS: Record<BottomTab, string> = {
+  ai: "\u{1F4AC} AI Chat",
+  config: "\u{1F4CB} Config",
+  logs: "\u{1F4DC} Logs",
+  lineage: "\u{1F517} Lineage",
+  jobs: "\u{1F4CA} Jobs",
+  problems: "\u26A0 Problems",
+};
+
+const ALL_TABS: BottomTab[] = ["ai", "config", "logs", "lineage", "jobs", "problems"];
 
 function ConfigPanel({
   selectedNode,
@@ -154,53 +163,54 @@ function LogViewer({ entries }: { entries: LogEntry[] }) {
   );
 }
 
+function PlaceholderTab() {
+  return (
+    <div className="flex h-full items-center justify-center">
+      <p className="text-sm text-stone-400">Coming in Phase 8.5</p>
+    </div>
+  );
+}
+
 export function BottomPanel({
   activeTab,
-  collapsed,
   selectedNode,
   selectedSchema,
   chatMessages,
   logEntries,
   onTabChange,
-  onToggle,
   onUpdateConfig,
   onSendChat,
 }: BottomPanelProps) {
-  const tabs: BottomTab[] = ["ai", "config", "logs"];
-
   return (
-    <section className="border-t border-stone-200 bg-[linear-gradient(180deg,_rgba(255,255,255,0.94),_rgba(238,231,219,0.98))]">
-      <div className="flex items-center justify-between gap-3 px-4 py-3">
+    <section className="flex h-full flex-col overflow-hidden bg-[linear-gradient(180deg,_rgba(255,255,255,0.94),_rgba(238,231,219,0.98))]">
+      <div className="flex items-center gap-3 border-b border-stone-200 px-4 py-3">
         <div className="flex gap-2">
-          {tabs.map((tab) => (
+          {ALL_TABS.map((tab) => (
             <button
               className={`rounded-full px-4 py-2 text-sm font-medium ${activeTab === tab ? "bg-ink text-white" : "bg-white text-stone-600"}`}
               key={tab}
               onClick={() => onTabChange(tab)}
               type="button"
             >
-              {tab === "ai" ? "AI Chat" : tab === "config" ? "Config" : "Logs"}
+              {TAB_LABELS[tab]}
             </button>
           ))}
         </div>
-        <button className="toolbar-button" onClick={onToggle} type="button">
-          {collapsed ? "Expand" : "Collapse"}
-        </button>
       </div>
 
-      {collapsed ? null : (
-        <div className="h-[280px] overflow-hidden px-4 pb-4">
-          <div className="h-full rounded-[1.8rem] border border-stone-200 bg-white/80 p-4">
-            {activeTab === "ai" ? (
-              <AIChat messages={chatMessages} onSendChat={onSendChat} />
-            ) : activeTab === "config" ? (
-              <ConfigPanel onUpdateConfig={onUpdateConfig} schema={selectedSchema} selectedNode={selectedNode} />
-            ) : (
-              <LogViewer entries={logEntries} />
-            )}
-          </div>
+      <div className="min-h-0 flex-1 overflow-hidden px-4 py-4">
+        <div className="h-full rounded-[1.8rem] border border-stone-200 bg-white/80 p-4">
+          {activeTab === "ai" ? (
+            <AIChat messages={chatMessages} onSendChat={onSendChat} />
+          ) : activeTab === "config" ? (
+            <ConfigPanel onUpdateConfig={onUpdateConfig} schema={selectedSchema} selectedNode={selectedNode} />
+          ) : activeTab === "logs" ? (
+            <LogViewer entries={logEntries} />
+          ) : (
+            <PlaceholderTab />
+          )}
         </div>
-      )}
+      </div>
     </section>
   );
 }

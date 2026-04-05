@@ -4,6 +4,31 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 20 8% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 20 8% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 20 8% 10%;
+    --primary: 20 8% 10%;
+    --primary-foreground: 60 9% 98%;
+    --secondary: 20 5% 90%;
+    --secondary-foreground: 20 8% 10%;
+    --muted: 20 5% 90%;
+    --muted-foreground: 20 4% 46%;
+    --accent: 20 5% 90%;
+    --accent-foreground: 20 8% 10%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 60 9% 98%;
+    --border: 20 6% 83%;
+    --input: 20 6% 83%;
+    --ring: 20 8% 10%;
+    --radius: 0.5rem;
+  }
+}
+
 :root {
   color: #1c211b;
   background:
