@@ -162,6 +162,6 @@ class DataObject:
         backend_name, backend = get_router().resolve(type(self))
         data = self.get_in_memory_data()
         ref = StorageReference(backend=backend_name, path=path_str)
-        result_ref = backend.write(data, ref)
+        result_ref: StorageReference = backend.write(data, ref)
         self._storage_ref = result_ref
         return result_ref
