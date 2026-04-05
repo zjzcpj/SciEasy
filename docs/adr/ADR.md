@@ -3191,15 +3191,58 @@ When a user opens the GUI with no existing projects, the frontend shows a Welcom
 - `pyproject.toml` must include a build hook or CI step for frontend compilation
 - Frontend must use relative paths for all assets (no hardcoded `localhost:5173`)
 
-### Impact on files
+### Detailed impact scope
 
-| File | Change |
-|------|--------|
-| `src/scieasy/cli/main.py` | Add `gui` command |
-| `src/scieasy/api/app.py` | Add static file mount with SPA fallback |
-| `pyproject.toml` | Add package-data for `api/static/` |
-| `.github/workflows/ci.yml` | Add frontend build step to release workflow |
-| `frontend/vite.config.ts` | Set `base: "./"` for relative asset paths |
+#### New files
+
+| File | Contents |
+|---|---|
+| `src/scieasy/api/static/` | Directory containing pre-built React frontend output (`index.html`, `assets/`). Created by `npm run build` during CI release step, included in wheel as package data. Not committed to git — `.gitignore`'d. |
+| `src/scieasy/api/spa.py` | SPA fallback middleware: subclass of `StaticFiles` that returns `index.html` for any path not matching a real file. ~30 lines. Required because FastAPI's `StaticFiles(html=True)` only serves `index.html` for `/`, not for deep SPA routes like `/projects/123/workflows`. |
+| `tests/api/test_spa_fallback.py` | Tests: (1) `/api/...` routes are NOT intercepted by SPA. (2) `/ws` is NOT intercepted. (3) Unknown paths like `/projects/foo` return `index.html`. (4) Static assets (`/assets/main.js`) are served directly. |
+
+#### Modified files — Layer 5 (API)
+
+| File | Changes |
+|---|---|
+| `src/scieasy/api/app.py` | **Add** import `from pathlib import Path`. **Add** import `from scieasy.api.spa import SPAStaticFiles`. **Add** static file mount at the END of `create_app()` (after all API routers and WebSocket): `static_dir = Path(__file__).parent / "static"` → `if static_dir.exists(): app.mount("/", SPAStaticFiles(directory=static_dir, html=True))`. Must be registered AFTER all `/api/*` and `/ws` routes (line 49, before `return app`). **No changes** to `_lifespan`, CORS, or existing route registration. |
+
+#### Modified files — Layer 6 (CLI)
+
+| File | Changes |
+|---|---|
+| `src/scieasy/cli/main.py` | **Add** new `gui` command (after line 231, after existing `serve` command). Implementation: `@app.command() def gui(port: int = typer.Option(8000), no_browser: bool = typer.Option(False))` → starts uvicorn with `create_app` factory + opens browser via `threading.Timer(1.5, webbrowser.open, [url])`. **Add** imports: `threading`, `webbrowser` (inside function body to avoid top-level cost). **Update** existing `serve` command (lines 226–231): replace placeholder echo with actual uvicorn start: `uvicorn.run("scieasy.api.app:create_app", factory=True, host=host, port=port)`. |
+
+#### Modified files — Build & CI
+
+| File | Changes |
+|---|---|
+| `pyproject.toml` | **Add** `[tool.setuptools.package-data]` section: `scieasy = ["api/static/**/*"]` to include pre-built frontend in wheel. No change to `[tool.setuptools.packages.find]` (line 79–80) — `where = ["src"]` already picks up the `api/` package. |
+| `.github/workflows/ci.yml` | **Add** a `build-frontend` job (runs before `build-wheel`): `cd frontend && npm ci && npm run build && cp -r dist/ ../src/scieasy/api/static/`. This job runs only on release tags (not on every PR). **Add** `needs: build-frontend` to the wheel/publish job so static files are available at wheel build time. |
+| `.gitignore` | **Add** `src/scieasy/api/static/` to prevent committing build artifacts. Developers use `npm run dev` (Vite dev server) during development, not pre-built files. |
+
+#### Modified files — Frontend
+
+| File | Changes |
+|---|---|
+| `frontend/vite.config.ts` | **Add** (file may need to be created if not present): `export default defineConfig({ base: "./" })` to ensure all asset paths in the built output are relative (e.g., `./assets/main.js` not `/assets/main.js`). This is required for the SPA to work when served from any path prefix. |
+| `frontend/package.json` | **Update** `"build"` script to output to `dist/` (Vite default). No path changes needed if already using default `vite build`. |
+
+#### Modified files — Documentation
+
+| File | Changes |
+|---|---|
+| `docs/architecture/ARCHITECTURE.md` | **Update** Section 7 (API layer): add paragraph describing static file serving and SPA fallback. Note that `/api/*` and `/ws` are reserved prefixes; all other paths serve the frontend. |
+| `docs/architecture/PROJECT_TREE.md` | **Add** `api/spa.py` entry under `src/scieasy/api/` with annotation "SPA fallback: serves index.html for non-API routes". **Add** `api/static/` entry with annotation "(build artifact, not in git)". |
+| `docs/adr/ADR.md` | This ADR (ADR-024). |
+| `CHANGELOG.md` | **Add** entry under `[Unreleased]` → `### Added`. |
+
+#### Modified files — Tests
+
+| File | Changes |
+|---|---|
+| `tests/cli/test_cli.py` | **Add** tests for `gui` command: (1) `--help` prints usage. (2) Command with `--no-browser` starts uvicorn (mock uvicorn.run, verify called with correct args). (3) Default port is 8000. |
+| `tests/api/test_app.py` | **Add** test: `create_app()` does NOT mount static files when `api/static/` directory does not exist (development mode). |
 
 ---
 
@@ -3402,14 +3445,57 @@ Domain-specific blocks (imaging, genomics, etc.) are distributed as separate pac
 - No changes to the execution engine — blocks run the same regardless of origin
 - BlockRegistry needs minor refactoring to support PackageInfo and two-level categorization
 
-### Impact on files
+### Detailed impact scope
 
-| File | Change |
-|------|--------|
-| `src/scieasy/blocks/base/__init__.py` | Add `PackageInfo` dataclass |
-| `src/scieasy/blocks/registry.py` | Refactor `_scan_tier2()` for `(PackageInfo, list)` return, add package tracking |
-| `src/scieasy/core/types/registry.py` | Add `_scan_entrypoint_types()` |
-| `src/scieasy/blocks/io/adapter_registry.py` | Add `_scan_entrypoint_adapters()` (new file or extend existing) |
+#### New files
+
+| File | Contents |
+|---|---|
+| `src/scieasy/blocks/base/package_info.py` | `PackageInfo` dataclass with fields: `name: str`, `description: str = ""`, `author: str = ""`, `version: str = "0.1.0"`. Kept in a separate file (not `block.py`) to avoid circular imports when external packages import it for registration. |
+| `tests/blocks/test_package_discovery.py` | Tests for the full entry-point discovery pipeline: (1) `get_blocks()` returning `(PackageInfo, list[Block])` tuple is parsed correctly. (2) `get_blocks()` returning plain `list[Block]` (backward compat) uses entry-point name as package name. (3) `get_types()` registers custom types into TypeRegistry. (4) `get_adapters()` registers adapters with correct extension mappings. (5) External adapter does not override built-in extensions. |
+
+#### Modified files — Layer 2 (Block System)
+
+| File | Changes |
+|---|---|
+| `src/scieasy/blocks/base/__init__.py` | **Add** import and re-export: `from scieasy.blocks.base.package_info import PackageInfo` (after line 5). **Add** `"PackageInfo"` to `__all__` list (line 23–37). |
+| `src/scieasy/blocks/registry.py` | **Add** `import logging` and `logger = logging.getLogger(__name__)` at module level (after line 17). **Add** `package_name: str = ""` field to `BlockSpec` dataclass (after line 39, for GUI grouping). **Update** `BlockRegistry.__init__()` (line 52–54): **Add** `self._packages: dict[str, PackageInfo] = {}` to track registered package metadata. **Rewrite** `_scan_tier2()` (lines 101–121): load entry-point, call the callable, detect return type — if `tuple` of `(PackageInfo, list)`, extract package info and register each block with `block_spec.package_name = info.name`; if plain `list`, use `ep.name` as fallback package name. **Add** `logger.warning(...)` in all 3 exception handlers (lines 97, 107–108, 120–121) — this overlaps with issue #169 fix. **Add** `def packages(self) -> dict[str, PackageInfo]` public method for GUI to query available packages and their metadata. **Add** `def specs_by_package(self) -> dict[str, list[BlockSpec]]` method returning blocks grouped by `package_name` for the block palette two-level hierarchy. |
+| `src/scieasy/blocks/registry.py` → `BlockSpec` | **Add** `package_name: str = ""` field to the dataclass (line 39). Populated during Tier 2 scan from `PackageInfo.name` or entry-point name. |
+
+#### Modified files — Layer 1 (Data Foundation)
+
+| File | Changes |
+|---|---|
+| `src/scieasy/core/types/registry.py` | **Add** `import importlib.metadata` (after line 9). **Add** `import logging` and `logger = logging.getLogger(__name__)` at module level. **Add** `_scan_entrypoint_types()` method to `TypeRegistry` class (after `scan_builtins()`, line 108): iterates `entry_points(group="scieasy.types")`, calls each callable, registers returned type classes via `self.register()`. Uses `try/except` with `logger.warning(...)` for robustness. **Update** `scan_builtins()` (line 67): optionally call `self._scan_entrypoint_types()` at the end, or provide a separate `scan_all()` method that calls both. |
+
+#### Modified files — Layer 2 (IO Subsystem)
+
+| File | Changes |
+|---|---|
+| `src/scieasy/blocks/io/adapter_registry.py` | **Add** `import logging` and `logger = logging.getLogger(__name__)` at module level (after line 6). **Update** `scan_entry_points()` (lines 49–65): **Add** priority enforcement — external adapters registered with `_register_external()` that skips extensions already claimed by `register_defaults()`. This prevents external packages from silently overriding `.csv`, `.parquet`, `.tiff`, `.zarr` handling. **Add** `logger.warning(...)` in exception handler (line 64) instead of bare `continue`. **Add** `logger.info("Registered external adapter %s for %s", ep.name, ...)` on success. |
+
+#### Modified files — Build Configuration
+
+| File | Changes |
+|---|---|
+| `pyproject.toml` | **No changes required** for core package. Entry-point groups `scieasy.blocks`, `scieasy.types`, `scieasy.adapters` already exist (lines 45–68). The `_scan_tier2` refactoring changes how loaded callables are interpreted, not the entry-point declaration format. |
+
+#### Modified files — Documentation
+
+| File | Changes |
+|---|---|
+| `docs/architecture/ARCHITECTURE.md` | **Update** Section 5.1 (Block base): add `PackageInfo` dataclass description and two-level categorization model (package → category → block). **Update** Section 5.2 (Block registry): describe `_scan_tier2()` callable protocol — return `(PackageInfo, list)` or `list`. Document `packages()` and `specs_by_package()` API. **Update** Section 3 (layer overview): mention that Layer 2 now supports package-level metadata for external block discovery. |
+| `docs/architecture/PROJECT_TREE.md` | **Add** `blocks/base/package_info.py` entry with annotation "PackageInfo dataclass for external block package metadata". |
+| `docs/adr/ADR.md` | This ADR (ADR-025). |
+| `CHANGELOG.md` | **Add** entry under `[Unreleased]` → `### Added`. |
+
+#### Modified files — Tests
+
+| File | Changes |
+|---|---|
+| `tests/blocks/test_registry.py` | **Add** test: `_scan_tier2` with `(PackageInfo, [BlockClass])` return populates `package_name` on BlockSpec. **Add** test: `_scan_tier2` with plain `[BlockClass]` return uses entry-point name as `package_name`. **Add** test: `specs_by_package()` returns correctly grouped dict. **Add** test: `packages()` returns registered PackageInfo instances. |
+| `tests/core/test_type_registry.py` | **Add** test: `_scan_entrypoint_types()` registers custom type subclass. **Add** test: entry-point load failure logs warning and does not crash. |
+| `tests/blocks/test_adapter_registry.py` | **Add** test: external adapter cannot override built-in `.csv` extension. **Add** test: external adapter registers successfully for novel extension (e.g., `.srs`). **Add** test: entry-point load failure logs warning and does not crash. |
 
 ---
 
@@ -3605,12 +3691,64 @@ Does the standard adapter return the wrong type?
 - Documentation prevents common pitfalls (memory, serialization, type compatibility)
 - `scieasy.testing` becomes a new public module in the package
 
-### Impact on files
+### Detailed impact scope
 
-| File | Change |
-|------|--------|
-| `src/scieasy/cli/main.py` | Add `init-block-package` command |
-| `src/scieasy/cli/templates/` | New directory with package template files |
-| `src/scieasy/testing/__init__.py` | New module |
-| `src/scieasy/testing/harness.py` | `BlockTestHarness` implementation |
-| `docs/block-development/` | New documentation directory (9 guides + 4 examples) |
+#### New files — Source
+
+| File | Contents |
+|---|---|
+| `src/scieasy/testing/__init__.py` | Public module re-export: `from scieasy.testing.harness import BlockTestHarness`. |
+| `src/scieasy/testing/harness.py` | `BlockTestHarness` class (~150 lines). Constructor takes `block_class: type[Block]`, `work_dir: Path`. Methods: `run(inputs: dict, params: dict) -> dict` (wraps raw data into DataObjects/Collections, constructs `BlockConfig`, calls `block.run()`, materializes outputs for assertion), `validate_contract(block_class)` (checks `input_ports`/`output_ports` declarations, verifies `run()` method signature). Internal helpers: `_wrap_input(raw_data) -> Collection` (dict → DataFrame, list → Collection of items, ndarray → Array), `_materialize_output(collection: Collection) -> Any` (Collection → native Python objects for easy assertion). |
+| `src/scieasy/cli/templates/` | Directory containing Jinja2/string-template files for `init-block-package` scaffolding. |
+| `src/scieasy/cli/templates/pyproject.toml.tpl` | Template for generated package's `pyproject.toml` with pre-configured `[project.entry-points."scieasy.blocks"]`, `[project.entry-points."scieasy.types"]`, `[project.entry-points."scieasy.adapters"]` sections. Placeholders: `{{package_name}}`, `{{display_name}}`, `{{author}}`, `{{categories}}`. |
+| `src/scieasy/cli/templates/__init__.py.tpl` | Template for generated package's `__init__.py` with `PackageInfo` declaration and `get_blocks()` function that imports from each category submodule. |
+| `src/scieasy/cli/templates/example_block.py.tpl` | Template for a minimal working block per category. Includes inline comments explaining: `input_ports`/`output_ports` declarations, `process_item()` vs `run()` choice, Collection handling, return type requirements. |
+| `src/scieasy/cli/templates/test_block.py.tpl` | Template test file using `BlockTestHarness` with a working example test. |
+| `src/scieasy/cli/templates/README.md.tpl` | Template README with quick-start instructions, development setup, and publishing checklist. |
+
+#### New files — Documentation
+
+| File | Contents |
+|---|---|
+| `docs/block-development/quickstart.md` | 5-minute guide from `pip install scieasy` to running a custom block. Covers: `scieasy init-block-package`, editing the example block, running tests with `BlockTestHarness`, installing locally with `pip install -e .`, verifying with `scieasy blocks`. |
+| `docs/block-development/architecture-for-block-devs.md` | Execution model explained for external developers: subprocess isolation (ADR-017), one block = one subprocess, Collection transport (ADR-020), block lifecycle (instantiate → run → serialize outputs → exit). No ADR numbers in prose — concepts only. |
+| `docs/block-development/block-contract.md` | Reference for block I/O contract: `input_ports`/`output_ports` declarations, `BlockConfig` and `params`, `process_item()` vs `run()`, return value requirements, error handling (raise exceptions, engine catches). |
+| `docs/block-development/data-types.md` | Core type hierarchy: `DataObject` → `Array`/`DataFrame`/`Series`/`Text`/`Artifact`/`CompositeData`. `Collection` as transport wrapper. When to use each type. Port type matching rules (`isinstance`-based). |
+| `docs/block-development/custom-types.md` | How to subclass core types. Rules: inherit from nearest core type, `axes` as `ClassVar`, instance metadata in `_metadata` dict, max depth 3, storage backend inherited. Registration via `scieasy.types` entry-point. |
+| `docs/block-development/memory-safety.md` | Three-tier processing model (ADR-020 Addendum 5). Tier 1: `process_item()` (framework iterates, constant memory). Tier 2: `map_items()`/`parallel_map()` (block iterates with auto-flush). Tier 3: manual loop + `pack()` safety net. When to use each tier. `parallel_map` memory warning. |
+| `docs/block-development/collection-guide.md` | Working with Collections: `pack()`/`unpack()`/`unpack_single()`, `map_items()`, `parallel_map()`, handling empty collections, type homogeneity enforcement. Examples for per-item processing vs whole-collection operations. |
+| `docs/block-development/testing.md` | `BlockTestHarness` API reference. Example patterns: simple transform test, collection processing test, error case test, custom type test. Integration with pytest fixtures. |
+| `docs/block-development/publishing.md` | PyPI packaging guide: `pyproject.toml` entry-points, `PackageInfo` metadata, version constraints on `scieasy>=0.1`, building and uploading to PyPI, testing in a clean virtualenv. |
+| `docs/block-development/examples/simple-transform.md` | Complete walkthrough: single-input single-output block that doubles array values. Shows `process_item()` pattern. |
+| `docs/block-development/examples/collection-processing.md` | Multi-item processing: spectral unmixing across a Collection of SRSImages. Shows `map_items()` and `parallel_map()`. |
+| `docs/block-development/examples/custom-io-adapter.md` | Writing a `FormatAdapter` for `.srs` files. Registration via `scieasy.adapters` entry-point. Priority rules (external cannot override built-in). |
+| `docs/block-development/examples/multi-block-package.md` | Full `scieasy-blocks-srs` package: multiple categories (`io`, `processing`, `stat`), custom `SRSImage` type, `PackageInfo`, tests, and `pyproject.toml`. |
+
+#### New files — Tests
+
+| File | Contents |
+|---|---|
+| `tests/testing/test_harness.py` | Tests for `BlockTestHarness`: (1) `run()` wraps dict input as DataFrame, returns materialized output. (2) `run()` wraps ndarray input as Array. (3) `run()` wraps list input as Collection. (4) `validate_contract()` catches block missing `output_ports`. (5) Error in block raises, not silently swallowed. (6) `work_dir` is cleaned up. |
+| `tests/cli/test_init_block_package.py` | Tests for `init-block-package` CLI command: (1) Generates valid directory structure. (2) Generated `pyproject.toml` has correct entry-points. (3) Generated `__init__.py` has `PackageInfo` and `get_blocks()`. (4) Generated test file imports `BlockTestHarness`. (5) Multiple categories create per-category subdirectories with example blocks. |
+
+#### Modified files — Layer 6 (CLI)
+
+| File | Changes |
+|---|---|
+| `src/scieasy/cli/main.py` | **Add** `init_block_package` command (after `blocks` command, ~line 224). Implementation: `@app.command("init-block-package") def init_block_package(name: str, display_name: str = typer.Option(None), author: str = typer.Option(""), categories: str = typer.Option("processing"))`. Creates target directory, reads template files from `scieasy.cli.templates`, substitutes placeholders, writes output files. Creates per-category subdirectory with `example_block.py` for each comma-separated category. **Add** import `from scieasy.cli._scaffold import scaffold_block_package` (implementation extracted to helper to keep `main.py` focused on CLI wiring). |
+| `src/scieasy/cli/_scaffold.py` | **Add** (new file) scaffolding logic: `scaffold_block_package(name, display_name, author, categories, target_dir)`. Reads `.tpl` files from `templates/`, performs string substitution, writes to `target_dir`. Handles per-category directory creation and example block generation. ~100 lines. |
+
+#### Modified files — Build Configuration
+
+| File | Changes |
+|---|---|
+| `pyproject.toml` | **Add** `[tool.setuptools.package-data]` entry: `scieasy = ["cli/templates/*.tpl", "api/static/**/*"]` to include template files in the wheel (line ~80, after `packages.find`). Templates must ship with the installed package so `init-block-package` works after `pip install scieasy`. |
+
+#### Modified files — Documentation
+
+| File | Changes |
+|---|---|
+| `docs/architecture/ARCHITECTURE.md` | **Update** Section 2 (layer overview): add "Layer 7: Developer SDK" or note in Layer 6 (CLI) about `init-block-package` scaffolding and `scieasy.testing` module. **Update** Section 5 (Block system): add reference to developer documentation for block authors. |
+| `docs/architecture/PROJECT_TREE.md` | **Add** `testing/__init__.py` and `testing/harness.py` entries under `src/scieasy/`. **Add** `cli/templates/` directory entry with annotation "Jinja2 templates for init-block-package scaffolding". **Add** `cli/_scaffold.py` entry. **Add** `docs/block-development/` directory listing. |
+| `docs/adr/ADR.md` | This ADR (ADR-026). |
+| `CHANGELOG.md` | **Add** entry under `[Unreleased]` → `### Added`. |
