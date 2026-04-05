@@ -78,7 +78,7 @@ class MergeBlock(ProcessBlock):
             )
             result._arrow_table = merged  # type: ignore[attr-defined]
             self.transition(BlockState.DONE)
-            return {"merged": result}
+            return {"merged": Collection([result], item_type=DataFrame)}
         except Exception:
             self.transition(BlockState.ERROR)
             raise

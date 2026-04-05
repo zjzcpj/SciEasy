@@ -69,7 +69,7 @@ class SplitBlock(ProcessBlock):
                 result = DataFrame(columns=out_table.column_names, row_count=out_table.num_rows)
                 result._arrow_table = out_table  # type: ignore[attr-defined]
                 self.transition(BlockState.DONE)
-                return {"out": result}
+                return {"out": Collection([result], item_type=DataFrame)}
 
             elif mode == "ratio":
                 ratio = float(config.get("ratio", 0.8))
@@ -81,7 +81,10 @@ class SplitBlock(ProcessBlock):
                 r2 = DataFrame(columns=second.column_names, row_count=second.num_rows)
                 r2._arrow_table = second  # type: ignore[attr-defined]
                 self.transition(BlockState.DONE)
-                return {"out": r1, "remainder": r2}
+                return {
+                    "out": Collection([r1], item_type=DataFrame),
+                    "remainder": Collection([r2], item_type=DataFrame),
+                }
 
             elif mode == "filter":
                 column = config.get("column")
@@ -95,7 +98,7 @@ class SplitBlock(ProcessBlock):
                 result = DataFrame(columns=filtered.column_names, row_count=filtered.num_rows)
                 result._arrow_table = filtered  # type: ignore[attr-defined]
                 self.transition(BlockState.DONE)
-                return {"out": result}
+                return {"out": Collection([result], item_type=DataFrame)}
 
             else:
                 raise ValueError(f"Unknown split mode: {mode}")
