@@ -335,3 +335,54 @@ class TestCollectionUtilities:
         result = Block.map_items(lambda x: x, c)
         assert isinstance(result, Collection)
         assert result.length == 2
+
+
+class TestAutoFlush:
+    """Block._auto_flush — auto-persistence of in-memory DataObjects."""
+
+    def teardown_method(self) -> None:
+        """Clear flush context after each test."""
+        from scieasy.core.storage.flush_context import clear
+
+        clear()
+
+    def test_auto_flush_non_dataobject(self) -> None:
+        """Non-DataObject values pass through unchanged."""
+        result = Block._auto_flush("just a string")
+        assert result == "just a string"
+
+    def test_auto_flush_already_has_ref(self) -> None:
+        """DataObject with an existing StorageReference passes through."""
+        from scieasy.core.storage.ref import StorageReference
+
+        img = Image(shape=(5, 5), ndim=2, dtype="float64")
+        img.storage_ref = StorageReference(backend="zarr", path="/tmp/test.zarr")
+        result = Block._auto_flush(img)
+        assert result is img
+
+    def test_auto_flush_no_context(self) -> None:
+        """Without flush context, in-memory DataObject returns unchanged."""
+        from scieasy.core.storage.flush_context import clear
+
+        clear()
+        img = Image(shape=(5, 5), ndim=2, dtype="float64")
+        result = Block._auto_flush(img)
+        assert result is img
+        assert result.storage_ref is None
+
+    def test_auto_flush_with_context_persists(self, tmp_path: object) -> None:
+        """With flush context set, _auto_flush writes data and sets storage_ref."""
+        import numpy as np
+
+        from scieasy.core.storage.flush_context import set_output_dir
+
+        output_dir = str(tmp_path)
+        set_output_dir(output_dir)
+
+        img = Image(shape=(3, 3), ndim=2, dtype="float64")
+        img._data = np.ones((3, 3), dtype="float64")
+
+        result = Block._auto_flush(img)
+        assert result is img
+        assert result.storage_ref is not None
+        assert result.storage_ref.backend == "zarr"
