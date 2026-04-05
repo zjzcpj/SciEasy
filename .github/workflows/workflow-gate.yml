@@ -30,8 +30,10 @@ jobs:
           echo "Issue linked in PR body"
 
       - name: Check workflow state file exists
+        env:
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
         run: |
-          BRANCH="${{ github.head_ref }}"
+          BRANCH="$BRANCH_NAME"
           echo "Checking workflow state for branch: $BRANCH"
 
           FOUND=false
@@ -74,8 +76,10 @@ jobs:
           fi
 
       - name: Check CHANGELOG updated
+        env:
+          BASE_REF: ${{ github.base_ref || 'main' }}
         run: |
-          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          CHANGED=$(git diff --name-only origin/$BASE_REF...HEAD)
           if echo "$CHANGED" | grep -q "^src/\|^packages/"; then
             if ! echo "$CHANGED" | grep -q "CHANGELOG.md"; then
               echo "::error::Source changed but CHANGELOG.md not updated"
@@ -86,8 +90,10 @@ jobs:
           fi
 
       - name: Check docs updated
+        env:
+          BASE_REF: ${{ github.base_ref || 'main' }}
         run: |
-          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          CHANGED=$(git diff --name-only origin/$BASE_REF...HEAD)
           if echo "$CHANGED" | grep -q "^src/\|^packages/"; then
             if ! echo "$CHANGED" | grep -q "^docs/"; then
               echo "::warning::Source changed but no docs/ updates"
@@ -97,8 +103,10 @@ jobs:
           fi
 
       - name: Check tests updated
+        env:
+          BASE_REF: ${{ github.base_ref || 'main' }}
         run: |
-          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          CHANGED=$(git diff --name-only origin/$BASE_REF...HEAD)
           if echo "$CHANGED" | grep -q "^src/\|^packages/"; then
             if ! echo "$CHANGED" | grep -q "^tests/"; then
               echo "::error::Source changed but no tests/ updates. Every code change must include tests."
