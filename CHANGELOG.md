@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [#58] Document that port constraint functions receive Collection objects (@claude, 2026-04-04, branch: fix/batch-1/issues-59-57-58-48, session: 20260404-192842-batch-1-remove-inputdelivery-postprocess)
 - [#124] Distinguish planned vs existing files in PROJECT_TREE.md (@claude, 2026-04-05, branch: docs/issue-124/project-tree-clarity, session: 20260405-003343-docs-project-tree-md-planned-vs-existing)
 
+### Fixed
+
+- [#51] Atomic write for FilesystemBackend; document Zarr/Composite write atomicity risks (@claude, 2026-04-05, branch: fix/issue-51/storage-write-atomicity, session: 20260405-004830-fix-storage-write-atomicity-on-cancel-cr)
+
 ### Added
 
 - [#133] Add example workflow YAML files for CLI testing — raman_preprocessing, simple_merge, image_pipeline (@claude, 2026-04-05, branch: chore/issue-133/example-workflows, session: 20260405-002958-add-example-workflow-yaml-files-for-cli)

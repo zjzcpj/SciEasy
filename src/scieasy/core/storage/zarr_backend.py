@@ -23,6 +23,15 @@ class ZarrBackend:
         """Write *data* (numpy array) as a Zarr array to *ref*.
 
         Returns an updated :class:`StorageReference` with shape/dtype metadata.
+
+        .. warning::
+            Zarr writes are **not atomic**.  On crash or cancellation, partial
+            chunks may remain on disk.  The checkpoint-resume strategy re-runs
+            the producing block, which overwrites incomplete output (ADR-018).
+
+        .. todo::
+            Implement atomic Zarr write via write-to-temp-directory then
+            rename (requires directory-level atomicity).
         """
         arr = np.asarray(data)
         z = zarr.open_array(ref.path, mode="w", shape=arr.shape, dtype=arr.dtype)
