@@ -439,3 +439,58 @@ class TestSpawnBlockProcess:
             assert call_kwargs.get("creationflags", 0) & subprocess.CREATE_NEW_PROCESS_GROUP
         else:
             assert call_kwargs.get("start_new_session") is True
+
+    @patch("scieasy.engine.runners.process_handle.subprocess.Popen")
+    def test_spawn_with_job_handle_calls_assign(self, mock_popen_cls: MagicMock) -> None:
+        """When job_handle is provided, assign_to_job should be called."""
+        mock_proc = MagicMock()
+        mock_proc.pid = 88
+        mock_proc.stdin = MagicMock()
+        mock_popen_cls.return_value = mock_proc
+
+        mock_bus = MagicMock()
+        registry = ProcessRegistry()
+
+        sentinel_job = object()  # Fake job handle
+
+        with patch("scieasy.engine.runners.process_handle.get_platform_ops") as mock_get_ops:
+            mock_ops = MagicMock()
+            mock_ops.create_process_group.side_effect = lambda kw: kw
+            mock_get_ops.return_value = mock_ops
+
+            spawn_block_process(
+                block_class="mod.Block",
+                inputs_refs={},
+                config={},
+                event_bus=mock_bus,
+                registry=registry,
+                job_handle=sentinel_job,
+            )
+
+            mock_ops.assign_to_job.assert_called_once_with(sentinel_job, 88)
+
+
+# ---------------------------------------------------------------------------
+# Job Object (PlatformOps.create_job_object / assign_to_job)
+# ---------------------------------------------------------------------------
+
+
+class TestJobObject:
+    @pytest.mark.skipif(sys.platform != "win32", reason="Windows only")
+    def test_create_job_object_returns_handle(self) -> None:
+        ops = WindowsOps()
+        job = ops.create_job_object()
+        assert job is not None
+
+    @pytest.mark.skipif(sys.platform != "win32", reason="Windows only")
+    def test_assign_to_job_with_none_handle_returns_false(self) -> None:
+        ops = WindowsOps()
+        assert ops.assign_to_job(None, 0) is False
+
+    def test_posix_create_job_object_is_noop(self) -> None:
+        ops = PosixOps()
+        assert ops.create_job_object() is None
+
+    def test_posix_assign_to_job_is_noop(self) -> None:
+        ops = PosixOps()
+        assert ops.assign_to_job(None, 0) is False

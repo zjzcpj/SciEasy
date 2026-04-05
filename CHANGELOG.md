@@ -45,6 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Added
 
 - [#61] Selective re-run logic — reset_block() with dependency chain validation (@claude, 2026-04-05, branch: feat/issue-61/selective-rerun, session: 20260405-010832-feat-selective-re-run-reset-block-in-dag)
+- [#60] SubWorkflowBlock nested subprocess cleanup — SIGTERM callback and Windows Job Object (@claude, 2026-04-05, branch: feat/issue-60/subworkflow-cleanup, session: 20260405-010910-feat-subworkflowblock-nested-subprocess)
 - [#65] FastAPI lifespan shutdown terminates block subprocesses via ProcessRegistry (@claude, 2026-04-05, branch: feat/issue-65/fastapi-lifespan-shutdown, session: 20260405-010805-feat-fastapi-lifespan-shutdown-processre)
 - [#54] Capture EnvironmentSnapshot inside subprocess for accurate lineage data (@claude, 2026-04-05, branch: feat/issue-54/env-snapshot-subprocess, session: 20260405-005852-feat-capture-environmentsnapshot-in-subp)
 - [#62] Checkpoint intermediate_refs Collection serialization for resume support (@claude, 2026-04-05, branch: feat/issue-62/checkpoint-collection-refs, session: 20260405-005921-feat-checkpoint-intermediate-refs-collec)

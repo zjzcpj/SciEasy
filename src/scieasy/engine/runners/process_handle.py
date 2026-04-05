@@ -148,6 +148,7 @@ def spawn_block_process(
     registry: ProcessRegistry,
     resource_request: Any | None = None,
     output_dir: str | None = None,
+    job_handle: Any | None = None,
 ) -> ProcessHandle:
     """Single entry point for ALL subprocess creation (ADR-017, ADR-019).
 
@@ -195,6 +196,10 @@ def spawn_block_process(
         [sys.executable, "-m", "scieasy.engine.runners.worker"],
         **popen_kwargs,
     )
+
+    # Assign to Job Object for nested cleanup (Windows; no-op on POSIX).
+    if job_handle is not None:
+        platform_ops.assign_to_job(job_handle, proc.pid)
 
     # Write payload to stdin and close it
     if proc.stdin is not None:
