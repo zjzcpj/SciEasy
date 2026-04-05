@@ -544,7 +544,7 @@ For CHUNKED mode, the framework calls the script's `run()` function once per chu
 
 ## ADR-017: Subprocess isolation for all block execution
 
-**Status**: proposed
+**Status**: accepted
 **Date**: 2026-04-03
 
 ### Context
@@ -721,7 +721,7 @@ All platform-specific code is encapsulated in `ProcessHandle` (ADR-019) and `eng
 
 ## ADR-018: Block cancellation, graceful workflow degradation, and event-driven runtime
 
-**Status**: proposed
+**Status**: accepted
 **Date**: 2026-04-03
 
 ### Context
