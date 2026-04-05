@@ -1,4 +1,4 @@
-"""Tests for LocalRunner and subprocess pipeline — ADR-017."""
+"""Tests for LocalRunner and subprocess pipeline -- ADR-017."""
 
 from __future__ import annotations
 
@@ -120,18 +120,17 @@ class TestLocalRunnerCancel:
 
 
 # ---------------------------------------------------------------------------
-# run — with mocked subprocess
+# run -- with mocked subprocess
 # ---------------------------------------------------------------------------
 
 
 class TestLocalRunnerRun:
     @patch("scieasy.engine.runners.process_handle.subprocess.Popen")
     def test_run_returns_parsed_output(self, mock_popen_cls: MagicMock) -> None:
-        """run() should return parsed JSON from subprocess stdout."""
+        """run() should return the worker output payload from subprocess stdout."""
         output_data = {"outputs": {"result": "42"}}
         mock_proc = MagicMock()
         mock_proc.pid = 100
-        mock_proc.stdin = MagicMock()
         mock_proc.communicate.return_value = (
             json.dumps(output_data).encode(),
             b"",
@@ -151,16 +150,19 @@ class TestLocalRunnerRun:
         block = FakeBlock()
         result = asyncio.run(runner.run(block, {"input": "ref1"}, {"param": 1}))
 
-        # After fix #120: envelope is unwrapped — we get the inner dict.
+        # After fix #120: envelope is unwrapped -- we get the inner dict.
         assert result == {"result": "42"}
         mock_proc.communicate.assert_called_once()
+        payload = json.loads(mock_proc.communicate.call_args.args[0].decode())
+        assert payload["block_class"].endswith("FakeBlock")
+        assert payload["inputs"] == {"input": "ref1"}
+        assert payload["config"] == {"param": 1}
 
     @patch("scieasy.engine.runners.process_handle.subprocess.Popen")
-    def test_run_returns_error_on_nonzero_exit(self, mock_popen_cls: MagicMock) -> None:
-        """run() should return error dict when subprocess exits with non-zero code."""
+    def test_run_raises_on_nonzero_exit(self, mock_popen_cls: MagicMock) -> None:
+        """run() should raise when the subprocess exits with a non-zero code."""
         mock_proc = MagicMock()
         mock_proc.pid = 101
-        mock_proc.stdin = MagicMock()
         mock_proc.communicate.return_value = (b"", b"traceback here")
         mock_proc.returncode = 1
         mock_popen_cls.return_value = mock_proc
@@ -173,17 +175,19 @@ class TestLocalRunnerRun:
         class FakeBlock:
             pass
 
-        result = asyncio.run(runner.run(FakeBlock(), {}, {}))
-
-        assert "error" in result
-        assert "traceback here" in result["error"]
+        with patch("asyncio.to_thread", side_effect=lambda func, *args: func(*args)):
+            try:
+                asyncio.run(runner.run(FakeBlock(), {}, {}))
+            except RuntimeError as exc:
+                assert "traceback here" in str(exc)
+            else:
+                raise AssertionError("Expected LocalRunner.run() to raise RuntimeError")
 
     @patch("scieasy.engine.runners.process_handle.subprocess.Popen")
     def test_run_returns_empty_dict_on_no_stdout(self, mock_popen_cls: MagicMock) -> None:
         """run() should return empty dict when subprocess produces no stdout."""
         mock_proc = MagicMock()
         mock_proc.pid = 102
-        mock_proc.stdin = MagicMock()
         mock_proc.communicate.return_value = (b"", b"")
         mock_proc.returncode = 0
         mock_popen_cls.return_value = mock_proc
@@ -244,7 +248,7 @@ class TestLocalRunnerRun:
 
 
 # ---------------------------------------------------------------------------
-# reconstruct_inputs — TypeSignature recovery (#132)
+# reconstruct_inputs -- TypeSignature recovery (#132)
 # ---------------------------------------------------------------------------
 
 
@@ -288,7 +292,7 @@ class TestReconstructInputsTypeChain:
 
 
 # ---------------------------------------------------------------------------
-# serialise_outputs — type_chain inclusion (#132)
+# serialise_outputs -- type_chain inclusion (#132)
 # ---------------------------------------------------------------------------
 
 
@@ -309,7 +313,7 @@ class TestSerialiseOutputsTypeChain:
 
 
 # ---------------------------------------------------------------------------
-# spawn_block_process — async emit scheduling (#122)
+# spawn_block_process -- async emit scheduling (#122)
 # ---------------------------------------------------------------------------
 
 
@@ -356,7 +360,7 @@ class TestSpawnEmitScheduling:
         bus.emit = AsyncMock()
         registry = ProcessRegistry()
 
-        # Call outside any async context — should not raise.
+        # Call outside any async context -- should not raise.
         spawn_block_process(
             block_class="some.module.Block",
             inputs_refs={},
@@ -416,8 +420,12 @@ class TestLocalRunnerAsyncBehavior:
         assert concurrent_ran, "Concurrent coroutine should have completed during run()"
 
     @patch("scieasy.engine.runners.process_handle.subprocess.Popen")
-    def test_run_accepts_block_id_parameter(self, mock_popen_cls: MagicMock) -> None:
-        """run() should accept optional block_id and pass it to spawn_block_process (#163)."""
+    def test_run_uses_block_id_attribute(self, mock_popen_cls: MagicMock) -> None:
+        """run() should read block.id and use it as the ProcessHandle identifier (#163).
+
+        PR #160 approach: DAGScheduler._instantiate_block() sets block.id = node_id,
+        and LocalRunner.run() reads it via getattr(block, "id", ...).
+        """
         mock_proc = MagicMock()
         mock_proc.pid = 401
         mock_proc.stdin = MagicMock()
@@ -433,9 +441,11 @@ class TestLocalRunnerAsyncBehavior:
         class FakeBlock:
             pass
 
-        asyncio.run(runner.run(FakeBlock(), {}, {}, block_id="node_A"))
+        block = FakeBlock()
+        block.id = "node_A"  # type: ignore[attr-defined]
+        asyncio.run(runner.run(block, {}, {}))
 
-        # The ProcessHandle should be registered with the DAG node_id,
+        # The ProcessHandle should be registered with the block.id value,
         # not the class path.
         handle = registry.get_handle("node_A")
         assert handle is not None

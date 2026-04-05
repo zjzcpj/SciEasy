@@ -55,6 +55,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- [#159] Deliver Phase 7-8 project-first API and React workflow editor with live execution, previews, and frontend/backend test coverage (@Codex, 2026-04-05, branch: codex/phase7-8, session: 20260405-025125-phase-7-8-full-stack-delivery-api-layer)
+
 - [#61] Selective re-run logic — reset_block() with dependency chain validation (@claude, 2026-04-05, branch: feat/issue-61/selective-rerun, session: 20260405-010832-feat-selective-re-run-reset-block-in-dag)
 - [#60] SubWorkflowBlock nested subprocess cleanup — SIGTERM callback and Windows Job Object (@claude, 2026-04-05, branch: feat/issue-60/subworkflow-cleanup, session: 20260405-010910-feat-subworkflowblock-nested-subprocess)
 - [#65] FastAPI lifespan shutdown terminates block subprocesses via ProcessRegistry (@claude, 2026-04-05, branch: feat/issue-65/fastapi-lifespan-shutdown, session: 20260405-010805-feat-fastapi-lifespan-shutdown-processre)

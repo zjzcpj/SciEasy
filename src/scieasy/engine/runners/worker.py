@@ -166,6 +166,11 @@ def main() -> None:
         # Instantiate block
         block = block_cls()
 
+        if hasattr(block, "transition"):
+            from scieasy.blocks.base.state import BlockState
+
+            block.transition(BlockState.READY)
+
         # Build config object
         from scieasy.blocks.base.config import BlockConfig
 

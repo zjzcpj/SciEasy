@@ -61,6 +61,7 @@ class ProcessHandle:
         self.was_killed_by_framework = False
         self._platform_ops: PlatformOps = get_platform_ops()
         self._popen: subprocess.Popen[bytes] | None = None
+        self._stdin_payload: bytes | None = None
 
     def is_alive(self) -> bool:
         """Non-blocking alive check.
@@ -147,10 +148,10 @@ def spawn_block_process(
     config: dict[str, Any],
     event_bus: Any,
     registry: ProcessRegistry,
+    block_id: str | None = None,
     resource_request: Any | None = None,
     output_dir: str | None = None,
     job_handle: Any | None = None,
-    block_id: str | None = None,
 ) -> ProcessHandle:
     """Single entry point for ALL subprocess creation (ADR-017, ADR-019).
 
@@ -203,41 +204,33 @@ def spawn_block_process(
     if job_handle is not None:
         platform_ops.assign_to_job(job_handle, proc.pid)
 
-    # Write payload to stdin and close it
-    if proc.stdin is not None:
-        proc.stdin.write(payload.encode())
-        proc.stdin.close()
-
-    # Build the ProcessHandle.  Use the caller-supplied block_id (typically
-    # the DAG node ID) when available so that PROCESS_EXITED events can be
-    # matched back to the correct DAGScheduler block.  Falls back to the
-    # block class path for backward compatibility.
+    # Build the ProcessHandle
     rr = resource_request if resource_request is not None else ResReq()
-    handle_id = block_id if block_id is not None else block_class_path
     handle = ProcessHandle(
-        block_id=handle_id,
+        block_id=block_id or block_class_path,
         pid=proc.pid,
         start_time=datetime.now(),
         resource_request=rr,
     )
     handle._popen = proc
     handle._platform_ops = platform_ops
+    handle._stdin_payload = payload.encode("utf-8")
 
     # Register in the registry
     registry.register(handle)
 
     # Emit PROCESS_SPAWNED event.  emit() is async but this function is
     # sync, so schedule the coroutine on the running loop if one exists.
-    _event = EngineEvent(
-        event_type=PROCESS_SPAWNED,
-        block_id=handle.block_id,
-        data={"pid": proc.pid},
-    )
-    try:
-        loop = asyncio.get_running_loop()
-        _task = loop.create_task(event_bus.emit(_event))  # noqa: RUF006
-    except RuntimeError:
-        # No running event loop — log and skip.
-        logger.debug("No running event loop; PROCESS_SPAWNED event not emitted")
+    if event_bus is not None:
+        _event = EngineEvent(
+            event_type=PROCESS_SPAWNED,
+            block_id=handle.block_id,
+            data={"pid": proc.pid},
+        )
+        try:
+            loop = asyncio.get_running_loop()
+            _task = loop.create_task(event_bus.emit(_event))  # noqa: RUF006
+        except RuntimeError:
+            logger.debug("No running event loop; PROCESS_SPAWNED event not emitted")
 
     return handle

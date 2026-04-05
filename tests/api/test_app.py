@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 from fastapi import FastAPI
 
-from scieasy.api.app import _lifespan, create_app
+from scieasy.api.app import create_app, lifespan
 from scieasy.engine.runners.process_handle import ProcessRegistry
 
 
@@ -15,32 +15,44 @@ class TestCreateApp:
     """Tests for the create_app() factory function."""
 
     def test_returns_fastapi_instance(self) -> None:
-        """create_app() returns a FastAPI app (no longer raises NotImplementedError)."""
+        """create_app() returns a FastAPI app."""
         app = create_app()
         assert isinstance(app, FastAPI)
 
     def test_app_title(self) -> None:
         """App has correct title metadata."""
         app = create_app()
-        assert app.title == "SciEasy"
+        assert app.title == "SciEasy API"
 
     def test_app_version(self) -> None:
-        """App has the expected dev version string."""
+        """App has the expected version string."""
         app = create_app()
-        assert app.version == "0.1.0-dev"
+        assert app.version == "0.1.0"
 
 
 class TestLifespan:
-    """Tests for the _lifespan async context manager."""
+    """Tests for the lifespan async context manager."""
 
     def test_lifespan_creates_registry(self) -> None:
         """Lifespan startup creates a ProcessRegistry on app.state."""
 
         async def _run() -> None:
             app = FastAPI()
-            async with _lifespan(app):
+            async with lifespan(app):
                 assert hasattr(app.state, "registry")
                 assert isinstance(app.state.registry, ProcessRegistry)
+
+        asyncio.run(_run())
+
+    def test_lifespan_creates_runtime(self) -> None:
+        """Lifespan startup creates an ApiRuntime on app.state."""
+        from scieasy.api.runtime import ApiRuntime
+
+        async def _run() -> None:
+            app = FastAPI()
+            async with lifespan(app):
+                assert hasattr(app.state, "runtime")
+                assert isinstance(app.state.runtime, ApiRuntime)
 
         asyncio.run(_run())
 
@@ -50,7 +62,7 @@ class TestLifespan:
 
         async def _run() -> None:
             app = FastAPI()
-            async with _lifespan(app):
+            async with lifespan(app):
                 registry = app.state.registry
 
                 def mock_terminate_all(grace_period_sec: float = 5.0) -> None:
@@ -66,9 +78,6 @@ class TestLifespan:
     def test_lifespan_integrated_with_create_app(self) -> None:
         """The app from create_app() has the lifespan wired in."""
         app = create_app()
-        # The router's lifespan_context is set (FastAPI stores it internally).
-        # We verify by checking the app can be used as an ASGI app
-        # (basic structural check -- full integration tested via httpx).
         assert app.router.lifespan_context is not None
 
 

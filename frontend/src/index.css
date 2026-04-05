@@ -1,0 +1,69 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #1c211b;
+  background:
+    radial-gradient(circle at top right, rgba(45, 120, 145, 0.12), transparent 30%),
+    radial-gradient(circle at bottom left, rgba(240, 106, 68, 0.18), transparent 28%),
+    #f5f1e8;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+  height: 100%;
+}
+
+body {
+  overflow: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+.toolbar-button {
+  border: 1px solid rgba(28, 33, 27, 0.12);
+  background: rgba(255, 255, 255, 0.86);
+  color: #3d463c;
+  border-radius: 999px;
+  padding: 0.65rem 1rem;
+  font-size: 0.85rem;
+  transition:
+    transform 140ms ease,
+    border-color 140ms ease,
+    background 140ms ease;
+}
+
+.toolbar-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(240, 106, 68, 0.55);
+}
+
+.toolbar-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.toolbar-button-dark {
+  background: #1c211b;
+  color: #fffdf8;
+}
+
+.react-flow__attribution {
+  display: none;
+}

@@ -40,6 +40,7 @@ class BlockSpec:
     output_ports: list[Any] = field(default_factory=list)
     config_schema: dict[str, Any] = field(default_factory=dict)
     source: str = ""
+    type_name: str = ""
 
 
 class BlockRegistry:
@@ -54,6 +55,7 @@ class BlockRegistry:
 
     def __init__(self) -> None:
         self._registry: dict[str, BlockSpec] = {}
+        self._aliases: dict[str, str] = {}
         self._scan_dirs: list[Path] = []
 
     def add_scan_dir(self, directory: str | Path) -> None:
@@ -62,8 +64,46 @@ class BlockRegistry:
 
     def scan(self) -> None:
         """Discover block classes from entry-points and drop-in directories."""
+        self._scan_builtins()
         self._scan_tier1()
         self._scan_tier2()
+
+    def _register_spec(self, spec: BlockSpec) -> None:
+        """Register a spec under its display name and public type name."""
+        self._registry[spec.name] = spec
+        if spec.type_name:
+            self._aliases[spec.type_name] = spec.name
+
+    def _scan_builtins(self) -> None:
+        """Register built-in core blocks used by the API/frontend."""
+        from scieasy.blocks.ai.ai_block import AIBlock
+        from scieasy.blocks.app.app_block import AppBlock
+        from scieasy.blocks.code.code_block import CodeBlock
+        from scieasy.blocks.io.io_block import IOBlock
+        from scieasy.blocks.process.builtins.filter_collection import FilterCollection
+        from scieasy.blocks.process.builtins.merge import MergeBlock
+        from scieasy.blocks.process.builtins.merge_collection import MergeCollection
+        from scieasy.blocks.process.builtins.slice_collection import SliceCollection
+        from scieasy.blocks.process.builtins.split import SplitBlock
+        from scieasy.blocks.process.builtins.split_collection import SplitCollection
+        from scieasy.blocks.process.builtins.transform import TransformBlock
+        from scieasy.blocks.subworkflow.subworkflow_block import SubWorkflowBlock
+
+        for cls in (
+            IOBlock,
+            TransformBlock,
+            MergeBlock,
+            SplitBlock,
+            MergeCollection,
+            SplitCollection,
+            FilterCollection,
+            SliceCollection,
+            CodeBlock,
+            AppBlock,
+            AIBlock,
+            SubWorkflowBlock,
+        ):
+            self._register_spec(_spec_from_class(cls, source="builtin"))
 
     def _scan_tier1(self) -> None:
         """Tier 1: scan configured directories for ``.py`` files containing Block subclasses."""
@@ -96,7 +136,7 @@ class BlockRegistry:
                             block_spec.file_path = str(py_file)
                             block_spec.file_mtime = mtime
                             block_spec.module_path = mod_name
-                            self._registry[block_spec.name] = block_spec
+                            self._register_spec(block_spec)
                 except Exception:
                     logger.warning(
                         "Failed to import block from %s",
@@ -124,7 +164,7 @@ class BlockRegistry:
                     block_spec = _spec_from_class(cls, source="entry_point")
                     block_spec.module_path = f"{ep.value.rsplit(':', 1)[0]}"
                     block_spec.class_name = cls.__name__
-                    self._registry[block_spec.name] = block_spec
+                    self._register_spec(block_spec)
             except Exception:
                 logger.warning(
                     "Failed to load block from entry_point '%s'",
@@ -133,15 +173,24 @@ class BlockRegistry:
                 )
                 continue
 
+    def get_spec(self, identifier: str) -> BlockSpec | None:
+        """Resolve a block spec by display name or public type name."""
+        if identifier in self._registry:
+            return self._registry[identifier]
+        alias = self._aliases.get(identifier)
+        if alias is None:
+            return None
+        return self._registry.get(alias)
+
     def instantiate(self, name: str, config: dict[str, Any] | None = None) -> Any:
         """Create a block instance by registered *name*.
 
         Performs a fresh import using the stored module path and class name,
         with mtime-based module name for hot-reload safety.
         """
-        if name not in self._registry:
+        spec = self.get_spec(name)
+        if spec is None:
             raise KeyError(f"Block '{name}' is not registered.")
-        spec = self._registry[name]
 
         # For Tier 1 (file-based), re-import with mtime.
         if spec.file_path:
@@ -195,6 +244,7 @@ def _spec_from_class(cls: type, source: str = "") -> BlockSpec:
         input_ports=list(getattr(cls, "input_ports", [])),
         output_ports=list(getattr(cls, "output_ports", [])),
         source=source,
+        type_name=_type_name_for_class(cls),
     )
 
 
@@ -216,8 +266,18 @@ def _infer_category(cls: type) -> str:
         return "code"
     if issubclass(cls, AppBlock):
         return "app"
+    if issubclass(cls, AIBlock):
+        return "ai"
     if issubclass(cls, SubWorkflowBlock):
         return "subworkflow"
     if issubclass(cls, AIBlock):
         return "ai"
     return "unknown"
+
+
+def _type_name_for_class(cls: type) -> str:
+    """Return the public API identifier for a block class."""
+    explicit = getattr(cls, "type_name", None)
+    if isinstance(explicit, str) and explicit:
+        return explicit
+    return cls.__name__.replace("Block", "").lower() + "_block"

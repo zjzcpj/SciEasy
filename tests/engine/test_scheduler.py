@@ -752,30 +752,21 @@ class TestSchedulerProcessExited:
 class TestSchedulerCheckpoint:
     """Test CheckpointManager integration with DAGScheduler pause/resume."""
 
-    def test_pause_saves_checkpoint(self, tmp_path: object) -> None:
-        """pause() should persist a WorkflowCheckpoint when manager is provided."""
-        from scieasy.engine.checkpoint import CheckpointManager
+    def test_pause_sets_paused_flag(self) -> None:
+        """pause() should set _paused flag.
 
+        PR #160 design: pause() only sets the flag; checkpoint persistence
+        happens automatically via save_checkpoint() on block completion events.
+        Checkpoint restoration uses execute_from() rather than resume().
+        """
         wf = _wf(nodes=[("A", "proc"), ("B", "proc")])
-        event_bus = EventBus()
-        checkpoint_mgr = CheckpointManager(checkpoint_dir=str(tmp_path))
+        scheduler, _bus, _runner = _make_scheduler(wf)
 
-        scheduler = DAGScheduler(
-            workflow=wf,
-            event_bus=event_bus,
-            resource_manager=MagicMock(can_dispatch=MagicMock(return_value=True)),
-            process_registry=MagicMock(),
-            runner=AsyncMock(run=AsyncMock(return_value={"out": "v"})),
-            checkpoint_manager=checkpoint_mgr,
-        )
         scheduler._block_states["A"] = BlockState.DONE
         scheduler._block_outputs["A"] = {"out": "v"}
 
         asyncio.run(scheduler.pause())
-
-        assert checkpoint_mgr.latest is not None
-        assert checkpoint_mgr.latest.block_states["A"] == "done"
-        assert checkpoint_mgr.latest.block_states["B"] == "idle"
+        assert scheduler._paused is True
 
     def test_pause_without_checkpoint_manager(self) -> None:
         """pause() without checkpoint_manager should not raise."""

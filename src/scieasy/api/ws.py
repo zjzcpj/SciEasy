@@ -50,6 +50,7 @@ def serialise_event(event: EngineEvent) -> dict[str, Any]:
     return {
         "type": event.event_type,
         "block_id": event.block_id,
+        "workflow_id": event.data.get("workflow_id") if isinstance(event.data, dict) else None,
         "data": event.data,
         "timestamp": event.timestamp.isoformat(),
     }
@@ -83,18 +84,27 @@ async def websocket_handler(websocket: WebSocket, event_bus: EventBus) -> None:
                 msg_type = data.get("type", "")
 
                 if msg_type == "cancel_block":
+                    block_id = data.get("block_id")
+                    workflow_id = data.get("workflow_id")
+                    if not block_id or not workflow_id:
+                        logger.warning("cancel_block message missing block_id or workflow_id")
+                        continue
                     await event_bus.emit(
                         EngineEvent(
                             event_type=CANCEL_BLOCK_REQUEST,
-                            block_id=data.get("block_id"),
-                            data={"workflow_id": data.get("workflow_id", "")},
+                            block_id=block_id,
+                            data={"workflow_id": workflow_id},
                         )
                     )
                 elif msg_type == "cancel_workflow":
+                    workflow_id = data.get("workflow_id")
+                    if not workflow_id:
+                        logger.warning("cancel_workflow message missing workflow_id")
+                        continue
                     await event_bus.emit(
                         EngineEvent(
                             event_type=CANCEL_WORKFLOW_REQUEST,
-                            data={"workflow_id": data.get("workflow_id", "")},
+                            data={"workflow_id": workflow_id},
                         )
                     )
                 elif msg_type == "interactive_complete":
