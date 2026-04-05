@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from scieasy.blocks.base.state import BlockState
 from scieasy.engine.dag import build_dag, topological_sort
@@ -30,6 +30,9 @@ from scieasy.engine.events import (
 )
 from scieasy.engine.resources import ResourceRequest
 from scieasy.workflow.definition import WorkflowDefinition
+
+if TYPE_CHECKING:
+    from scieasy.blocks.registry import BlockRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +73,11 @@ class DAGScheduler:
         ProcessRegistry for active subprocess tracking.
     runner:
         BlockRunner implementation (e.g. LocalRunner) for executing blocks.
+    registry:
+        Optional BlockRegistry for resolving NodeDef.block_type to Block
+        instances.  When provided, _dispatch instantiates a real Block
+        before passing it to the runner.  When None (default), the raw
+        NodeDef is forwarded.
     """
 
     def __init__(
@@ -79,12 +87,14 @@ class DAGScheduler:
         resource_manager: Any,
         process_registry: Any,
         runner: Any,
+        registry: BlockRegistry | None = None,
     ) -> None:
         self._workflow = workflow
         self._event_bus = event_bus
         self._resource_manager = resource_manager
         self._process_registry = process_registry
         self._runner = runner
+        self._registry = registry
 
         self._dag = build_dag(workflow)
         self._order = topological_sort(self._dag)
@@ -96,6 +106,7 @@ class DAGScheduler:
 
         self._completed_event = asyncio.Event()
         self._paused = False
+        self._reset_lock = asyncio.Lock()
 
         # Subscribe to lifecycle events
         self._event_bus.subscribe(BLOCK_DONE, self._on_block_done)
@@ -148,10 +159,17 @@ class DAGScheduler:
 
         # Gather inputs from upstream outputs using edge_map
         inputs = self._gather_inputs(node_id)
-        config = self._dag.nodes[node_id].config
+        node = self._dag.nodes[node_id]
+        config = node.config
 
         try:
-            result = await self._runner.run(self._dag.nodes[node_id], inputs, config)
+            # Resolve NodeDef.block_type -> Block instance via registry (#119).
+            block = (
+                self._registry.instantiate(node.block_type, config)
+                if self._registry is not None
+                else node  # backward compat for tests with mock runners
+            )
+            result = await self._runner.run(block, inputs, config)
             self._block_outputs[node_id] = result
             self._block_states[node_id] = BlockState.DONE
             await self._event_bus.emit(
@@ -357,6 +375,69 @@ class DAGScheduler:
         """
         self._block_states[block_id] = state
 
+    async def reset_block(self, block_id: str) -> None:
+        """Reset a block and its dependency chain for selective re-run.
+
+        Algorithm (ADR-018):
+            1. Validate block exists.
+            2. Set target block to IDLE, clear cached outputs and skip reasons.
+            3. Walk upstream: recursively reset non-DONE predecessors to IDLE.
+            4. Walk downstream: reset SKIPPED blocks to IDLE.
+            5. Re-evaluate readiness and dispatch ready blocks.
+        """
+        async with self._reset_lock:
+            if block_id not in self._block_states:
+                raise ValueError(f"Unknown block: {block_id}")
+
+            # Step 2: Reset target block.
+            self._block_states[block_id] = BlockState.IDLE
+            self._block_outputs.pop(block_id, None)
+            self.skip_reasons.pop(block_id, None)
+
+            # Step 3: Walk upstream — recursively reset non-DONE predecessors.
+            self._reset_upstream(block_id, visited=set())
+
+            # Step 4: Walk downstream — reset SKIPPED blocks.
+            self._reset_downstream_skipped(block_id)
+
+            # Step 5: Re-evaluate and dispatch (batch ready blocks first).
+            ready_blocks = []
+            for node_id in self._order:
+                if self._block_states[node_id] == BlockState.IDLE and self._check_readiness(node_id):
+                    self._block_states[node_id] = BlockState.READY
+                    ready_blocks.append(node_id)
+
+            for node_id in ready_blocks:
+                await self._dispatch(node_id)
+
+    def _reset_upstream(self, block_id: str, visited: set[str]) -> None:
+        """Recursively reset non-DONE upstream blocks to IDLE."""
+        if block_id in visited:
+            return
+        visited.add(block_id)
+        predecessors = self._dag.reverse_adjacency.get(block_id, [])
+        for pred in predecessors:
+            if self._block_states[pred] != BlockState.DONE:
+                self._block_states[pred] = BlockState.IDLE
+                self._block_outputs.pop(pred, None)
+                self.skip_reasons.pop(pred, None)
+                self._reset_upstream(pred, visited)
+
+    def _reset_downstream_skipped(self, block_id: str) -> None:
+        """BFS downstream from block_id, reset SKIPPED blocks to IDLE."""
+        queue = list(self._dag.adjacency.get(block_id, []))
+        visited: set[str] = set()
+        while queue:
+            node_id = queue.pop(0)
+            if node_id in visited:
+                continue
+            visited.add(node_id)
+            if self._block_states[node_id] == BlockState.SKIPPED:
+                self._block_states[node_id] = BlockState.IDLE
+                self._block_outputs.pop(node_id, None)
+                self.skip_reasons.pop(node_id, None)
+                queue.extend(self._dag.adjacency.get(node_id, []))
+
     def save_checkpoint(self, checkpoint_manager: Any = None) -> None:
         """Persist the current execution state to durable storage.
 
@@ -366,13 +447,13 @@ class DAGScheduler:
             return
         from datetime import datetime
 
-        from scieasy.engine.checkpoint import WorkflowCheckpoint
+        from scieasy.engine.checkpoint import WorkflowCheckpoint, serialize_intermediate_refs
 
         checkpoint = WorkflowCheckpoint(
             workflow_id=self._workflow.id if hasattr(self._workflow, "id") else "unknown",
             timestamp=datetime.now(),
             block_states={k: v.value for k, v in self._block_states.items()},
-            intermediate_refs={k: str(v) for k, v in self._block_outputs.items()},
+            intermediate_refs=serialize_intermediate_refs(self._block_outputs),
             skip_reasons=dict(self.skip_reasons),
         )
         checkpoint_manager.save(checkpoint)

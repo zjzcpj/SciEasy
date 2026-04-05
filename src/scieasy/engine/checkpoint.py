@@ -61,7 +61,7 @@ def _serialize_value(value: Any) -> Any:
                     }
                 )
             else:
-                items.append({"_value": str(item)})
+                items.append({"_value": str(item), "_type": type(item).__name__})
         return {
             "_collection": True,
             "items": items,
@@ -84,15 +84,79 @@ def _serialize_value(value: Any) -> Any:
 
 
 def deserialize_intermediate_refs(data: dict[str, Any]) -> dict[str, Any]:
-    """Deserialize checkpoint intermediate_refs back to structured dicts.
+    """Deserialize checkpoint intermediate_refs back to live objects.
 
-    Does not reconstruct full Python objects -- preserves the structured
-    dict format so that resume can reconstruct ViewProxies from
-    StorageReferences.
+    Reconstructs :class:`ViewProxy` instances from serialized
+    StorageReference dicts, and preserves Collection structure with
+    ViewProxy items so that resumed workflows can feed data to blocks.
     """
-    # The data is already in the correct dict format after JSON round-trip.
-    # This function exists for symmetry and future extension.
-    return data
+    result: dict[str, Any] = {}
+    for block_id, outputs in data.items():
+        if isinstance(outputs, dict):
+            result[block_id] = {port_name: _deserialize_value(value) for port_name, value in outputs.items()}
+        else:
+            result[block_id] = _deserialize_value(outputs)
+    return result
+
+
+def _deserialize_value(value: Any) -> Any:
+    """Deserialize a single value from checkpoint storage."""
+    if not isinstance(value, dict):
+        return value
+
+    # --- Collection structure ---
+    if value.get("_collection") is True:
+        if "items" not in value or "item_type" not in value:
+            logger.warning(
+                "Malformed _collection dict (missing 'items' or 'item_type'), returning raw data: %s",
+                list(value.keys()),
+            )
+            return value
+
+        from scieasy.core.proxy import ViewProxy
+        from scieasy.core.storage.ref import StorageReference
+        from scieasy.core.types.base import TypeSignature
+
+        item_type_name: str = value["item_type"]
+        proxies: list[ViewProxy] = []
+        for item_data in value["items"]:
+            if not isinstance(item_data, dict):
+                continue
+            if "_value" in item_data:
+                logger.warning(
+                    "Cannot fully reconstruct non-persisted item (type=%s, value=%s) — skipping",
+                    item_data.get("_type", "unknown"),
+                    item_data["_value"],
+                )
+                continue
+            if "backend" in item_data and "path" in item_data:
+                ref = StorageReference(
+                    backend=item_data["backend"],
+                    path=item_data["path"],
+                    format=item_data.get("format"),
+                    metadata=item_data.get("metadata"),
+                )
+                sig = TypeSignature(type_chain=[item_type_name])
+                proxies.append(ViewProxy(storage_ref=ref, dtype_info=sig))
+
+        return {"_collection": True, "items": proxies, "item_type": item_type_name}
+
+    # --- Single StorageReference dict ---
+    if "backend" in value and "path" in value:
+        from scieasy.core.proxy import ViewProxy
+        from scieasy.core.storage.ref import StorageReference
+        from scieasy.core.types.base import TypeSignature
+
+        ref = StorageReference(
+            backend=value["backend"],
+            path=value["path"],
+            format=value.get("format"),
+            metadata=value.get("metadata"),
+        )
+        sig = TypeSignature(type_chain=["DataObject"])
+        return ViewProxy(storage_ref=ref, dtype_info=sig)
+
+    return value
 
 
 @dataclass

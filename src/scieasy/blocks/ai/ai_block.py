@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from scieasy.blocks.base.block import Block
 from scieasy.blocks.base.config import BlockConfig
+
+if TYPE_CHECKING:
+    from scieasy.core.types.collection import Collection
 
 
 class AIBlock(Block):
@@ -18,7 +21,7 @@ class AIBlock(Block):
     model: ClassVar[str] = ""
     prompt_template: ClassVar[str] = ""
 
-    def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+    def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, Collection]:
         """Run the LLM inference pipeline.
 
         Not yet implemented — placeholder for AI-powered block execution.
