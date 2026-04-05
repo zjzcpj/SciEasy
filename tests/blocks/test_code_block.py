@@ -32,6 +32,20 @@ class TestPythonRunnerInline:
         assert "public" in result
         assert "_private" not in result
 
+    def test_inputs_not_in_output(self) -> None:
+        runner = PythonRunner()
+        result = runner.execute_inline("x = data + 1", {"data": 5})
+        assert "x" in result
+        assert result["x"] == 6
+        assert "data" not in result  # input should be filtered
+
+    def test_imports_not_in_output(self) -> None:
+        runner = PythonRunner()
+        result = runner.execute_inline("import math\nresult = math.sqrt(4)", {})
+        assert "result" in result
+        assert result["result"] == 2.0
+        assert "math" not in result  # imports should be filtered
+
 
 class TestPythonRunnerScript:
     """PythonRunner script mode — importlib-based execution."""

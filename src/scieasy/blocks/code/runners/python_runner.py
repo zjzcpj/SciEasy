@@ -8,6 +8,7 @@ The subprocess isolation is handled by the engine layer (spawn_block_process).
 from __future__ import annotations
 
 import importlib.util
+import types
 from pathlib import Path
 from typing import Any
 
@@ -33,12 +34,22 @@ class PythonRunner:
 
         Runs the script via ``exec()`` inside a copy of *namespace*.
         Returns all public (non-underscore) variables that were created
-        or modified by the script, excluding the original namespace keys.
+        or modified by the script, excluding the original namespace keys
+        and imported modules.
         """
         exec_ns: dict[str, Any] = dict(namespace)
+        original_keys = set(exec_ns.keys())
         exec(script, exec_ns)
-        # Return only new/modified public variables
-        return {k: v for k, v in exec_ns.items() if not k.startswith("_") and k not in ("__builtins__",)}
+        # Return only new public variables, excluding original namespace keys
+        # and imported modules (which are execution noise, not results)
+        return {
+            k: v
+            for k, v in exec_ns.items()
+            if k not in original_keys
+            and not k.startswith("_")
+            and k != "__builtins__"
+            and not isinstance(v, types.ModuleType)
+        }
 
     def execute_script(
         self,
