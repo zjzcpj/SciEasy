@@ -12,9 +12,12 @@ import importlib
 import importlib.metadata
 import importlib.util
 import inspect
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -135,7 +138,11 @@ class BlockRegistry:
                             block_spec.module_path = mod_name
                             self._register_spec(block_spec)
                 except Exception:
-                    # Skip files that fail to import.
+                    logger.warning(
+                        "Failed to import block from %s",
+                        py_file,
+                        exc_info=True,
+                    )
                     continue
 
     def _scan_tier2(self) -> None:
@@ -145,6 +152,7 @@ class BlockRegistry:
         try:
             eps = importlib.metadata.entry_points()
         except Exception:
+            logger.warning("Failed to load entry_points for block discovery", exc_info=True)
             return
 
         block_eps: Any = eps.select(group="scieasy.blocks") if hasattr(eps, "select") else eps.get("scieasy.blocks", [])
@@ -158,6 +166,11 @@ class BlockRegistry:
                     block_spec.class_name = cls.__name__
                     self._register_spec(block_spec)
             except Exception:
+                logger.warning(
+                    "Failed to load block from entry_point '%s'",
+                    ep.name,
+                    exc_info=True,
+                )
                 continue
 
     def get_spec(self, identifier: str) -> BlockSpec | None:

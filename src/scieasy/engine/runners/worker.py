@@ -19,9 +19,12 @@ from __future__ import annotations
 
 import importlib
 import json
+import logging
 import sys
 import traceback
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def reconstruct_inputs(payload: dict[str, Any]) -> dict[str, Any]:
@@ -97,10 +100,15 @@ def serialise_outputs(outputs: dict[str, Any], output_dir: str) -> dict[str, Any
                     )
                 else:
                     item_refs.append({"_value": str(item)})
+            if value.item_type is None:
+                logger.warning(
+                    "Collection output on port '%s' has item_type=None; defaulting to 'DataObject'",
+                    key,
+                )
             result[key] = {
                 "_collection": True,
                 "items": item_refs,
-                "item_type": value.item_type.__name__,
+                "item_type": value.item_type.__name__ if value.item_type is not None else "DataObject",
             }
             continue
 
