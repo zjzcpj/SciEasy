@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#165] Fix Windows path assertions in test_adapters, test_data_object_persistence, and test_app_block after StorageReference POSIX normalization (@claude, 2026-04-05, branch: fix/issue-165/windows-test-paths, session: 20260405-155826-fix-windows-path-assertions-in-test-adap)
 - [#120] Unwrap subprocess output envelope in LocalRunner so downstream sees port names at top level (@claude, 2026-04-05, branch: fix/batch-a3/issues-120-132-122, session: 20260405-014138-fix-subprocess-runner-output-pipeline-12)
 - [#132] Preserve TypeSignature type_chain across subprocess boundary in worker serialization/reconstruction (@claude, 2026-04-05, branch: fix/batch-a3/issues-120-132-122, session: 20260405-014138-fix-subprocess-runner-output-pipeline-12)
 - [#122] Fix unawaited async emit() in spawn_block_process by scheduling via create_task (@claude, 2026-04-05, branch: fix/batch-a3/issues-120-132-122, session: 20260405-014138-fix-subprocess-runner-output-pipeline-12)
