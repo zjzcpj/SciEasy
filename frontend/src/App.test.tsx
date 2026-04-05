@@ -59,12 +59,12 @@ describe("App", () => {
     vi.unstubAllGlobals();
   });
 
-  it("boots to the welcome screen and loads the block palette", async () => {
+  it("boots to the welcome screen when no project is open", async () => {
     render(<App />);
 
     expect(await screen.findByText("New Project")).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByText("Process Block")).toBeInTheDocument();
+      expect(screen.getByText("SciEasy")).toBeInTheDocument();
     });
   });
 });
