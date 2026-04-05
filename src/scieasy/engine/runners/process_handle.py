@@ -225,7 +225,7 @@ def spawn_block_process(
     )
     try:
         loop = asyncio.get_running_loop()
-        loop.create_task(event_bus.emit(_event))
+        _task = loop.create_task(event_bus.emit(_event))  # noqa: RUF006
     except RuntimeError:
         # No running event loop — log and skip.
         logger.debug("No running event loop; PROCESS_SPAWNED event not emitted")

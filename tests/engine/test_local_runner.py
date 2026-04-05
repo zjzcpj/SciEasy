@@ -299,9 +299,7 @@ class TestSerialiseOutputsTypeChain:
         from scieasy.core.types.base import DataObject
 
         obj = DataObject.__new__(DataObject)
-        obj._storage_ref = StorageReference(
-            backend="zarr", path="/out/result.zarr", format="zarr", metadata={}
-        )
+        obj._storage_ref = StorageReference(backend="zarr", path="/out/result.zarr", format="zarr", metadata={})
         obj._metadata = {}
         obj._data = None
 

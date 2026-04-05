@@ -12,7 +12,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from scieasy.blocks.base.state import BlockState
 from scieasy.engine.dag import CycleError, build_dag, topological_sort
 from scieasy.engine.events import (
     BLOCK_CANCELLED,
@@ -89,15 +88,15 @@ class TestCancelPropagation:
         scheduler, event_bus, _runner = _make_scheduler(workflow)
 
         # Simulate: A completed, B is running, C is idle, D is idle
-        scheduler._block_states["A"] = BlockState.DONE
+        scheduler._block_states["A"] = "done"
         scheduler._block_outputs["A"] = {"data": "some_data"}
-        scheduler._block_states["B"] = BlockState.RUNNING
+        scheduler._block_states["B"] = "running"
 
         # Cancel B
         asyncio.run(event_bus.emit(EngineEvent(event_type=CANCEL_BLOCK_REQUEST, block_id="B")))
 
-        assert scheduler._block_states["B"] == BlockState.CANCELLED
-        assert scheduler._block_states["D"] == BlockState.SKIPPED
+        assert scheduler._block_states["B"] == "cancelled"
+        assert scheduler._block_states["D"] == "skipped"
         assert "B" in scheduler.skip_reasons["D"]
 
     def test_cancel_does_not_affect_independent_branch(self) -> None:
@@ -116,16 +115,16 @@ class TestCancelPropagation:
         )
         scheduler, event_bus, _runner = _make_scheduler(workflow)
 
-        scheduler._block_states["A"] = BlockState.DONE
+        scheduler._block_states["A"] = "done"
         scheduler._block_outputs["A"] = {"data": "val"}
-        scheduler._block_states["B"] = BlockState.RUNNING
-        scheduler._block_states["C"] = BlockState.IDLE
+        scheduler._block_states["B"] = "running"
+        scheduler._block_states["C"] = "idle"
 
         asyncio.run(event_bus.emit(EngineEvent(event_type=CANCEL_BLOCK_REQUEST, block_id="B")))
 
-        assert scheduler._block_states["B"] == BlockState.CANCELLED
+        assert scheduler._block_states["B"] == "cancelled"
         # C is independent of B and should NOT be skipped
-        assert scheduler._block_states["C"] != BlockState.SKIPPED
+        assert scheduler._block_states["C"] != "skipped"
 
     def test_cancel_workflow_cancels_all_running(self) -> None:
         """Cancel workflow -> all running become cancelled, idle become skipped."""
@@ -145,18 +144,18 @@ class TestCancelPropagation:
         scheduler, event_bus, _runner = _make_scheduler(workflow)
 
         # A done, B running, C idle, D idle
-        scheduler._block_states["A"] = BlockState.DONE
+        scheduler._block_states["A"] = "done"
         scheduler._block_outputs["A"] = {"out": "val"}
-        scheduler._block_states["B"] = BlockState.RUNNING
-        scheduler._block_states["C"] = BlockState.IDLE
-        scheduler._block_states["D"] = BlockState.IDLE
+        scheduler._block_states["B"] = "running"
+        scheduler._block_states["C"] = "idle"
+        scheduler._block_states["D"] = "idle"
 
         asyncio.run(event_bus.emit(EngineEvent(event_type=CANCEL_WORKFLOW_REQUEST)))
 
-        assert scheduler._block_states["A"] == BlockState.DONE
-        assert scheduler._block_states["B"] == BlockState.CANCELLED
-        assert scheduler._block_states["C"] == BlockState.SKIPPED
-        assert scheduler._block_states["D"] == BlockState.SKIPPED
+        assert scheduler._block_states["A"] == "done"
+        assert scheduler._block_states["B"] == "cancelled"
+        assert scheduler._block_states["C"] == "skipped"
+        assert scheduler._block_states["D"] == "skipped"
 
     def test_error_propagates_skip_deep_chain(self) -> None:
         """A -> B -> C -> D: error in B skips C and D."""
@@ -185,10 +184,10 @@ class TestCancelPropagation:
 
         asyncio.run(scheduler.execute())
 
-        assert scheduler._block_states["A"] == BlockState.DONE
-        assert scheduler._block_states["B"] == BlockState.ERROR
-        assert scheduler._block_states["C"] == BlockState.SKIPPED
-        assert scheduler._block_states["D"] == BlockState.SKIPPED
+        assert scheduler._block_states["A"] == "done"
+        assert scheduler._block_states["B"] == "error"
+        assert scheduler._block_states["C"] == "skipped"
+        assert scheduler._block_states["D"] == "skipped"
 
     def test_skip_events_emitted(self) -> None:
         """BLOCK_CANCELLED and BLOCK_SKIPPED events are emitted correctly."""
@@ -216,8 +215,8 @@ class TestCancelPropagation:
             lambda e: skipped_events.append(e.block_id or ""),
         )
 
-        scheduler._block_states["A"] = BlockState.RUNNING
-        scheduler._block_states["B"] = BlockState.IDLE
+        scheduler._block_states["A"] = "running"
+        scheduler._block_states["B"] = "idle"
 
         asyncio.run(event_bus.emit(EngineEvent(event_type=CANCEL_BLOCK_REQUEST, block_id="A")))
 
