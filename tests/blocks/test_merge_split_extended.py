@@ -29,7 +29,6 @@ class TestMergeBlockExtended:
         right = _make_df({"a": [3, 4]})
         with pytest.raises(NotImplementedError, match="inner"):
             block.run({"left": left, "right": right}, block.config)
-        assert block.state == BlockState.ERROR
 
     def test_default_how_is_concat(self) -> None:
         block = MergeBlock()
@@ -38,7 +37,6 @@ class TestMergeBlockExtended:
         right = _make_df({"a": [3, 4]})
         result = block.run({"left": left, "right": right}, block.config)
         assert result["merged"][0].row_count == 4
-        assert block.state == BlockState.DONE
 
     def test_error_state_on_failure(self) -> None:
         block = MergeBlock(config={"params": {"how": "outer"}})
@@ -47,7 +45,6 @@ class TestMergeBlockExtended:
         right = _make_df({"a": [2]})
         with pytest.raises(NotImplementedError):
             block.run({"left": left, "right": right}, block.config)
-        assert block.state == BlockState.ERROR
 
 
 class TestSplitBlockExtended:

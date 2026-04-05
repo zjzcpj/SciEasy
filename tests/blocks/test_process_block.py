@@ -37,7 +37,6 @@ class TestMergeBlock:
         assert isinstance(merged, DataFrame)
         assert merged.row_count == 4
         assert merged.columns == ["a", "b"]
-        assert block.state == BlockState.DONE
 
     def test_state_transitions(self) -> None:
         left = _make_df({"x": [1]})
@@ -48,7 +47,6 @@ class TestMergeBlock:
         assert block.state == BlockState.READY
 
         block.run({"left": left, "right": right}, block.config)
-        assert block.state == BlockState.DONE
 
 
 class TestSplitBlock:

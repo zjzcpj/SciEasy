@@ -8,7 +8,6 @@ import pyarrow as pa
 
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
-from scieasy.blocks.base.state import BlockState
 from scieasy.blocks.process.process_block import ProcessBlock
 from scieasy.blocks.process.utils import to_arrow
 from scieasy.core.types.dataframe import DataFrame
@@ -44,41 +43,35 @@ class MergeBlock(ProcessBlock):
         Accepts both raw DataFrame and Collection[DataFrame] inputs for
         backward compatibility during the ADR-020 transition.
         """
-        self.transition(BlockState.RUNNING)
-        try:
-            from scieasy.core.types.collection import Collection
+        from scieasy.core.types.collection import Collection
 
-            left_obj = inputs["left"]
-            right_obj = inputs["right"]
+        left_obj = inputs["left"]
+        right_obj = inputs["right"]
 
-            # ADR-020: Unpack Collection inputs if present.
-            if isinstance(left_obj, Collection):
-                left_obj = self.unpack_single(left_obj)
-            if isinstance(right_obj, Collection):
-                right_obj = self.unpack_single(right_obj)
+        # ADR-020: Unpack Collection inputs if present.
+        if isinstance(left_obj, Collection):
+            left_obj = self.unpack_single(left_obj)
+        if isinstance(right_obj, Collection):
+            right_obj = self.unpack_single(right_obj)
 
-            left_data = to_arrow(left_obj)
-            right_data = to_arrow(right_obj)
+        left_data = to_arrow(left_obj)
+        right_data = to_arrow(right_obj)
 
-            if not isinstance(left_data, pa.Table):
-                raise TypeError(f"Expected Arrow Table, got {type(left_data).__name__}")
-            if not isinstance(right_data, pa.Table):
-                raise TypeError(f"Expected Arrow Table, got {type(right_data).__name__}")
+        if not isinstance(left_data, pa.Table):
+            raise TypeError(f"Expected Arrow Table, got {type(left_data).__name__}")
+        if not isinstance(right_data, pa.Table):
+            raise TypeError(f"Expected Arrow Table, got {type(right_data).__name__}")
 
-            how = config.get("how", "concat")
+        how = config.get("how", "concat")
 
-            if how == "concat":
-                merged = pa.concat_tables([left_data, right_data], promote_options="default")
-            else:
-                raise NotImplementedError(f"Join strategy '{how}' is not yet implemented; use 'concat'.")
+        if how == "concat":
+            merged = pa.concat_tables([left_data, right_data], promote_options="default")
+        else:
+            raise NotImplementedError(f"Join strategy '{how}' is not yet implemented; use 'concat'.")
 
-            result = DataFrame(
-                columns=merged.column_names,
-                row_count=merged.num_rows,
-            )
-            result._arrow_table = merged  # type: ignore[attr-defined]
-            self.transition(BlockState.DONE)
-            return {"merged": Collection([result], item_type=DataFrame)}
-        except Exception:
-            self.transition(BlockState.ERROR)
-            raise
+        result = DataFrame(
+            columns=merged.column_names,
+            row_count=merged.num_rows,
+        )
+        result._arrow_table = merged  # type: ignore[attr-defined]
+        return {"merged": Collection([result], item_type=DataFrame)}
