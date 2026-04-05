@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -117,6 +118,49 @@ class TestBlockRegistryTier1:
         dropin.unlink()
         reg.hot_reload()
         assert "Temp Block" not in reg.all_specs()
+
+
+class TestBlockRegistryLogging:
+    """Tests for logged warnings on import/load failures (#169)."""
+
+    def test_tier1_import_error_logged(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """A .py file with a syntax error should log a warning, not crash."""
+        bad_file = tmp_path / "bad_block.py"
+        bad_file.write_text("this is not valid python!!!")
+
+        registry = BlockRegistry()
+        registry.add_scan_dir(tmp_path)
+
+        with caplog.at_level(logging.WARNING):
+            registry.scan()
+
+        assert "Failed to import block from" in caplog.text
+        assert "bad_block" in caplog.text
+
+    def test_tier1_import_error_does_not_prevent_other_blocks(self, tmp_path: Path) -> None:
+        """A bad file should not prevent other valid blocks from loading."""
+        bad = tmp_path / "bad.py"
+        bad.write_text("raise ImportError('missing dep')")
+
+        good = tmp_path / "good_block.py"
+        good.write_text(
+            "from scieasy.blocks.process.process_block import ProcessBlock\n"
+            "from scieasy.blocks.base.config import BlockConfig\n"
+            "from typing import Any\n"
+            "\n"
+            "class GoodBlock(ProcessBlock):\n"
+            "    name = 'good_block'\n"
+            "    algorithm = 'good'\n"
+            "\n"
+            "    def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:\n"
+            "        return {}\n"
+        )
+
+        registry = BlockRegistry()
+        registry.add_scan_dir(tmp_path)
+        registry.scan()
+
+        assert "good_block" in registry.all_specs()
 
 
 class TestInferCategory:
