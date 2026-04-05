@@ -11,6 +11,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 from scieasy.blocks.base.block import Block
+from scieasy.blocks.base.state import BlockState
 from scieasy.core.types.array import Image
 from scieasy.core.types.collection import Collection
 from scieasy.engine.dag import build_dag, topological_sort
@@ -330,7 +331,7 @@ class TestSchedulerEventBusEndToEnd:
 
         # All blocks should be done
         for node_id in ("load", "process", "merge", "export"):
-            assert scheduler._block_states[node_id] == "done"
+            assert scheduler._block_states[node_id] == BlockState.DONE
 
         # load must be first, export must be last
         assert execution_order[0] == "load"
@@ -373,4 +374,4 @@ class TestSchedulerEventBusEndToEnd:
         assert set(call_order[1:3]) == {"B", "C"}
 
         for node_id in ("A", "B", "C", "D"):
-            assert scheduler._block_states[node_id] == "done"
+            assert scheduler._block_states[node_id] == BlockState.DONE
