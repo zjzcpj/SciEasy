@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pyarrow as pa
@@ -240,6 +241,65 @@ class TestFilesystemBackend:
         )
         with pytest.raises(TypeError, match="str or bytes"):
             backend.write(12345, ref)
+
+    def test_atomic_write_no_temp_file_remains(self, tmp_path: Path) -> None:
+        """After a successful write, no .tmp_ file should remain."""
+        backend = FilesystemBackend()
+        ref = StorageReference(
+            backend="filesystem",
+            path=str(tmp_path / "atomic.txt"),
+            format="plain",
+        )
+        backend.write("hello", ref)
+        tmp_files = list(tmp_path.glob(".tmp_*"))
+        assert tmp_files == [], f"Leftover temp files: {tmp_files}"
+
+    def test_atomic_write_content_correct(self, tmp_path: Path) -> None:
+        """Atomic write should produce the same content as a direct write."""
+        backend = FilesystemBackend()
+        ref = StorageReference(
+            backend="filesystem",
+            path=str(tmp_path / "content.txt"),
+            format="plain",
+        )
+        result_ref = backend.write("atomic content", ref)
+        loaded = backend.read(result_ref)
+        assert loaded == "atomic content"
+
+    def test_atomic_write_cleanup_on_failure(self, tmp_path: Path) -> None:
+        """If os.replace fails, the temp file must be cleaned up."""
+        backend = FilesystemBackend()
+        ref = StorageReference(
+            backend="filesystem",
+            path=str(tmp_path / "fail.txt"),
+            format="plain",
+        )
+        with (
+            patch("scieasy.core.storage.filesystem.os.replace", side_effect=OSError("mock")),
+            pytest.raises(OSError, match="mock"),
+        ):
+            backend.write("data", ref)
+        # No temp files should remain
+        tmp_files = list(tmp_path.glob(".tmp_*"))
+        assert tmp_files == [], f"Leftover temp files after failure: {tmp_files}"
+        # Target file should not exist
+        assert not Path(ref.path).exists()
+
+    def test_atomic_write_overwrites_existing(self, tmp_path: Path) -> None:
+        """Atomic write should safely overwrite an existing file."""
+        backend = FilesystemBackend()
+        target = tmp_path / "overwrite.txt"
+        ref = StorageReference(
+            backend="filesystem",
+            path=str(target),
+            format="plain",
+        )
+        backend.write("original", ref)
+        assert target.read_text(encoding="utf-8") == "original"
+        backend.write("updated", ref)
+        assert target.read_text(encoding="utf-8") == "updated"
+        tmp_files = list(tmp_path.glob(".tmp_*"))
+        assert tmp_files == []
 
 
 class TestCompositeStore:
