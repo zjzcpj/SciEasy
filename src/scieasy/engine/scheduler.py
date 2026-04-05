@@ -13,6 +13,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from scieasy.blocks.base.state import BlockState
 from scieasy.engine.dag import build_dag, topological_sort
 from scieasy.engine.events import (
     BLOCK_CANCELLED,
@@ -88,8 +89,8 @@ class DAGScheduler:
         self._dag = build_dag(workflow)
         self._order = topological_sort(self._dag)
 
-        # Block state tracking: idle -> ready -> running -> done/error/cancelled/skipped
-        self._block_states: dict[str, str] = {n: "idle" for n in self._dag.nodes}
+        # Block state tracking: IDLE -> READY -> RUNNING -> DONE/ERROR/CANCELLED/SKIPPED
+        self._block_states: dict[str, BlockState] = {n: BlockState.IDLE for n in self._dag.nodes}
         self._block_outputs: dict[str, Any] = {}
         self.skip_reasons: dict[str, str] = {}
 
@@ -119,8 +120,8 @@ class DAGScheduler:
 
         # Dispatch initially ready blocks (only those still idle)
         for node_id in self._order:
-            if self._block_states[node_id] == "idle" and self._check_readiness(node_id):
-                self._block_states[node_id] = "ready"
+            if self._block_states[node_id] == BlockState.IDLE and self._check_readiness(node_id):
+                self._block_states[node_id] = BlockState.READY
                 await self._dispatch(node_id)
 
         # Wait until all blocks reach terminal state
@@ -142,7 +143,7 @@ class DAGScheduler:
             # Will retry when resources free up (on next block_done)
             return
 
-        self._block_states[node_id] = "running"
+        self._block_states[node_id] = BlockState.RUNNING
         await self._event_bus.emit(EngineEvent(event_type=BLOCK_RUNNING, block_id=node_id))
 
         # Gather inputs from upstream outputs using edge_map
@@ -152,7 +153,7 @@ class DAGScheduler:
         try:
             result = await self._runner.run(self._dag.nodes[node_id], inputs, config)
             self._block_outputs[node_id] = result
-            self._block_states[node_id] = "done"
+            self._block_states[node_id] = BlockState.DONE
             await self._event_bus.emit(
                 EngineEvent(
                     event_type=BLOCK_DONE,
@@ -162,7 +163,7 @@ class DAGScheduler:
             )
         except Exception as exc:
             logger.exception("Block %s failed with exception", node_id)
-            self._block_states[node_id] = "error"
+            self._block_states[node_id] = BlockState.ERROR
             await self._event_bus.emit(
                 EngineEvent(
                     event_type=BLOCK_ERROR,
@@ -202,10 +203,10 @@ class DAGScheduler:
 
         # Check all blocks that depend on the completed block
         for node_id in self._order:
-            if self._block_states[node_id] != "idle":
+            if self._block_states[node_id] != BlockState.IDLE:
                 continue
             if self._check_readiness(node_id):
-                self._block_states[node_id] = "ready"
+                self._block_states[node_id] = BlockState.READY
                 await self._dispatch(node_id)
 
         self._check_completion()
@@ -215,7 +216,7 @@ class DAGScheduler:
         if event.block_id is None:
             return
 
-        self._block_states[event.block_id] = "error"
+        self._block_states[event.block_id] = BlockState.ERROR
         await self._propagate_skip(event.block_id, "error")
         self._check_completion()
 
@@ -243,7 +244,7 @@ class DAGScheduler:
             except Exception:
                 logger.exception("Failed to cancel block %s via runner", block_id)
 
-        self._block_states[block_id] = "cancelled"
+        self._block_states[block_id] = BlockState.CANCELLED
         await self._event_bus.emit(EngineEvent(event_type=BLOCK_CANCELLED, block_id=block_id))
 
         await self._propagate_skip(block_id, "cancelled")
@@ -251,7 +252,7 @@ class DAGScheduler:
 
     async def _on_cancel_workflow(self, event: EngineEvent) -> None:
         """Handle a workflow cancellation: cancel all running blocks."""
-        running_blocks = [bid for bid, state in self._block_states.items() if state == "running"]
+        running_blocks = [bid for bid, state in self._block_states.items() if state == BlockState.RUNNING]
 
         for block_id in running_blocks:
             # Terminate the process
@@ -269,13 +270,13 @@ class DAGScheduler:
                         block_id,
                     )
 
-            self._block_states[block_id] = "cancelled"
+            self._block_states[block_id] = BlockState.CANCELLED
             await self._event_bus.emit(EngineEvent(event_type=BLOCK_CANCELLED, block_id=block_id))
 
         # Mark all remaining idle/ready blocks as skipped
         for block_id, state in list(self._block_states.items()):
-            if state in ("idle", "ready"):
-                self._block_states[block_id] = "skipped"
+            if state in (BlockState.IDLE, BlockState.READY):
+                self._block_states[block_id] = BlockState.SKIPPED
                 self.skip_reasons[block_id] = "workflow cancelled"
                 await self._event_bus.emit(EngineEvent(event_type=BLOCK_SKIPPED, block_id=block_id))
 
@@ -299,31 +300,31 @@ class DAGScheduler:
         while queue:
             node_id = queue.pop(0)
             if self._block_states[node_id] in (
-                "done",
-                "error",
-                "cancelled",
-                "skipped",
+                BlockState.DONE,
+                BlockState.ERROR,
+                BlockState.CANCELLED,
+                BlockState.SKIPPED,
             ):
                 continue
 
             # Check if all predecessors have produced output
             predecessors = self._dag.reverse_adjacency.get(node_id, [])
-            all_satisfied = all(self._block_states[p] == "done" for p in predecessors)
+            all_satisfied = all(self._block_states[p] == BlockState.DONE for p in predecessors)
 
             if not all_satisfied:
-                self._block_states[node_id] = "skipped"
+                self._block_states[node_id] = BlockState.SKIPPED
                 self.skip_reasons[node_id] = f"upstream {failed_id} {reason}"
                 await self._event_bus.emit(EngineEvent(event_type=BLOCK_SKIPPED, block_id=node_id))
                 queue.extend(self._dag.adjacency.get(node_id, []))
 
     def _check_readiness(self, node_id: str) -> bool:
-        """Return True if all predecessors of *node_id* are in 'done' state."""
+        """Return True if all predecessors of *node_id* are in DONE state."""
         predecessors = self._dag.reverse_adjacency.get(node_id, [])
-        return all(self._block_states[p] == "done" for p in predecessors)
+        return all(self._block_states[p] == BlockState.DONE for p in predecessors)
 
     def _check_completion(self) -> None:
         """Set the completed event if all blocks are in a terminal state."""
-        terminal = {"done", "error", "cancelled", "skipped"}
+        terminal = {BlockState.DONE, BlockState.ERROR, BlockState.CANCELLED, BlockState.SKIPPED}
         if all(s in terminal for s in self._block_states.values()):
             self._completed_event.set()
 
@@ -340,11 +341,11 @@ class DAGScheduler:
         self._paused = False
 
         for node_id in self._order:
-            if self._block_states[node_id] == "idle" and self._check_readiness(node_id):
-                self._block_states[node_id] = "ready"
+            if self._block_states[node_id] == BlockState.IDLE and self._check_readiness(node_id):
+                self._block_states[node_id] = BlockState.READY
                 await self._dispatch(node_id)
 
-    def set_state(self, block_id: str, state: str) -> None:
+    def set_state(self, block_id: str, state: BlockState) -> None:
         """Manually override the execution state of a single block.
 
         Parameters
@@ -352,7 +353,7 @@ class DAGScheduler:
         block_id:
             The block whose state to override.
         state:
-            The new state string.
+            The new BlockState value.
         """
         self._block_states[block_id] = state
 
@@ -370,7 +371,7 @@ class DAGScheduler:
         checkpoint = WorkflowCheckpoint(
             workflow_id=self._workflow.id if hasattr(self._workflow, "id") else "unknown",
             timestamp=datetime.now(),
-            block_states=dict(self._block_states),
+            block_states={k: v.value for k, v in self._block_states.items()},
             intermediate_refs={k: str(v) for k, v in self._block_outputs.items()},
             skip_reasons=dict(self.skip_reasons),
         )

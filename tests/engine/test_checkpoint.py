@@ -10,6 +10,7 @@ from scieasy.engine.checkpoint import (
     WorkflowCheckpoint,
     load_checkpoint,
     save_checkpoint,
+    serialize_intermediate_refs,
 )
 from scieasy.engine.events import (
     BLOCK_CANCELLED,
@@ -172,3 +173,90 @@ class TestCheckpointManager:
         CheckpointManager(target)
         assert target.exists()
         assert target.is_dir()
+
+
+# ---------------------------------------------------------------------------
+# intermediate_refs serialisation (Collection-aware)
+# ---------------------------------------------------------------------------
+
+
+class TestIntermediateRefsSerialization:
+    """Tests for serialize_intermediate_refs -- Collection support (#62)."""
+
+    def test_serialize_collection_output(self) -> None:
+        """Collection outputs preserve structure instead of str()."""
+        from scieasy.core.storage.ref import StorageReference
+        from scieasy.core.types.array import Image
+        from scieasy.core.types.collection import Collection
+
+        img = Image(shape=(10, 10))
+        img.storage_ref = StorageReference(backend="zarr", path="/tmp/test.zarr")
+        collection = Collection([img], item_type=Image)
+
+        block_outputs = {"block_a": {"result": collection}}
+        serialized = serialize_intermediate_refs(block_outputs)
+
+        ref_data = serialized["block_a"]["result"]
+        assert ref_data["_collection"] is True
+        assert ref_data["item_type"] == "Image"
+        assert len(ref_data["items"]) == 1
+        assert ref_data["items"][0]["backend"] == "zarr"
+
+    def test_serialize_plain_value_passthrough(self) -> None:
+        """Scalar values pass through unchanged."""
+        block_outputs = {"block_a": {"count": 42, "name": "test"}}
+        serialized = serialize_intermediate_refs(block_outputs)
+        assert serialized["block_a"]["count"] == 42
+        assert serialized["block_a"]["name"] == "test"
+
+    def test_serialize_storage_ref_output(self) -> None:
+        """DataObject with storage_ref serializes to ref dict."""
+        from scieasy.core.storage.ref import StorageReference
+        from scieasy.core.types.array import Image
+
+        img = Image(shape=(10, 10))
+        img.storage_ref = StorageReference(backend="zarr", path="/tmp/img.zarr")
+
+        block_outputs = {"block_a": {"image": img}}
+        serialized = serialize_intermediate_refs(block_outputs)
+        assert serialized["block_a"]["image"]["backend"] == "zarr"
+
+    def test_round_trip_json_serializable(self) -> None:
+        """Serialized intermediate_refs can be JSON-serialized."""
+        import json
+
+        from scieasy.core.storage.ref import StorageReference
+        from scieasy.core.types.array import Image
+        from scieasy.core.types.collection import Collection
+
+        img = Image(shape=(5, 5))
+        img.storage_ref = StorageReference(backend="zarr", path="/tmp/test.zarr")
+        collection = Collection([img], item_type=Image)
+
+        block_outputs = {"block_a": {"result": collection}}
+        serialized = serialize_intermediate_refs(block_outputs)
+        json_str = json.dumps(serialized)
+        restored = json.loads(json_str)
+        assert restored["block_a"]["result"]["_collection"] is True
+
+    def test_serialize_collection_item_without_storage_ref(self) -> None:
+        """Collection item without storage_ref falls back to _value string."""
+        from scieasy.core.types.array import Image
+        from scieasy.core.types.collection import Collection
+
+        img = Image(shape=(3, 3))
+        # No storage_ref set
+        collection = Collection([img], item_type=Image)
+
+        block_outputs = {"block_a": {"result": collection}}
+        serialized = serialize_intermediate_refs(block_outputs)
+
+        ref_data = serialized["block_a"]["result"]
+        assert ref_data["_collection"] is True
+        assert "_value" in ref_data["items"][0]
+
+    def test_serialize_non_dict_output(self) -> None:
+        """Non-dict block output is serialized via _serialize_value."""
+        block_outputs = {"block_a": "simple_string"}
+        serialized = serialize_intermediate_refs(block_outputs)
+        assert serialized["block_a"] == "simple_string"

@@ -18,6 +18,83 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# intermediate_refs serialisation (Collection-aware)
+# ---------------------------------------------------------------------------
+
+
+def serialize_intermediate_refs(block_outputs: dict[str, Any]) -> dict[str, Any]:
+    """Serialize block outputs for checkpoint storage.
+
+    Preserves Collection structure as ``{"_collection": True, "items": [...],
+    "item_type": "ClassName"}`` instead of flattening via ``str()``.
+    StorageReference-backed objects are serialized as ref dicts.
+    """
+    result: dict[str, Any] = {}
+    for block_id, outputs in block_outputs.items():
+        if isinstance(outputs, dict):
+            serialized: dict[str, Any] = {}
+            for port_name, value in outputs.items():
+                serialized[port_name] = _serialize_value(value)
+            result[block_id] = serialized
+        else:
+            result[block_id] = _serialize_value(outputs)
+    return result
+
+
+def _serialize_value(value: Any) -> Any:
+    """Serialize a single output value for checkpoint storage."""
+    from scieasy.core.types.base import DataObject
+    from scieasy.core.types.collection import Collection
+
+    if isinstance(value, Collection):
+        items = []
+        for item in value:
+            if hasattr(item, "storage_ref") and item.storage_ref is not None:
+                ref = item.storage_ref
+                items.append(
+                    {
+                        "backend": ref.backend,
+                        "path": ref.path,
+                        "format": ref.format,
+                        "metadata": ref.metadata,
+                    }
+                )
+            else:
+                items.append({"_value": str(item)})
+        return {
+            "_collection": True,
+            "items": items,
+            "item_type": value.item_type.__name__,
+        }
+
+    if isinstance(value, DataObject) and hasattr(value, "storage_ref") and value.storage_ref is not None:
+        ref = value.storage_ref
+        return {
+            "backend": ref.backend,
+            "path": ref.path,
+            "format": ref.format,
+            "metadata": ref.metadata,
+        }
+
+    if isinstance(value, (str, int, float, bool, type(None), list, dict)):
+        return value
+
+    return str(value)
+
+
+def deserialize_intermediate_refs(data: dict[str, Any]) -> dict[str, Any]:
+    """Deserialize checkpoint intermediate_refs back to structured dicts.
+
+    Does not reconstruct full Python objects -- preserves the structured
+    dict format so that resume can reconstruct ViewProxies from
+    StorageReferences.
+    """
+    # The data is already in the correct dict format after JSON round-trip.
+    # This function exists for symmetry and future extension.
+    return data
+
+
 @dataclass
 class WorkflowCheckpoint:
     """Snapshot of a workflow execution that can be persisted and restored.

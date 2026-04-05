@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
+from scieasy.blocks.base.state import BlockState
 from scieasy.engine.events import (
     BLOCK_DONE,
     CANCEL_BLOCK_REQUEST,
@@ -78,9 +79,9 @@ class TestSchedulerLinear:
 
         asyncio.run(scheduler.execute())
 
-        assert scheduler._block_states["A"] == "done"
-        assert scheduler._block_states["B"] == "done"
-        assert scheduler._block_states["C"] == "done"
+        assert scheduler._block_states["A"] == BlockState.DONE
+        assert scheduler._block_states["B"] == BlockState.DONE
+        assert scheduler._block_states["C"] == BlockState.DONE
 
     def test_scheduler_linear_execution_order(self) -> None:
         """A->B->C: runner.run() called in correct order."""
@@ -171,9 +172,9 @@ class TestSchedulerErrorPropagation:
 
         asyncio.run(scheduler.execute())
 
-        assert scheduler._block_states["A"] == "error"
-        assert scheduler._block_states["B"] == "skipped"
-        assert scheduler._block_states["C"] == "skipped"
+        assert scheduler._block_states["A"] == BlockState.ERROR
+        assert scheduler._block_states["B"] == BlockState.SKIPPED
+        assert scheduler._block_states["C"] == BlockState.SKIPPED
         assert "A" in scheduler.skip_reasons["B"]
         assert "A" in scheduler.skip_reasons["C"]
 
@@ -204,10 +205,10 @@ class TestSchedulerErrorPropagation:
 
         asyncio.run(scheduler.execute())
 
-        assert scheduler._block_states["A"] == "done"
-        assert scheduler._block_states["B"] == "error"
-        assert scheduler._block_states["C"] == "done"
-        assert scheduler._block_states["D"] == "skipped"
+        assert scheduler._block_states["A"] == BlockState.DONE
+        assert scheduler._block_states["B"] == BlockState.ERROR
+        assert scheduler._block_states["C"] == BlockState.DONE
+        assert scheduler._block_states["D"] == BlockState.SKIPPED
 
 
 # ---------------------------------------------------------------------------
@@ -226,14 +227,14 @@ class TestSchedulerCancellation:
         )
         scheduler, event_bus, _runner = _make_scheduler(wf)
 
-        scheduler._block_states["A"] = "done"
+        scheduler._block_states["A"] = BlockState.DONE
         scheduler._block_outputs["A"] = {"out": "data"}
-        scheduler._block_states["B"] = "running"
+        scheduler._block_states["B"] = BlockState.RUNNING
 
         asyncio.run(event_bus.emit(EngineEvent(event_type=CANCEL_BLOCK_REQUEST, block_id="B")))
 
-        assert scheduler._block_states["B"] == "cancelled"
-        assert scheduler._block_states["C"] == "skipped"
+        assert scheduler._block_states["B"] == BlockState.CANCELLED
+        assert scheduler._block_states["C"] == BlockState.SKIPPED
         assert "B" in scheduler.skip_reasons["C"]
 
     def test_scheduler_cancel_workflow(self) -> None:
@@ -244,16 +245,16 @@ class TestSchedulerCancellation:
         )
         scheduler, event_bus, _runner = _make_scheduler(wf)
 
-        scheduler._block_states["A"] = "done"
+        scheduler._block_states["A"] = BlockState.DONE
         scheduler._block_outputs["A"] = {"out": "data"}
-        scheduler._block_states["B"] = "running"
-        scheduler._block_states["C"] = "idle"
+        scheduler._block_states["B"] = BlockState.RUNNING
+        scheduler._block_states["C"] = BlockState.IDLE
 
         asyncio.run(event_bus.emit(EngineEvent(event_type=CANCEL_WORKFLOW_REQUEST)))
 
-        assert scheduler._block_states["A"] == "done"
-        assert scheduler._block_states["B"] == "cancelled"
-        assert scheduler._block_states["C"] == "skipped"
+        assert scheduler._block_states["A"] == BlockState.DONE
+        assert scheduler._block_states["B"] == BlockState.CANCELLED
+        assert scheduler._block_states["C"] == BlockState.SKIPPED
 
 
 # ---------------------------------------------------------------------------
@@ -285,13 +286,13 @@ class TestSchedulerPauseResume:
         )
         scheduler, _event_bus, runner = _make_scheduler(wf)
 
-        scheduler._block_states["A"] = "done"
+        scheduler._block_states["A"] = BlockState.DONE
         scheduler._block_outputs["A"] = {"out": "data"}
-        scheduler._block_states["B"] = "idle"
+        scheduler._block_states["B"] = BlockState.IDLE
 
         asyncio.run(scheduler.resume())
 
-        assert scheduler._block_states["B"] == "done"
+        assert scheduler._block_states["B"] == BlockState.DONE
         runner.run.assert_called_once()
 
 
@@ -384,8 +385,8 @@ class TestSchedulerState:
         wf = _wf(nodes=[("A", "proc")])
         scheduler, _, _ = _make_scheduler(wf)
 
-        scheduler.set_state("A", "done")
-        assert scheduler._block_states["A"] == "done"
+        scheduler.set_state("A", BlockState.DONE)
+        assert scheduler._block_states["A"] == BlockState.DONE
 
     def test_save_checkpoint_does_not_raise(self) -> None:
         """save_checkpoint is a no-op placeholder, should not raise."""
