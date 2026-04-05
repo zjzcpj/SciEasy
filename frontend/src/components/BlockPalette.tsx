@@ -1,5 +1,3 @@
-import { clsx } from "clsx";
-
 import type { BlockSummary } from "../types/api";
 
 interface BlockPaletteProps {
@@ -35,10 +33,7 @@ export function BlockPalette({
 
   return (
     <aside
-      className={clsx(
-        "border-r border-stone-200 bg-[linear-gradient(180deg,_rgba(255,255,255,0.95),_rgba(245,241,232,0.98))] p-4",
-        collapsed ? "w-20" : "w-full",
-      )}
+      className="h-full overflow-hidden border-r border-stone-200 bg-[linear-gradient(180deg,_rgba(255,255,255,0.95),_rgba(245,241,232,0.98))] p-4"
     >
       <div className="flex items-center justify-between gap-2">
         {collapsed ? null : <p className="font-display text-xl text-ink">Palette</p>}
@@ -56,7 +51,7 @@ export function BlockPalette({
         />
       )}
 
-      <div className="mt-4 space-y-4 overflow-auto pb-6">
+      <div className="mt-4 flex-1 space-y-4 overflow-auto pb-6">
         {grouped.map((group) => (
           <section key={group.category}>
             {collapsed ? null : (
