@@ -405,13 +405,13 @@ class Block(ABC):
         return True
 
     @abstractmethod
-    def run(self, inputs: dict[str, ViewProxy], config: BlockConfig) -> dict[str, DataObject]:
-        """Core execution logic. Must return a dict mapping output port names to DataObjects.
+    def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, Collection]:
+        """Core execution logic. Must return a dict mapping output port names to Collections.
 
         IMPORTANT: This method always executes inside an isolated subprocess,
         never in the engine process (ADR-017). The engine serialises
         StorageReference pointers to the subprocess; the subprocess
-        reconstructs ViewProxy instances from storage and calls run().
+        reconstructs Collection instances from storage and calls run().
         Block authors do not need to handle serialisation — the subprocess
         wrapper is transparent.
         """
