@@ -33,16 +33,17 @@ class OutputPort(Port):
     """An output connection endpoint on a block."""
 
 
-def port_accepts_type(port: Port, data_type: type) -> bool:
+def port_accepts_type(port: Port, data_type: type | Any) -> bool:
     """Check whether *port* accepts *data_type* (isinstance-based, inheritance-aware).
 
     Returns ``True`` if *data_type* is a subclass of any type listed in
     ``port.accepted_types``.  An empty ``accepted_types`` list means the port
     accepts anything.
 
-    ADR-020-Add6: If *data_type* is a Collection, checks its ``item_type``
-    against the port's accepted types. The Collection wrapper is transparent
-    to the port system.
+    ADR-020-Add6: If *data_type* is a Collection **instance**, checks its
+    ``item_type`` against the port's accepted types.  The Collection wrapper
+    is transparent to the port system.  Callers should pass the Collection
+    instance directly (not ``type(collection)``).
     """
     if not port.accepted_types:
         return True

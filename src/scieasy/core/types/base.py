@@ -136,6 +136,35 @@ class DataObject:
         """Materialise the full data into an in-memory representation."""
         return self.view().to_memory()
 
-    def save(self, path: str | Path) -> None:
-        """Persist the data object to *path*."""
-        raise NotImplementedError
+    def get_in_memory_data(self) -> Any:
+        """Return raw in-memory data for persistence.
+
+        Subclasses should override this to return their specific data format.
+        The base implementation checks for common internal data attributes.
+
+        Raises ``ValueError`` if no in-memory data is available.
+        """
+        if hasattr(self, "_data") and self._data is not None:
+            return self._data
+        if hasattr(self, "_arrow_table") and self._arrow_table is not None:
+            return self._arrow_table
+        raise ValueError(f"{type(self).__name__} has no in-memory data to persist.")
+
+    def save(self, path: str | Path) -> StorageReference:
+        """Persist the data object to *path* using the appropriate backend.
+
+        Returns the :class:`StorageReference` pointing to the persisted data.
+        Also sets ``self._storage_ref`` so subsequent calls are no-ops.
+        """
+        if self._storage_ref is not None:
+            return self._storage_ref
+
+        from scieasy.core.storage.backend_router import get_router
+
+        path_str = str(path)
+        backend_name, backend = get_router().resolve(type(self))
+        data = self.get_in_memory_data()
+        ref = StorageReference(backend=backend_name, path=path_str)
+        result_ref = backend.write(data, ref)
+        self._storage_ref = result_ref
+        return result_ref
