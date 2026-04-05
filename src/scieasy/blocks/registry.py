@@ -243,6 +243,7 @@ def _spec_from_class(cls: type, source: str = "") -> BlockSpec:
         category=_infer_category(cls),
         input_ports=list(getattr(cls, "input_ports", [])),
         output_ports=list(getattr(cls, "output_ports", [])),
+        config_schema=getattr(cls, "config_schema", {"type": "object", "properties": {}}),
         source=source,
         type_name=_type_name_for_class(cls),
     )
