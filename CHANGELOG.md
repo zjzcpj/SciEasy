@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- [#55] Item-level hashing for Collection lineage — LineageRecord hash fields from list[str] to dict[str, list[str]], backward-compat store parsing, collection_hashes() utility (@claude, 2026-04-05, branch: feat/issue-55/collection-item-level-hashing, session: 20260405-004917-issue-55-item-level-hashing-for-collecti)
 - [#123] Update Block.run() signature from dict[str, Any] to dict[str, Collection] across base + all subclasses, add architecture test; wrap MergeBlock/SplitBlock outputs in Collection (@claude, 2026-04-05, branch: fix/issue-123/block-run-collection-signature, session: 20260405-002441-issue-123-block-run-signature-dict-str-a)
 - [#126] Sync ARCHITECTURE.md run() signature and ADR-017/018 status (@claude, 2026-04-05, branch: docs/issue-126/docs-sync-adr-architecture, session: 20260405-003356-docs-sync-architecture-md-and-adr-status)
 - [#123] Update Block.run() signature from dict[str, Any] to dict[str, Collection] across base + all subclasses, add architecture test (@claude, 2026-04-05, branch: fix/issue-123/block-run-collection-signature, session: 20260405-002441-issue-123-block-run-signature-dict-str-a)
