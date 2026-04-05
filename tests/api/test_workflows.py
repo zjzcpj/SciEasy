@@ -5,9 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi.testclient import TestClient
-from tests.api.helpers import build_linear_workflow, wait_for_block_state, wait_for_workflow_completion
 
 from scieasy.api.runtime import ApiRuntime
+from scieasy.blocks.base.state import BlockState
+from tests.api.helpers import build_linear_workflow, wait_for_block_state, wait_for_workflow_completion
 
 
 def test_workflow_crud_round_trips_yaml_layout(client: TestClient, opened_project: Path) -> None:
@@ -49,7 +50,11 @@ def test_workflow_execute_and_execute_from_reuses_cached_outputs(
     started = client.post("/api/workflows/execute-flow/execute")
     assert started.status_code == 200
     run = wait_for_workflow_completion(runtime, "execute-flow")
-    assert run.scheduler.block_states() == {"load": "done", "transform": "done", "final": "done"}
+    assert run.scheduler.block_states() == {
+        "load": BlockState.DONE,
+        "transform": BlockState.DONE,
+        "final": BlockState.DONE,
+    }
 
     checkpoint = run.checkpoint_manager.load("execute-flow")
     assert checkpoint is not None
@@ -60,7 +65,7 @@ def test_workflow_execute_and_execute_from_reuses_cached_outputs(
     assert rerun.json()["reused_blocks"] == ["load", "transform"]
     assert rerun.json()["reset_blocks"] == ["final"]
     rerun_handle = wait_for_workflow_completion(runtime, "execute-flow")
-    assert rerun_handle.scheduler.block_states()["final"] == "done"
+    assert rerun_handle.scheduler.block_states()["final"] == BlockState.DONE
 
 
 def test_workflow_pause_and_resume_keeps_downstream_block_ready(
@@ -84,12 +89,12 @@ def test_workflow_pause_and_resume_keeps_downstream_block_ready(
     assert paused.json()["status"] == "paused"
 
     states = wait_for_block_state(runtime, "pause-flow", "final", "ready", timeout=5.0)
-    assert states["transform"] == "done"
+    assert states["transform"] == BlockState.DONE
 
     resumed = client.post("/api/workflows/pause-flow/resume")
     assert resumed.status_code == 200
     run = wait_for_workflow_completion(runtime, "pause-flow")
-    assert run.scheduler.block_states()["final"] == "done"
+    assert run.scheduler.block_states()["final"] == BlockState.DONE
 
 
 def test_cancel_block_and_cancel_workflow_propagate_terminal_states(
@@ -111,8 +116,8 @@ def test_cancel_block_and_cancel_workflow_propagate_terminal_states(
     assert block_cancel.status_code == 200
     wait_for_workflow_completion(runtime, "cancel-block-flow")
     block_states = runtime.workflow_runs["cancel-block-flow"].scheduler.block_states()
-    assert block_states["transform"] == "cancelled"
-    assert block_states["final"] == "skipped"
+    assert block_states["transform"] == BlockState.CANCELLED
+    assert block_states["final"] == BlockState.SKIPPED
 
     cancel_workflow_payload = build_linear_workflow(
         opened_project,
@@ -127,5 +132,5 @@ def test_cancel_block_and_cancel_workflow_propagate_terminal_states(
     assert workflow_cancel.status_code == 200
     wait_for_workflow_completion(runtime, "cancel-workflow-flow")
     workflow_states = runtime.workflow_runs["cancel-workflow-flow"].scheduler.block_states()
-    assert workflow_states["transform"] == "cancelled"
-    assert workflow_states["final"] == "skipped"
+    assert workflow_states["transform"] == BlockState.CANCELLED
+    assert workflow_states["final"] == BlockState.SKIPPED

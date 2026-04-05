@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from scieasy.api.runtime import ApiRuntime, WorkflowRun
+from scieasy.blocks.base.state import BlockState
 
 
 def wait_for_condition(
@@ -51,18 +52,19 @@ def wait_for_block_state(
     runtime: ApiRuntime,
     workflow_id: str,
     block_id: str,
-    expected_state: str,
+    expected_state: str | BlockState,
     *,
     timeout: float = 5.0,
-) -> dict[str, str]:
+) -> dict[str, BlockState]:
     """Wait until a specific block reaches *expected_state*."""
+    target = BlockState(expected_state) if isinstance(expected_state, str) else expected_state
 
-    def _state_match() -> dict[str, str] | None:
+    def _state_match() -> dict[str, BlockState] | None:
         run = runtime.workflow_runs.get(workflow_id)
         if run is None:
             return None
         states = run.scheduler.block_states()
-        if states.get(block_id) == expected_state:
+        if states.get(block_id) == target:
             return states
         return None
 

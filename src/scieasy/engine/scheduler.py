@@ -491,9 +491,7 @@ class DAGScheduler:
         ancestors = self._ancestors_of(block_id)
         missing = [ancestor for ancestor in ancestors if ancestor not in checkpoint.intermediate_refs]
         if missing:
-            raise ValueError(
-                "Cannot execute from block without cached upstream outputs: " + ", ".join(sorted(missing))
-            )
+            raise ValueError("Cannot execute from block without cached upstream outputs: " + ", ".join(sorted(missing)))
 
         descendants = set(get_downstream_blocks(self._dag, block_id)) | {block_id}
         self._completed_event = asyncio.Event()

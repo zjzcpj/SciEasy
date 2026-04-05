@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 
 from fastapi.testclient import TestClient
-from tests.api.helpers import wait_for_condition
 
 from scieasy.api.runtime import ApiRuntime
 from scieasy.engine.events import BLOCK_DONE, CANCEL_BLOCK_REQUEST, CANCEL_WORKFLOW_REQUEST, EngineEvent
+from tests.api.helpers import wait_for_condition
 
 
 def test_websocket_receives_serialised_engine_events(client: TestClient, runtime: ApiRuntime) -> None:

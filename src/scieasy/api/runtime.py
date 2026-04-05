@@ -301,9 +301,7 @@ class ApiRuntime:
             decoded = Path(unquote(project_id_or_path)).expanduser()
             resolved = decoded.resolve()
             if not (resolved / "project.yaml").is_file():
-                raise FileNotFoundError(
-                    f"Not a valid SciEasy project (no project.yaml): {resolved}"
-                )
+                raise FileNotFoundError(f"Not a valid SciEasy project (no project.yaml): {resolved}")
             candidate = self._load_project_from_path(resolved)
         candidate.last_opened = _now_iso()
         self.known_projects[candidate.id] = candidate
@@ -627,7 +625,7 @@ class ApiRuntime:
             resource_manager=self.resource_manager,
             process_registry=self.process_registry,
             runner=self.runner,
-            block_registry=self.block_registry,
+            registry=self.block_registry,
             checkpoint_manager=checkpoint_manager,
         )
 

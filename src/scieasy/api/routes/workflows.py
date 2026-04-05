@@ -6,7 +6,6 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from scieasy.blocks.base.state import BlockState
 from scieasy.api.deps import get_runtime
 from scieasy.api.runtime import ApiRuntime
 from scieasy.api.schemas import (
@@ -19,6 +18,7 @@ from scieasy.api.schemas import (
     WorkflowNode,
     WorkflowResponse,
 )
+from scieasy.blocks.base.state import BlockState
 
 router = APIRouter(prefix="/api/workflows", tags=["workflows"])
 RuntimeDep = Annotated[ApiRuntime, Depends(get_runtime)]
