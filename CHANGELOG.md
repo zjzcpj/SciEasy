@@ -128,6 +128,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#70] AppBlock command injection guard + FileWatcher TOCTOU stability check (@claude, 2026-04-05, branch: fix/issue-70/appblock-security, session: 20260405-004432-fix-p1-appblock-command-injection-toctou)
 - [#129] Fix port_accepts_type() Collection transparency bug in Block.validate() — pass Collection instance directly instead of type(value) (@claude, 2026-04-05, branch: fix/issue-129/port-accepts-type-collection, session: 20260405-004832-issue-129-fix-port-accepts-type-collecti)
 - [#53] Normalize StorageReference.path to POSIX forward-slash format (@claude, 2026-04-05, branch: fix/issue-53/storage-ref-posix-paths, session: 20260405-004909-issue-53-storagereference-posix-path-nor)
 - [#130] Filter original namespace keys and imported modules from PythonRunner.execute_inline() output (@claude, 2026-04-05, branch: fix/issue-130/python-runner-namespace-filter, session: 20260405-004852-issue-130-pythonrunner-execute-inline-fi)
