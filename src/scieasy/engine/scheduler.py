@@ -106,6 +106,7 @@ class DAGScheduler:
 
         self._completed_event = asyncio.Event()
         self._paused = False
+        self._reset_lock = asyncio.Lock()
 
         # Subscribe to lifecycle events
         self._event_bus.subscribe(BLOCK_DONE, self._on_block_done)
@@ -373,6 +374,68 @@ class DAGScheduler:
             The new state string.
         """
         self._block_states[block_id] = state
+
+    async def reset_block(self, block_id: str) -> None:
+        """Reset a block and its dependency chain for selective re-run.
+
+        Algorithm (ADR-018):
+            1. Validate block exists.
+            2. Set target block to IDLE, clear cached outputs and skip reasons.
+            3. Walk upstream: recursively reset non-DONE predecessors to IDLE.
+            4. Walk downstream: reset SKIPPED blocks to IDLE.
+            5. Re-evaluate readiness and batch-dispatch ready blocks.
+        """
+        async with self._reset_lock:
+            if block_id not in self._block_states:
+                raise ValueError(f"Unknown block: {block_id}")
+
+            # Step 2: Reset target block.
+            self._block_states[block_id] = "idle"
+            self._block_outputs.pop(block_id, None)
+            self.skip_reasons.pop(block_id, None)
+
+            # Step 3: Walk upstream — recursively reset non-DONE predecessors.
+            self._reset_upstream(block_id, visited=set())
+
+            # Step 4: Walk downstream — reset SKIPPED blocks.
+            self._reset_downstream_skipped(block_id)
+
+            # Step 5: Re-evaluate readiness, collect ready IDs, then dispatch.
+            ready_ids: list[str] = []
+            for node_id in self._order:
+                if self._block_states[node_id] == "idle" and self._check_readiness(node_id):
+                    self._block_states[node_id] = "ready"
+                    ready_ids.append(node_id)
+            for node_id in ready_ids:
+                await self._dispatch(node_id)
+
+    def _reset_upstream(self, block_id: str, visited: set[str]) -> None:
+        """Recursively reset non-DONE upstream blocks to IDLE."""
+        if block_id in visited:
+            return
+        visited.add(block_id)
+        predecessors = self._dag.reverse_adjacency.get(block_id, [])
+        for pred in predecessors:
+            if self._block_states[pred] != "done":
+                self._block_states[pred] = "idle"
+                self._block_outputs.pop(pred, None)
+                self.skip_reasons.pop(pred, None)
+                self._reset_upstream(pred, visited)
+
+    def _reset_downstream_skipped(self, block_id: str) -> None:
+        """BFS downstream from block_id, reset SKIPPED blocks to IDLE."""
+        queue = list(self._dag.adjacency.get(block_id, []))
+        visited: set[str] = set()
+        while queue:
+            node_id = queue.pop(0)
+            if node_id in visited:
+                continue
+            visited.add(node_id)
+            if self._block_states[node_id] == "skipped":
+                self._block_states[node_id] = "idle"
+                self._block_outputs.pop(node_id, None)
+                self.skip_reasons.pop(node_id, None)
+                queue.extend(self._dag.adjacency.get(node_id, []))
 
     def save_checkpoint(self, checkpoint_manager: Any = None) -> None:
         """Persist the current execution state to durable storage.
