@@ -130,7 +130,6 @@ class TestLocalRunnerRun:
         output_data = {"outputs": {"result": "42"}}
         mock_proc = MagicMock()
         mock_proc.pid = 100
-        mock_proc.stdin = MagicMock()
         mock_proc.communicate.return_value = (
             json.dumps(output_data).encode(),
             b"",
@@ -151,13 +150,16 @@ class TestLocalRunnerRun:
 
         assert result == {"result": "42"}
         mock_proc.communicate.assert_called_once()
+        payload = json.loads(mock_proc.communicate.call_args.args[0].decode())
+        assert payload["block_class"].endswith("FakeBlock")
+        assert payload["inputs"] == {"input": "ref1"}
+        assert payload["config"] == {"param": 1}
 
     @patch("scieasy.engine.runners.process_handle.subprocess.Popen")
     def test_run_raises_on_nonzero_exit(self, mock_popen_cls: MagicMock) -> None:
         """run() should raise when the subprocess exits with a non-zero code."""
         mock_proc = MagicMock()
         mock_proc.pid = 101
-        mock_proc.stdin = MagicMock()
         mock_proc.communicate.return_value = (b"", b"traceback here")
         mock_proc.returncode = 1
         mock_popen_cls.return_value = mock_proc
@@ -182,7 +184,6 @@ class TestLocalRunnerRun:
         """run() should return empty dict when subprocess produces no stdout."""
         mock_proc = MagicMock()
         mock_proc.pid = 102
-        mock_proc.stdin = MagicMock()
         mock_proc.communicate.return_value = (b"", b"")
         mock_proc.returncode = 0
         mock_popen_cls.return_value = mock_proc

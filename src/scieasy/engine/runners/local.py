@@ -88,7 +88,9 @@ class LocalRunner:
         if popen is None:
             return {"error": "No subprocess handle available"}
 
-        stdout, stderr = await asyncio.to_thread(popen.communicate)
+        stdin_payload = handle._stdin_payload
+        handle._stdin_payload = None
+        stdout, stderr = await asyncio.to_thread(popen.communicate, stdin_payload)
 
         if popen.returncode != 0:
             error_msg = stderr.decode(errors="replace") if stderr else "unknown error"

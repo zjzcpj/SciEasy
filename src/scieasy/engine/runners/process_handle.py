@@ -61,6 +61,7 @@ class ProcessHandle:
         self.was_killed_by_framework = False
         self._platform_ops: PlatformOps = get_platform_ops()
         self._popen: subprocess.Popen[bytes] | None = None
+        self._stdin_payload: bytes | None = None
 
     def is_alive(self) -> bool:
         """Non-blocking alive check.
@@ -198,11 +199,6 @@ def spawn_block_process(
         **popen_kwargs,
     )
 
-    # Write payload to stdin and close it
-    if proc.stdin is not None:
-        proc.stdin.write(payload.encode())
-        proc.stdin.close()
-
     # Build the ProcessHandle
     rr = resource_request if resource_request is not None else ResReq()
     handle = ProcessHandle(
@@ -213,6 +209,7 @@ def spawn_block_process(
     )
     handle._popen = proc
     handle._platform_ops = platform_ops
+    handle._stdin_payload = payload.encode("utf-8")
 
     # Register in the registry
     registry.register(handle)

@@ -322,7 +322,6 @@ class TestSpawnBlockProcess:
         # Setup mock Popen
         mock_proc = MagicMock()
         mock_proc.pid = 42
-        mock_proc.stdin = MagicMock()
         mock_popen_cls.return_value = mock_proc
 
         # Setup mock EventBus
@@ -353,10 +352,11 @@ class TestSpawnBlockProcess:
         assert handle.pid == 42
         assert handle.resource_request.cpu_cores == 2
         assert handle._popen is mock_proc
+        assert handle._stdin_payload is not None
 
-        # Verify payload was written to stdin
-        mock_proc.stdin.write.assert_called_once()
-        mock_proc.stdin.close.assert_called_once()
+        # Verify payload is cached for LocalRunner.communicate(input=...)
+        payload = handle._stdin_payload.decode("utf-8")
+        assert '"block_class": "mymodule.MyBlock"' in payload
 
         # Verify registration
         assert registry.get_handle("mymodule.MyBlock") is handle
@@ -373,7 +373,6 @@ class TestSpawnBlockProcess:
         """When block_class is a class, it should resolve the dotted path."""
         mock_proc = MagicMock()
         mock_proc.pid = 99
-        mock_proc.stdin = MagicMock()
         mock_popen_cls.return_value = mock_proc
 
         mock_bus = MagicMock()
