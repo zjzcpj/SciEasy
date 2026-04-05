@@ -1481,7 +1481,7 @@ AI can generate **any of the five block categories** as well as **new DataObject
 
 #### Generating blocks
 
-The AI infers which block category to subclass based on the user's intent:
+The AI infers which block category to subclass based on the user's intent. All generated blocks use `dict[str, Collection]` for `run()` signatures and wrap outputs in `Collection` (ADR-020). State transitions are managed by the engine in subprocess isolation (ADR-017) --- generated blocks must NOT call `self.transition()`. The removed `estimated_memory_gb` parameter (ADR-022) must not appear in generated code.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -1492,10 +1492,13 @@ The AI infers which block category to subclass based on the user's intent:
 │                                                                             │
 │ AI generates:                                                               │
 │   - Class inheriting ProcessBlock                                           │
-│   - Input port: Spectrum (or Series)                                        │
-│   - Output port: Spectrum                                                   │
+│   - Input port: Spectrum (or Series) via Collection                         │
+│   - Output port: Spectrum via Collection                                    │
 │   - Config schema: { window_length: int, poly_order: int }                  │
-│   - run() using scipy.signal.savgol_filter                                  │
+│   - process_item(self, item, config) for Tier-1 single-item processing      │
+│     (engine auto-iterates Collection and auto-flushes outputs)              │
+│   - Or run(self, inputs: dict[str, Collection], config) for custom logic    │
+│   - Output: Collection([smoothed], item_type=Spectrum)                      │
 │   - Unit tests with synthetic spectrum data                                 │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │ IOBlock generation                                                          │
@@ -1506,8 +1509,9 @@ The AI infers which block category to subclass based on the user's intent:
 │ AI generates:                                                               │
 │   - Class inheriting IOBlock                                                │
 │   - direction: "input", format: "bruker_d"                                  │
-│   - Output port: DataFrame (or PeakTable)                                   │
-│   - run() using pyopenms or custom Bruker reader                            │
+│   - Output port: DataFrame (or PeakTable) via Collection                    │
+│   - run(self, inputs: dict[str, Collection], config) -> dict[str, Coll.]    │
+│   - Output: Collection([df], item_type=DataFrame)                           │
 │   - FormatAdapter registration for ".d" extension                           │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │ CodeBlock generation                                                        │
@@ -1518,8 +1522,9 @@ The AI infers which block category to subclass based on the user's intent:
 │ AI generates:                                                               │
 │   - Class inheriting CodeBlock                                              │
 │   - language: "r"                                                           │
-│   - Input ports: DataFrame (counts), DataFrame (metadata)                   │
-│   - Output port: DataFrame (DESeq2 results)                                 │
+│   - Input ports: Collection of DataFrame (counts), Collection of DataFrame  │
+│   - Output port: Collection of DataFrame (DESeq2 results)                   │
+│   - run(self, inputs: dict[str, Collection], config) -> dict[str, Coll.]    │
 │   - Pre-populated script with variable injection for input_0, input_1       │
 │   - Config: { alpha: float, lfc_threshold: float }                          │
 ├─────────────────────────────────────────────────────────────────────────────┤
@@ -1532,8 +1537,9 @@ The AI infers which block category to subclass based on the user's intent:
 │   - Class inheriting AppBlock                                               │
 │   - app_command template for MestReNova CLI                                 │
 │   - Input format: ".fid", output format: ".csv" or ".jdx"                   │
+│   - FileExchangeBridge serializes Collection inputs to files                │
+│   - Output: Collection([artifact], item_type=Artifact)                      │
 │   - watch_patterns for MestReNova's default export directory                │
-│   - Serialisation logic: Array → .fid on input, .csv → Spectrum on output   │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │ AIBlock generation                                                          │
 │                                                                             │
@@ -1542,8 +1548,10 @@ The AI infers which block category to subclass based on the user's intent:
 │                                                                             │
 │ AI generates:                                                               │
 │   - Class inheriting AIBlock                                                │
-│   - Input port: Image                                                       │
-│   - Output port: DataFrame (region_id, classification, confidence)          │
+│   - Input port: Collection of Image                                         │
+│   - Output port: Collection of DataFrame                                    │
+│   - run(self, inputs: dict[str, Collection], config) -> dict[str, Coll.]    │
+│   - Output: Collection([result_df], item_type=DataFrame)                    │
 │   - prompt_template with image description + classification instructions    │
 │   - Optional: vision model config for multimodal LLM                        │
 │   - Structured output parser for consistent DataFrame schema                │
@@ -1552,7 +1560,7 @@ The AI infers which block category to subclass based on the user's intent:
 
 #### Generating data types
 
-AI can also extend the type hierarchy when existing types don't capture the user's data semantics:
+AI can also extend the type hierarchy when existing types don't capture the user's data semantics. Generated types are transported between blocks inside `Collection` (ADR-020):
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -1594,7 +1602,7 @@ AI can also extend the type hierarchy when existing types don't capture the user
 
 #### Validation pipeline
 
-All AI-generated code (blocks and data types) passes through an automated validation pipeline before being added to the user's local library:
+All AI-generated code (blocks and data types) passes through an automated validation pipeline before being added to the user's local library. The validator enforces ADR-017 (no in-process state transitions), ADR-020 (`dict[str, Collection]` for run() signatures), and ADR-022 (no `estimated_memory_gb`):
 
 ```
 Natural-language description
@@ -1605,19 +1613,25 @@ Natural-language description
 └────────┬───────────┘
          ▼
 ┌────────────────────┐
-│ 2. Static analysis │  Type-check with mypy/pyright, lint, verify base class
+│ 2. Static analysis │  ast.parse() syntax check, verify class with run() method
 └────────┬───────────┘
          ▼
-┌────────────────────┐
-│ 3. Dry run         │  Execute with synthetic data matching declared port types
-└────────┬───────────┘
+┌────────────────────────┐
+│ 3. Contract check      │  Reject estimated_memory_gb (ADR-022), warn on
+│                        │  dict[str, Any] (should be dict[str, Collection]),
+│                        │  warn on self.transition() (ADR-017)
+└────────┬───────────────┘
          ▼
 ┌────────────────────┐
-│ 4. Port contract   │  Verify output types match declared output port signatures
-└────────┬───────────┘
+│ 4. Dry run         │  Execute with synthetic Collection matching port types
+└────────┬───────────┘    (future: not yet implemented)
          ▼
 ┌────────────────────┐
-│ 5. User review     │  Show generated code + test results for approval
+│ 5. Port contract   │  Verify output types match declared output port signatures
+└────────┬───────────┘    (future: not yet implemented)
+         ▼
+┌────────────────────┐
+│ 6. User review     │  Show generated code + validation results for approval
 └────────┬───────────┘
          ▼
   Added to local block library / type registry
