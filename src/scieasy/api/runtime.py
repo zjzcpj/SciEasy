@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import shutil
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -34,6 +35,8 @@ from scieasy.engine.runners.process_handle import ProcessRegistry
 from scieasy.engine.scheduler import DAGScheduler
 from scieasy.workflow.definition import EdgeDef, NodeDef, WorkflowDefinition
 from scieasy.workflow.serializer import load_yaml, save_yaml
+
+logger = logging.getLogger(__name__)
 
 
 def _now_iso() -> str:
@@ -296,7 +299,12 @@ class ApiRuntime:
         candidate = self.known_projects.get(project_id_or_path)
         if candidate is None:
             decoded = Path(unquote(project_id_or_path)).expanduser()
-            candidate = self._load_project_from_path(decoded.resolve())
+            resolved = decoded.resolve()
+            if not (resolved / "project.yaml").is_file():
+                raise FileNotFoundError(
+                    f"Not a valid SciEasy project (no project.yaml): {resolved}"
+                )
+            candidate = self._load_project_from_path(resolved)
         candidate.last_opened = _now_iso()
         self.known_projects[candidate.id] = candidate
         self._save_known_projects()
@@ -335,6 +343,9 @@ class ApiRuntime:
             return
         if project_path == Path(project_path.anchor):
             raise ValueError("Refusing to delete drive root")
+        if not (project_path / "project.yaml").is_file():
+            raise ValueError(f"Refusing to delete non-project directory: {project_path}")
+        logger.warning("Deleting project directory: %s", project_path)
         shutil.rmtree(project_path)
         self.known_projects.pop(project.id, None)
         if self.active_project is not None and self.active_project.id == project.id:
@@ -387,6 +398,12 @@ class ApiRuntime:
             ],
             edges=[EdgeDef(source=edge["source"], target=edge["target"]) for edge in payload.get("edges", [])],
         )
+        from scieasy.workflow.validator import validate_workflow
+
+        errors = validate_workflow(definition)
+        if errors:
+            raise ValueError(f"Workflow validation failed: {'; '.join(str(e) for e in errors)}")
+
         save_yaml(definition, self.workflow_path(definition.id))
         return definition
 
@@ -403,7 +420,10 @@ class ApiRuntime:
 
     def upload_file(self, filename: str, content: bytes) -> dict[str, Any]:
         project = self.require_active_project()
-        destination = Path(project.path) / "data" / "raw" / filename
+        safe_name = Path(filename).name  # strips all directory components
+        if not safe_name or safe_name.startswith("."):
+            raise ValueError(f"Invalid filename: {filename!r}")
+        destination = Path(project.path) / "data" / "raw" / safe_name
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(content)
 
@@ -492,7 +512,7 @@ class ApiRuntime:
                 metadata["columns"] = table.column_names
                 metadata["row_count"] = table.num_rows
             except Exception:
-                pass
+                logger.debug("Failed to read parquet metadata for %s", ref.path, exc_info=True)
         return metadata
 
     def preview_data(self, data_ref: str) -> dict[str, Any]:
@@ -550,7 +570,7 @@ class ApiRuntime:
                         "src": _image_data_uri_from_matrix(thumbnail),
                     }
             except Exception:
-                pass
+                logger.debug("Failed to read TIFF preview for %s", ref.path, exc_info=True)
             return {
                 "kind": "artifact",
                 "path": ref.path,

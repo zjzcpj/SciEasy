@@ -15,13 +15,19 @@ UploadFileParam = Annotated[UploadFile, File(...)]
 RuntimeDep = Annotated[ApiRuntime, Depends(get_runtime)]
 
 
+MAX_UPLOAD_SIZE = 2 * 1024 * 1024 * 1024  # 2 GB
+
+
 @router.post("/upload", response_model=DataUploadResponse)
 async def upload_data(
     file: UploadFileParam,
     runtime: RuntimeDep,
 ) -> DataUploadResponse:
     """Upload a data file and register it in the active project."""
-    payload = runtime.upload_file(file.filename or "upload.bin", await file.read())
+    content = await file.read()
+    if len(content) > MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail="File too large (max 2 GB)")
+    payload = runtime.upload_file(file.filename or "upload.bin", content)
     return DataUploadResponse(**payload)
 
 

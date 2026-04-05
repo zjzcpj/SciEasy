@@ -6,6 +6,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from scieasy.blocks.base.state import BlockState
 from scieasy.api.deps import get_runtime
 from scieasy.api.runtime import ApiRuntime
 from scieasy.api.schemas import (
@@ -126,8 +127,8 @@ async def cancel_workflow(workflow_id: str, runtime: RuntimeDep) -> CancelPropag
 
     await run.scheduler.cancel_workflow()
     block_states = run.scheduler.block_states()
-    cancelled = sorted(block_id for block_id, state in block_states.items() if state == "cancelled")
-    skipped = sorted(block_id for block_id, state in block_states.items() if state == "skipped")
+    cancelled = sorted(block_id for block_id, state in block_states.items() if state == BlockState.CANCELLED)
+    skipped = sorted(block_id for block_id, state in block_states.items() if state == BlockState.SKIPPED)
     return CancelPropagationResponse(
         cancelled_blocks=cancelled,
         skipped_blocks=skipped,
@@ -149,8 +150,8 @@ async def cancel_block(
 
     await run.scheduler.cancel_block(block_id)
     block_states = run.scheduler.block_states()
-    cancelled = [node_id for node_id, state in block_states.items() if state == "cancelled"]
-    skipped = [node_id for node_id, state in block_states.items() if state == "skipped"]
+    cancelled = [node_id for node_id, state in block_states.items() if state == BlockState.CANCELLED]
+    skipped = [node_id for node_id, state in block_states.items() if state == BlockState.SKIPPED]
     return CancelPropagationResponse(
         cancelled_blocks=sorted(cancelled),
         skipped_blocks=sorted(skipped),
