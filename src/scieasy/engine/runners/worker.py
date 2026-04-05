@@ -166,10 +166,15 @@ def main() -> None:
         # Execute
         outputs = block.run(inputs, block_config)
 
+        # Capture environment inside subprocess for accurate lineage (issue #54).
+        from scieasy.core.lineage.environment import EnvironmentSnapshot
+
+        env_snapshot = EnvironmentSnapshot.capture()
+
         # Serialize outputs
         result = serialise_outputs(outputs, output_dir) if isinstance(outputs, dict) else {"_result": str(outputs)}
 
-        print(json.dumps({"outputs": result}))
+        print(json.dumps({"outputs": result, "environment": env_snapshot.to_dict()}))
     except Exception:
         print(json.dumps({"error": traceback.format_exc()}))
         sys.exit(1)
