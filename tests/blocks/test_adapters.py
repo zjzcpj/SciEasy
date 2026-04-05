@@ -66,7 +66,7 @@ class TestCSVAdapterDirect:
         assert isinstance(ref, StorageReference)
         assert ref.backend == "arrow"
         assert ref.format == "csv"
-        assert ref.path == str(tmp_path / "data.csv")
+        assert ref.path == (tmp_path / "data.csv").as_posix()
 
 
 # ---------------------------------------------------------------------------
@@ -123,7 +123,7 @@ class TestParquetAdapterDirect:
         assert isinstance(ref, StorageReference)
         assert ref.backend == "arrow"
         assert ref.format == "parquet"
-        assert ref.path == str(tmp_path / "data.parquet")
+        assert ref.path == (tmp_path / "data.parquet").as_posix()
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +182,7 @@ class TestGenericAdapter:
         assert isinstance(ref, StorageReference)
         assert ref.backend == "filesystem"
         assert ref.format == "pdf"
-        assert ref.path == str(tmp_path / "file.pdf")
+        assert ref.path == (tmp_path / "file.pdf").as_posix()
 
     def test_create_reference_unknown_extension(self, tmp_path: Path) -> None:
         adapter = GenericAdapter()
@@ -230,7 +230,7 @@ class TestZarrAdapter:
         assert isinstance(ref, StorageReference)
         assert ref.backend == "zarr"
         assert ref.format == "zarr"
-        assert ref.path == str(tmp_path / "data.zarr")
+        assert ref.path == (tmp_path / "data.zarr").as_posix()
 
     def test_supported_extensions(self) -> None:
         assert ZarrAdapter().supported_extensions() == [".zarr"]
@@ -315,4 +315,4 @@ class TestTIFFAdapter:
         assert isinstance(ref, StorageReference)
         assert ref.backend == "filesystem"
         assert ref.format == "tiff"
-        assert ref.path == str(tmp_path / "image.tif")
+        assert ref.path == (tmp_path / "image.tif").as_posix()

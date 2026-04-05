@@ -48,7 +48,7 @@ class TestSaveArrayToZarr:
         arr = Array(shape=(4, 4), ndim=2, dtype="float32")
         arr._data = np.arange(16, dtype="float32").reshape(4, 4)
 
-        target = str(tmp_path) + "/test.zarr"  # type: ignore[operator]
+        target = (tmp_path / "test.zarr").as_posix()
         ref = arr.save(target)
 
         assert ref is not None
@@ -70,7 +70,7 @@ class TestSaveIdempotency:
         arr = Array(shape=(2, 2), ndim=2, dtype="float64")
         arr._data = np.ones((2, 2))
 
-        target = str(tmp_path) + "/idem.zarr"  # type: ignore[operator]
+        target = (tmp_path / "idem.zarr").as_posix()
         ref1 = arr.save(target)
         ref2 = arr.save("/different/path.zarr")
 
@@ -89,7 +89,7 @@ class TestSaveDataFrameToArrow:
         df = DataFrame(columns=["a", "b"], row_count=3)
         df._arrow_table = pa.table({"a": [1, 2, 3], "b": [4, 5, 6]})
 
-        target = str(tmp_path) + "/test.parquet"  # type: ignore[operator]
+        target = (tmp_path / "test.parquet").as_posix()
         ref = df.save(target)
 
         assert ref is not None
@@ -110,7 +110,7 @@ class TestSaveTextToFilesystem:
 
         t = Text(content="hello world")
 
-        target = str(tmp_path) + "/test.txt"  # type: ignore[operator]
+        target = (tmp_path / "test.txt").as_posix()
         ref = t.save(target)
 
         assert ref is not None
@@ -132,7 +132,7 @@ class TestWriteFromMemoryZarr:
 
         backend = ZarrBackend()
         data = np.arange(12, dtype="int32").reshape(3, 4)
-        target = str(tmp_path) + "/wfm.zarr"  # type: ignore[operator]
+        target = (tmp_path / "wfm.zarr").as_posix()
 
         ref = backend.write_from_memory(data, target)
 
@@ -152,7 +152,7 @@ class TestWriteFromMemoryArrow:
 
         backend = ArrowBackend()
         data = {"x": [10, 20], "y": [30, 40]}
-        target = str(tmp_path) + "/wfm.parquet"  # type: ignore[operator]
+        target = (tmp_path / "wfm.parquet").as_posix()
 
         ref = backend.write_from_memory(data, target)
 
@@ -172,7 +172,7 @@ class TestWriteFromMemoryFilesystem:
         from scieasy.core.storage.filesystem import FilesystemBackend
 
         backend = FilesystemBackend()
-        target = str(tmp_path) + "/wfm.txt"  # type: ignore[operator]
+        target = (tmp_path / "wfm.txt").as_posix()
 
         ref = backend.write_from_memory("test content", target)
 

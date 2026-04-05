@@ -370,3 +370,83 @@ class TestSpawnEmitScheduling:
         )
         # emit should NOT have been called (no loop to schedule on).
         bus.emit.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# run — async non-blocking behaviour (#162)
+# ---------------------------------------------------------------------------
+
+
+class TestLocalRunnerAsyncBehavior:
+    """Verify LocalRunner.run() does not block the event loop (#162)."""
+
+    @patch("scieasy.engine.runners.process_handle.subprocess.Popen")
+    def test_event_loop_responsive_during_run(self, mock_popen_cls: MagicMock) -> None:
+        """A concurrent coroutine should complete while run() is in progress."""
+        output_data = {"outputs": {"result": "ok"}}
+        mock_proc = MagicMock()
+        mock_proc.pid = 400
+        mock_proc.stdin = MagicMock()
+        mock_proc.communicate.return_value = (
+            json.dumps(output_data).encode(),
+            b"",
+        )
+        mock_proc.returncode = 0
+        mock_popen_cls.return_value = mock_proc
+
+        bus = MagicMock()
+        bus.emit = AsyncMock()
+        runner = LocalRunner(event_bus=bus, registry=ProcessRegistry())
+
+        class FakeBlock:
+            pass
+
+        concurrent_ran = False
+
+        async def _test() -> None:
+            nonlocal concurrent_ran
+
+            async def concurrent_task() -> None:
+                nonlocal concurrent_ran
+                await asyncio.sleep(0)
+                concurrent_ran = True
+
+            task = asyncio.create_task(concurrent_task())
+            result = await runner.run(FakeBlock(), {}, {})
+            await task
+            assert result == {"result": "ok"}
+
+        asyncio.run(_test())
+        assert concurrent_ran, "Concurrent coroutine should have completed during run()"
+
+    @patch("scieasy.engine.runners.process_handle.subprocess.Popen")
+    def test_run_uses_block_id_attribute(self, mock_popen_cls: MagicMock) -> None:
+        """run() should read block.id and use it as the ProcessHandle identifier (#163).
+
+        PR #160 approach: DAGScheduler._instantiate_block() sets block.id = node_id,
+        and LocalRunner.run() reads it via getattr(block, "id", ...).
+        """
+        mock_proc = MagicMock()
+        mock_proc.pid = 401
+        mock_proc.stdin = MagicMock()
+        mock_proc.communicate.return_value = (b'{"outputs": {}}', b"")
+        mock_proc.returncode = 0
+        mock_popen_cls.return_value = mock_proc
+
+        bus = MagicMock()
+        bus.emit = AsyncMock()
+        registry = ProcessRegistry()
+        runner = LocalRunner(event_bus=bus, registry=registry)
+
+        class FakeBlock:
+            pass
+
+        block = FakeBlock()
+        block.id = "node_A"  # type: ignore[attr-defined]
+        asyncio.run(runner.run(block, {}, {}))
+
+        # The ProcessHandle should be registered with the block.id value,
+        # not the class path.
+        handle = registry.get_handle("node_A")
+        assert handle is not None
+        assert handle.block_id == "node_A"

@@ -17,6 +17,7 @@ from scieasy.engine.events import (
     BLOCK_SKIPPED,
     CANCEL_BLOCK_REQUEST,
     CANCEL_WORKFLOW_REQUEST,
+    PROCESS_EXITED,
     WORKFLOW_COMPLETED,
     WORKFLOW_STARTED,
     EngineEvent,
@@ -102,6 +103,7 @@ class DAGScheduler:
         self._event_bus.subscribe(BLOCK_ERROR, self._on_block_error)
         self._event_bus.subscribe(CANCEL_BLOCK_REQUEST, self._on_cancel_block)
         self._event_bus.subscribe(CANCEL_WORKFLOW_REQUEST, self._on_cancel_workflow)
+        self._event_bus.subscribe(PROCESS_EXITED, self._on_process_exited)
 
     async def execute(self) -> None:
         """Begin executing the workflow from its current state."""
@@ -295,6 +297,59 @@ class DAGScheduler:
 
         self._check_completion()
         self.save_checkpoint(self._checkpoint_manager)
+
+    async def _on_process_exited(self, event: EngineEvent) -> None:
+        """Handle an unexpected subprocess exit detected by ProcessMonitor.
+
+        If the block is RUNNING and not yet in a terminal state, transition
+        to ERROR and emit BLOCK_ERROR so that skip propagation and completion
+        checks fire through the normal path.
+
+        PAUSED blocks (AppBlock case) are left alone \u2014 the FileWatcher
+        manages output collection and will handle the process exit.
+        """
+        block_id = event.block_id
+        if block_id is None or block_id not in self._block_states:
+            return
+
+        current = self._block_states[block_id]
+
+        # Already in a terminal state \u2014 ignore.
+        terminal = {BlockState.DONE, BlockState.ERROR, BlockState.CANCELLED, BlockState.SKIPPED}
+        if current in terminal:
+            return
+
+        # PAUSED: AppBlock subprocess exited. FileWatcher handles it.
+        if current == BlockState.PAUSED:
+            return
+
+        # RUNNING: subprocess crashed / OOM-killed / externally terminated.
+        if current == BlockState.RUNNING:
+            exit_info = event.data.get("exit_info")
+            error_detail = "Process exited unexpectedly"
+            if isinstance(exit_info, dict):
+                sig = exit_info.get("signal_number")
+                code = exit_info.get("exit_code")
+                if sig:
+                    error_detail = f"Process killed by signal {sig}"
+                elif code is not None:
+                    error_detail = f"Process exited with code {code}"
+            elif exit_info is not None:
+                sig = getattr(exit_info, "signal_number", None)
+                code = getattr(exit_info, "exit_code", None)
+                if sig:
+                    error_detail = f"Process killed by signal {sig}"
+                elif code is not None:
+                    error_detail = f"Process exited with code {code}"
+
+            self._block_states[block_id] = BlockState.ERROR
+            await self._event_bus.emit(
+                EngineEvent(
+                    event_type=BLOCK_ERROR,
+                    block_id=block_id,
+                    data={"workflow_id": self._workflow.id, "error": error_detail},
+                )
+            )
 
     async def _propagate_skip(self, failed_id: str, reason: str) -> None:
         """Breadth-first skip propagation downstream from *failed_id*."""

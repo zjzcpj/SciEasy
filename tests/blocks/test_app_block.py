@@ -161,6 +161,7 @@ class TestAppBlockExchangeDir:
         with (
             patch("scieasy.blocks.app.app_block.FileExchangeBridge") as mock_bridge_cls,
             patch("scieasy.blocks.app.app_block.subprocess") as _mock_sub,
+            patch("scieasy.blocks.app.app_block.validate_app_command", return_value=["echo", "hello"]),
         ):
             mock_bridge = MagicMock()
             mock_bridge_cls.return_value = mock_bridge
@@ -209,6 +210,7 @@ class TestAppBlockExchangeDir:
         with (
             patch("scieasy.blocks.app.app_block.FileExchangeBridge") as mock_bridge_cls,
             patch("scieasy.blocks.app.app_block.subprocess") as _mock_sub,
+            patch("scieasy.blocks.app.app_block.validate_app_command", return_value=["echo", "hello"]),
             patch(
                 "scieasy.blocks.app.app_block.tempfile.mkdtemp", return_value=str(tmp_path / "fallback")
             ) as mock_mkdtemp,
