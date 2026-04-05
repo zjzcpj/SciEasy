@@ -150,6 +150,7 @@ def spawn_block_process(
     resource_request: Any | None = None,
     output_dir: str | None = None,
     job_handle: Any | None = None,
+    block_id: str | None = None,
 ) -> ProcessHandle:
     """Single entry point for ALL subprocess creation (ADR-017, ADR-019).
 
@@ -207,10 +208,14 @@ def spawn_block_process(
         proc.stdin.write(payload.encode())
         proc.stdin.close()
 
-    # Build the ProcessHandle
+    # Build the ProcessHandle.  Use the caller-supplied block_id (typically
+    # the DAG node ID) when available so that PROCESS_EXITED events can be
+    # matched back to the correct DAGScheduler block.  Falls back to the
+    # block class path for backward compatibility.
     rr = resource_request if resource_request is not None else ResReq()
+    handle_id = block_id if block_id is not None else block_class_path
     handle = ProcessHandle(
-        block_id=block_class_path,
+        block_id=handle_id,
         pid=proc.pid,
         start_time=datetime.now(),
         resource_request=rr,

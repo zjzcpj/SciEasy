@@ -94,7 +94,7 @@ class TestSchedulerLinear:
         )
         call_order: list[str] = []
 
-        async def track_run(block: object, inputs: dict, config: dict) -> dict:
+        async def track_run(block: object, inputs: dict, config: dict, **kwargs: object) -> dict:
             call_order.append(block.id)  # type: ignore[attr-defined]
             return {"output": f"result_{block.id}"}  # type: ignore[attr-defined]
 
@@ -165,7 +165,7 @@ class TestSchedulerErrorPropagation:
             edges=[("A:out", "B:in"), ("B:out", "C:in")],
         )
 
-        async def fail_on_a(block: object, inputs: dict, config: dict) -> dict:
+        async def fail_on_a(block: object, inputs: dict, config: dict, **kwargs: object) -> dict:
             if block.id == "A":  # type: ignore[attr-defined]
                 raise RuntimeError("Block A failed")
             return {"output": "ok"}
@@ -198,7 +198,7 @@ class TestSchedulerErrorPropagation:
             ],
         )
 
-        async def fail_on_b(block: object, inputs: dict, config: dict) -> dict:
+        async def fail_on_b(block: object, inputs: dict, config: dict, **kwargs: object) -> dict:
             if block.id == "B":  # type: ignore[attr-defined]
                 raise RuntimeError("Block B failed")
             return {"output": "ok"}
@@ -360,7 +360,7 @@ class TestSchedulerInputGathering:
 
         received_inputs: list[dict] = []
 
-        async def capture_inputs(block: object, inputs: dict, config: dict) -> dict:
+        async def capture_inputs(block: object, inputs: dict, config: dict, **kwargs: object) -> dict:
             if block.id == "B":  # type: ignore[attr-defined]
                 received_inputs.append(inputs)
             return {"result": f"output_{block.id}"}  # type: ignore[attr-defined]
@@ -618,3 +618,263 @@ class TestResetBlock:
 
         asyncio.run(scheduler.reset_block("A"))
         assert runner.run.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# PROCESS_EXITED handling (#163)
+# ---------------------------------------------------------------------------
+
+
+class TestSchedulerProcessExited:
+    """Test DAGScheduler reaction to PROCESS_EXITED events."""
+
+    def test_running_block_transitions_to_error(self) -> None:
+        """A RUNNING block whose process exits unexpectedly → ERROR + skip downstream."""
+        from scieasy.engine.events import PROCESS_EXITED
+
+        wf = _wf(
+            nodes=[("A", "proc"), ("B", "proc")],
+            edges=[("A:out", "B:in")],
+        )
+        scheduler, event_bus, _runner = _make_scheduler(wf)
+
+        scheduler._block_states["A"] = BlockState.RUNNING
+
+        asyncio.run(
+            event_bus.emit(
+                EngineEvent(
+                    event_type=PROCESS_EXITED,
+                    block_id="A",
+                    data={"exit_info": {"exit_code": -9, "signal_number": 9}},
+                )
+            )
+        )
+
+        assert scheduler._block_states["A"] == BlockState.ERROR
+        assert scheduler._block_states["B"] == BlockState.SKIPPED
+        assert "A" in scheduler.skip_reasons["B"]
+
+    def test_done_block_is_noop(self) -> None:
+        """PROCESS_EXITED for an already-DONE block should not change state."""
+        from scieasy.engine.events import PROCESS_EXITED
+
+        wf = _wf(nodes=[("A", "proc")])
+        scheduler, event_bus, _runner = _make_scheduler(wf)
+
+        scheduler._block_states["A"] = BlockState.DONE
+        scheduler._block_outputs["A"] = {"out": "data"}
+
+        asyncio.run(
+            event_bus.emit(
+                EngineEvent(
+                    event_type=PROCESS_EXITED,
+                    block_id="A",
+                    data={"exit_info": {"exit_code": 0}},
+                )
+            )
+        )
+
+        assert scheduler._block_states["A"] == BlockState.DONE
+
+    def test_paused_block_is_noop(self) -> None:
+        """PROCESS_EXITED for a PAUSED block (AppBlock) should not interfere."""
+        from scieasy.engine.events import PROCESS_EXITED
+
+        wf = _wf(nodes=[("A", "app")])
+        scheduler, event_bus, _runner = _make_scheduler(wf)
+
+        scheduler._block_states["A"] = BlockState.PAUSED
+
+        asyncio.run(
+            event_bus.emit(
+                EngineEvent(
+                    event_type=PROCESS_EXITED,
+                    block_id="A",
+                    data={"exit_info": {"exit_code": 0}},
+                )
+            )
+        )
+
+        assert scheduler._block_states["A"] == BlockState.PAUSED
+
+    def test_unknown_block_id_is_safe(self) -> None:
+        """PROCESS_EXITED with a block_id not in the DAG should not crash."""
+        from scieasy.engine.events import PROCESS_EXITED
+
+        wf = _wf(nodes=[("A", "proc")])
+        scheduler, event_bus, _runner = _make_scheduler(wf)
+
+        # Should not raise
+        asyncio.run(
+            event_bus.emit(
+                EngineEvent(
+                    event_type=PROCESS_EXITED,
+                    block_id="NONEXISTENT",
+                    data={"exit_info": {"exit_code": 1}},
+                )
+            )
+        )
+
+        assert scheduler._block_states["A"] == BlockState.IDLE
+
+    def test_error_detail_includes_signal(self) -> None:
+        """Error detail should mention the signal number when available."""
+        from scieasy.engine.events import PROCESS_EXITED
+
+        wf = _wf(nodes=[("A", "proc")])
+        scheduler, event_bus, _runner = _make_scheduler(wf)
+
+        error_events: list[EngineEvent] = []
+        event_bus.subscribe(BLOCK_ERROR, lambda e: error_events.append(e))
+
+        scheduler._block_states["A"] = BlockState.RUNNING
+
+        asyncio.run(
+            event_bus.emit(
+                EngineEvent(
+                    event_type=PROCESS_EXITED,
+                    block_id="A",
+                    data={"exit_info": {"exit_code": -9, "signal_number": 9}},
+                )
+            )
+        )
+
+        assert len(error_events) >= 1
+        error_data = error_events[0].data
+        assert "signal 9" in error_data.get("error", "")
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint wiring (#164)
+# ---------------------------------------------------------------------------
+
+
+class TestSchedulerCheckpoint:
+    """Test CheckpointManager integration with DAGScheduler pause/resume."""
+
+    def test_pause_saves_checkpoint(self, tmp_path: object) -> None:
+        """pause() should persist a WorkflowCheckpoint when manager is provided."""
+        from scieasy.engine.checkpoint import CheckpointManager
+
+        wf = _wf(nodes=[("A", "proc"), ("B", "proc")])
+        event_bus = EventBus()
+        checkpoint_mgr = CheckpointManager(checkpoint_dir=str(tmp_path))
+
+        scheduler = DAGScheduler(
+            workflow=wf,
+            event_bus=event_bus,
+            resource_manager=MagicMock(can_dispatch=MagicMock(return_value=True)),
+            process_registry=MagicMock(),
+            runner=AsyncMock(run=AsyncMock(return_value={"out": "v"})),
+            checkpoint_manager=checkpoint_mgr,
+        )
+        scheduler._block_states["A"] = BlockState.DONE
+        scheduler._block_outputs["A"] = {"out": "v"}
+
+        asyncio.run(scheduler.pause())
+
+        assert checkpoint_mgr.latest is not None
+        assert checkpoint_mgr.latest.block_states["A"] == "done"
+        assert checkpoint_mgr.latest.block_states["B"] == "idle"
+
+    def test_pause_without_checkpoint_manager(self) -> None:
+        """pause() without checkpoint_manager should not raise."""
+        wf = _wf(nodes=[("A", "proc")])
+        scheduler, _bus, _runner = _make_scheduler(wf)
+
+        asyncio.run(scheduler.pause())
+        assert scheduler._paused is True
+
+    def test_resume_loads_checkpoint(self, tmp_path: object) -> None:
+        """resume() should restore block states from a saved checkpoint."""
+        from scieasy.engine.checkpoint import CheckpointManager, WorkflowCheckpoint, save_checkpoint
+
+        wf = _wf(
+            nodes=[("A", "proc"), ("B", "proc")],
+            edges=[("A:out", "B:in")],
+        )
+        wf.id = "test-wf"  # type: ignore[attr-defined]
+
+        # Pre-save a checkpoint with A=done.
+        cp = WorkflowCheckpoint(
+            workflow_id="test-wf",
+            timestamp=__import__("datetime").datetime.now(),
+            block_states={"A": "done", "B": "idle"},
+            intermediate_refs={"A": {"out": "saved_value"}},
+        )
+        from pathlib import Path
+
+        cp_dir = Path(str(tmp_path))
+        save_checkpoint(cp, cp_dir / "checkpoint_test-wf.json")
+
+        checkpoint_mgr = CheckpointManager(checkpoint_dir=str(tmp_path))
+
+        scheduler = DAGScheduler(
+            workflow=wf,
+            event_bus=EventBus(),
+            resource_manager=MagicMock(can_dispatch=MagicMock(return_value=True)),
+            process_registry=MagicMock(),
+            runner=AsyncMock(run=AsyncMock(return_value={"out": "new"})),
+            checkpoint_manager=checkpoint_mgr,
+        )
+        # Scheduler starts fresh — all IDLE.
+        assert scheduler._block_states["A"] == BlockState.IDLE
+
+        asyncio.run(scheduler.resume())
+
+        # A restored to DONE from checkpoint.
+        assert scheduler._block_states["A"] == BlockState.DONE
+        # A's outputs restored.
+        assert "A" in scheduler._block_outputs
+
+    def test_resume_without_checkpoint_manager(self) -> None:
+        """resume() without checkpoint_manager should work normally."""
+        wf = _wf(nodes=[("A", "proc")])
+        scheduler, _bus, _runner = _make_scheduler(wf)
+
+        asyncio.run(scheduler.resume())
+        # A has no predecessors, so it should be dispatched.
+        assert scheduler._block_states["A"] == BlockState.DONE
+
+    def test_auto_save_on_block_done(self) -> None:
+        """Checkpoint should be auto-saved when a block completes."""
+        wf = _wf(nodes=[("A", "proc")])
+        checkpoint_mgr = MagicMock()
+        checkpoint_mgr.save = MagicMock()
+
+        scheduler = DAGScheduler(
+            workflow=wf,
+            event_bus=EventBus(),
+            resource_manager=MagicMock(can_dispatch=MagicMock(return_value=True)),
+            process_registry=MagicMock(),
+            runner=AsyncMock(run=AsyncMock(return_value={"out": "v"})),
+            checkpoint_manager=checkpoint_mgr,
+        )
+
+        asyncio.run(scheduler.execute())
+
+        # save_checkpoint calls checkpoint_manager.save() internally
+        assert checkpoint_mgr.save.called
+
+    def test_auto_save_on_block_error(self) -> None:
+        """Checkpoint should be auto-saved when a block errors."""
+        wf = _wf(nodes=[("A", "proc")])
+        checkpoint_mgr = MagicMock()
+        checkpoint_mgr.save = MagicMock()
+
+        runner = AsyncMock()
+        runner.run.side_effect = RuntimeError("fail")
+
+        scheduler = DAGScheduler(
+            workflow=wf,
+            event_bus=EventBus(),
+            resource_manager=MagicMock(can_dispatch=MagicMock(return_value=True)),
+            process_registry=MagicMock(),
+            runner=runner,
+            checkpoint_manager=checkpoint_mgr,
+        )
+
+        asyncio.run(scheduler.execute())
+
+        assert scheduler._block_states["A"] == BlockState.ERROR
+        assert checkpoint_mgr.save.called

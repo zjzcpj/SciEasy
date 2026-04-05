@@ -24,6 +24,7 @@ from scieasy.engine.events import (
     BLOCK_SKIPPED,
     CANCEL_BLOCK_REQUEST,
     CANCEL_WORKFLOW_REQUEST,
+    PROCESS_EXITED,
     WORKFLOW_COMPLETED,
     WORKFLOW_STARTED,
     EngineEvent,
@@ -89,6 +90,7 @@ class DAGScheduler:
         process_registry: Any,
         runner: Any,
         registry: BlockRegistry | None = None,
+        checkpoint_manager: Any | None = None,
     ) -> None:
         self._workflow = workflow
         self._event_bus = event_bus
@@ -96,6 +98,7 @@ class DAGScheduler:
         self._process_registry = process_registry
         self._runner = runner
         self._registry = registry
+        self._checkpoint_manager = checkpoint_manager
 
         self._dag = build_dag(workflow)
         self._order = topological_sort(self._dag)
@@ -114,6 +117,7 @@ class DAGScheduler:
         self._event_bus.subscribe(BLOCK_ERROR, self._on_block_error)
         self._event_bus.subscribe(CANCEL_BLOCK_REQUEST, self._on_cancel_block)
         self._event_bus.subscribe(CANCEL_WORKFLOW_REQUEST, self._on_cancel_workflow)
+        self._event_bus.subscribe(PROCESS_EXITED, self._on_process_exited)
 
     async def execute(self) -> None:
         """Begin executing the workflow from its current state.
@@ -170,7 +174,7 @@ class DAGScheduler:
                 if self._registry is not None
                 else node  # backward compat for tests with mock runners
             )
-            result = await self._runner.run(block, inputs, config)
+            result = await self._runner.run(block, inputs, config, block_id=node_id)
             self._block_outputs[node_id] = result
             self._block_states[node_id] = BlockState.DONE
             await self._event_bus.emit(
@@ -228,6 +232,8 @@ class DAGScheduler:
                 self._block_states[node_id] = BlockState.READY
                 await self._dispatch(node_id)
 
+        if self._checkpoint_manager is not None:
+            self.save_checkpoint(self._checkpoint_manager)
         self._check_completion()
 
     async def _on_block_error(self, event: EngineEvent) -> None:
@@ -237,6 +243,8 @@ class DAGScheduler:
 
         self._block_states[event.block_id] = BlockState.ERROR
         await self._propagate_skip(event.block_id, "error")
+        if self._checkpoint_manager is not None:
+            self.save_checkpoint(self._checkpoint_manager)
         self._check_completion()
 
     async def _on_cancel_block(self, event: EngineEvent) -> None:
@@ -301,6 +309,63 @@ class DAGScheduler:
 
         self._check_completion()
 
+    async def _on_process_exited(self, event: EngineEvent) -> None:
+        """Handle an unexpected subprocess exit detected by ProcessMonitor.
+
+        If the block is RUNNING and not yet in a terminal state, transition
+        to ERROR and emit BLOCK_ERROR so that skip propagation and completion
+        checks fire through the normal path.
+
+        PAUSED blocks (AppBlock case) are left alone — the FileWatcher
+        manages output collection and will handle the process exit.
+        """
+        block_id = event.block_id
+        if block_id is None or block_id not in self._block_states:
+            return
+
+        current = self._block_states[block_id]
+
+        # Already in a terminal state — BLOCK_DONE/ERROR handler already
+        # processed this block.  PROCESS_EXITED can fire after BLOCK_DONE
+        # due to event ordering; ignore it.
+        terminal = {BlockState.DONE, BlockState.ERROR, BlockState.CANCELLED, BlockState.SKIPPED}
+        if current in terminal:
+            return
+
+        # PAUSED: AppBlock subprocess exited.  FileWatcher handles output
+        # collection and will emit BLOCK_DONE or transition to CANCELLED.
+        if current == BlockState.PAUSED:
+            return
+
+        # RUNNING: subprocess crashed / OOM-killed / externally terminated
+        # before the runner could complete its normal path.
+        if current == BlockState.RUNNING:
+            exit_info = event.data.get("exit_info")
+            error_detail = "Process exited unexpectedly"
+            if isinstance(exit_info, dict):
+                sig = exit_info.get("signal_number")
+                code = exit_info.get("exit_code")
+                if sig:
+                    error_detail = f"Process killed by signal {sig}"
+                elif code is not None:
+                    error_detail = f"Process exited with code {code}"
+            elif exit_info is not None:
+                sig = getattr(exit_info, "signal_number", None)
+                code = getattr(exit_info, "exit_code", None)
+                if sig:
+                    error_detail = f"Process killed by signal {sig}"
+                elif code is not None:
+                    error_detail = f"Process exited with code {code}"
+
+            self._block_states[block_id] = BlockState.ERROR
+            await self._event_bus.emit(
+                EngineEvent(
+                    event_type=BLOCK_ERROR,
+                    block_id=block_id,
+                    data={"error": error_detail},
+                )
+            )
+
     async def _propagate_skip(self, failed_id: str, reason: str) -> None:
         """BFS downstream from *failed_id*, marking blocks SKIPPED.
 
@@ -348,21 +413,75 @@ class DAGScheduler:
             self._completed_event.set()
 
     async def pause(self) -> None:
-        """Request a graceful pause after the current blocks complete."""
+        """Request a graceful pause after the current blocks complete.
+
+        If a checkpoint_manager is available, persists the current execution
+        state so the workflow can be resumed from this point, even across
+        process restarts.
+        """
         self._paused = True
+        if self._checkpoint_manager is not None:
+            self.save_checkpoint(self._checkpoint_manager)
 
     async def resume(self) -> None:
         """Resume a previously paused workflow execution.
 
+        If a checkpoint_manager is available, loads the latest checkpoint
+        and restores block states and outputs before re-dispatching.
         Re-checks all idle blocks for readiness and dispatches any that
         are now ready.
         """
         self._paused = False
 
+        if self._checkpoint_manager is not None:
+            self._restore_from_checkpoint()
+
         for node_id in self._order:
             if self._block_states[node_id] == BlockState.IDLE and self._check_readiness(node_id):
                 self._block_states[node_id] = BlockState.READY
                 await self._dispatch(node_id)
+
+    def _restore_from_checkpoint(self) -> None:
+        """Restore block states and outputs from the latest checkpoint.
+
+        Loads the checkpoint for this workflow and applies state changes.
+        Only upgrades IDLE/READY states to terminal — never downgrades a
+        block that has already progressed beyond the checkpoint.
+        Intermediate outputs are reconstructed from serialised references.
+        """
+        from scieasy.engine.checkpoint import deserialize_intermediate_refs
+
+        if self._checkpoint_manager is None:
+            return
+        workflow_id = self._workflow.id if hasattr(self._workflow, "id") else "unknown"
+        checkpoint = self._checkpoint_manager.load(workflow_id)
+        if checkpoint is None:
+            return
+
+        # Restore block states from checkpoint.
+        for block_id, state_str in checkpoint.block_states.items():
+            if block_id not in self._block_states:
+                continue
+            try:
+                restored = BlockState(state_str)
+            except ValueError:
+                continue
+            # Only restore if current state is less advanced (IDLE/READY).
+            current = self._block_states[block_id]
+            if current in (BlockState.IDLE, BlockState.READY):
+                self._block_states[block_id] = restored
+
+        # Restore intermediate outputs.
+        if checkpoint.intermediate_refs:
+            restored_outputs = deserialize_intermediate_refs(checkpoint.intermediate_refs)
+            for block_id, outputs in restored_outputs.items():
+                if block_id not in self._block_outputs:
+                    self._block_outputs[block_id] = outputs
+
+        # Restore skip reasons.
+        for block_id, reason in checkpoint.skip_reasons.items():
+            if block_id not in self.skip_reasons:
+                self.skip_reasons[block_id] = reason
 
     def set_state(self, block_id: str, state: BlockState) -> None:
         """Manually override the execution state of a single block.
