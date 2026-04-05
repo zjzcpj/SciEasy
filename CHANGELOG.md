@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#179] Restrict CORS origins to localhost by default, configurable via SCIEASY_CORS_ORIGINS env var (@claude, 2026-04-05, branch: fix/issue-179/cors-origins, session: 20260405-193319-fix-179-restrict-cors-allow-origins-befo)
 - [#182] Add Vite dev server proxy for /api and /ws to fix HTML-instead-of-JSON error in dev mode (@claude, 2026-04-05, branch: fix/issue-182/vite-api-proxy, session: 20260405-182205-fix-frontend-dev-server-missing-api-prox)
 - [#166] Create LineageRecorder component that persists LineageRecord on terminal block events via EventBus (@claude, 2026-04-05, branch: fix/batch-b2/issues-166-169, session: 20260405-163539-fix-issues-166-169-lineagerecorder-zarrb)
 - [#167] Make ZarrBackend.write() atomic via write-to-temp-then-rename (@claude, 2026-04-05, branch: fix/batch-b2/issues-166-169, session: 20260405-163539-fix-issues-166-169-lineagerecorder-zarrb)
