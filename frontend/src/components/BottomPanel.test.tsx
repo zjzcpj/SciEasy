@@ -11,11 +11,9 @@ describe("BottomPanel", () => {
       <BottomPanel
         activeTab="config"
         chatMessages={[]}
-        collapsed={false}
         logEntries={[]}
         onSendChat={() => {}}
         onTabChange={() => {}}
-        onToggle={() => {}}
         onUpdateConfig={onUpdateConfig}
         selectedNode={{
           id: "node-1",

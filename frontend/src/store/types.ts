@@ -66,12 +66,14 @@ export interface UISlice {
   previewCollapsed: boolean;
   bottomPanelCollapsed: boolean;
   panelSizes: { palette: number; preview: number; bottom: number };
+  minimapVisible: boolean;
   lastError: string | null;
   setSelectedNodeId: (nodeId: string | null) => void;
   setActiveBottomTab: (tab: BottomTab) => void;
   togglePalette: () => void;
   togglePreview: () => void;
   toggleBottomPanel: () => void;
+  toggleMinimap: () => void;
   setPanelSize: (panel: "palette" | "preview" | "bottom", size: number) => void;
   setLastError: (message: string | null) => void;
 }

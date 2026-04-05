@@ -5,13 +5,11 @@ import {
   ReactFlow,
   type Connection,
   type Edge,
-  type EdgeChange,
   type Node,
-  type NodeChange,
   useReactFlow,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 
 import { resolveTypeColor } from "../config/typeColorMap";
 import type { BlockSchemaResponse, BlockSummary, WorkflowEdge, WorkflowNode } from "../types/api";
@@ -34,18 +32,48 @@ interface WorkflowCanvasProps {
   schemas: Record<string, BlockSchemaResponse>;
   blockStates: Record<string, string>;
   selectedNodeId: string | null;
+  minimapVisible: boolean;
   onSelectNode: (nodeId: string | null) => void;
   onAddNode: (block: BlockSummary, position: { x: number; y: number }) => void;
   onUpdateNodePosition: (nodeId: string, position: { x: number; y: number }) => void;
+  onUpdateNodeConfig: (nodeId: string, config: Record<string, unknown>) => void;
   onConnect: (connection: WorkflowEdge) => Promise<void>;
   onDeleteNode: (nodeId: string) => void;
   onDeleteEdge: (edge: WorkflowEdge) => void;
+  onRunBlock: (blockId: string) => void;
+  onRestartBlock: (blockId: string) => void;
+  onErrorClick: (blockId: string) => void;
 }
 
 export function WorkflowCanvas(props: WorkflowCanvasProps) {
   const reactFlow = useReactFlow();
-  const { blocks, schemas, blockStates, edges, nodes, onAddNode, onConnect, onDeleteEdge, onDeleteNode, onSelectNode, onUpdateNodePosition, selectedNodeId } =
-    props;
+  const {
+    blocks,
+    schemas,
+    blockStates,
+    edges,
+    minimapVisible,
+    nodes,
+    onAddNode,
+    onConnect,
+    onDeleteEdge,
+    onDeleteNode,
+    onErrorClick,
+    onRestartBlock,
+    onRunBlock,
+    onSelectNode,
+    onUpdateNodeConfig,
+    onUpdateNodePosition,
+    selectedNodeId,
+  } = props;
+
+  const makeOnRun = useCallback((nodeId: string) => () => onRunBlock(nodeId), [onRunBlock]);
+  const makeOnRestart = useCallback((nodeId: string) => () => onRestartBlock(nodeId), [onRestartBlock]);
+  const makeOnErrorClick = useCallback((nodeId: string) => () => onErrorClick(nodeId), [onErrorClick]);
+  const makeOnUpdateConfig = useCallback(
+    (nodeId: string) => (patch: Record<string, unknown>) => onUpdateNodeConfig(nodeId, patch),
+    [onUpdateNodeConfig],
+  );
 
   const flowNodes = useMemo<Array<Node<BlockNodeData>>>(() => {
     return nodes.map((node, index) => {
@@ -55,6 +83,7 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
       return {
         id: node.id,
         type: "block",
+        dragHandle: ".drag-handle",
         position: node.layout ?? { x: 120 + index * 80, y: 120 + index * 40 },
         data: {
           label: summary?.name ?? schema?.name ?? node.block_type,
@@ -67,11 +96,15 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
           outputPorts: schema?.output_ports ?? summary?.output_ports ?? [],
           status: blockStates[node.id] ?? "idle",
           selected: selectedNodeId === node.id,
+          onRun: makeOnRun(node.id),
+          onRestart: makeOnRestart(node.id),
+          onUpdateConfig: makeOnUpdateConfig(node.id),
+          onErrorClick: makeOnErrorClick(node.id),
         },
         selected: selectedNodeId === node.id,
       };
     });
-  }, [blocks, blockStates, nodes, schemas, selectedNodeId]);
+  }, [blocks, blockStates, makeOnErrorClick, makeOnRestart, makeOnRun, makeOnUpdateConfig, nodes, schemas, selectedNodeId]);
 
   const flowEdges = useMemo<Array<Edge>>(() => {
     return edges.map((edge) => {
@@ -88,7 +121,7 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
         targetHandle: target.portName,
         type: "typed",
         data: {
-          color: resolveTypeColor(sourcePort?.accepted_types ?? []),
+          color: resolveTypeColor(sourcePort?.accepted_types ?? [], sourceSchema?.type_hierarchy),
           dashed: sourcePort?.is_collection ?? false,
         },
       };
@@ -149,11 +182,13 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
         deleteKeyCode={["Backspace", "Delete"]}
         proOptions={{ hideAttribution: true }}
       >
-        <MiniMap
-          pannable
-          zoomable
-          nodeColor={(node) => resolveTypeColor((node.data as BlockNodeData).outputPorts[0]?.accepted_types ?? [])}
-        />
+        {minimapVisible && (
+          <MiniMap
+            pannable
+            zoomable
+            nodeColor={(node) => resolveTypeColor((node.data as BlockNodeData).outputPorts[0]?.accepted_types ?? [])}
+          />
+        )}
         <Controls />
         <Background color="#d8d2c4" gap={20} size={1.2} />
       </ReactFlow>
