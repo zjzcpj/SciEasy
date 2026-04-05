@@ -55,6 +55,11 @@ class ZarrBackend:
             end = min(start + chunk_size, total)
             yield np.asarray(arr[start:end])
 
+    def write_from_memory(self, data: Any, path: str) -> StorageReference:
+        """Write raw in-memory numpy data to a Zarr store at *path*."""
+        ref = StorageReference(backend="zarr", path=path)
+        return self.write(data, ref)
+
     def get_metadata(self, ref: StorageReference) -> dict[str, Any]:
         """Return Zarr-level metadata for *ref*."""
         arr = zarr.open_array(ref.path, mode="r")

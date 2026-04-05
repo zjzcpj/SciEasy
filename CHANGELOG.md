@@ -7,12 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- [#127] Auto-flush data persistence pipeline: BackendRouter MRO resolution, flush_context, DataObject.save() with idempotency, _auto_flush() safety net (@claude, 2026-04-05, branch: fix/batch-a1/issues-127-49-52-67)
+### Fixed
+
+- [#125] Add AIBlock to _infer_category() so AIBlock subclasses get category "ai" instead of "unknown" (@claude, 2026-04-05, branch: fix/issue-125/aiblock-infer-category, session: 20260405-004900-issue-125-add-aiblock-to-infer-category)
+
 ### Removed
 
 - [#59] Remove InputDelivery enum — MEMORY-only delivery via ADR-020 Collection auto-unpack (@claude, 2026-04-04, branch: fix/batch-1/issues-59-57-58-48, session: 20260404-192842-batch-1-remove-inputdelivery-postprocess)
 
 ### Changed
 
+- [#123] Update Block.run() signature from dict[str, Any] to dict[str, Collection] across base + all subclasses, add architecture test (@claude, 2026-04-05, branch: fix/issue-123/block-run-collection-signature, session: 20260405-002441-issue-123-block-run-signature-dict-str-a)
 - [#57] Update Block.postprocess() type annotation to dict[str, Collection] (@claude, 2026-04-04, branch: fix/batch-1/issues-59-57-58-48, session: 20260404-192842-batch-1-remove-inputdelivery-postprocess)
 - [#58] Document that port constraint functions receive Collection objects (@claude, 2026-04-04, branch: fix/batch-1/issues-59-57-58-48, session: 20260404-192842-batch-1-remove-inputdelivery-postprocess)
 
@@ -104,6 +112,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#129] Fix port_accepts_type() Collection transparency bug in Block.validate() — pass Collection instance directly instead of type(value) (@claude, 2026-04-05, branch: fix/issue-129/port-accepts-type-collection, session: 20260405-004832-issue-129-fix-port-accepts-type-collecti)
+- [#53] Normalize StorageReference.path to POSIX forward-slash format (@claude, 2026-04-05, branch: fix/issue-53/storage-ref-posix-paths, session: 20260405-004909-issue-53-storagereference-posix-path-nor)
+- [#130] Filter original namespace keys and imported modules from PythonRunner.execute_inline() output (@claude, 2026-04-05, branch: fix/issue-130/python-runner-namespace-filter, session: 20260405-004852-issue-130-pythonrunner-execute-inline-fi)
 - [#31] Deduplicate records in ProvenanceGraph descendants/ancestors traversals (@claude, 2026-04-04, branch: fix/issue-31/provenance-dedup, session: 20260404-034230-fix-provenancegraph-dedup-in-descendants)
 - [#28] Make CompositeStore.slice() and iter_chunks() lazy -- load only requested slots (@claude, 2026-04-04, branch: fix/issue-28/composite-store-lazy, session: 20260404-034336-fix-compositestore-slice-and-iter-chunks)
 - [#26] Persist axis metadata in ZarrBackend write/read for round-trip fidelity (@claude, 2026-04-04, branch: fix/issue-26/zarr-axes-metadata, session: 20260404-034314-fix-zarrbackend-to-persist-axis-metadata)

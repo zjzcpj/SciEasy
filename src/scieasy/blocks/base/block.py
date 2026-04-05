@@ -25,6 +25,13 @@ _VALID_TRANSITIONS: dict[BlockState, set[BlockState]] = {
 }
 
 
+def _is_view_proxy(value: object) -> bool:
+    """Check if *value* is a ViewProxy without top-level import."""
+    from scieasy.core.proxy import ViewProxy
+
+    return isinstance(value, ViewProxy)
+
+
 class Block(ABC):
     """Abstract base class for all processing blocks.
 
@@ -87,11 +94,19 @@ class Block(ABC):
                 continue
             port = port_map[key]
 
-            # Type check: unwrap ViewProxy to check dtype_info if available.
-            actual_type = type(value)
-            from scieasy.core.proxy import ViewProxy
+            # Type check: handle Collection, ViewProxy, and plain types.
+            from scieasy.core.types.collection import Collection
 
-            if isinstance(value, ViewProxy):
+            if isinstance(value, Collection):
+                # ADR-020-Add6: Collection transparency — pass instance directly
+                # so port_accepts_type() can inspect item_type.
+                if port.accepted_types and not port_accepts_type(port, value):
+                    accepted = [t.__name__ for t in port.accepted_types]
+                    item_type_name = value.item_type.__name__ if value.item_type else "unknown"
+                    raise ValueError(
+                        f"Port '{port.name}': Collection item type {item_type_name} not compatible with {accepted}"
+                    )
+            elif _is_view_proxy(value):
                 # For proxies, we can't do isinstance; check signature instead.
                 from scieasy.blocks.base.ports import port_accepts_signature
 
@@ -102,6 +117,7 @@ class Block(ABC):
                         f"not compatible with accepted types {accepted}"
                     )
             else:
+                actual_type = type(value)
                 if port.accepted_types and not port_accepts_type(port, actual_type):
                     accepted = [t.__name__ for t in port.accepted_types]
                     raise ValueError(f"Port '{port.name}': got {actual_type.__name__}, expected one of {accepted}")
@@ -206,15 +222,12 @@ class Block(ABC):
 
     @staticmethod
     def _auto_flush(obj: Any) -> Any:
-        """Write in-memory DataObject to storage, return lightweight reference.
+        """Write in-memory DataObject to storage, return with StorageReference set.
 
         If the object already has a ``StorageReference``, return as-is (no-op).
+        If no flush context output directory is configured, return as-is.
         Called internally by ``map_items``, ``parallel_map``, ``pack``, and
         the ``process_item`` default ``run()``.
-
-        Note: In subprocess execution (Phase 5.2), the worker also performs a
-        final force-write scan after ``block.run()`` to catch any items that
-        were not flushed during execution.
         """
         from scieasy.core.types.base import DataObject
 
@@ -222,8 +235,31 @@ class Block(ABC):
             return obj
         if obj.storage_ref is not None:
             return obj
-        # Object has no storage ref — it is in-memory only.
-        # For now, return as-is. The subprocess worker (Phase 5.2) will
-        # perform the final force-write scan using the appropriate storage
-        # backend for the output directory.
+
+        from scieasy.core.storage.flush_context import get_output_dir
+
+        output_dir = get_output_dir()
+        if output_dir is None:
+            return obj
+
+        import logging
+        import uuid
+        from pathlib import Path
+
+        from scieasy.core.storage.backend_router import get_router
+
+        router = get_router()
+        ext = router.extension_for(type(obj))
+        filename = f"{uuid.uuid4()}{ext}"
+        target_path = str(Path(output_dir) / filename)
+
+        try:
+            obj.save(target_path)
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "auto_flush failed for %s: %s",
+                type(obj).__name__,
+                exc,
+            )
+            return obj
         return obj

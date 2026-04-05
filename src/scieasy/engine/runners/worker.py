@@ -140,6 +140,16 @@ def main() -> None:
         config: dict[str, Any] = payload.get("config", {})
         output_dir: str = payload.get("output_dir", "")
 
+        # Set up flush context for auto-flush persistence (#127, #67)
+        if output_dir:
+            from pathlib import Path
+
+            Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+            from scieasy.core.storage.flush_context import set_output_dir
+
+            set_output_dir(output_dir)
+
         # Import block class
         module_path, class_name = block_class_path.rsplit(".", 1)
         module = importlib.import_module(module_path)
