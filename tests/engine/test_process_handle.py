@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
 import sys
 from datetime import datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -325,19 +326,26 @@ class TestSpawnBlockProcess:
         mock_proc.stdin = MagicMock()
         mock_popen_cls.return_value = mock_proc
 
-        # Setup mock EventBus
+        # Setup mock EventBus with AsyncMock emit (emit() is async)
         mock_bus = MagicMock()
+        mock_bus.emit = AsyncMock()
 
         registry = ProcessRegistry()
 
-        handle = spawn_block_process(
-            block_class="mymodule.MyBlock",
-            inputs_refs={"in1": "ref1"},
-            config={"param": 1},
-            event_bus=mock_bus,
-            registry=registry,
-            resource_request=ResourceRequest(cpu_cores=2),
-        )
+        # Run inside async context so emit() can be scheduled via create_task
+        async def _run() -> ProcessHandle:
+            h = spawn_block_process(
+                block_class="mymodule.MyBlock",
+                inputs_refs={"in1": "ref1"},
+                config={"param": 1},
+                event_bus=mock_bus,
+                registry=registry,
+                resource_request=ResourceRequest(cpu_cores=2),
+            )
+            await asyncio.sleep(0)  # Let create_task run
+            return h
+
+        handle = asyncio.run(_run())
 
         # Verify subprocess was created
         mock_popen_cls.assert_called_once()

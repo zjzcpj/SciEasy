@@ -47,7 +47,8 @@ def reconstruct_inputs(payload: dict[str, Any]) -> dict[str, Any]:
                 format=value.get("format"),
                 metadata=value.get("metadata"),
             )
-            sig = TypeSignature(type_chain=["DataObject"])
+            type_chain = value.get("metadata", {}).get("type_chain", ["DataObject"])
+            sig = TypeSignature(type_chain=type_chain)
             result[key] = ViewProxy(storage_ref=ref, dtype_info=sig)
         else:
             # Scalar or other value — pass through.
@@ -83,12 +84,15 @@ def serialise_outputs(outputs: dict[str, Any], output_dir: str) -> dict[str, Any
                 item = Block._auto_flush(item)
                 if hasattr(item, "storage_ref") and item.storage_ref is not None:
                     ref = item.storage_ref
+                    item_meta = {**(ref.metadata or {})}
+                    if hasattr(item, "dtype_info"):
+                        item_meta["type_chain"] = item.dtype_info.type_chain
                     item_refs.append(
                         {
                             "backend": ref.backend,
                             "path": ref.path,
                             "format": ref.format,
-                            "metadata": ref.metadata,
+                            "metadata": item_meta,
                         }
                     )
                 else:
@@ -107,11 +111,14 @@ def serialise_outputs(outputs: dict[str, Any], output_dir: str) -> dict[str, Any
         # Serialize StorageReference-backed objects.
         if hasattr(value, "storage_ref") and value.storage_ref is not None:
             ref = value.storage_ref
+            obj_meta = {**(ref.metadata or {})}
+            if hasattr(value, "dtype_info"):
+                obj_meta["type_chain"] = value.dtype_info.type_chain
             result[key] = {
                 "backend": ref.backend,
                 "path": ref.path,
                 "format": ref.format,
-                "metadata": ref.metadata,
+                "metadata": obj_meta,
             }
         elif isinstance(value, (str, int, float, bool, type(None), list, dict)):
             result[key] = value
@@ -139,16 +146,6 @@ def main() -> None:
         block_class_path: str = payload["block_class"]
         config: dict[str, Any] = payload.get("config", {})
         output_dir: str = payload.get("output_dir", "")
-
-        # Set up flush context for auto-flush persistence (#127, #67)
-        if output_dir:
-            from pathlib import Path
-
-            Path(output_dir).mkdir(parents=True, exist_ok=True)
-
-            from scieasy.core.storage.flush_context import set_output_dir
-
-            set_output_dir(output_dir)
 
         # Import block class
         module_path, class_name = block_class_path.rsplit(".", 1)
