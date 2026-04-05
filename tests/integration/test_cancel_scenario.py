@@ -311,3 +311,4 @@ class TestCycleDetection:
         assert len(order) == 4
         assert order[0] == "A"
         assert order[-1] == "D"
+
