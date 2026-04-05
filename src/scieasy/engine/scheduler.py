@@ -365,13 +365,13 @@ class DAGScheduler:
             return
         from datetime import datetime
 
-        from scieasy.engine.checkpoint import WorkflowCheckpoint
+        from scieasy.engine.checkpoint import WorkflowCheckpoint, serialize_intermediate_refs
 
         checkpoint = WorkflowCheckpoint(
             workflow_id=self._workflow.id if hasattr(self._workflow, "id") else "unknown",
             timestamp=datetime.now(),
             block_states=dict(self._block_states),
-            intermediate_refs={k: str(v) for k, v in self._block_outputs.items()},
+            intermediate_refs=serialize_intermediate_refs(self._block_outputs),
             skip_reasons=dict(self.skip_reasons),
         )
         checkpoint_manager.save(checkpoint)
