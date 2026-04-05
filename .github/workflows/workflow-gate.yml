@@ -2,7 +2,8 @@ name: Workflow Gate Check
 
 on:
   pull_request:
-    types: [opened, synchronize, edited]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  workflow_dispatch:
 
 jobs:
   workflow-gate:
