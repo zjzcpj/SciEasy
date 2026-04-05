@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- [#62] Checkpoint intermediate_refs Collection serialization for resume support (@claude, 2026-04-05, branch: feat/issue-62/checkpoint-collection-refs, session: 20260405-005921-feat-checkpoint-intermediate-refs-collec)
 - [#72] ResourceRequest max_internal_workers for accurate CPU accounting with parallel_map (@claude, 2026-04-05, branch: feat/issue-72/resource-request-workers, session: 20260405-005829-feat-resourcerequest-max-internal-worker)
 - [#76] broadcast_apply memory guard, Array.__array__() protocol, in-memory scope docs (@claude, 2026-04-05, branch: feat/issue-76/broadcast-apply-improvements, session: 20260405-004843-feat-broadcast-apply-memory-guard-array)
 - [#133] Add example workflow YAML files for CLI testing — raman_preprocessing, simple_merge, image_pipeline (@claude, 2026-04-05, branch: chore/issue-133/example-workflows, session: 20260405-002958-add-example-workflow-yaml-files-for-cli)
