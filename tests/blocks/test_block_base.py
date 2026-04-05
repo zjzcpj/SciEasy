@@ -283,6 +283,58 @@ class TestTerminateGraceSec:
         assert block.terminate_grace_sec == 10.0
 
 
+class TestValidateCollectionTransparency:
+    """Issue #129: Block.validate() correctly validates Collection inputs via item_type."""
+
+    def test_validate_collection_with_matching_item_type(self) -> None:
+        """Collection[Image] should pass validation for a port accepting Array."""
+        from scieasy.core.types.collection import Collection
+
+        block = _DummyBlock()
+        img = Image(shape=(10, 10), ndim=2, dtype="float64")
+        c = Collection([img])
+        # Collection[Image] -> port accepts Array -> Image is subtype of Array -> pass
+        assert block.validate({"image": c}) is True
+
+    def test_validate_collection_with_wrong_item_type(self) -> None:
+        """Collection[DataFrame] should fail validation for a port accepting Array."""
+        from scieasy.core.types.collection import Collection
+
+        block = _DummyBlock()
+        df = DataFrame(columns=["a"], row_count=1)
+        c = Collection([df])
+        with pytest.raises(ValueError, match="Collection item type"):
+            block.validate({"image": c})
+
+    def test_validate_collection_exact_item_type(self) -> None:
+        """Collection[Image] should pass validation for a port accepting Image."""
+        from scieasy.core.types.collection import Collection
+
+        class _ImageBlock(Block):
+            name: ClassVar[str] = "ImageOnly"
+            input_ports: ClassVar[list[InputPort]] = [
+                InputPort(name="img", accepted_types=[Image]),
+            ]
+            output_ports: ClassVar[list[OutputPort]] = []
+
+            def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+                return {}
+
+        block = _ImageBlock()
+        img = Image(shape=(5, 5), ndim=2, dtype="uint8")
+        c = Collection([img])
+        assert block.validate({"img": c}) is True
+
+    def test_validate_collection_empty_accepted_types(self) -> None:
+        """Collection should pass validation for a port accepting anything."""
+        from scieasy.core.types.collection import Collection
+
+        block = _EmptyAcceptBlock()
+        img = Image(shape=(5, 5), ndim=2, dtype="uint8")
+        c = Collection([img])
+        assert block.validate({"anything": c}) is True
+
+
 class TestCollectionUtilities:
     """ADR-020: pack(), unpack(), unpack_single(), map_items(), parallel_map()."""
 
@@ -335,3 +387,54 @@ class TestCollectionUtilities:
         result = Block.map_items(lambda x: x, c)
         assert isinstance(result, Collection)
         assert result.length == 2
+
+
+class TestAutoFlush:
+    """Block._auto_flush — auto-persistence of in-memory DataObjects."""
+
+    def teardown_method(self) -> None:
+        """Clear flush context after each test."""
+        from scieasy.core.storage.flush_context import clear
+
+        clear()
+
+    def test_auto_flush_non_dataobject(self) -> None:
+        """Non-DataObject values pass through unchanged."""
+        result = Block._auto_flush("just a string")
+        assert result == "just a string"
+
+    def test_auto_flush_already_has_ref(self) -> None:
+        """DataObject with an existing StorageReference passes through."""
+        from scieasy.core.storage.ref import StorageReference
+
+        img = Image(shape=(5, 5), ndim=2, dtype="float64")
+        img.storage_ref = StorageReference(backend="zarr", path="/tmp/test.zarr")
+        result = Block._auto_flush(img)
+        assert result is img
+
+    def test_auto_flush_no_context(self) -> None:
+        """Without flush context, in-memory DataObject returns unchanged."""
+        from scieasy.core.storage.flush_context import clear
+
+        clear()
+        img = Image(shape=(5, 5), ndim=2, dtype="float64")
+        result = Block._auto_flush(img)
+        assert result is img
+        assert result.storage_ref is None
+
+    def test_auto_flush_with_context_persists(self, tmp_path: object) -> None:
+        """With flush context set, _auto_flush writes data and sets storage_ref."""
+        import numpy as np
+
+        from scieasy.core.storage.flush_context import set_output_dir
+
+        output_dir = str(tmp_path)
+        set_output_dir(output_dir)
+
+        img = Image(shape=(3, 3), ndim=2, dtype="float64")
+        img._data = np.ones((3, 3), dtype="float64")
+
+        result = Block._auto_flush(img)
+        assert result is img
+        assert result.storage_ref is not None
+        assert result.storage_ref.backend == "zarr"

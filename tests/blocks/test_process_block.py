@@ -8,6 +8,7 @@ import pytest
 from scieasy.blocks.base.state import BlockState
 from scieasy.blocks.process.builtins.merge import MergeBlock
 from scieasy.blocks.process.builtins.split import SplitBlock
+from scieasy.core.types.collection import Collection
 from scieasy.core.types.dataframe import DataFrame
 
 
@@ -30,7 +31,9 @@ class TestMergeBlock:
         block.transition(BlockState.READY)
         result = block.run({"left": left, "right": right}, block.config)
 
-        merged = result["merged"]
+        merged_col = result["merged"]
+        assert isinstance(merged_col, Collection)
+        merged = merged_col[0]
         assert isinstance(merged, DataFrame)
         assert merged.row_count == 4
         assert merged.columns == ["a", "b"]
@@ -57,9 +60,9 @@ class TestSplitBlock:
         block.transition(BlockState.READY)
         result = block.run({"data": data}, block.config)
 
-        out = result["out"]
-        assert isinstance(out, DataFrame)
-        assert out.row_count == 3
+        out_col = result["out"]
+        assert isinstance(out_col, Collection)
+        assert out_col[0].row_count == 3
 
     def test_ratio_mode(self) -> None:
         data = _make_df({"val": list(range(10))})
@@ -67,8 +70,8 @@ class TestSplitBlock:
         block.transition(BlockState.READY)
         result = block.run({"data": data}, block.config)
 
-        assert result["out"].row_count == 7
-        assert result["remainder"].row_count == 3
+        assert result["out"][0].row_count == 7
+        assert result["remainder"][0].row_count == 3
 
     def test_filter_mode(self) -> None:
         data = _make_df({"name": ["alice", "bob", "alice"], "score": [10, 20, 30]})
@@ -76,8 +79,8 @@ class TestSplitBlock:
         block.transition(BlockState.READY)
         result = block.run({"data": data}, block.config)
 
-        out = result["out"]
-        assert out.row_count == 2
+        out_col = result["out"]
+        assert out_col[0].row_count == 2
 
     def test_unknown_mode_raises(self) -> None:
         data = _make_df({"x": [1]})
@@ -104,9 +107,9 @@ class TestMergeBlockCollection:
         block.transition(BlockState.READY)
         result = block.run({"left": left_col, "right": right_col}, block.config)
 
-        merged = result["merged"]
-        assert isinstance(merged, DataFrame)
-        assert merged.row_count == 4
+        merged_col = result["merged"]
+        assert isinstance(merged_col, Collection)
+        assert merged_col[0].row_count == 4
 
     def test_mixed_raw_and_collection(self) -> None:
         """MergeBlock should handle mix of raw and Collection inputs."""
@@ -119,7 +122,7 @@ class TestMergeBlockCollection:
         block.transition(BlockState.READY)
         result = block.run({"left": left, "right": right_col}, block.config)
 
-        assert result["merged"].row_count == 2
+        assert result["merged"][0].row_count == 2
 
 
 class TestSplitBlockCollection:
@@ -135,9 +138,9 @@ class TestSplitBlockCollection:
         block.transition(BlockState.READY)
         result = block.run({"data": data_col}, block.config)
 
-        out = result["out"]
-        assert isinstance(out, DataFrame)
-        assert out.row_count == 3
+        out_col = result["out"]
+        assert isinstance(out_col, Collection)
+        assert out_col[0].row_count == 3
 
     def test_ratio_collection_input(self) -> None:
         from scieasy.core.types.collection import Collection
@@ -149,5 +152,5 @@ class TestSplitBlockCollection:
         block.transition(BlockState.READY)
         result = block.run({"data": data_col}, block.config)
 
-        assert result["out"].row_count == 5
-        assert result["remainder"].row_count == 5
+        assert result["out"][0].row_count == 5
+        assert result["remainder"][0].row_count == 5
