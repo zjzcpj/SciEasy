@@ -103,7 +103,8 @@ class LineageStore:
         """
         if isinstance(raw, list):
             return {"default": raw}
-        return raw  # already a dict
+        result: dict[str, list[str]] = raw  # already a dict
+        return result
 
     def _row_to_record(self, row: tuple[Any, ...]) -> LineageRecord:
         """Convert a database row to a :class:`LineageRecord`.
