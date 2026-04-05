@@ -5,15 +5,12 @@ ADR-021: Built-in utility block for Collection operations.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
+from typing import Any, ClassVar
 
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.process.process_block import ProcessBlock
 from scieasy.core.types.base import DataObject
-
-if TYPE_CHECKING:
-    from scieasy.core.types.collection import Collection
 
 
 class MergeCollection(ProcessBlock):
@@ -35,7 +32,7 @@ class MergeCollection(ProcessBlock):
         OutputPort(name="output", accepted_types=[DataObject], description="Merged Collection"),
     ]
 
-    def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, Collection]:
+    def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
         """Concatenate two same-typed Collections.
 
         Raises:
