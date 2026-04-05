@@ -1,5 +1,5 @@
 import { ReactFlowProvider } from "@xyflow/react";
-import { startTransition, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "./lib/api";
 import { useLogStream } from "./hooks/useSSE";
@@ -13,6 +13,8 @@ import { ProjectDialog } from "./components/ProjectDialog";
 import { Toolbar } from "./components/Toolbar";
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { WorkflowCanvas } from "./components/WorkflowCanvas";
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "./components/ui/resizable";
+import { TooltipProvider } from "./components/ui/tooltip";
 
 function emptyWorkflow(id = "main"): WorkflowResponse {
   return {
@@ -61,16 +63,14 @@ export default function App() {
 
   const selectedNodeId = useAppStore((state) => state.selectedNodeId);
   const activeBottomTab = useAppStore((state) => state.activeBottomTab);
-  const paletteCollapsed = useAppStore((state) => state.paletteCollapsed);
-  const previewCollapsed = useAppStore((state) => state.previewCollapsed);
-  const bottomPanelCollapsed = useAppStore((state) => state.bottomPanelCollapsed);
-  const panelSizes = useAppStore((state) => state.panelSizes);
   const lastError = useAppStore((state) => state.lastError);
+  const minimapVisible = useAppStore((state) => state.minimapVisible);
   const setSelectedNodeId = useAppStore((state) => state.setSelectedNodeId);
   const setActiveBottomTab = useAppStore((state) => state.setActiveBottomTab);
   const togglePalette = useAppStore((state) => state.togglePalette);
   const togglePreview = useAppStore((state) => state.togglePreview);
   const toggleBottomPanel = useAppStore((state) => state.toggleBottomPanel);
+  const toggleMinimap = useAppStore((state) => state.toggleMinimap);
   const setLastError = useAppStore((state) => state.setLastError);
 
   const blocks = useAppStore((state) => state.blocks);
@@ -262,6 +262,45 @@ export default function App() {
     await api.cancelBlock(workflowId, selectedNodeId);
   }
 
+  const handleRunBlock = useCallback(
+    async (blockId: string) => {
+      if (!workflowId) return;
+      await saveWorkflow();
+      await api.executeFrom(workflowId, blockId);
+      setActiveBottomTab("logs");
+    },
+    [workflowId],
+  );
+
+  const handleRestartBlock = useCallback(
+    async (blockId: string) => {
+      if (!workflowId) return;
+      await saveWorkflow();
+      await api.executeFrom(workflowId, blockId);
+      setActiveBottomTab("logs");
+    },
+    [workflowId],
+  );
+
+  const handleNodeSelect = useCallback(
+    (nodeId: string | null) => {
+      setSelectedNodeId(nodeId);
+      if (nodeId) {
+        setActiveBottomTab("config");
+      }
+    },
+    [setSelectedNodeId, setActiveBottomTab],
+  );
+
+  const handleErrorClick = useCallback(
+    (blockId: string) => {
+      setSelectedNodeId(blockId);
+      setActiveBottomTab("logs");
+    },
+    [setSelectedNodeId, setActiveBottomTab],
+  );
+
+  // Boot: load projects and blocks
   useEffect(() => {
     if (bootedRef.current) {
       return;
@@ -279,6 +318,7 @@ export default function App() {
     })();
   }, []);
 
+  // Auto-save on dirty
   useEffect(() => {
     if (!currentProject || !workflowDirty) {
       return undefined;
@@ -289,143 +329,226 @@ export default function App() {
     return () => window.clearTimeout(timeout);
   }, [currentProject, workflowDirty, workflowPayload]);
 
+  // Keyboard shortcuts
   useEffect(() => {
     const listener = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+      const target = event.target as HTMLElement;
+      const isInput = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT";
+      const ctrl = event.ctrlKey || event.metaKey;
+      const key = event.key.toLowerCase();
+
+      // Escape always works
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setSelectedNodeId(null);
+        return;
+      }
+
+      // Ctrl+S always works
+      if (ctrl && key === "s" && !event.shiftKey) {
         event.preventDefault();
         void saveWorkflow();
+        return;
       }
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+
+      // Ctrl+Shift+S: Export
+      if (ctrl && key === "s" && event.shiftKey) {
+        event.preventDefault();
+        void saveWorkflow();
+        return;
+      }
+
+      // Skip other shortcuts when in input fields
+      if (isInput) return;
+
+      if (ctrl && key === "z") {
         event.preventDefault();
         undoWorkflow();
-      }
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") {
+      } else if (ctrl && key === "y") {
         event.preventDefault();
         redoWorkflow();
-      }
-      if ((event.key === "Delete" || event.key === "Backspace") && selectedNodeId) {
+      } else if (ctrl && key === "enter") {
+        event.preventDefault();
+        void runWorkflow();
+      } else if (ctrl && key === ".") {
+        event.preventDefault();
+        void cancelWorkflow();
+      } else if (ctrl && key === "b") {
+        event.preventDefault();
+        togglePalette();
+      } else if (ctrl && key === "d") {
+        event.preventDefault();
+        togglePreview();
+      } else if (ctrl && key === "j") {
+        event.preventDefault();
+        toggleBottomPanel();
+      } else if (ctrl && key === "m") {
+        event.preventDefault();
+        toggleMinimap();
+      } else if (ctrl && key === "o") {
+        event.preventDefault();
+        openProjectDialog("open");
+      } else if (ctrl && key === "a") {
+        event.preventDefault();
+        // Select all handled by ReactFlow internally
+      } else if ((event.key === "Delete" || event.key === "Backspace") && selectedNodeId) {
         removeNode(selectedNodeId);
       }
     };
     window.addEventListener("keydown", listener);
     return () => window.removeEventListener("keydown", listener);
-  }, [redoWorkflow, removeNode, saveWorkflow, selectedNodeId, undoWorkflow]);
+  }, [
+    cancelWorkflow,
+    openProjectDialog,
+    redoWorkflow,
+    removeNode,
+    runWorkflow,
+    saveWorkflow,
+    selectedNodeId,
+    setSelectedNodeId,
+    toggleBottomPanel,
+    toggleMinimap,
+    togglePalette,
+    togglePreview,
+    undoWorkflow,
+  ]);
 
   return (
     <ReactFlowProvider>
-      <div className="flex h-screen flex-col bg-canvas text-stone-800">
-        <Toolbar
-          currentProject={currentProject}
-          onNewProject={() => openProjectDialog("new", { path: projectDialog.path })}
-          onOpenProject={() => openProjectDialog("open")}
-          onPause={() => void pauseWorkflow()}
-          onReloadBlocks={() => void refreshBlocks()}
-          onResume={() => void resumeWorkflow()}
-          onRun={() => void runWorkflow()}
-          onSave={() => void saveWorkflow()}
-          onStartFromSelected={() => void startFromSelected()}
-          onStop={() => void cancelWorkflow()}
-          onTogglePalette={togglePalette}
-          onTogglePreview={togglePreview}
-          selectedNodeId={selectedNodeId}
-          sseConnected={sseConnected}
-          workflowId={workflowId}
-          wsConnected={wsConnected}
-        />
+      <TooltipProvider delayDuration={300}>
+        <div className="flex h-screen flex-col bg-canvas text-stone-800">
+          <Toolbar
+            currentProject={currentProject}
+            workflowId={workflowId}
+            selectedNodeId={selectedNodeId}
+            wsConnected={wsConnected}
+            sseConnected={sseConnected}
+            recentProjects={recentProjects}
+            onNewProject={() => openProjectDialog("new", { path: projectDialog.path })}
+            onOpenProject={() => openProjectDialog("open")}
+            onCloseProject={() => {
+              setCurrentProject(null);
+              setWorkflow(emptyWorkflow());
+              resetExecution();
+            }}
+            onSave={() => void saveWorkflow()}
+            onImport={() => openProjectDialog("open")}
+            onExport={() => void saveWorkflow()}
+            onRun={() => void runWorkflow()}
+            onPause={() => void pauseWorkflow()}
+            onResume={() => void resumeWorkflow()}
+            onStop={() => void cancelWorkflow()}
+            onReset={() => resetExecution()}
+            onDelete={() => {
+              if (selectedNodeId) removeNode(selectedNodeId);
+            }}
+            onReloadBlocks={() => void refreshBlocks()}
+            onStartFromSelected={() => void startFromSelected()}
+          />
 
-        {lastError ? (
-          <div className="border-b border-red-200 bg-red-50 px-5 py-3 text-sm text-red-700">{lastError}</div>
-        ) : null}
-
-        <div
-          className="grid min-h-0 flex-1"
-          style={{
-            gridTemplateColumns: paletteCollapsed ? "0px 1fr" : `${panelSizes.palette}px 1fr`,
-          }}
-        >
-          {paletteCollapsed ? null : (
-            <BlockPalette
-              blocks={blocks}
-              collapsed={paletteCollapsed}
-              onAddBlock={(block) => addNode(block, { x: 160, y: 160 })}
-              onReload={() => void refreshBlocks()}
-              onSearch={setPaletteSearch}
-              search={paletteSearch}
-            />
-          )}
+          {lastError ? (
+            <div className="border-b border-red-200 bg-red-50 px-5 py-3 text-sm text-red-700">{lastError}</div>
+          ) : null}
 
           {currentProject ? (
-            <div className="grid min-h-0" style={{ gridTemplateColumns: previewCollapsed ? "1fr" : `1fr ${panelSizes.preview}px` }}>
-              <div className="grid min-h-0 grid-rows-[1fr_auto]">
-                <WorkflowCanvas
-                  blockStates={blockStates}
-                  blocks={blocks.filter((block) => {
-                    const value = `${block.name} ${block.description} ${block.category}`.toLowerCase();
-                    return value.includes(paletteSearch.toLowerCase());
-                  })}
-                  edges={workflowEdges}
-                  nodes={workflowNodes}
-                  onAddNode={addNode}
-                  onConnect={async (edge) => {
-                    try {
-                      const sourceNode = workflowNodes.find((node) => node.id === edge.source.split(":")[0]);
-                      const targetNode = workflowNodes.find((node) => node.id === edge.target.split(":")[0]);
-                      if (!sourceNode || !targetNode) {
-                        return;
-                      }
-                      const sourcePort = edge.source.split(":")[1];
-                      const targetPort = edge.target.split(":")[1];
-                      const validation = await api.validateConnection({
-                        source_block: sourceNode.block_type,
-                        source_port: sourcePort,
-                        target_block: targetNode.block_type,
-                        target_port: targetPort,
-                      });
-                      if (!validation.compatible) {
-                        setLastError(validation.reason);
-                        return;
-                      }
-                      connectNodes(edge);
-                      setLastError(null);
-                    } catch (error) {
-                      setLastError((error as Error).message);
-                    }
-                  }}
-                  onDeleteEdge={removeEdge}
-                  onDeleteNode={removeNode}
-                  onSelectNode={setSelectedNodeId}
-                  onUpdateNodePosition={updateNodeLayout}
-                  schemas={blockSchemas}
-                  selectedNodeId={selectedNodeId}
+            <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
+              {/* Block Palette — full height left column */}
+              <ResizablePanel defaultSize={15} minSize={4} maxSize={28} collapsible collapsedSize={0}>
+                <BlockPalette
+                  blocks={blocks}
+                  collapsed={false}
+                  onAddBlock={(block) => addNode(block, { x: 160, y: 160 })}
+                  onReload={() => void refreshBlocks()}
+                  onSearch={setPaletteSearch}
+                  search={paletteSearch}
                 />
-                <BottomPanel
-                  activeTab={activeBottomTab}
-                  chatMessages={chatMessages}
-                  collapsed={bottomPanelCollapsed}
-                  logEntries={logEntries}
-                  onSendChat={(message) => {
-                    const timestamp = new Date().toISOString();
-                    pushChatMessage({ id: `${timestamp}-user`, role: "user", content: message, timestamp });
-                    pushChatMessage({
-                      id: `${timestamp}-assistant`,
-                      role: "assistant",
-                      content: "Phase 9 will provide actual AI-backed generation, synthesis, and optimization. This Phase 8 tab is a persisted shell.",
-                      timestamp,
-                    });
-                  }}
-                  onTabChange={setActiveBottomTab}
-                  onToggle={toggleBottomPanel}
-                  onUpdateConfig={(patch) => {
-                    if (selectedNodeId) {
-                      updateNodeConfig(selectedNodeId, patch);
-                    }
-                  }}
-                  selectedNode={selectedNode}
-                  selectedSchema={selectedSchema}
-                />
-              </div>
+              </ResizablePanel>
+              <ResizableHandle withHandle />
 
-              {previewCollapsed ? null : (
+              {/* Center: Canvas + Bottom Panel vertical split */}
+              <ResizablePanel defaultSize={63}>
+                <ResizablePanelGroup orientation="vertical">
+                  <ResizablePanel defaultSize={70} minSize={20}>
+                    <WorkflowCanvas
+                      blockStates={blockStates}
+                      blocks={blocks.filter((block) => {
+                        const value = `${block.name} ${block.description} ${block.category}`.toLowerCase();
+                        return value.includes(paletteSearch.toLowerCase());
+                      })}
+                      edges={workflowEdges}
+                      minimapVisible={minimapVisible}
+                      nodes={workflowNodes}
+                      onAddNode={addNode}
+                      onConnect={async (edge) => {
+                        try {
+                          const sourceNode = workflowNodes.find((node) => node.id === edge.source.split(":")[0]);
+                          const targetNode = workflowNodes.find((node) => node.id === edge.target.split(":")[0]);
+                          if (!sourceNode || !targetNode) {
+                            return;
+                          }
+                          const sourcePort = edge.source.split(":")[1];
+                          const targetPort = edge.target.split(":")[1];
+                          const validation = await api.validateConnection({
+                            source_block: sourceNode.block_type,
+                            source_port: sourcePort,
+                            target_block: targetNode.block_type,
+                            target_port: targetPort,
+                          });
+                          if (!validation.compatible) {
+                            setLastError(validation.reason);
+                            return;
+                          }
+                          connectNodes(edge);
+                          setLastError(null);
+                        } catch (error) {
+                          setLastError((error as Error).message);
+                        }
+                      }}
+                      onDeleteEdge={removeEdge}
+                      onDeleteNode={removeNode}
+                      onErrorClick={handleErrorClick}
+                      onRunBlock={handleRunBlock}
+                      onRestartBlock={handleRestartBlock}
+                      onSelectNode={handleNodeSelect}
+                      onUpdateNodeConfig={updateNodeConfig}
+                      onUpdateNodePosition={updateNodeLayout}
+                      schemas={blockSchemas}
+                      selectedNodeId={selectedNodeId}
+                    />
+                  </ResizablePanel>
+                  <ResizableHandle withHandle />
+                  <ResizablePanel defaultSize={30} minSize={5} collapsible collapsedSize={3}>
+                    <BottomPanel
+                      activeTab={activeBottomTab}
+                      chatMessages={chatMessages}
+                      logEntries={logEntries}
+                      onSendChat={(message) => {
+                        const timestamp = new Date().toISOString();
+                        pushChatMessage({ id: `${timestamp}-user`, role: "user", content: message, timestamp });
+                        pushChatMessage({
+                          id: `${timestamp}-assistant`,
+                          role: "assistant",
+                          content:
+                            "Phase 9 will provide actual AI-backed generation, synthesis, and optimization. This Phase 8 tab is a persisted shell.",
+                          timestamp,
+                        });
+                      }}
+                      onTabChange={setActiveBottomTab}
+                      onUpdateConfig={(patch) => {
+                        if (selectedNodeId) {
+                          updateNodeConfig(selectedNodeId, patch);
+                        }
+                      }}
+                      selectedNode={selectedNode}
+                      selectedSchema={selectedSchema}
+                    />
+                  </ResizablePanel>
+                </ResizablePanelGroup>
+              </ResizablePanel>
+              <ResizableHandle withHandle />
+
+              {/* Data Preview — full height right column */}
+              <ResizablePanel defaultSize={22} minSize={15} maxSize={42} collapsible collapsedSize={0}>
                 <DataPreview
                   blockOutputs={blockOutputs}
                   onCancelSelected={() => void cancelSelectedBlock()}
@@ -436,33 +559,37 @@ export default function App() {
                   selectedNodeId={selectedNodeId}
                   selectedNodeLabel={selectedNodeLabel}
                 />
-              )}
-            </div>
+              </ResizablePanel>
+            </ResizablePanelGroup>
           ) : (
-            <WelcomeScreen
-              onNewProject={() => openProjectDialog("new")}
-              onOpenProject={() => openProjectDialog("open")}
-              onOpenRecent={(projectId) => void openProject(projectId)}
-              recentProjects={recentProjects}
-            />
+            <div className="min-h-0 flex-1">
+              <WelcomeScreen
+                onNewProject={() => openProjectDialog("new")}
+                onOpenProject={() => openProjectDialog("open")}
+                onOpenRecent={(projectId) => void openProject(projectId)}
+                recentProjects={recentProjects}
+              />
+            </div>
           )}
+
+          <ProjectDialog
+            description={projectDialog.description}
+            mode={projectDialog.mode}
+            name={projectDialog.name}
+            onChange={updateProjectDialog}
+            onClose={closeProjectDialog}
+            onOpenRecent={(projectId) => void openProject(projectId)}
+            onSubmit={() => void submitProjectDialog()}
+            open={projectDialogOpen}
+            path={projectDialog.path}
+            recentProjects={recentProjects}
+          />
+
+          {busy ? (
+            <div className="fixed bottom-4 right-4 rounded-full bg-ink px-4 py-2 text-sm text-white">Working…</div>
+          ) : null}
         </div>
-
-        <ProjectDialog
-          description={projectDialog.description}
-          mode={projectDialog.mode}
-          name={projectDialog.name}
-          onChange={updateProjectDialog}
-          onClose={closeProjectDialog}
-          onOpenRecent={(projectId) => void openProject(projectId)}
-          onSubmit={() => void submitProjectDialog()}
-          open={projectDialogOpen}
-          path={projectDialog.path}
-          recentProjects={recentProjects}
-        />
-
-        {busy ? <div className="fixed bottom-4 right-4 rounded-full bg-ink px-4 py-2 text-sm text-white">Working…</div> : null}
-      </div>
+      </TooltipProvider>
     </ReactFlowProvider>
   );
 }
