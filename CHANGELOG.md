@@ -103,6 +103,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#70] AppBlock command injection guard + FileWatcher TOCTOU stability check (@claude, 2026-04-05, branch: fix/issue-70/appblock-security, session: 20260405-004432-fix-p1-appblock-command-injection-toctou)
 - [#31] Deduplicate records in ProvenanceGraph descendants/ancestors traversals (@claude, 2026-04-04, branch: fix/issue-31/provenance-dedup, session: 20260404-034230-fix-provenancegraph-dedup-in-descendants)
 - [#28] Make CompositeStore.slice() and iter_chunks() lazy -- load only requested slots (@claude, 2026-04-04, branch: fix/issue-28/composite-store-lazy, session: 20260404-034336-fix-compositestore-slice-and-iter-chunks)
 - [#26] Persist axis metadata in ZarrBackend write/read for round-trip fidelity (@claude, 2026-04-04, branch: fix/issue-26/zarr-axes-metadata, session: 20260404-034314-fix-zarrbackend-to-persist-axis-metadata)
