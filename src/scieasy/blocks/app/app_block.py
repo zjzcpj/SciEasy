@@ -74,6 +74,7 @@ class AppBlock(Block):
         ADR-019: Stores ProcessHandle from bridge for cancellation support.
         ADR-020: Accepts and returns Collection-wrapped data.
         """
+        self.transition(BlockState.RUNNING)
         try:
             bridge = FileExchangeBridge()
             command = config.get("app_command") or self.app_command
@@ -147,8 +148,9 @@ class AppBlock(Block):
             finally:
                 watcher.stop()
 
-            # Step 4: Collect results.
-                results = bridge.collect(output_files)
+            # Step 4: Resume and collect.
+            self.transition(BlockState.RUNNING)
+            results = bridge.collect(output_files)
 
             # ADR-020: Wrap output artifacts in Collection.
             collection_results: dict[str, Any] = {}
@@ -158,5 +160,10 @@ class AppBlock(Block):
                 else:
                     collection_results[key] = value
 
+            self.transition(BlockState.DONE)
             return collection_results
 
+        except Exception:
+            if self.state not in (BlockState.CANCELLED, BlockState.DONE):
+                self.transition(BlockState.ERROR)
+            raise

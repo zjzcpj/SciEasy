@@ -228,9 +228,9 @@ class TestSchedulerCancellation:
         )
         scheduler, event_bus, _runner = _make_scheduler(wf)
 
-        scheduler._block_states["A"] = "done"
+        scheduler._block_states["A"] = BlockState.DONE
         scheduler._block_outputs["A"] = {"out": "data"}
-        scheduler._block_states["B"] = "running"
+        scheduler._block_states["B"] = BlockState.RUNNING
 
         asyncio.run(event_bus.emit(EngineEvent(event_type=CANCEL_BLOCK_REQUEST, block_id="B")))
 
@@ -246,10 +246,10 @@ class TestSchedulerCancellation:
         )
         scheduler, event_bus, _runner = _make_scheduler(wf)
 
-        scheduler._block_states["A"] = "done"
+        scheduler._block_states["A"] = BlockState.DONE
         scheduler._block_outputs["A"] = {"out": "data"}
-        scheduler._block_states["B"] = "running"
-        scheduler._block_states["C"] = "idle"
+        scheduler._block_states["B"] = BlockState.RUNNING
+        scheduler._block_states["C"] = BlockState.IDLE
 
         asyncio.run(event_bus.emit(EngineEvent(event_type=CANCEL_WORKFLOW_REQUEST)))
 
@@ -287,9 +287,9 @@ class TestSchedulerPauseResume:
         )
         scheduler, _event_bus, runner = _make_scheduler(wf)
 
-        scheduler._block_states["A"] = "done"
+        scheduler._block_states["A"] = BlockState.DONE
         scheduler._block_outputs["A"] = {"out": "data"}
-        scheduler._block_states["B"] = "idle"
+        scheduler._block_states["B"] = BlockState.IDLE
 
         asyncio.run(scheduler.resume())
 
@@ -386,7 +386,7 @@ class TestSchedulerState:
         wf = _wf(nodes=[("A", "proc")])
         scheduler, _, _ = _make_scheduler(wf)
 
-        scheduler.set_state("A", "done")
+        scheduler.set_state("A", BlockState.DONE)
         assert scheduler._block_states["A"] == BlockState.DONE
 
     def test_save_checkpoint_does_not_raise(self) -> None:
