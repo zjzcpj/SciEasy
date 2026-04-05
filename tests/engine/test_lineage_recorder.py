@@ -28,7 +28,7 @@ def _make_recorder(
 class TestLineageRecorder:
     def test_block_done_writes_record(self) -> None:
         """Emit BLOCK_DONE -> LineageStore.write() called with termination='completed'."""
-        recorder, bus, store = _make_recorder()
+        _recorder, bus, store = _make_recorder()
 
         asyncio.run(
             bus.emit(EngineEvent(event_type=BLOCK_DONE, block_id="A", data={"outputs": {}}))
@@ -42,7 +42,7 @@ class TestLineageRecorder:
 
     def test_block_error_writes_record(self) -> None:
         """Emit BLOCK_ERROR -> termination='error' and termination_detail populated."""
-        recorder, bus, store = _make_recorder()
+        _recorder, bus, store = _make_recorder()
 
         asyncio.run(
             bus.emit(
@@ -62,7 +62,7 @@ class TestLineageRecorder:
 
     def test_block_cancelled_writes_record(self) -> None:
         """Emit BLOCK_CANCELLED -> termination='cancelled'."""
-        recorder, bus, store = _make_recorder()
+        _recorder, bus, store = _make_recorder()
 
         asyncio.run(
             bus.emit(EngineEvent(event_type=BLOCK_CANCELLED, block_id="C"))
@@ -75,7 +75,7 @@ class TestLineageRecorder:
 
     def test_block_skipped_writes_record(self) -> None:
         """Emit BLOCK_SKIPPED -> termination='skipped'."""
-        recorder, bus, store = _make_recorder()
+        _recorder, bus, store = _make_recorder()
 
         asyncio.run(
             bus.emit(EngineEvent(event_type=BLOCK_SKIPPED, block_id="D"))
@@ -88,7 +88,7 @@ class TestLineageRecorder:
 
     def test_no_store_is_noop(self) -> None:
         """LineageRecorder with store=None should not crash."""
-        recorder, bus, store = _make_recorder(with_store=False)
+        _recorder, bus, _store = _make_recorder(with_store=False)
 
         # Should not raise
         asyncio.run(
@@ -111,7 +111,7 @@ class TestLineageRecorder:
 
     def test_store_write_failure_does_not_crash(self) -> None:
         """If store.write() raises, the recorder logs but does not propagate."""
-        recorder, bus, store = _make_recorder()
+        _recorder, bus, store = _make_recorder()
         assert store is not None
         store.write.side_effect = RuntimeError("DB error")
 
@@ -122,7 +122,7 @@ class TestLineageRecorder:
 
     def test_none_block_id_is_noop(self) -> None:
         """Events without block_id should be ignored."""
-        recorder, bus, store = _make_recorder()
+        _recorder, bus, store = _make_recorder()
 
         asyncio.run(bus.emit(EngineEvent(event_type=BLOCK_DONE)))
 

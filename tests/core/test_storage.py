@@ -85,8 +85,8 @@ class TestZarrBackend:
         target = str(tmp_path / "test_atomic.zarr")
         ref = StorageReference(backend="zarr", path=target)
 
-        with pytest.raises(Exception):
-            # "not_an_array" will fail during np.asarray + z[:] = arr
+        with pytest.raises((TypeError, ValueError)):
+            # object() will fail during np.asarray or z[:] = arr
             backend.write(object(), ref)
 
         assert not Path(target).exists(), "Partial .zarr directory should not remain"
