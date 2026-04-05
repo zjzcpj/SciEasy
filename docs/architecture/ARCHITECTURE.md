@@ -1889,6 +1889,16 @@ POST   /api/ai/optimize-params          Run parameter optimisation on a block
 }
 ```
 
+### 8.4 Static file serving and SPA fallback (ADR-024)
+
+The React frontend is pre-built at release time and included in the Python wheel as package data under `scieasy/api/static/`. In production (`scieasy gui`), the FastAPI app serves the SPA:
+
+- All `/api/*` routes and `/ws` are handled by FastAPI route handlers
+- `SPAStaticFiles` middleware (mounted at `/`) serves static assets and falls back to `index.html` for unknown paths, enabling client-side routing
+- The SPA mount is only activated when `api/static/` exists; in development mode, the root `/` redirects to `/docs`
+
+Reserved path prefixes: `/api/*`, `/ws`, `/docs`, `/openapi.json`.
+
 ---
 
 ## 9. Layer 6 — Frontend

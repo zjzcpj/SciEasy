@@ -549,6 +549,9 @@ scieasy/                               # ← repo root
                  ╱    │    ╲
                 ▼     ▼     ▼
           api/routes  api/ws  api/sse
+                        │
+                  api/spa.py ← SPA fallback (serves index.html for non-API routes)
+                  api/static/ ← (build artifact, not in git)
                 ╲     │     ╱
                  ▼    ▼    ▼
               engine/scheduler.py
