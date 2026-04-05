@@ -74,6 +74,10 @@ scieasy/                               # ← repo root
 │       │   │
 │       │   ├── base/                   # Block ABC and core machinery
 │       │   │   ├── __init__.py
+│       │   │   ├── package_info.py     # PackageInfo dataclass for external block package
+│       │   │   │                       #   metadata (ADR-025). Fields: name, description,
+│       │   │   │                       #   author, version. Kept in separate file to avoid
+│       │   │   │                       #   circular imports when external packages import it.
 │       │   │   ├── block.py            # Block ABC: validate(), run(), postprocess()
 │       │   │   │                       #   Fields: name, version, input_ports, output_ports,
 │       │   │   │                       #   execution_mode, resource_request,
@@ -168,9 +172,12 @@ scieasy/                               # ← repo root
 │       │   │
 │       │   └── registry.py             # BlockRegistry: discovers blocks from
 │       │                               #   Tier 1: {project}/blocks/ + ~/.scieasy/blocks/
-│       │                               #   Tier 2: scieasy.blocks entry_points
+│       │                               #   Tier 2: scieasy.blocks entry_points (ADR-025 callable protocol)
+│       │                               #   Callable protocol: get_blocks() → (PackageInfo, [Block])
+│       │                               #   or plain list[Block] for backward compat.
+│       │                               #   Methods: packages(), specs_by_package() for GUI grouping.
 │       │                               #   Maintains palette metadata (name, icon, category,
-│       │                               #   port schemas, config JSON Schema)
+│       │                               #   package_name, port schemas, config JSON Schema)
 │       │
 │       │
 │       │ ── Layer 3: Execution Engine ────────────────────────────
@@ -245,6 +252,14 @@ scieasy/                               # ← repo root
 │       ├── api/
 │       │   ├── __init__.py
 │       │   ├── app.py                  # FastAPI app factory, lifespan, CORS, middleware
+│       │   │                           #   Mounts SPAStaticFiles at "/" when api/static/ exists (ADR-024)
+│       │   ├── spa.py                  # SPA fallback middleware (ADR-024): subclass of StaticFiles
+│       │   │                           #   that returns index.html for non-API, non-WS,
+│       │   │                           #   non-real-file paths. Enables client-side routing.
+│       │   ├── static/                 # Pre-built React frontend (ADR-024, build artifact)
+│       │   │                           #   Created by CI: npm run build → copy to here.
+│       │   │                           #   .gitignore'd. Included in wheel as package data.
+│       │   │                           #   Contains: index.html, assets/
 │       │   │
 │       │   ├── routes/                 # REST endpoints
 │       │   │   ├── __init__.py
@@ -290,16 +305,39 @@ scieasy/                               # ← repo root
 │       │   └── logging.py             # Structured logging config (JSON, levels, rotation)
 │       │
 │       │
+│       │ ── Testing Utilities ──────────────────────────────────────
+│       │
+│       ├── testing/                    # Block SDK test utilities (ADR-026)
+│       │   ├── __init__.py             # Re-export: from scieasy.testing.harness import BlockTestHarness
+│       │   └── harness.py             # BlockTestHarness (~150 lines): wraps raw data into
+│       │                               #   DataObjects/Collections, calls block.run(), materializes
+│       │                               #   outputs for assertion. Methods: run(inputs, params),
+│       │                               #   validate_contract(block_class). Helpers: _wrap_input(),
+│       │                               #   _materialize_output().
+│       │
+│       │
 │       │ ── CLI ───────────────────────────────────────────────────
 │       │
 │       └── cli/
 │           ├── __init__.py
-│           └── main.py                 # CLI entry point:
-│                                       #   scieasy serve      — start FastAPI server
-│                                       #   scieasy run <wf>   — run workflow headless
-│                                       #   scieasy validate   — validate workflow YAML
-│                                       #   scieasy init       — create new project workspace
-│                                       #   scieasy blocks     — list installed blocks
+│           ├── main.py                 # CLI entry point:
+│           │                           #   scieasy serve      — start FastAPI server (headless)
+│           │                           #   scieasy gui        — start server + open browser (ADR-024)
+│           │                           #   scieasy run <wf>   — run workflow headless
+│           │                           #   scieasy validate   — validate workflow YAML
+│           │                           #   scieasy init       — create new project workspace
+│           │                           #   scieasy blocks     — list installed blocks
+│           │                           #   scieasy init-block-package — scaffold a block package (ADR-026)
+│           ├── _scaffold.py            # Scaffolding logic for init-block-package (ADR-026):
+│           │                           #   scaffold_block_package(name, display_name, author,
+│           │                           #   categories, target_dir). Reads .tpl files, substitutes
+│           │                           #   placeholders, writes output. ~100 lines.
+│           └── templates/              # Jinja2/string templates for init-block-package (ADR-026)
+│               ├── pyproject.toml.tpl  # Template with entry-points, {{package_name}}, {{author}}
+│               ├── __init__.py.tpl     # PackageInfo + get_blocks() importing per-category modules
+│               ├── example_block.py.tpl # Minimal block with contract-explaining comments
+│               ├── test_block.py.tpl   # Example test using BlockTestHarness
+│               └── README.md.tpl       # Quick start, dev setup, publishing checklist
 │
 │
 │ ══════════════════════════════════════════════════════════════════
@@ -434,13 +472,26 @@ scieasy/                               # ← repo root
 │   ├── api/
 │   │   ├── test_workflow_routes.py    # REST CRUD, execute, pause, resume
 │   │   ├── test_block_routes.py       # Block listing, connection validation
-│   │   └── test_ws.py                 # WebSocket message flow, interactive block signals
+│   │   ├── test_ws.py                 # WebSocket message flow, interactive block signals
+│   │   ├── test_spa_fallback.py       # SPA middleware tests (ADR-024): /api not intercepted,
+│   │   │                               #   unknown paths → index.html, static assets served
+│   │   └���─ test_app.py               # create_app() tests: static mount conditional on dir existence
 │   │
 │   ├── workflow/
 │   │   ├── test_serializer.py         # YAML round-trip, layout preservation
 │   │   └── test_validator.py          # Type mismatch detection, dangling ports
 │   │
-│   └── integration/
+│   ├── testing/
+│   │   └── test_harness.py            # BlockTestHarness tests (ADR-026): wrap dict/ndarray/list,
+│   │                                   #   validate_contract catches missing output_ports,
+│   │                                   #   error propagation, work_dir cleanup
+│   ��
+│   ├── cli/
+│   │   ├── test_cli.py                # CLI command tests: gui --help, --no-browser, default port
+│   │   └── test_init_block_package.py # Scaffolding tests (ADR-026): directory structure,
+│   │                                   #   pyproject.toml entry-points, PackageInfo, per-category dirs
+│   │
+│   ��── integration/
 │       ├── test_multimodal_workflow.py # Full example: LC-MS + Raman + IF + SRS pipeline
 │       └── test_subworkflow_nesting.py # Recursive SubWorkflowBlock composition
 │
@@ -455,7 +506,30 @@ scieasy/                               # ← repo root
 │   ├── type-extension.md              # How to create new DataObject subtypes
 │   ├── script-integration.md          # CodeBlock inline vs script mode guide
 │   ├── external-apps.md              # How to configure AppBlock for your software
-│   └── api-reference.md              # Auto-generated from FastAPI OpenAPI schema
+│   ├── api-reference.md              # Auto-generated from FastAPI OpenAPI schema
+│   │
+│   ├── block-development/             # Block SDK documentation (ADR-026)
+│   │   ├── quickstart.md             # 5-minute from-zero-to-running guide
+│   │   ├── architecture-for-block-devs.md  # Execution model for external developers
+│   │   ├── block-contract.md         # Input/output/params reference
+│   │   ├── data-types.md             # Core type hierarchy, Collection, when to use each
+│   │   ├── custom-types.md           # Subclassing core types, metadata persistence
+│   │   ├── memory-safety.md          # Three-tier processing model
+│   │   ├── collection-guide.md       # Working with Collections correctly
+│   │   ├── testing.md               # BlockTestHarness API reference
+│   │   ├── publishing.md            # PyPI packaging and distribution guide
+│   │   └── examples/
+│   │       ├── simple-transform.md   # Single block, process_item() pattern
+│   │       ├── collection-processing.md  # Multi-item, map_items()/parallel_map()
+│   │       ├── custom-io-adapter.md  # FormatAdapter for domain-specific formats
+│   │       └── multi-block-package.md # Full package with categories, types, tests
+│   │
+│   ├── adr/
+│   │   └── ADR.md                    # Architecture Decision Records (ADR-001 through ADR-026)
+│   │
+│   └── roadmap/
+│       ├── ROADMAP_v0.1.md           # Phase 0–2: bootstrap, skeleton, architecture tests
+│       └── ROADMAP_v0.2.md           # Phase 1–3: frontend bundling, entry-points, Block SDK
 │
 ├── examples/
 │   ├── workflows/
@@ -518,8 +592,17 @@ scieasy/                               # ← repo root
 [project.scripts]
 scieasy = "scieasy.cli.main:app"
 
+# --- Entry-point groups (ADR-025 callable protocol) ---
+# Each entry-point value is a callable (function or class).
+# The registry invokes the callable at scan time.
+# For scieasy.blocks: callable returns (PackageInfo, list[type[Block]])
+#   or plain list[type[Block]] for backward compat.
+# For scieasy.types: callable returns list[type[DataObject]].
+# For scieasy.adapters: callable returns list[type[FormatAdapter]].
+
 [project.entry-points."scieasy.blocks"]
-# Built-in blocks
+# Built-in blocks (these are direct class references — core package
+# does not use the callable protocol for its own blocks)
 io_block = "scieasy.blocks.io:IOBlock"
 process_merge = "scieasy.blocks.process.builtins.merge:MergeBlock"
 process_split = "scieasy.blocks.process.builtins.split:SplitBlock"
@@ -547,6 +630,20 @@ r = "scieasy.blocks.code.runners.r_runner:RRunner"
 julia = "scieasy.blocks.code.runners.julia_runner:JuliaRunner"
 ```
 
+## Example external package entry_points (ADR-025)
+
+```toml
+# In scieasy-blocks-srs/pyproject.toml:
+[project.entry-points."scieasy.blocks"]
+srs = "scieasy_blocks_srs:get_blocks"          # → (PackageInfo, [Block, ...])
+
+[project.entry-points."scieasy.types"]
+srs = "scieasy_blocks_srs.types:get_types"     # → [SRSImage]
+
+[project.entry-points."scieasy.adapters"]
+srs = "scieasy_blocks_srs.io:get_adapters"     # → [SRSTiffAdapter]
+```
+
 ## File count summary
 
 | Directory | Python files | Purpose |
@@ -555,10 +652,12 @@ julia = "scieasy.blocks.code.runners.julia_runner:JuliaRunner"
 | `blocks/` | 30 | All block categories, adapters, runners, registry, lazy_list (process_mgr.py deleted per ADR-019, lazy_list.py added per ADR-020) |
 | `engine/` | 10 | Scheduler, resources, checkpoint, events, runners (worker, process_handle, process_monitor, platform) |
 | `ai/` | 6 | Generation, synthesis, optimization |
-| `api/` | 9 | FastAPI routes, WebSocket, SSE |
+| `api/` | 10 | FastAPI routes, WebSocket, SSE, SPA fallback (ADR-024) |
 | `workflow/` | 4 | Definition, serialization, validation, layout |
 | `utils/` | 3 | Hashing, wrapping, logging |
-| `cli/` | 1 | CLI entry point |
-| **Total backend** | **~78** | |
+| `testing/` | 2 | BlockTestHarness for external block developers (ADR-026) |
+| `cli/` | 3+5tpl | CLI entry point, scaffolding, templates (ADR-024, ADR-026) |
+| **Total backend** | **~87** | |
 | `frontend/src/` | ~34 `.tsx/.ts` | React components, hooks, stores, config, API client (ADR-023, ADR-023-Add1) |
-| `tests/` | ~30 | Architecture enforcement, unit, and integration tests |
+| `docs/block-development/` | 13 `.md` | Block SDK developer documentation (ADR-026) |
+| `tests/` | ~37 | Architecture enforcement, unit, integration, harness, CLI tests |
