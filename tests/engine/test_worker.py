@@ -70,6 +70,7 @@ class TestSerialiseOutputs:
         mock_obj.storage_ref.path = "/data/output.zarr"
         mock_obj.storage_ref.format = "zarr"
         mock_obj.storage_ref.metadata = None
+        mock_obj.dtype_info.type_chain = ["DataObject", "Image"]
 
         outputs = {"image": mock_obj}
         result = serialise_outputs(outputs, "/output")
@@ -78,7 +79,7 @@ class TestSerialiseOutputs:
                 "backend": "zarr",
                 "path": "/data/output.zarr",
                 "format": "zarr",
-                "metadata": None,
+                "metadata": {"type_chain": ["DataObject", "Image"]},
             }
         }
 
