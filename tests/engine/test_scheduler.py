@@ -481,9 +481,9 @@ class TestSchedulerRegistryInjection:
         )
         asyncio.run(scheduler.execute())
 
-        assert scheduler._block_states["A"] == "error"
+        assert scheduler._block_states["A"] == BlockState.ERROR
         assert "A" in error_blocks
         # B should be skipped because A errored
-        assert scheduler._block_states["B"] == "skipped"
+        assert scheduler._block_states["B"] == BlockState.SKIPPED
         # Runner was never called because instantiate failed
         runner.run.assert_not_called()

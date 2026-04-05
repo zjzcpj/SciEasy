@@ -390,7 +390,7 @@ class DAGScheduler:
                 raise ValueError(f"Unknown block: {block_id}")
 
             # Step 2: Reset target block.
-            self._block_states[block_id] = BlockState.IDLE
+            self._block_states[block_id] = "idle"
             self._block_outputs.pop(block_id, None)
             self.skip_reasons.pop(block_id, None)
 
@@ -403,8 +403,8 @@ class DAGScheduler:
             # Step 5: Re-evaluate and dispatch (batch ready blocks first).
             ready_blocks = []
             for node_id in self._order:
-                if self._block_states[node_id] == BlockState.IDLE and self._check_readiness(node_id):
-                    self._block_states[node_id] = BlockState.READY
+                if self._block_states[node_id] == "idle" and self._check_readiness(node_id):
+                    self._block_states[node_id] = "ready"
                     ready_blocks.append(node_id)
 
             for node_id in ready_blocks:
@@ -417,8 +417,8 @@ class DAGScheduler:
         visited.add(block_id)
         predecessors = self._dag.reverse_adjacency.get(block_id, [])
         for pred in predecessors:
-            if self._block_states[pred] != BlockState.DONE:
-                self._block_states[pred] = BlockState.IDLE
+            if self._block_states[pred] != "done":
+                self._block_states[pred] = "idle"
                 self._block_outputs.pop(pred, None)
                 self.skip_reasons.pop(pred, None)
                 self._reset_upstream(pred, visited)
@@ -432,8 +432,8 @@ class DAGScheduler:
             if node_id in visited:
                 continue
             visited.add(node_id)
-            if self._block_states[node_id] == BlockState.SKIPPED:
-                self._block_states[node_id] = BlockState.IDLE
+            if self._block_states[node_id] == "skipped":
+                self._block_states[node_id] = "idle"
                 self._block_outputs.pop(node_id, None)
                 self.skip_reasons.pop(node_id, None)
                 queue.extend(self._dag.adjacency.get(node_id, []))
