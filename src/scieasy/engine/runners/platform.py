@@ -346,7 +346,7 @@ class WindowsOps:
             platform_detail="process no longer exists",
         )
 
-    def create_job_object(self) -> Any:
+    def create_job_object(self) -> Any:  # pragma: no cover — Windows-only ctypes
         """Create a Windows Job Object with kill-on-close semantics.
 
         When the job handle is closed (or the parent process exits),
@@ -406,7 +406,7 @@ class WindowsOps:
         except Exception:
             return None
 
-    def assign_to_job(self, job_handle: Any, pid: int) -> bool:
+    def assign_to_job(self, job_handle: Any, pid: int) -> bool:  # pragma: no cover — Windows-only ctypes
         """Assign a process to a Job Object.
 
         Returns True on success, False on failure.

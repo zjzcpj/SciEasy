@@ -226,7 +226,6 @@ class TestCleanupCallback:
             )
             block.transition(BlockState.READY)
             # Monkey-patch _run_with_scheduler to force an error during execution.
-            original_method = block._run_with_scheduler
 
             def boom(*a: Any, **kw: Any) -> dict[str, Any]:
                 raise RuntimeError("boom")
