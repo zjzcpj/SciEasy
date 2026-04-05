@@ -239,7 +239,7 @@ class Block(ABC):
 
         try:
             obj.save(target_path)
-        except (ValueError, TypeError, KeyError) as exc:
+        except Exception as exc:
             logging.getLogger(__name__).warning(
                 "auto_flush failed for %s: %s",
                 type(obj).__name__,

@@ -156,6 +156,9 @@ class DataObject:
         Returns the :class:`StorageReference` pointing to the persisted data.
         Also sets ``self._storage_ref`` so subsequent calls are no-ops.
         """
+        if self._storage_ref is not None:
+            return self._storage_ref
+
         from scieasy.core.storage.backend_router import get_router
 
         path_str = str(path)

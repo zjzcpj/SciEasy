@@ -9,13 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- [#52] BackendRouter -- type-to-backend mapping with MRO resolution for auto-flush (@claude, 2026-04-05, branch: fix/batch-a1/issues-127-49-52-67, session: 20260405-005036-wave-a1-implement-auto-flush-data-persis)
-- [#67] Storage path convention data/runs/{run_id}/{block_name}/ for intermediate outputs (@claude, 2026-04-05, branch: fix/batch-a1/issues-127-49-52-67, session: 20260405-005036-wave-a1-implement-auto-flush-data-persis)
-
-### Fixed
-
-- [#127] Implement _auto_flush() -- wire DataObject persistence via BackendRouter + flush_context (@claude, 2026-04-05, branch: fix/batch-a1/issues-127-49-52-67, session: 20260405-005036-wave-a1-implement-auto-flush-data-persis)
-- [#49] Implement DataObject.save() with get_in_memory_data() and BackendRouter integration (@claude, 2026-04-05, branch: fix/batch-a1/issues-127-49-52-67, session: 20260405-005036-wave-a1-implement-auto-flush-data-persis)
+- [#127] Auto-flush data persistence pipeline: BackendRouter MRO resolution, flush_context, DataObject.save() with idempotency, _auto_flush() safety net (@claude, 2026-04-05, branch: fix/batch-a1/issues-127-49-52-67)
 
 ### Removed
 
