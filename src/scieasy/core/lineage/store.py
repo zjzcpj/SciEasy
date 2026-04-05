@@ -94,11 +94,23 @@ class LineageStore:
         )
         self._conn.commit()
 
+    @staticmethod
+    def _normalize_hashes(raw: Any) -> dict[str, list[str]]:
+        """Normalize hash data from JSON, handling backward compatibility.
+
+        Old format (pre-#55): ``["hash1", "hash2"]`` -- wrapped as ``{"default": [...]}``.
+        New format (#55+): ``{"port_name": ["hash1", "hash2"]}``.
+        """
+        if isinstance(raw, list):
+            return {"default": raw}
+        return raw  # already a dict
+
     def _row_to_record(self, row: tuple[Any, ...]) -> LineageRecord:
         """Convert a database row to a :class:`LineageRecord`.
 
         ADR-018: Added termination, partial_output_refs, termination_detail.
         ADR-020: Removed batch_info.
+        Issue #55: input_hashes/output_hashes are now per-port dicts.
         """
         env: EnvironmentSnapshot | None = None
         if row[7] is not None:
@@ -108,8 +120,8 @@ class LineageStore:
             block_id=row[0],
             block_version=row[1],
             block_config=json.loads(row[2]),
-            input_hashes=json.loads(row[3]),
-            output_hashes=json.loads(row[4]),
+            input_hashes=self._normalize_hashes(json.loads(row[3])),
+            output_hashes=self._normalize_hashes(json.loads(row[4])),
             timestamp=row[5],
             duration_ms=row[6],
             environment=env,
@@ -171,8 +183,9 @@ class LineageStore:
                 if record_key not in visited_records:
                     visited_records.add(record_key)
                     result.append(record)
-                    for inp in record.input_hashes:
-                        if inp not in visited:
-                            queue.append(inp)
+                    for port_hashes in record.input_hashes.values():
+                        for inp in port_hashes:
+                            if inp not in visited:
+                                queue.append(inp)
 
         return result
