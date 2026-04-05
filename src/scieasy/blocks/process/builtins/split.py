@@ -8,7 +8,6 @@ import pyarrow as pa
 
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
-from scieasy.blocks.base.state import BlockState
 from scieasy.blocks.process.process_block import ProcessBlock
 from scieasy.blocks.process.utils import to_arrow
 from scieasy.core.types.dataframe import DataFrame
@@ -47,61 +46,53 @@ class SplitBlock(ProcessBlock):
         Accepts both raw DataFrame and Collection[DataFrame] inputs for
         backward compatibility during the ADR-020 transition.
         """
-        self.transition(BlockState.RUNNING)
-        try:
-            from scieasy.core.types.collection import Collection
+        from scieasy.core.types.collection import Collection
 
-            data_obj = inputs["data"]
+        data_obj = inputs["data"]
 
-            # ADR-020: Unpack Collection input if present.
-            if isinstance(data_obj, Collection):
-                data_obj = self.unpack_single(data_obj)
-            data = to_arrow(data_obj)
+        # ADR-020: Unpack Collection input if present.
+        if isinstance(data_obj, Collection):
+            data_obj = self.unpack_single(data_obj)
+        data = to_arrow(data_obj)
 
-            if not isinstance(data, pa.Table):
-                raise TypeError(f"Expected Arrow Table, got {type(data).__name__}")
+        if not isinstance(data, pa.Table):
+            raise TypeError(f"Expected Arrow Table, got {type(data).__name__}")
 
-            mode = config.get("mode", "head")
+        mode = config.get("mode", "head")
 
-            if mode == "head":
-                n = int(config.get("n", 100))
-                out_table = data.slice(0, n)
-                result = DataFrame(columns=out_table.column_names, row_count=out_table.num_rows)
-                result._arrow_table = out_table  # type: ignore[attr-defined]
-                self.transition(BlockState.DONE)
-                return {"out": Collection([result], item_type=DataFrame)}
+        if mode == "head":
+            n = int(config.get("n", 100))
+            out_table = data.slice(0, n)
+            result = DataFrame(columns=out_table.column_names, row_count=out_table.num_rows)
+            result._arrow_table = out_table  # type: ignore[attr-defined]
+            return {"out": Collection([result], item_type=DataFrame)}
 
-            elif mode == "ratio":
-                ratio = float(config.get("ratio", 0.8))
-                split_idx = int(data.num_rows * ratio)
-                first = data.slice(0, split_idx)
-                second = data.slice(split_idx)
-                r1 = DataFrame(columns=first.column_names, row_count=first.num_rows)
-                r1._arrow_table = first  # type: ignore[attr-defined]
-                r2 = DataFrame(columns=second.column_names, row_count=second.num_rows)
-                r2._arrow_table = second  # type: ignore[attr-defined]
-                self.transition(BlockState.DONE)
-                return {
-                    "out": Collection([r1], item_type=DataFrame),
-                    "remainder": Collection([r2], item_type=DataFrame),
-                }
+        elif mode == "ratio":
+            ratio = float(config.get("ratio", 0.8))
+            split_idx = int(data.num_rows * ratio)
+            first = data.slice(0, split_idx)
+            second = data.slice(split_idx)
+            r1 = DataFrame(columns=first.column_names, row_count=first.num_rows)
+            r1._arrow_table = first  # type: ignore[attr-defined]
+            r2 = DataFrame(columns=second.column_names, row_count=second.num_rows)
+            r2._arrow_table = second  # type: ignore[attr-defined]
+            return {
+                "out": Collection([r1], item_type=DataFrame),
+                "remainder": Collection([r2], item_type=DataFrame),
+            }
 
-            elif mode == "filter":
-                column = config.get("column")
-                value = config.get("value")
-                if column is None or value is None:
-                    raise ValueError("Filter mode requires 'column' and 'value' in config")
-                import pyarrow.compute as pc
+        elif mode == "filter":
+            column = config.get("column")
+            value = config.get("value")
+            if column is None or value is None:
+                raise ValueError("Filter mode requires 'column' and 'value' in config")
+            import pyarrow.compute as pc
 
-                mask = pc.equal(data.column(column), pa.scalar(value))
-                filtered = data.filter(mask)
-                result = DataFrame(columns=filtered.column_names, row_count=filtered.num_rows)
-                result._arrow_table = filtered  # type: ignore[attr-defined]
-                self.transition(BlockState.DONE)
-                return {"out": Collection([result], item_type=DataFrame)}
+            mask = pc.equal(data.column(column), pa.scalar(value))
+            filtered = data.filter(mask)
+            result = DataFrame(columns=filtered.column_names, row_count=filtered.num_rows)
+            result._arrow_table = filtered  # type: ignore[attr-defined]
+            return {"out": Collection([result], item_type=DataFrame)}
 
-            else:
-                raise ValueError(f"Unknown split mode: {mode}")
-        except Exception:
-            self.transition(BlockState.ERROR)
-            raise
+        else:
+            raise ValueError(f"Unknown split mode: {mode}")

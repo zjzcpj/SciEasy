@@ -8,7 +8,6 @@ from typing import Any, ClassVar
 from scieasy.blocks.base.block import Block
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
-from scieasy.blocks.base.state import BlockState
 from scieasy.core.types.base import DataObject
 from scieasy.core.types.collection import Collection
 
@@ -49,23 +48,18 @@ class IOBlock(Block):
         """Execute the IO operation (read or write)."""
         from scieasy.blocks.io.adapter_registry import AdapterRegistry
 
-        self.transition(BlockState.RUNNING)
-        try:
-            path_str = config.get("path") or config.params.get("path")
-            if not path_str:
-                raise ValueError("IOBlock requires \x27path\x27 in config.params")
+        path_str = config.get("path") or config.params.get("path")
+        if not path_str:
+            raise ValueError("IOBlock requires \x27path\x27 in config.params")
 
-            path = Path(path_str)
-            registry = AdapterRegistry()
-            registry.register_defaults()
+        path = Path(path_str)
+        registry = AdapterRegistry()
+        registry.register_defaults()
 
-            if self.direction == "input":
-                return self._run_input(path, registry)
-            else:
-                return self._run_output(path, registry, inputs)
-        except Exception:
-            self.transition(BlockState.ERROR)
-            raise
+        if self.direction == "input":
+            return self._run_input(path, registry)
+        else:
+            return self._run_output(path, registry, inputs)
 
     def _run_input(self, path: Path, registry: Any) -> dict[str, Any]:
         """Build a lazy Collection from *path* (file or directory)."""
@@ -95,7 +89,6 @@ class IOBlock(Block):
             obj = DataObject(storage_ref=ref)
             collection = Collection(items=[obj], item_type=DataObject)
 
-        self.transition(BlockState.DONE)
         return {"data": collection}
 
     def _run_output(self, path: Path, registry: Any, inputs: dict[str, Any]) -> dict[str, Any]:
@@ -128,5 +121,4 @@ class IOBlock(Block):
             adapter = adapter_cls()
             adapter.write(data, path)
 
-        self.transition(BlockState.DONE)
         return {"path": str(path)}

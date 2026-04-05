@@ -44,22 +44,15 @@ class SplitCollection(ProcessBlock):
         Raises:
             TypeError: If input is not a Collection.
         """
-        from scieasy.blocks.base.state import BlockState
         from scieasy.core.types.collection import Collection
 
-        self.transition(BlockState.RUNNING)
-        try:
-            collection = inputs["input"]
-            if not isinstance(collection, Collection):
-                raise TypeError("SplitCollection requires a Collection input")
-            items = list(collection)
-            split_index = config.params.get("split_index", len(items) // 2)
-            part_a = items[:split_index]
-            part_b = items[split_index:]
-            output_a = Collection(part_a, item_type=collection.item_type)
-            output_b = Collection(part_b, item_type=collection.item_type)
-            self.transition(BlockState.DONE)
-            return {"output_a": output_a, "output_b": output_b}
-        except Exception:
-            self.transition(BlockState.ERROR)
-            raise
+        collection = inputs["input"]
+        if not isinstance(collection, Collection):
+            raise TypeError("SplitCollection requires a Collection input")
+        items = list(collection)
+        split_index = config.params.get("split_index", len(items) // 2)
+        part_a = items[:split_index]
+        part_b = items[split_index:]
+        output_a = Collection(part_a, item_type=collection.item_type)
+        output_b = Collection(part_b, item_type=collection.item_type)
+        return {"output_a": output_a, "output_b": output_b}
