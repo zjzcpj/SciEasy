@@ -207,9 +207,7 @@ class TestCleanupCallback:
         callback_called: list[bool] = []
         SubWorkflowBlock._cleanup_callback = lambda: callback_called.append(True)
         try:
-            block = SubWorkflowBlock(
-                config={"params": {"child_blocks": []}}
-            )
+            block = SubWorkflowBlock(config={"params": {"child_blocks": []}})
             block.transition(BlockState.READY)
             block.run({}, block.config)
             assert len(callback_called) == 1
@@ -221,9 +219,7 @@ class TestCleanupCallback:
         callback_called: list[bool] = []
         SubWorkflowBlock._cleanup_callback = lambda: callback_called.append(True)
         try:
-            block = SubWorkflowBlock(
-                config={"params": {"child_blocks": []}}
-            )
+            block = SubWorkflowBlock(config={"params": {"child_blocks": []}})
             block.transition(BlockState.READY)
             # Monkey-patch _run_with_scheduler to force an error during execution.
 
@@ -247,9 +243,7 @@ class TestCleanupCallback:
 
         SubWorkflowBlock._cleanup_callback = bad_cleanup
         try:
-            block = SubWorkflowBlock(
-                config={"params": {"child_blocks": []}}
-            )
+            block = SubWorkflowBlock(config={"params": {"child_blocks": []}})
             block.transition(BlockState.READY)
             # Monkey-patch _run_with_scheduler to force an error during execution.
 
@@ -268,9 +262,7 @@ class TestCleanupCallback:
     def test_cleanup_callback_none_is_default(self) -> None:
         """When no callback is set, no error occurs in finally block."""
         assert SubWorkflowBlock._cleanup_callback is None
-        block = SubWorkflowBlock(
-            config={"params": {"child_blocks": []}}
-        )
+        block = SubWorkflowBlock(config={"params": {"child_blocks": []}})
         block.transition(BlockState.READY)
         block.run({}, block.config)
         assert block.state == BlockState.DONE
