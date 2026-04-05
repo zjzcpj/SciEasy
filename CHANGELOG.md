@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#120] Unwrap subprocess output envelope in LocalRunner so downstream sees port names at top level (@claude, 2026-04-05, branch: fix/batch-a3/issues-120-132-122, session: 20260405-014138-fix-subprocess-runner-output-pipeline-12)
+- [#132] Preserve TypeSignature type_chain across subprocess boundary in worker serialization/reconstruction (@claude, 2026-04-05, branch: fix/batch-a3/issues-120-132-122, session: 20260405-014138-fix-subprocess-runner-output-pipeline-12)
+- [#122] Fix unawaited async emit() in spawn_block_process by scheduling via create_task (@claude, 2026-04-05, branch: fix/batch-a3/issues-120-132-122, session: 20260405-014138-fix-subprocess-runner-output-pipeline-12)
 - [#119] Inject BlockRegistry into DAGScheduler — resolve NodeDef.block_type to Block instance before dispatch (@claude, 2026-04-05, branch: fix/batch-a2/issues-119-121, session: 20260405-003357-wave-a2-inject-blockregistry-into-dagsch)
 - [#121] Pass BlockRegistry to CLI validate/run commands — enable type-compatibility and dangling-port checks (@claude, 2026-04-05, branch: fix/batch-a2/issues-119-121, session: 20260405-003357-wave-a2-inject-blockregistry-into-dagsch)
 ### Added
