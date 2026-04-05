@@ -1,7 +1,7 @@
 # SciEasy — Architecture Document
 
-> **Status**: Draft v0.1  
-> **Last updated**: 2026-04-02
+> **Status**: Draft v0.2
+> **Last updated**: 2026-04-05
 
 ---
 
@@ -32,7 +32,7 @@ A **modality-agnostic, building-block workflow framework** where:
 | **Type-safe** | Port-level type checking prevents invalid connections at design time. |
 | **Lazy by default** | Data objects hold references, not payloads. 100 GB datasets stay on disk until a block requests a specific slice. |
 | **Checkpoint everything** | Workflow state is serialisable. Pause, resume, and recover from any point. |
-| **Community-extensible** | Abstract base classes + plugin registry. Anyone can publish a block or data type. |
+| **Community-extensible** | Abstract base classes + plugin registry via Python entry-points (ADR-025). Anyone can publish a block package with `pip install`. Block SDK scaffolding and test harness lower the barrier for external developers (ADR-026). |
 
 ---
 
@@ -42,11 +42,11 @@ The system is organised into six horizontal layers, from bottom to top. Each lay
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Layer 6: Frontend                                          │
+│  Layer 6: Frontend (bundled into Python wheel; ADR-024)     │
 │  ReactFlow canvas · block palette · monitoring dashboard    │
 ├─────────────────────────────────────────────────────────────┤
-│  Layer 5: API                                               │
-│  FastAPI REST · WebSocket (live status) · SSE (log stream)  │
+│  Layer 5: API + SPA serving                                 │
+│  FastAPI REST · WebSocket · SSE · SPA fallback middleware   │
 ├─────────────────────────────────────────────────────────────┤
 │  Layer 4: AI services                                       │
 │  Block generation · workflow synthesis · param optimisation  │
@@ -60,8 +60,10 @@ The system is organised into six horizontal layers, from bottom to top. Each lay
 │  Layer 1: Data foundation                                   │
 │  Type hierarchy · storage backends · lazy loading · lineage │
 ├─────────────────────────────────────────────────────────────┤
-│  Plugin ecosystem (cross-cutting)                           │
-│  Community blocks · custom data types · external adapters   │
+│  Plugin ecosystem (cross-cutting; ADR-025, ADR-026)         │
+│  Entry-points protocol · PackageInfo · Block SDK ·          │
+│  Community blocks · custom types · external adapters ·      │
+│  BlockTestHarness · scieasy init-block-package scaffolding  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -920,9 +922,9 @@ class FlowCytoData(CompositeData):
 
 Save → the type is immediately available for port declarations in any block.
 
-#### Tier 2 — pip install (for community packages)
+#### Tier 2 — pip install (for community packages) (ADR-025)
 
-When a block collection needs formal versioning, dependency management, and broad distribution, it is published as a standard Python package on PyPI. Users install with one command; blocks and types register automatically via entry_points.
+When a block collection needs formal versioning, dependency management, and broad distribution, it is published as a standard Python package on PyPI. Users install with one command; blocks and types register automatically via entry-points.
 
 **User installs:**
 
@@ -932,6 +934,84 @@ pip install scieasy-flowcyto
 
 All blocks, types, and format adapters from the package appear in the palette immediately — no config needed.
 
+##### Three entry-point groups
+
+External packages register their contributions via three standard Python entry-point groups:
+
+| Group | Purpose | Callable return type |
+|-------|---------|---------------------|
+| `scieasy.blocks` | Block class discovery | `(PackageInfo, list[type[Block]])` or `list[type[Block]]` |
+| `scieasy.types` | Custom DataObject subtype registration | `list[type[DataObject]]` |
+| `scieasy.adapters` | Custom IO adapter registration | `list[type[FormatAdapter]]` |
+
+Each entry-point value points to a **callable** (typically a `get_blocks()`, `get_types()`, or `get_adapters()` function) that the registry invokes at scan time.
+
+##### PackageInfo metadata
+
+External block packages provide package-level metadata via a `PackageInfo` dataclass:
+
+```python
+from dataclasses import dataclass
+
+@dataclass
+class PackageInfo:
+    """Metadata for an external block package, shown in the GUI palette."""
+    name: str                  # Display name (e.g., "SRS Imaging")
+    description: str = ""      # One-line description
+    author: str = ""           # Author or lab name
+    version: str = "0.1.0"    # Package version
+```
+
+The `get_blocks()` callable returns a tuple of `(PackageInfo, list[type[Block]])`:
+
+```python
+from scieasy.blocks.base import PackageInfo
+
+PACKAGE_INFO = PackageInfo(
+    name="SRS Imaging",
+    description="Stimulated Raman Scattering microscopy analysis toolkit",
+    author="Dr. Wang Lab",
+    version="0.1.0",
+)
+
+def get_blocks():
+    from .processing.unmixing import SpectralUnmixingBlock
+    from .processing.baseline import BaselineCorrectionBlock
+    from .stat.pca import PCABlock
+    from .io.srs_reader import SRSReaderBlock
+    return PACKAGE_INFO, [SRSReaderBlock, SpectralUnmixingBlock, BaselineCorrectionBlock, PCABlock]
+```
+
+For backward compatibility, `get_blocks()` may return a plain `list[type[Block]]` without `PackageInfo`. In that case, the entry-point name is used as the package display name.
+
+##### Two-level block categorization
+
+Blocks are organized in the GUI palette by **package** (top level) and **category** (second level):
+
+```
+Block Palette:
+├── Core                         ← built-in (scieasy main package)
+│   ├── code_block
+│   ├── io_block
+│   └── manual_review
+├── SRS Imaging                  ← PackageInfo.name
+│   ├── io                       ← BlockMetadata.category
+│   │   └── SRS Reader
+│   ├── processing
+│   │   ├── Spectral Unmixing
+│   │   └── Baseline Correction
+│   └── stat
+│       └── PCA
+└── Genomics                     ← another pip package
+    └── ...
+```
+
+The `category` field is a free-form string set by the block author in `BlockMetadata`. No fixed taxonomy — authors define categories that make sense for their domain. The `BlockSpec` dataclass gains a `package_name: str` field to support this grouping.
+
+##### Adapter priority enforcement
+
+External adapters registered via `scieasy.adapters` entry-points are loaded **after** built-in adapters. Built-in extensions (`.csv`, `.parquet`, `.tiff`, `.zarr`) cannot be overridden by external packages — this is a safety measure preventing silent behavior changes. External adapters for novel extensions (e.g., `.srs`, `.fcs`, `.d`) are registered normally.
+
 **Package structure (what the community maintainer creates):**
 
 ```
@@ -939,17 +1019,17 @@ scieasy-flowcyto/
 ├── pyproject.toml
 └── src/
     └── scieasy_flowcyto/
-        ├── __init__.py
+        ├── __init__.py           # PackageInfo + get_blocks()
         ├── types/
-        │   └── flow_data.py          # FlowCytoData(CompositeData)
+        │   └── flow_data.py      # FlowCytoData(CompositeData) + get_types()
         ├── blocks/
-        │   ├── fcs_loader.py         # IOBlock: load .fcs files
-        │   ├── compensate.py         # ProcessBlock: compensation
-        │   ├── gate.py               # ProcessBlock: gating
-        │   ├── flowjo_bridge.py      # AppBlock: FlowJo integration
-        │   └── clustering.py         # ProcessBlock: FlowSOM / Phenograph
+        │   ├── fcs_loader.py     # IOBlock: load .fcs files
+        │   ├── compensate.py     # ProcessBlock: compensation
+        │   ├── gate.py           # ProcessBlock: gating
+        │   ├── flowjo_bridge.py  # AppBlock: FlowJo integration
+        │   └── clustering.py     # ProcessBlock: FlowSOM / Phenograph
         └── adapters/
-            └── fcs_adapter.py        # FormatAdapter for .fcs extension
+            └── fcs_adapter.py    # FormatAdapter for .fcs extension + get_adapters()
 ```
 
 ```toml
@@ -960,18 +1040,28 @@ version = "1.0.0"
 dependencies = ["scieasy>=0.1", "fcsparser>=0.2", "flowsom>=0.1"]
 
 [project.entry-points."scieasy.blocks"]
-fcs_loader   = "scieasy_flowcyto.blocks.fcs_loader:FCSLoader"
-compensate   = "scieasy_flowcyto.blocks.compensate:CompensateBlock"
-gate         = "scieasy_flowcyto.blocks.gate:GateBlock"
-flowjo       = "scieasy_flowcyto.blocks.flowjo_bridge:FlowJoBridge"
-clustering   = "scieasy_flowcyto.blocks.clustering:ClusteringBlock"
+flowcyto = "scieasy_flowcyto:get_blocks"              # callable protocol (ADR-025)
 
 [project.entry-points."scieasy.types"]
-flow_cyto_data = "scieasy_flowcyto.types.flow_data:FlowCytoData"
+flowcyto = "scieasy_flowcyto.types.flow_data:get_types"
 
 [project.entry-points."scieasy.adapters"]
-fcs = "scieasy_flowcyto.adapters.fcs_adapter:FCSAdapter"
+flowcyto = "scieasy_flowcyto.adapters.fcs_adapter:get_adapters"
 ```
+
+Note the entry-point format change from ADR-025: each entry-point value is a **callable** (function or class), not a direct class reference. The callable is invoked by the registry and returns a list of classes (optionally with `PackageInfo`).
+
+##### Custom type registration via entry-points
+
+Custom `DataObject` subtypes must be registered so the engine can validate port type compatibility (e.g., `FlowCytoData` IS-A `CompositeData`), reconstruct typed objects from storage references during checkpoint restore, and display type-appropriate previews in the frontend:
+
+```python
+# scieasy_flowcyto/types/flow_data.py
+def get_types():
+    return [FlowCytoData]
+```
+
+`TypeRegistry` gains a `_scan_entrypoint_types()` method that iterates `entry_points(group="scieasy.types")`, invokes each callable, and registers the returned type classes.
 
 #### Registry implementation
 
@@ -979,15 +1069,35 @@ fcs = "scieasy_flowcyto.adapters.fcs_adapter:FCSAdapter"
 class BlockRegistry:
     """Unified block discovery across all sources."""
 
+    def __init__(self):
+        self._specs: dict[str, BlockSpec] = {}
+        self._packages: dict[str, PackageInfo] = {}   # ADR-025: package metadata
+
     def scan(self):
         # 1. Tier 1: scan drop-in directories
         for directory in self._scan_dirs:          # project/blocks/, ~/.scieasy/blocks/
             for py_file in directory.glob("*.py"):
                 self._register_from_file(py_file)
 
-        # 2. Tier 2: scan installed entry_points
+        # 2. Tier 2: scan installed entry_points (ADR-025 callable protocol)
         for ep in entry_points(group="scieasy.blocks"):
-            self._register_from_entrypoint(ep)
+            try:
+                callable_or_class = ep.load()
+                result = callable_or_class() if callable(callable_or_class) else callable_or_class
+                if isinstance(result, tuple) and len(result) == 2:
+                    pkg_info, block_classes = result    # (PackageInfo, [Block, ...])
+                    self._packages[pkg_info.name] = pkg_info
+                    for cls in block_classes:
+                        spec = self._make_spec(cls)
+                        spec.package_name = pkg_info.name
+                        self._specs[spec.name] = spec
+                elif isinstance(result, list):
+                    for cls in result:                  # backward compat: plain list
+                        spec = self._make_spec(cls)
+                        spec.package_name = ep.name     # entry-point name as fallback
+                        self._specs[spec.name] = spec
+            except Exception:
+                logger.warning("Failed to load blocks from '%s'", ep.name, exc_info=True)
 
         # Tier 2 blocks shadow Tier 1 blocks with the same name
         # (installed packages are considered authoritative)
@@ -995,15 +1105,27 @@ class BlockRegistry:
     def hot_reload(self):
         """Re-scan Tier 1 directories only (fast, triggered by UI button)."""
         ...
+
+    def packages(self) -> dict[str, PackageInfo]:
+        """Return all registered package metadata (for GUI palette grouping)."""
+        return dict(self._packages)
+
+    def specs_by_package(self) -> dict[str, list[BlockSpec]]:
+        """Return blocks grouped by package_name for two-level palette display."""
+        grouped: dict[str, list[BlockSpec]] = {}
+        for spec in self._specs.values():
+            grouped.setdefault(spec.package_name, []).append(spec)
+        return grouped
 ```
 
-`TypeRegistry` follows an identical pattern with `scieasy.types` entry_points and `{project}/types/` + `~/.scieasy/types/` scan directories.
+`TypeRegistry` follows an identical callable protocol with `scieasy.types` entry-points and `{project}/types/` + `~/.scieasy/types/` scan directories.
 
 Each registered block/type exposes to the palette:
 - Name, description, version, author.
 - Input/output port declarations with type constraints.
 - Default config schema (JSON Schema, rendered as a form in the frontend).
 - Icon and category (for palette organisation).
+- Package name (for two-level grouping in palette; ADR-025).
 - Source indicator: "project", "user", or package name (shown as a badge in the UI).
 
 ---
@@ -2059,6 +2181,74 @@ The `[↻]` button is visible only when cached upstream outputs exist. If predec
 
 **Data flow:** the backend is the source of truth for workflow definition and execution state. The frontend sends mutations via REST and receives state updates via WebSocket. The frontend never computes execution state locally.
 
+### 9.11 Frontend bundling and `scieasy gui` (ADR-024)
+
+The target user profile for SciEasy includes scientists who do not write code. The installation and launch experience must be:
+
+```bash
+pip install scieasy
+scieasy gui
+```
+
+No Node.js, no `npm install`, no separate dev server. This is achieved by bundling the compiled React frontend into the Python wheel as static files.
+
+#### Build pipeline
+
+The React frontend is built at **package build time** (CI/release step), not at install time:
+
+1. CI runs `cd frontend && npm ci && npm run build`.
+2. Build output (`index.html` + `assets/`) is copied to `src/scieasy/api/static/`.
+3. `pyproject.toml` includes `api/static/**/*` as package data.
+4. Users installing via `pip install scieasy` receive the pre-built frontend.
+5. Developers still use `npm run dev` (Vite dev server + CORS) for frontend development.
+
+The `api/static/` directory is `.gitignore`'d — it is a build artifact, not source code.
+
+#### URL routing convention
+
+All backend API routes use the `/api/` prefix. WebSocket uses `/ws`. All other paths serve the SPA:
+
+```
+/api/*         → FastAPI route handlers
+/ws            → WebSocket endpoint
+/*             → SPA fallback (serve index.html)
+```
+
+A custom `SPAStaticFiles` middleware (subclass of `StaticFiles`) handles the SPA fallback: any path not matching a real file or an `/api/` / `/ws` route returns `index.html`, enabling client-side routing for deep links like `/projects/123/workflows`.
+
+```python
+# In create_app():
+static_dir = Path(__file__).parent / "static"
+if static_dir.exists():
+    app.mount("/", SPAStaticFiles(directory=static_dir, html=True))
+```
+
+The static mount is registered **after** all API routers and WebSocket endpoints, so `/api/*` and `/ws` take priority.
+
+#### `scieasy gui` CLI command
+
+```python
+@app.command()
+def gui(
+    port: int = typer.Option(8000, help="Port for the API server"),
+    no_browser: bool = typer.Option(False, help="Do not open browser automatically"),
+):
+    """Launch SciEasy GUI in your default browser."""
+    import threading, webbrowser, uvicorn
+
+    url = f"http://localhost:{port}"
+    if not no_browser:
+        threading.Timer(1.5, webbrowser.open, args=[url]).start()
+
+    uvicorn.run("scieasy.api.app:create_app", factory=True, host="0.0.0.0", port=port)
+```
+
+The existing `scieasy serve` command remains available for headless/API-only usage (no browser auto-open). The frontend must use relative asset paths (`base: "./"` in Vite config) to ensure the SPA works when served from any path prefix.
+
+#### Zero-configuration first launch
+
+When a user opens the GUI with no existing projects, the frontend shows a Welcome screen (ADR-023 Addendum 1). The backend provides a default workspace directory at `~/SciEasy/projects/`. The "Create Project" flow requires only a project name — all other settings use sensible defaults.
+
 ---
 
 ## 10. Project workspace structure
@@ -2238,7 +2428,9 @@ workflow:
 | UI toolkit | shadcn/ui + Tailwind CSS | |
 | Data visualisation | Plotly.js | Inline previews |
 | AI integration | Anthropic / OpenAI API | Block generation, workflow synthesis |
-| Package format | PyPI (`pip install`) | Block distribution via `scieasy.*` entry_points |
+| Package format | PyPI (`pip install`) | Block distribution via `scieasy.*` entry_points (ADR-025) |
+| Block SDK | `scieasy.testing` + `scieasy init-block-package` | Test harness + scaffolding for external developers (ADR-026) |
+| Frontend bundling | Vite build → Python wheel package data | Pre-built SPA served by FastAPI, `scieasy gui` command (ADR-024) |
 
 ---
 
@@ -2248,14 +2440,122 @@ The framework is designed for community extensibility at every layer:
 
 | What to extend | How |
 |---|---|
-| **New data type** | Subclass any base type. Drop `.py` in `{project}/types/` (Tier 1) or publish as pip package with `scieasy.types` entry_point (Tier 2). |
-| **New block** | Subclass one of the five block categories. Drop `.py` in `{project}/blocks/` (Tier 1) or publish as pip package with `scieasy.blocks` entry_point (Tier 2). |
+| **New data type** | Subclass any base type. Drop `.py` in `{project}/types/` (Tier 1) or publish as pip package with `scieasy.types` entry-point callable (Tier 2; ADR-025). Max 3 levels of inheritance from DataObject. |
+| **New block** | Subclass one of the five block categories. Drop `.py` in `{project}/blocks/` (Tier 1) or publish as pip package with `scieasy.blocks` entry-point callable returning `(PackageInfo, [Block, ...])` (Tier 2; ADR-025). |
+| **Block package** | Use `scieasy init-block-package` to scaffold a complete package with `PackageInfo`, entry-points, example blocks, tests using `BlockTestHarness`, and documentation (ADR-026). Publish to PyPI for community distribution. |
 | **Reusable sub-pipeline** | Build a workflow, then use it as a `SubWorkflowBlock` in other workflows. Publish as a shareable workflow YAML. |
 | **New storage backend** | Implement the `StorageBackend` protocol (read, write, slice, iter_chunks). Register for a data type. |
-| **New code runner** | Implement the `CodeRunner` protocol (execute script with namespace injection). Register for a language identifier. |
+| **New code runner** | Implement the `CodeRunner` protocol (execute script with namespace injection). Register for a language identifier via `scieasy.runners` entry-point. |
 | **New app bridge** | Configure `AppBlock` with the application's CLI, input/output formats, and watch patterns. |
-| **New format adapter** | Implement `FormatAdapter` (read file → DataObject, write DataObject → file). Register via `scieasy.adapters` entry_point. |
+| **New format adapter** | Implement `FormatAdapter` (read file → DataObject, write DataObject → file). Register via `scieasy.adapters` entry-point callable (ADR-025). External adapters cannot override built-in extensions. |
 | **New block runner** | Implement the `BlockRunner` protocol for remote/cluster execution environments. |
+
+### 12.1 Entry-point callable protocol (ADR-025)
+
+All three entry-point groups (`scieasy.blocks`, `scieasy.types`, `scieasy.adapters`) follow a **callable protocol**: the entry-point value is a function (or class) that the registry invokes at scan time. This allows lazy importing — block code is not imported until the registry scans, preventing import-time side effects and heavy dependency loading at startup.
+
+```python
+# scieasy.blocks callable protocol:
+def get_blocks() -> tuple[PackageInfo, list[type[Block]]]:
+    """Return package metadata + list of block classes."""
+    ...
+
+# Backward-compatible variant (no PackageInfo):
+def get_blocks() -> list[type[Block]]:
+    """Entry-point name used as package display name."""
+    ...
+
+# scieasy.types callable protocol:
+def get_types() -> list[type[DataObject]]:
+    """Return list of custom DataObject subclasses to register."""
+    ...
+
+# scieasy.adapters callable protocol:
+def get_adapters() -> list[type[FormatAdapter]]:
+    """Return list of FormatAdapter subclasses to register."""
+    ...
+```
+
+### 12.2 Block SDK (ADR-026)
+
+For the SciEasy ecosystem to grow, external developers must be able to create block packages without reading internal architecture documents. The Block SDK provides three components:
+
+#### `scieasy init-block-package` — project scaffolding
+
+Generates a complete, ready-to-develop block package with a single CLI command:
+
+```bash
+$ scieasy init-block-package scieasy-blocks-srs
+
+Package display name [SRS]: SRS Imaging
+Author []: Dr. Wang Lab
+Categories (comma-separated) [processing]: processing, stat, io
+
+Created scieasy-blocks-srs/
+  src/scieasy_blocks_srs/
+    __init__.py                    # PackageInfo + get_blocks()
+    types.py                       # Example custom type (optional)
+    processing/example_block.py    # Example block per category
+    stat/example_block.py
+    io/example_block.py
+  tests/
+    test_example_block.py          # Example test using BlockTestHarness
+  pyproject.toml                   # Pre-configured with entry-points
+  README.md                        # Quick start guide
+```
+
+The generated `pyproject.toml` includes all three entry-point groups pre-configured. The example block is a minimal working implementation with inline comments explaining the contract. Templates are shipped as `.tpl` files inside `scieasy.cli.templates`.
+
+#### `BlockTestHarness` — testing utility
+
+A test helper that eliminates boilerplate for block testing:
+
+```python
+from scieasy.testing import BlockTestHarness
+
+class TestMyBlock:
+    def test_doubles_values(self, tmp_path):
+        harness = BlockTestHarness(MyTransformBlock, work_dir=tmp_path)
+        result = harness.run(
+            inputs={"data": {"x": [1, 2, 3], "y": [4, 5, 6]}},
+            params={"column": "x"},
+        )
+        assert result["output"].column("x").to_pylist() == [2, 4, 6]
+```
+
+`BlockTestHarness` responsibilities:
+- Wrap raw Python data (dicts, lists, numpy arrays) into appropriate DataObjects.
+- Create a temporary project structure.
+- Call `process_item()` with properly constructed inputs.
+- Validate output types against the block's declared output ports.
+- Materialize output DataObjects for easy assertion.
+- Clean up temporary files.
+
+Location: `src/scieasy/testing/harness.py` (public module: `from scieasy.testing import BlockTestHarness`).
+
+#### Developer documentation
+
+A structured documentation set in `docs/block-development/` communicates the constraints from ADR-017 through ADR-022 in practical, actionable terms — without requiring developers to read internal ADRs:
+
+| Document | Content |
+|----------|---------|
+| `quickstart.md` | 5-minute from-zero-to-running guide |
+| `architecture-for-block-devs.md` | Execution model: subprocess isolation, Collection transport, block lifecycle |
+| `block-contract.md` | Input/output/params reference |
+| `data-types.md` | Core type hierarchy, Collection, when to use each type |
+| `custom-types.md` | Subclassing core types, metadata persistence |
+| `memory-safety.md` | Three-tier processing model (process_item → map_items → manual) |
+| `collection-guide.md` | Working with Collections correctly |
+| `testing.md` | BlockTestHarness API reference |
+| `publishing.md` | PyPI packaging and distribution guide |
+| `examples/` | Complete walkthroughs: simple-transform, collection-processing, custom-io-adapter, multi-block-package |
+
+Key developer-facing rules (translated from ADRs):
+
+- **Subprocess isolation** (ADR-017): your block runs in a separate process — you CAN use any CPU/memory, import any library; you CANNOT share mutable state across calls or hold persistent connections.
+- **Collection transport** (ADR-020): use `process_item()` (Tier 1) for 80% of blocks (constant memory), `map_items()` (Tier 2) for batch operations, manual `Collection` handling (Tier 3) only when cross-item operations are required.
+- **Cancellation** (ADR-018): blocks do not need to handle cancellation explicitly — the engine terminates the subprocess. Use atomic write patterns (write-to-temp-then-rename) for partial output safety.
+- **Memory** (ADR-022): blocks should declare resource hints (`requires_gpu`, `cpu_cores`) to help the scheduler. System memory is monitored at OS level via psutil, not estimated per-block.
 
 ---
 
@@ -2363,6 +2663,10 @@ The Raman and LC-MS results are preserved. Only the IF-dependent subgraph is ski
 | **ProcessMonitor** | Background coroutine that polls active processes for unexpected exits — crashes, OOM kills, user killing via the OS task manager (ADR-019). |
 | **EventBus** | Publish/subscribe dispatcher that connects all runtime components (scheduler, resource manager, process registry, WebSocket handler, lineage recorder, checkpoint manager). The backbone of the event-driven runtime (ADR-018). |
 | **RunHandle** | Returned by `BlockRunner.run()`. Contains a `ProcessHandle` for lifecycle management and an `asyncio.Future` for the result. |
+| **PackageInfo** | Dataclass providing metadata (name, description, author, version) for an external block package. Returned by `get_blocks()` callables alongside block class lists (ADR-025). |
+| **BlockTestHarness** | Testing utility in `scieasy.testing` that wraps raw Python data into DataObjects, calls block methods, and materializes outputs for assertion. Eliminates boilerplate in block tests (ADR-026). |
+| **Block SDK** | The combination of `scieasy init-block-package` scaffolding, `BlockTestHarness`, and developer documentation that enables external developers to create and publish block packages (ADR-026). |
+| **SPA fallback** | Middleware (`SPAStaticFiles`) that serves `index.html` for any path not matching `/api/*`, `/ws`, or a real static file — enabling client-side routing in the bundled React frontend (ADR-024). |
 
 ---
 
@@ -2408,3 +2712,13 @@ class SandboxPolicy(Enum):
 ```
 
 `CONTAINER` and `WASM` are not implemented in v1 — the target audience is single-user local installations. They build on the same `ProcessHandle` abstraction (ADR-019), so adding them requires implementing a new `ProcessHandle` subclass (e.g., `ContainerHandle` wrapping `docker stop`) without changing the scheduler, EventBus, or any other runtime component.
+
+### C.4 Block marketplace and version resolution
+
+As the ecosystem grows (ADR-025, ADR-026), community block packages may conflict or have incompatible version constraints. Future considerations:
+
+- **Version constraint resolution**: when multiple packages declare `scieasy>=X`, ensure the installed SciEasy version satisfies all constraints. This is handled by pip today, but may need custom validation for block API compatibility.
+- **Block marketplace**: a searchable registry (like PyPI, but with SciEasy-specific metadata — port types, categories, data modalities) where scientists discover domain-specific block packages.
+- **Block version pinning in workflows**: workflow YAML could optionally pin block package versions to ensure reproducibility across installations.
+
+These are not in scope for v0.2 — the current entry-points protocol (ADR-025) and Block SDK (ADR-026) establish the foundation.
