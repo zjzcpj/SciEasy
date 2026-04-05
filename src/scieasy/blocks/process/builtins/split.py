@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 import pyarrow as pa
 
@@ -12,6 +12,9 @@ from scieasy.blocks.base.state import BlockState
 from scieasy.blocks.process.process_block import ProcessBlock
 from scieasy.blocks.process.utils import to_arrow
 from scieasy.core.types.dataframe import DataFrame
+
+if TYPE_CHECKING:
+    from scieasy.core.types.collection import Collection
 
 
 class SplitBlock(ProcessBlock):
@@ -38,7 +41,7 @@ class SplitBlock(ProcessBlock):
         OutputPort(name="remainder", accepted_types=[DataFrame], required=False, description="Complement (ratio mode)"),
     ]
 
-    def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+    def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, Collection]:
         """Split the input DataFrame.
 
         Accepts both raw DataFrame and Collection[DataFrame] inputs for

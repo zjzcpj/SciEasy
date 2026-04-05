@@ -66,7 +66,7 @@ class AppBlock(Block):
         OutputPort(name="result", accepted_types=[Artifact], description="Output artifacts from the app"),
     ]
 
-    def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+    def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, Collection]:
         """Prepare inputs, launch the external app, and collect outputs.
 
         ADR-018: Handles CANCELLED transitions when external process exits unexpectedly.

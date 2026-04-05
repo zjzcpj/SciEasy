@@ -114,7 +114,7 @@ class Block(ABC):
         return True
 
     @abstractmethod
-    def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+    def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, Collection]:
         """Execute the block's main logic and return output mapping."""
         ...
 
