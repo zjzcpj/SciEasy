@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
+import pytest
+
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.base.state import BlockState
@@ -195,3 +197,81 @@ class TestSubWorkflowBlock:
         assert len(result["result"]) == 2
         assert result["result"][0] is obj1
         assert result["result"][1] is obj2
+
+
+class TestCleanupCallback:
+    """Tests for _cleanup_callback — ADR-017/019 nested subprocess cleanup."""
+
+    def test_cleanup_callback_called_on_success(self) -> None:
+        """Cleanup callback is called after successful run."""
+        callback_called: list[bool] = []
+        SubWorkflowBlock._cleanup_callback = lambda: callback_called.append(True)
+        try:
+            block = SubWorkflowBlock(
+                config={"params": {"child_blocks": []}}
+            )
+            block.transition(BlockState.READY)
+            block.run({}, block.config)
+            assert len(callback_called) == 1
+        finally:
+            SubWorkflowBlock._cleanup_callback = None
+
+    def test_cleanup_callback_called_on_error(self) -> None:
+        """Cleanup callback is called even when run() raises."""
+        callback_called: list[bool] = []
+        SubWorkflowBlock._cleanup_callback = lambda: callback_called.append(True)
+        try:
+            block = SubWorkflowBlock(
+                config={"params": {"child_blocks": []}}
+            )
+            block.transition(BlockState.READY)
+            # Monkey-patch _run_with_scheduler to force an error during execution.
+            original_method = block._run_with_scheduler
+
+            def boom(*a: Any, **kw: Any) -> dict[str, Any]:
+                raise RuntimeError("boom")
+
+            block._run_with_scheduler = boom  # type: ignore[assignment]
+            SubWorkflowBlock._scheduler_factory = lambda: None  # Trigger _run_with_scheduler path
+            with pytest.raises(RuntimeError, match="boom"):
+                block.run({}, block.config)
+            assert len(callback_called) == 1
+        finally:
+            SubWorkflowBlock._cleanup_callback = None
+            SubWorkflowBlock._scheduler_factory = None
+
+    def test_cleanup_callback_exception_does_not_mask_original(self) -> None:
+        """If cleanup callback itself raises, the original error is preserved."""
+
+        def bad_cleanup() -> None:
+            raise OSError("cleanup failed")
+
+        SubWorkflowBlock._cleanup_callback = bad_cleanup
+        try:
+            block = SubWorkflowBlock(
+                config={"params": {"child_blocks": []}}
+            )
+            block.transition(BlockState.READY)
+            # Monkey-patch _run_with_scheduler to force an error during execution.
+
+            def boom(*a: Any, **kw: Any) -> dict[str, Any]:
+                raise RuntimeError("original error")
+
+            block._run_with_scheduler = boom  # type: ignore[assignment]
+            SubWorkflowBlock._scheduler_factory = lambda: None  # Trigger _run_with_scheduler path
+            # The original RuntimeError should propagate, not the OSError from cleanup.
+            with pytest.raises(RuntimeError, match="original error"):
+                block.run({}, block.config)
+        finally:
+            SubWorkflowBlock._cleanup_callback = None
+            SubWorkflowBlock._scheduler_factory = None
+
+    def test_cleanup_callback_none_is_default(self) -> None:
+        """When no callback is set, no error occurs in finally block."""
+        assert SubWorkflowBlock._cleanup_callback is None
+        block = SubWorkflowBlock(
+            config={"params": {"child_blocks": []}}
+        )
+        block.transition(BlockState.READY)
+        block.run({}, block.config)
+        assert block.state == BlockState.DONE

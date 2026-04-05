@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any, ClassVar
 
 from scieasy.blocks.base.block import Block
@@ -37,6 +38,11 @@ class SubWorkflowBlock(Block):
     # Engine injects this at startup (avoids import-linter violation:
     # blocks cannot import engine).
     _scheduler_factory: ClassVar[Any] = None
+
+    # Engine injects this at startup for nested subprocess cleanup (ADR-017/019).
+    # Called in run()'s finally block so grandchild processes are terminated
+    # even when the parent SubWorkflowBlock errors or is cancelled.
+    _cleanup_callback: ClassVar[Any] = None
 
     name: ClassVar[str] = "Sub-Workflow"
     description: ClassVar[str] = "Encapsulate a full workflow as a single block"
@@ -101,6 +107,15 @@ class SubWorkflowBlock(Block):
         except Exception:
             self.transition(BlockState.ERROR)
             raise
+        finally:
+            # ADR-017/019: Clean up grandchild subprocesses.
+            # Access via __class__ to avoid Python's descriptor protocol turning
+            # the stored callable into a bound method (which would inject self
+            # as the first argument).
+            cb = type(self).__dict__.get("_cleanup_callback")
+            if cb is not None:
+                with contextlib.suppress(Exception):
+                    cb()
 
     def _run_with_scheduler(self, child_inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
         """Execute child workflow using injected scheduler factory.

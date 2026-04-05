@@ -53,6 +53,14 @@ class PlatformOps(Protocol):
         """Return ProcessExitInfo if exited, None if still alive."""
         ...
 
+    def create_job_object(self) -> Any:
+        """Create a platform-specific job object for nested process cleanup."""
+        ...
+
+    def assign_to_job(self, job_handle: Any, pid: int) -> bool:
+        """Assign a process to a job object. Returns True on success."""
+        ...
+
 
 class PosixOps:
     """Linux/macOS implementation using OS-level process group APIs.
@@ -201,6 +209,14 @@ class PosixOps:
             platform_detail=f"unknown exit status {status}",
         )
 
+    def create_job_object(self) -> Any:
+        """No-op on POSIX -- process groups handle nested cleanup."""
+        return None
+
+    def assign_to_job(self, job_handle: Any, pid: int) -> bool:
+        """No-op on POSIX."""
+        return False
+
 
 class WindowsOps:
     """Windows implementation using psutil for process tree management.
@@ -329,6 +345,87 @@ class WindowsOps:
             exit_code=None,
             platform_detail="process no longer exists",
         )
+
+    def create_job_object(self) -> Any:
+        """Create a Windows Job Object with kill-on-close semantics.
+
+        When the job handle is closed (or the parent process exits),
+        all processes assigned to the job are terminated.  This ensures
+        nested subprocess cleanup for SubWorkflowBlock.
+
+        Returns the job handle, or None if creation fails.
+        """
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+
+            # CreateJobObjectW(lpJobAttributes, lpName)
+            job = kernel32.CreateJobObjectW(None, None)
+            if not job:
+                return None
+
+            # Configure JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):  # noqa: N801
+                _fields_ = [
+                    ("PerProcessUserTimeLimit", ctypes.c_int64),
+                    ("PerJobUserTimeLimit", ctypes.c_int64),
+                    ("LimitFlags", wintypes.DWORD),
+                    ("MinimumWorkingSetSize", ctypes.c_size_t),
+                    ("MaximumWorkingSetSize", ctypes.c_size_t),
+                    ("ActiveProcessLimit", wintypes.DWORD),
+                    ("Affinity", ctypes.POINTER(ctypes.c_ulong)),
+                    ("PriorityClass", wintypes.DWORD),
+                    ("SchedulingClass", wintypes.DWORD),
+                ]
+
+            class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):  # noqa: N801
+                _fields_ = [
+                    ("BasicLimitInformation", JOBOBJECT_BASIC_LIMIT_INFORMATION),
+                    ("IoInfo", ctypes.c_byte * 48),
+                    ("ProcessMemoryLimit", ctypes.c_size_t),
+                    ("JobMemoryLimit", ctypes.c_size_t),
+                    ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                    ("PeakJobMemoryUsed", ctypes.c_size_t),
+                ]
+
+            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000  # noqa: N806
+            JobObjectExtendedLimitInformation = 9  # noqa: N806
+
+            info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+
+            kernel32.SetInformationJobObject(
+                job,
+                JobObjectExtendedLimitInformation,
+                ctypes.byref(info),
+                ctypes.sizeof(info),
+            )
+            return job
+        except Exception:
+            return None
+
+    def assign_to_job(self, job_handle: Any, pid: int) -> bool:
+        """Assign a process to a Job Object.
+
+        Returns True on success, False on failure.
+        """
+        if job_handle is None:
+            return False
+        try:
+            import ctypes
+
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            PROCESS_ALL_ACCESS = 0x1F0FFF  # noqa: N806
+            proc_handle = kernel32.OpenProcess(PROCESS_ALL_ACCESS, False, pid)
+            if not proc_handle:
+                return False
+            result = kernel32.AssignProcessToJobObject(job_handle, proc_handle)
+            kernel32.CloseHandle(proc_handle)
+            return bool(result)
+        except Exception:
+            return False
 
 
 def get_platform_ops() -> PlatformOps:
