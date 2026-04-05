@@ -355,3 +355,53 @@ class TestEventBusAutoRelease:
         rm = ResourceManager(cpu_workers=4)
         assert rm._allocations == {}
         # No error, just no auto-release capability
+
+
+# ---------------------------------------------------------------------------
+# max_internal_workers / effective_cpu (#72)
+# ---------------------------------------------------------------------------
+
+
+class TestMaxInternalWorkers:
+    def test_default_max_internal_workers(self):
+        """Default max_internal_workers is 1, effective_cpu equals cpu_cores."""
+        req = ResourceRequest(cpu_cores=2)
+        assert req.max_internal_workers == 1
+        assert req.effective_cpu == 2
+
+    def test_effective_cpu_with_internal_workers(self):
+        """effective_cpu = cpu_cores * max_internal_workers."""
+        req = ResourceRequest(cpu_cores=2, max_internal_workers=4)
+        assert req.effective_cpu == 8
+
+    @patch("psutil.virtual_memory", return_value=_mock_vm(50.0))
+    def test_can_dispatch_respects_effective_cpu(self, _mock):
+        """can_dispatch blocks when effective CPU exceeds pool."""
+        mgr = ResourceManager(cpu_workers=4)
+        # 1 core * 8 workers = 8 effective, exceeds 4-core pool
+        req = ResourceRequest(cpu_cores=1, max_internal_workers=8)
+        assert not mgr.can_dispatch(req)
+
+    @patch("psutil.virtual_memory", return_value=_mock_vm(50.0))
+    def test_acquire_uses_effective_cpu(self, _mock):
+        """acquire() reserves effective_cpu worth of cores."""
+        mgr = ResourceManager(cpu_workers=10)
+        req = ResourceRequest(cpu_cores=1, max_internal_workers=4)
+        result = _run(mgr.acquire(req, block_id="b1"))
+        assert result is True
+        assert mgr._cpu_in_use == 4  # 1 * 4
+
+    def test_release_uses_effective_cpu(self):
+        """release() frees effective_cpu worth of cores."""
+        mgr = ResourceManager(cpu_workers=10)
+        mgr._cpu_in_use = 8
+        req = ResourceRequest(cpu_cores=2, max_internal_workers=4)
+        mgr.release(req, block_id="b1")
+        assert mgr._cpu_in_use == 0  # 8 - (2*4) = 0
+
+    @patch("psutil.virtual_memory", return_value=_mock_vm(50.0))
+    def test_backward_compatible_default(self, _mock):
+        """Existing code using ResourceRequest(cpu_cores=N) still works."""
+        mgr = ResourceManager(cpu_workers=4)
+        req = ResourceRequest(cpu_cores=2)
+        assert mgr.can_dispatch(req)  # 2 effective < 4 pool

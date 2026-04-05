@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from scieasy.blocks.base.block import Block
 from scieasy.blocks.base.config import BlockConfig
+
+if TYPE_CHECKING:
+    from scieasy.core.types.collection import Collection
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.base.state import BlockState
 from scieasy.core.types.base import DataObject
@@ -48,7 +51,7 @@ class SubWorkflowBlock(Block):
         OutputPort(name="result", accepted_types=[DataObject], description="Output from child workflow"),
     ]
 
-    def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+    def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, Collection]:
         """Execute the referenced sub-workflow.
 
         1. Load child workflow definition from *workflow_ref* or config.

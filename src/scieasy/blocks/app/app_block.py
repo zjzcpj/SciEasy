@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from scieasy.blocks.app.bridge import FileExchangeBridge
+from scieasy.blocks.app.command_validator import validate_app_command
 from scieasy.blocks.base.block import Block
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
@@ -66,7 +67,7 @@ class AppBlock(Block):
         OutputPort(name="result", accepted_types=[Artifact], description="Output artifacts from the app"),
     ]
 
-    def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+    def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, Collection]:
         """Prepare inputs, launch the external app, and collect outputs.
 
         ADR-018: Handles CANCELLED transitions when external process exits unexpectedly.
@@ -84,7 +85,18 @@ class AppBlock(Block):
             timeout = int(config.get("watch_timeout", self.watch_timeout))
 
             # Create exchange directory.
-            exchange_dir = Path(config.get("exchange_dir") or tempfile.mkdtemp(prefix="scieasy_app_"))
+            # Prefer project workspace for reboot-survivable exchange dirs.
+            explicit_dir = config.get("exchange_dir")
+            if explicit_dir:
+                exchange_dir = Path(explicit_dir)
+            else:
+                project_dir = config.get("project_dir")
+                block_id = config.get("block_id", "")
+                if project_dir and block_id:
+                    exchange_dir = Path(project_dir) / "data" / "exchange" / block_id
+                else:
+                    exchange_dir = Path(tempfile.mkdtemp(prefix="scieasy_app_"))
+            exchange_dir.mkdir(parents=True, exist_ok=True)
 
             # ADR-020: Unpack Collection inputs to raw values for serialization.
             unpacked_inputs: dict[str, Any] = {}
@@ -98,6 +110,12 @@ class AppBlock(Block):
             # Step 1: Prepare inputs.
             bridge.prepare(unpacked_inputs, exchange_dir)
 
+            # Issue #70: Validate command to prevent shell injection.
+            try:
+                validate_app_command(command)
+            except ValueError as exc:
+                raise ValueError(f"AppBlock command validation failed: {exc}") from exc
+
             # Step 2: Launch and pause (waiting for external interaction).
             self.transition(BlockState.PAUSED)
             proc = bridge.launch(command, exchange_dir)
@@ -110,11 +128,15 @@ class AppBlock(Block):
 
             output_dir = exchange_dir / "outputs"
             output_dir.mkdir(exist_ok=True)
+            stability_period = float(config.get("stability_period", 2.0))
+            done_marker = config.get("done_marker")
             watcher = FileWatcher(
                 directory=output_dir,
                 patterns=patterns,
                 timeout=timeout,
                 process_handle=process_adapter,
+                stability_period=stability_period,
+                done_marker=done_marker,
             )
             watcher.start()
             try:

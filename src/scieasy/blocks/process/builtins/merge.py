@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 import pyarrow as pa
 
@@ -12,6 +12,9 @@ from scieasy.blocks.base.state import BlockState
 from scieasy.blocks.process.process_block import ProcessBlock
 from scieasy.blocks.process.utils import to_arrow
 from scieasy.core.types.dataframe import DataFrame
+
+if TYPE_CHECKING:
+    from scieasy.core.types.collection import Collection
 
 
 class MergeBlock(ProcessBlock):
@@ -35,7 +38,7 @@ class MergeBlock(ProcessBlock):
         OutputPort(name="merged", accepted_types=[DataFrame], description="Merged table"),
     ]
 
-    def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+    def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, Collection]:
         """Merge two DataFrames via Arrow tables.
 
         Accepts both raw DataFrame and Collection[DataFrame] inputs for
@@ -75,7 +78,7 @@ class MergeBlock(ProcessBlock):
             )
             result._arrow_table = merged  # type: ignore[attr-defined]
             self.transition(BlockState.DONE)
-            return {"merged": result}
+            return {"merged": Collection([result], item_type=DataFrame)}
         except Exception:
             self.transition(BlockState.ERROR)
             raise

@@ -70,13 +70,22 @@ class FileExchangeBridge:
         manifest_path = exchange_dir / "manifest.json"
         manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
-    def launch(self, command: str, exchange_dir: Path) -> subprocess.Popen[bytes]:
-        """Launch the external application with *command*."""
+    def launch(self, command: str | list[str], exchange_dir: Path) -> subprocess.Popen[bytes]:
+        """Launch the external application with *command*.
+
+        The command is validated through :func:`validate_app_command` to prevent
+        shell injection attacks (see issue #70).  ``shell=False`` is set
+        explicitly as a defence-in-depth measure.
+        """
+        from scieasy.blocks.app.command_validator import validate_app_command
+
+        parts = validate_app_command(command)
         return subprocess.Popen(
-            [command, str(exchange_dir)],
+            [*parts, str(exchange_dir)],
             cwd=str(exchange_dir),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            shell=False,
         )
 
     def watch(self, exchange_dir: Path, patterns: list[str]) -> list[Path]:
