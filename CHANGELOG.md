@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - [#57] Update Block.postprocess() type annotation to dict[str, Collection] (@claude, 2026-04-04, branch: fix/batch-1/issues-59-57-58-48, session: 20260404-192842-batch-1-remove-inputdelivery-postprocess)
 - [#58] Document that port constraint functions receive Collection objects (@claude, 2026-04-04, branch: fix/batch-1/issues-59-57-58-48, session: 20260404-192842-batch-1-remove-inputdelivery-postprocess)
+- [#124] Distinguish planned vs existing files in PROJECT_TREE.md (@claude, 2026-04-05, branch: docs/issue-124/project-tree-clarity, session: 20260405-003343-docs-project-tree-md-planned-vs-existing)
 
 ### Added
 
