@@ -25,6 +25,13 @@ _VALID_TRANSITIONS: dict[BlockState, set[BlockState]] = {
 }
 
 
+def _is_view_proxy(value: object) -> bool:
+    """Check if *value* is a ViewProxy without top-level import."""
+    from scieasy.core.proxy import ViewProxy
+
+    return isinstance(value, ViewProxy)
+
+
 class Block(ABC):
     """Abstract base class for all processing blocks.
 
@@ -87,11 +94,19 @@ class Block(ABC):
                 continue
             port = port_map[key]
 
-            # Type check: unwrap ViewProxy to check dtype_info if available.
-            actual_type = type(value)
-            from scieasy.core.proxy import ViewProxy
+            # Type check: handle Collection, ViewProxy, and plain types.
+            from scieasy.core.types.collection import Collection
 
-            if isinstance(value, ViewProxy):
+            if isinstance(value, Collection):
+                # ADR-020-Add6: Collection transparency — pass instance directly
+                # so port_accepts_type() can inspect item_type.
+                if port.accepted_types and not port_accepts_type(port, value):
+                    accepted = [t.__name__ for t in port.accepted_types]
+                    item_type_name = value.item_type.__name__ if value.item_type else "unknown"
+                    raise ValueError(
+                        f"Port '{port.name}': Collection item type {item_type_name} not compatible with {accepted}"
+                    )
+            elif _is_view_proxy(value):
                 # For proxies, we can't do isinstance; check signature instead.
                 from scieasy.blocks.base.ports import port_accepts_signature
 
@@ -102,6 +117,7 @@ class Block(ABC):
                         f"not compatible with accepted types {accepted}"
                     )
             else:
+                actual_type = type(value)
                 if port.accepted_types and not port_accepts_type(port, actual_type):
                     accepted = [t.__name__ for t in port.accepted_types]
                     raise ValueError(f"Port '{port.name}': got {actual_type.__name__}, expected one of {accepted}")
