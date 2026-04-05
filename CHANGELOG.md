@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#166] Create LineageRecorder component that persists LineageRecord on terminal block events via EventBus (@claude, 2026-04-05, branch: fix/batch-b2/issues-166-169, session: 20260405-163539-fix-issues-166-169-lineagerecorder-zarrb)
+- [#167] Make ZarrBackend.write() atomic via write-to-temp-then-rename (@claude, 2026-04-05, branch: fix/batch-b2/issues-166-169, session: 20260405-163539-fix-issues-166-169-lineagerecorder-zarrb)
+- [#168] Guard against Collection with None item_type in worker.py serialise_outputs (@claude, 2026-04-05, branch: fix/batch-b2/issues-166-169, session: 20260405-163539-fix-issues-166-169-lineagerecorder-zarrb)
+- [#169] Replace silent except-continue in BlockRegistry with logged warnings (@claude, 2026-04-05, branch: fix/batch-b2/issues-166-169, session: 20260405-163539-fix-issues-166-169-lineagerecorder-zarrb)
 - [#162] Replace blocking popen.communicate() with run_in_executor so asyncio event loop stays responsive during block execution (@claude, 2026-04-05, branch: fix/batch-b1/issues-162-163-164, session: 20260405-154742-fix-localrunner-async-blocking-dagschedu)
 - [#163] Add PROCESS_EXITED subscription to DAGScheduler and align block_id between ProcessHandle and scheduler for crash detection (@claude, 2026-04-05, branch: fix/batch-b1/issues-162-163-164, session: 20260405-154742-fix-localrunner-async-blocking-dagschedu)
 - [#164] Wire CheckpointManager into DAGScheduler pause/resume with auto-save on terminal events for crash recovery (@claude, 2026-04-05, branch: fix/batch-b1/issues-162-163-164, session: 20260405-154742-fix-localrunner-async-blocking-dagschedu)

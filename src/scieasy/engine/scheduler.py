@@ -35,6 +35,7 @@ from scieasy.workflow.definition import WorkflowDefinition
 
 if TYPE_CHECKING:
     from scieasy.blocks.registry import BlockRegistry
+    from scieasy.engine.lineage_recorder import LineageRecorder
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,7 @@ class DAGScheduler:
         runner: Any,
         registry: BlockRegistry | None = None,
         checkpoint_manager: Any | None = None,
+        lineage_recorder: LineageRecorder | None = None,
     ) -> None:
         self._workflow = workflow
         self._event_bus = event_bus
@@ -99,6 +101,7 @@ class DAGScheduler:
         self._runner = runner
         self._registry = registry
         self._checkpoint_manager = checkpoint_manager
+        self._lineage_recorder = lineage_recorder
 
         self._dag = build_dag(workflow)
         self._order = topological_sort(self._dag)
@@ -161,6 +164,9 @@ class DAGScheduler:
 
         self._block_states[node_id] = BlockState.RUNNING
         await self._event_bus.emit(EngineEvent(event_type=BLOCK_RUNNING, block_id=node_id))
+
+        if self._lineage_recorder is not None:
+            self._lineage_recorder.record_start(node_id)
 
         # Gather inputs from upstream outputs using edge_map
         inputs = self._gather_inputs(node_id)
