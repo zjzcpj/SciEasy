@@ -16,8 +16,13 @@ jobs:
 
       - name: Check linked issue
         env:
+          EVENT_NAME: ${{ github.event_name }}
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -z "$PR_BODY" ]; then
+            echo "workflow_dispatch run - skipping PR body issue check"
+            exit 0
+          fi
           if ! echo "$PR_BODY" | grep -qiE "(closes|fixes|resolves)\s+#[0-9]+"; then
             echo "::error::PR must link an issue (e.g. 'Closes #42')"
             exit 1
