@@ -84,7 +84,18 @@ class AppBlock(Block):
             timeout = int(config.get("watch_timeout", self.watch_timeout))
 
             # Create exchange directory.
-            exchange_dir = Path(config.get("exchange_dir") or tempfile.mkdtemp(prefix="scieasy_app_"))
+            # Prefer project workspace for reboot-survivable exchange dirs.
+            explicit_dir = config.get("exchange_dir")
+            if explicit_dir:
+                exchange_dir = Path(explicit_dir)
+            else:
+                project_dir = config.get("project_dir")
+                block_id = config.get("block_id", "")
+                if project_dir and block_id:
+                    exchange_dir = Path(project_dir) / "data" / "exchange" / block_id
+                else:
+                    exchange_dir = Path(tempfile.mkdtemp(prefix="scieasy_app_"))
+            exchange_dir.mkdir(parents=True, exist_ok=True)
 
             # ADR-020: Unpack Collection inputs to raw values for serialization.
             unpacked_inputs: dict[str, Any] = {}
