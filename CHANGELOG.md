@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- [#55] Item-level hashing for Collection lineage — LineageRecord hash fields from list[str] to dict[str, list[str]], backward-compat store parsing, collection_hashes() utility (@claude, 2026-04-05, branch: feat/issue-55/collection-item-level-hashing, session: 20260405-004917-issue-55-item-level-hashing-for-collecti)
 - [#123] Update Block.run() signature from dict[str, Any] to dict[str, Collection] across base + all subclasses, add architecture test (@claude, 2026-04-05, branch: fix/issue-123/block-run-collection-signature, session: 20260405-002441-issue-123-block-run-signature-dict-str-a)
 - [#57] Update Block.postprocess() type annotation to dict[str, Collection] (@claude, 2026-04-04, branch: fix/batch-1/issues-59-57-58-48, session: 20260404-192842-batch-1-remove-inputdelivery-postprocess)
 - [#58] Document that port constraint functions receive Collection objects (@claude, 2026-04-04, branch: fix/batch-1/issues-59-57-58-48, session: 20260404-192842-batch-1-remove-inputdelivery-postprocess)
