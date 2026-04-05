@@ -58,6 +58,25 @@ class CompositeData(DataObject):
         """Return the names of all currently populated slots."""
         return list(self._slots.keys())
 
+    def get_in_memory_data(self) -> Any:
+        """Return dict of slot data for composite persistence.
+
+        Each slot value is packaged as ``(backend_name, raw_data)`` for
+        :class:`CompositeStore.write`.
+        """
+        from scieasy.core.storage.backend_router import get_router
+
+        if not self._slots:
+            return super().get_in_memory_data()
+
+        router = get_router()
+        result: dict[str, tuple[str, Any]] = {}
+        for slot_name, slot_obj in self._slots.items():
+            backend_name = router.backend_name_for(type(slot_obj))
+            slot_data = slot_obj.get_in_memory_data()
+            result[slot_name] = (backend_name, slot_data)
+        return result
+
 
 class AnnData(CompositeData):
     """AnnData-like composite: X (array), obs/var (dataframes), uns (artifact)."""

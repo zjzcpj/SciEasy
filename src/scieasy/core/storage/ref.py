@@ -21,3 +21,7 @@ class StorageReference:
     path: str
     format: str | None = None
     metadata: dict[str, Any] | None = field(default=None)
+
+    def __post_init__(self) -> None:
+        """Normalize *path* to POSIX forward-slash format (ADR-017, #53)."""
+        self.path = self.path.replace("\\", "/")

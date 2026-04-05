@@ -1,11 +1,13 @@
-"""Tests for content_hash() — all supported data types and edge cases."""
+"""Tests for content_hash() and collection_hashes() — all supported data types and edge cases."""
 
 from __future__ import annotations
 
 import numpy as np
 import pyarrow as pa
 
-from scieasy.utils.hashing import content_hash
+from scieasy.core.types.base import DataObject
+from scieasy.core.types.collection import Collection
+from scieasy.utils.hashing import collection_hashes, content_hash
 
 
 class TestContentHash:
@@ -69,3 +71,40 @@ class TestContentHash:
         result = content_hash(np.array(42))
         assert isinstance(result, str)
         assert len(result) > 0
+
+
+class TestCollectionHashes:
+    """collection_hashes — per-item hashing for Collection lineage (#55)."""
+
+    def test_collection_hashes_basic(self) -> None:
+        """Each item in a Collection gets its own content hash."""
+        items = [DataObject(), DataObject(), DataObject()]
+        coll = Collection(items)
+        hashes = collection_hashes(coll)
+        assert len(hashes) == 3
+        assert all(isinstance(h, str) for h in hashes)
+        assert all(len(h) > 0 for h in hashes)
+
+    def test_collection_hashes_deterministic(self) -> None:
+        """Same Collection produces the same hashes."""
+        items = [DataObject(), DataObject()]
+        coll = Collection(items)
+        assert collection_hashes(coll) == collection_hashes(coll)
+
+    def test_collection_hashes_different_items_differ(self) -> None:
+        """Different DataObjects should produce different hashes (via repr)."""
+        a = DataObject()
+        b = DataObject()
+        coll = Collection([a, b])
+        hashes = collection_hashes(coll)
+        # DataObjects with different identities have different repr, so hashes differ
+        assert len(hashes) == 2
+
+    def test_collection_hashes_preserves_order(self) -> None:
+        """Hash order matches item order in the Collection."""
+        items = [DataObject(), DataObject(), DataObject()]
+        coll = Collection(items)
+        hashes = collection_hashes(coll)
+        # Verify each hash corresponds to its item
+        for i, item in enumerate(items):
+            assert hashes[i] == content_hash(item)

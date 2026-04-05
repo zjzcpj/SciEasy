@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable, Iterator
 from typing import Any
 
 import numpy as np
+
+_MEMORY_WARN_BYTES: int = 2 * 1024**3  # 2 GB
 
 
 class BroadcastError(Exception):
@@ -61,9 +64,26 @@ def broadcast_apply(
     Raises:
         BroadcastError: If source axes are not a subset of
             target axes minus *over_axes*.
+
+    .. note::
+        This is an **in-memory-only** utility. Both *source* and *target*
+        are fully materialised via ``np.asarray()`` before processing.
+        For datasets exceeding 2 GB, consider using ``ViewProxy.iter_chunks()``
+        to process data in manageable pieces.
     """
     source_data = np.asarray(source)
     target_data = np.asarray(target)
+
+    # Memory guard: warn if combined array size exceeds threshold.
+    total_bytes = source_data.nbytes + target_data.nbytes
+    if total_bytes > _MEMORY_WARN_BYTES:
+        warnings.warn(
+            f"broadcast_apply: combined input size is {total_bytes / 1024**3:.1f} GB, "
+            f"exceeding the {_MEMORY_WARN_BYTES / 1024**3:.0f} GB threshold. "
+            f"Consider using ViewProxy.iter_chunks() for large datasets.",
+            ResourceWarning,
+            stacklevel=2,
+        )
 
     # Get axis names
     source_axes: list[str] | None = getattr(source, "axes", None)
