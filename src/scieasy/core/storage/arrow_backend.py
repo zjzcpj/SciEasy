@@ -44,6 +44,11 @@ class ArrowBackend:
             metadata=metadata,
         )
 
+    def write_from_memory(self, data: Any, path: str) -> StorageReference:
+        """Write raw in-memory Arrow/dict data to Parquet at *path*."""
+        ref = StorageReference(backend="arrow", path=path)
+        return self.write(data, ref)
+
     def slice(self, ref: StorageReference, *args: Any) -> Any:
         """Return a column-selected subset from the table at *ref*.
 

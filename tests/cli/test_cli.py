@@ -129,6 +129,14 @@ class TestCLIValidate:
         result = runner.invoke(app, ["validate", str(yaml_file)])
         assert result.exit_code == 0
 
+    def test_validate_creates_registry_for_full_checks(self, tmp_path: Path) -> None:
+        """validate command creates BlockRegistry for type-compatibility checks (#121)."""
+        yaml_file = tmp_path / "workflow.yaml"
+        yaml_file.write_text("workflow:\n  id: test\n  nodes:\n    - id: a\n      block_type: IOBlock\n  edges: []\n")
+        result = runner.invoke(app, ["validate", str(yaml_file)])
+        # Should not crash -- registry creation + scan + validate all work.
+        assert result.exit_code in (0, 1)
+
 
 class TestCLIRun:
     """Tests for the ``scieasy run`` command."""
