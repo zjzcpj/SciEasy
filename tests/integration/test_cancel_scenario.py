@@ -175,7 +175,7 @@ class TestCancelPropagation:
             ],
         )
 
-        async def fail_on_b(block: object, inputs: dict, config: dict) -> dict:
+        async def fail_on_b(block: object, inputs: dict, config: dict, **kwargs: object) -> dict:
             if block.id == "B":  # type: ignore[attr-defined]
                 raise RuntimeError("Block B crashed")
             return {"out": "ok"}
