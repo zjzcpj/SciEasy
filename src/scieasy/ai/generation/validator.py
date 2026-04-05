@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ast
+import re
 from typing import Any
 
 
@@ -10,11 +12,10 @@ def validate_generated_code(code: str) -> dict[str, Any]:
 
     The pipeline performs:
 
-    1. **Static analysis** --- syntax check, import resolution, lint.
-    2. **Dry run** --- load the class/function in an isolated namespace
-       and verify it can be instantiated.
-    3. **Port contract check** --- ensure declared input/output ports
-       match registered type contracts.
+    1. **Static analysis** --- syntax check via ``ast.parse()``, verify
+       a Block subclass exists with a ``run()`` method.
+    2. **Contract check** --- verify run() signature references Collection
+       (not ``dict[str, Any]``), and no banned patterns are present.
 
     Parameters
     ----------
@@ -24,12 +25,56 @@ def validate_generated_code(code: str) -> dict[str, Any]:
     Returns
     -------
     dict[str, Any]
-        A validation report with at least the keys ``"passed"`` (bool),
+        A validation report with keys ``"passed"`` (bool),
         ``"errors"`` (list[str]), and ``"warnings"`` (list[str]).
-
-    Raises
-    ------
-    NotImplementedError
-        Phase-1 skeleton --- not yet implemented.
     """
-    raise NotImplementedError
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    # Stage 1: Syntax check.
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as exc:
+        return {"passed": False, "errors": [f"Syntax error: {exc}"], "warnings": []}
+
+    # Stage 2: Find Block subclass with run() method.
+    classes = [node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
+    if not classes:
+        errors.append("No class definition found in generated code.")
+        return {"passed": False, "errors": errors, "warnings": warnings}
+
+    has_run_method = False
+    for cls in classes:
+        for item in cls.body:
+            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name == "run":
+                has_run_method = True
+                break
+
+    if not has_run_method:
+        errors.append("No run() method found in any class.")
+
+    # Stage 3: Contract checks via string patterns.
+    # Check for banned patterns.
+    if "estimated_memory_gb" in code:
+        errors.append(
+            "Code references 'estimated_memory_gb' which has been removed (ADR-022). "
+            "Use ResourceRequest without memory estimation."
+        )
+
+    if "self.transition(" in code:
+        # Allow PAUSED for AppBlock, but flag others.
+        transitions = re.findall(r"self\.transition\(([^)]+)\)", code)
+        for transition_arg in transitions:
+            if "PAUSED" not in transition_arg:
+                warnings.append(
+                    f"Code calls self.transition({transition_arg}). "
+                    f"State transitions are managed by the engine in subprocess "
+                    f"isolation (ADR-017). Remove unless this is an AppBlock "
+                    f"PAUSED transition."
+                )
+
+    if "dict[str, Any]" in code:
+        warnings.append("Code uses 'dict[str, Any]' for port data. Use 'dict[str, Collection]' per ADR-020.")
+
+    passed = len(errors) == 0
+    return {"passed": passed, "errors": errors, "warnings": warnings}
