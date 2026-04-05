@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [#121] Pass BlockRegistry to CLI validate/run commands — enable type-compatibility and dangling-port checks (@claude, 2026-04-05, branch: fix/batch-a2/issues-119-121, session: 20260405-003357-wave-a2-inject-blockregistry-into-dagsch)
 ### Added
 
+- [#64] AI generation templates and validation pipeline updated for Collection model (@claude, 2026-04-05, branch: feat/issue-64/ai-generation-templates, session: 20260405-014102-feat-ai-generation-templates-for-collect)
 - [#127] Auto-flush data persistence pipeline: BackendRouter MRO resolution, flush_context, DataObject.save() with idempotency, _auto_flush() safety net (@claude, 2026-04-05, branch: fix/batch-a1/issues-127-49-52-67)
 ### Fixed
 
@@ -43,6 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- [#65] FastAPI lifespan shutdown terminates block subprocesses via ProcessRegistry (@claude, 2026-04-05, branch: feat/issue-65/fastapi-lifespan-shutdown, session: 20260405-010805-feat-fastapi-lifespan-shutdown-processre)
+- [#54] Capture EnvironmentSnapshot inside subprocess for accurate lineage data (@claude, 2026-04-05, branch: feat/issue-54/env-snapshot-subprocess, session: 20260405-005852-feat-capture-environmentsnapshot-in-subp)
 - [#62] Checkpoint intermediate_refs Collection serialization for resume support (@claude, 2026-04-05, branch: feat/issue-62/checkpoint-collection-refs, session: 20260405-005921-feat-checkpoint-intermediate-refs-collec)
 - [#72] ResourceRequest max_internal_workers for accurate CPU accounting with parallel_map (@claude, 2026-04-05, branch: feat/issue-72/resource-request-workers, session: 20260405-005829-feat-resourcerequest-max-internal-worker)
 - [#76] broadcast_apply memory guard, Array.__array__() protocol, in-memory scope docs (@claude, 2026-04-05, branch: feat/issue-76/broadcast-apply-improvements, session: 20260405-004843-feat-broadcast-apply-memory-guard-array)
