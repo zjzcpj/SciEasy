@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from typing import ClassVar
 
@@ -168,3 +169,34 @@ class TestBroadcastApply:
             over_axes=["ch", "t"],
         )
         assert len(results) == 2 * 5  # 2 channels x 5 timepoints
+
+
+# ---------------------------------------------------------------------------
+# Memory guard
+# ---------------------------------------------------------------------------
+
+
+class TestMemoryGuard:
+    """Test ResourceWarning for large combined input sizes."""
+
+    def test_no_warning_for_small_arrays(self) -> None:
+        """No ResourceWarning for arrays well under 2 GB."""
+        source = Mask2D(data=np.zeros((10, 10)))
+        target = Cube3D(data=np.zeros((10, 10, 3)))
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", ResourceWarning)
+            broadcast_apply(source, target, lambda s, t: s + t, over_axes=["mz"])
+
+    def test_warning_for_large_arrays(self) -> None:
+        """ResourceWarning triggered when combined size > threshold."""
+        import scieasy.utils.broadcast as bmod
+
+        original = bmod._MEMORY_WARN_BYTES
+        try:
+            bmod._MEMORY_WARN_BYTES = 100  # 100 bytes for testing
+            source = Mask2D(data=np.zeros((10, 10)))
+            target = Cube3D(data=np.zeros((10, 10, 3)))
+            with pytest.warns(ResourceWarning, match="broadcast_apply"):
+                broadcast_apply(source, target, lambda s, t: s + t, over_axes=["mz"])
+        finally:
+            bmod._MEMORY_WARN_BYTES = original
