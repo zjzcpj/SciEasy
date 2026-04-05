@@ -49,6 +49,60 @@ class TestEnvironmentSnapshot:
         assert "nonexistent_pkg_12345" not in snap.key_packages
 
 
+class TestEnvironmentSnapshotSerialization:
+    """Verify to_dict / from_dict round-trip serialization (issue #54)."""
+
+    def test_to_dict_round_trip(self) -> None:
+        """to_dict + from_dict preserves all fields."""
+        snapshot = EnvironmentSnapshot.capture()
+        data = snapshot.to_dict()
+        restored = EnvironmentSnapshot.from_dict(data)
+        assert restored.python_version == snapshot.python_version
+        assert restored.platform == snapshot.platform
+        assert restored.key_packages == snapshot.key_packages
+        assert restored.full_freeze == snapshot.full_freeze
+        assert restored.conda_env == snapshot.conda_env
+
+    def test_to_dict_is_json_serializable(self) -> None:
+        """to_dict output can be JSON-serialized."""
+        import json
+
+        snapshot = EnvironmentSnapshot.capture()
+        data = snapshot.to_dict()
+        json_str = json.dumps(data)
+        assert isinstance(json_str, str)
+
+    def test_from_dict_handles_missing_optional_fields(self) -> None:
+        """from_dict works with minimal required fields."""
+        data = {"python_version": "3.11.0", "platform": "Linux"}
+        snapshot = EnvironmentSnapshot.from_dict(data)
+        assert snapshot.python_version == "3.11.0"
+        assert snapshot.platform == "Linux"
+        assert snapshot.key_packages == {}
+        assert snapshot.full_freeze is None
+        assert snapshot.conda_env is None
+
+    def test_to_dict_includes_all_keys(self) -> None:
+        """to_dict output contains all expected keys."""
+        snapshot = EnvironmentSnapshot(
+            python_version="3.12.0",
+            platform="Linux-6.1",
+            key_packages={"numpy": "1.26.0"},
+            full_freeze="numpy==1.26.0\nzarr==2.18.0",
+            conda_env="name: sci\ndependencies:\n  - numpy",
+        )
+        data = snapshot.to_dict()
+        assert data == {
+            "python_version": "3.12.0",
+            "platform": "Linux-6.1",
+            "key_packages": {"numpy": "1.26.0"},
+            "full_freeze": "numpy==1.26.0\nzarr==2.18.0",
+            "conda_env": "name: sci\ndependencies:\n  - numpy",
+        }
+        restored = EnvironmentSnapshot.from_dict(data)
+        assert restored == snapshot
+
+
 class TestLineageStore:
     """Verify SQLite-backed LineageStore."""
 
