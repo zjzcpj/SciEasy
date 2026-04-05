@@ -8,6 +8,7 @@ from pathlib import Path
 from scieasy.engine.checkpoint import (
     CheckpointManager,
     WorkflowCheckpoint,
+    deserialize_intermediate_refs,
     load_checkpoint,
     save_checkpoint,
     serialize_intermediate_refs,
@@ -254,9 +255,115 @@ class TestIntermediateRefsSerialization:
         ref_data = serialized["block_a"]["result"]
         assert ref_data["_collection"] is True
         assert "_value" in ref_data["items"][0]
+        assert ref_data["items"][0]["_type"] == "Image"
 
     def test_serialize_non_dict_output(self) -> None:
         """Non-dict block output is serialized via _serialize_value."""
         block_outputs = {"block_a": "simple_string"}
         serialized = serialize_intermediate_refs(block_outputs)
         assert serialized["block_a"] == "simple_string"
+
+
+# ---------------------------------------------------------------------------
+# deserialize_intermediate_refs (Collection-aware reconstruction)
+# ---------------------------------------------------------------------------
+
+
+class TestDeserializeIntermediateRefs:
+    """Tests for deserialize_intermediate_refs — ViewProxy reconstruction (#62)."""
+
+    def test_roundtrip_collection_with_storage_refs(self) -> None:
+        """serialize → JSON → deserialize reconstructs ViewProxy items."""
+        import json
+
+        from scieasy.core.proxy import ViewProxy
+        from scieasy.core.storage.ref import StorageReference
+        from scieasy.core.types.array import Image
+        from scieasy.core.types.collection import Collection
+
+        img = Image(shape=(10, 10))
+        img.storage_ref = StorageReference(
+            backend="zarr",
+            path="/tmp/test.zarr",
+            format="ome-zarr",
+            metadata={"axes": ["y", "x"]},
+        )
+        collection = Collection([img], item_type=Image)
+
+        block_outputs = {"block_a": {"result": collection}}
+        serialized = serialize_intermediate_refs(block_outputs)
+        json_str = json.dumps(serialized)
+        raw = json.loads(json_str)
+        restored = deserialize_intermediate_refs(raw)
+
+        coll_data = restored["block_a"]["result"]
+        assert coll_data["_collection"] is True
+        assert coll_data["item_type"] == "Image"
+        assert len(coll_data["items"]) == 1
+
+        proxy = coll_data["items"][0]
+        assert isinstance(proxy, ViewProxy)
+        assert proxy.storage_ref.backend == "zarr"
+        assert proxy.storage_ref.path == "/tmp/test.zarr"
+        assert proxy.storage_ref.format == "ome-zarr"
+        assert proxy.storage_ref.metadata == {"axes": ["y", "x"]}
+        assert proxy.dtype_info.type_chain == ["Image"]
+
+    def test_roundtrip_single_storage_ref(self) -> None:
+        """Single DataObject with storage_ref deserializes to ViewProxy."""
+        import json
+
+        from scieasy.core.proxy import ViewProxy
+        from scieasy.core.storage.ref import StorageReference
+        from scieasy.core.types.array import Image
+
+        img = Image(shape=(5, 5))
+        img.storage_ref = StorageReference(backend="zarr", path="/tmp/img.zarr")
+
+        block_outputs = {"block_a": {"image": img}}
+        serialized = serialize_intermediate_refs(block_outputs)
+        raw = json.loads(json.dumps(serialized))
+        restored = deserialize_intermediate_refs(raw)
+
+        proxy = restored["block_a"]["image"]
+        assert isinstance(proxy, ViewProxy)
+        assert proxy.storage_ref.backend == "zarr"
+        assert proxy.storage_ref.path == "/tmp/img.zarr"
+        assert proxy.dtype_info.type_chain == ["DataObject"]
+
+    def test_scalar_passthrough(self) -> None:
+        """Scalar values pass through deserialization unchanged."""
+        data = {"block_a": {"count": 42, "name": "test", "flag": True}}
+        restored = deserialize_intermediate_refs(data)
+        assert restored["block_a"]["count"] == 42
+        assert restored["block_a"]["name"] == "test"
+        assert restored["block_a"]["flag"] is True
+
+    def test_non_persisted_items_skipped_with_warning(self) -> None:
+        """Non-persisted _value items are skipped during deserialization."""
+        data = {
+            "block_a": {
+                "result": {
+                    "_collection": True,
+                    "items": [{"_value": "Image(shape=(3,3))", "_type": "Image"}],
+                    "item_type": "Image",
+                }
+            }
+        }
+        restored = deserialize_intermediate_refs(data)
+        coll_data = restored["block_a"]["result"]
+        assert coll_data["_collection"] is True
+        assert len(coll_data["items"]) == 0
+
+    def test_malformed_collection_returns_raw(self) -> None:
+        """Malformed _collection dict without required keys returns raw data."""
+        data = {"block_a": {"result": {"_collection": True, "items": []}}}
+        restored = deserialize_intermediate_refs(data)
+        # Missing 'item_type' → returns raw
+        assert restored["block_a"]["result"] == {"_collection": True, "items": []}
+
+    def test_non_dict_block_output_passthrough(self) -> None:
+        """Non-dict block outputs pass through unchanged."""
+        data = {"block_a": "simple_string"}
+        restored = deserialize_intermediate_refs(data)
+        assert restored["block_a"] == "simple_string"
