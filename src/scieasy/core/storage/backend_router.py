@@ -2,20 +2,20 @@
 
 from __future__ import annotations
 
-from typing import Any
+from scieasy.core.storage.base import StorageBackend
 
 
 class BackendRouter:
     """Route DataObject types to their appropriate StorageBackend via MRO resolution."""
 
     def __init__(self) -> None:
-        self._routes: dict[type, tuple[str, Any]] = {}
+        self._routes: dict[type, tuple[str, StorageBackend]] = {}
 
-    def register(self, data_type: type, backend_name: str, backend: Any) -> None:
+    def register(self, data_type: type, backend_name: str, backend: StorageBackend) -> None:
         """Register a mapping from *data_type* to (*backend_name*, *backend*)."""
         self._routes[data_type] = (backend_name, backend)
 
-    def resolve(self, data_type: type) -> tuple[str, Any]:
+    def resolve(self, data_type: type) -> tuple[str, StorageBackend]:
         """Walk MRO to find the first registered ancestor type.
 
         Returns a tuple of (backend_name, backend_instance).
@@ -26,7 +26,7 @@ class BackendRouter:
                 return self._routes[cls]
         raise KeyError(f"No storage backend registered for {data_type.__name__}")
 
-    def backend_for(self, data_type: type) -> Any:
+    def backend_for(self, data_type: type) -> StorageBackend:
         """Return the StorageBackend for *data_type*."""
         return self.resolve(data_type)[1]
 
