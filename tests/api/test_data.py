@@ -71,7 +71,7 @@ def test_preview_supports_image_series_composite_and_artifact_types(
     image_preview = client.get(f"/api/data/{image_record.id}/preview")
     assert image_preview.status_code == 200
     assert image_preview.json()["preview"]["kind"] == "image"
-    assert image_preview.json()["preview"]["src"].startswith("data:image/x-portable-pixmap")
+    assert image_preview.json()["preview"]["src"].startswith("data:image/png;base64,")
 
     series_path = opened_project / "data" / "raw" / "series.bin"
     series_path.write_bytes(b"series")
