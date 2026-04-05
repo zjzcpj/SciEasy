@@ -34,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - [#51] Atomic write for FilesystemBackend; document Zarr/Composite write atomicity risks (@claude, 2026-04-05, branch: fix/issue-51/storage-write-atomicity, session: 20260405-004830-fix-storage-write-atomicity-on-cancel-cr)
 
+### Fixed
+
+- [#68] Move AppBlock exchange directory from system temp to project workspace (@claude, 2026-04-05, branch: fix/issue-68/appblock-exchange-dir, session: 20260405-004749-fix-appblock-exchange-dir-in-project-wor)
+
 ### Added
 
 - [#76] broadcast_apply memory guard, Array.__array__() protocol, in-memory scope docs (@claude, 2026-04-05, branch: feat/issue-76/broadcast-apply-improvements, session: 20260405-004843-feat-broadcast-apply-memory-guard-array)

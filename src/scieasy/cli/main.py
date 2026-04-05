@@ -95,6 +95,7 @@ def init(name: str = typer.Argument("my_project", help="Project workspace name")
         "data/zarr",
         "data/parquet",
         "data/artifacts",
+        "data/exchange",
         "blocks",
         "types",
         "checkpoints",
