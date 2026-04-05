@@ -1,8 +1,8 @@
 """Integration tests: cancellation with skip propagation + cycle detection.
 
-These tests verify that the DAGScheduler correctly propagates SKIPPED state
-to downstream blocks when a block is cancelled or errors, and that the DAG
-construction correctly detects cycles.
+Verify that the DAGScheduler correctly propagates SKIPPED state to downstream
+blocks when a block is cancelled or errors, and that DAG construction correctly
+detects cycles.
 """
 
 from __future__ import annotations
