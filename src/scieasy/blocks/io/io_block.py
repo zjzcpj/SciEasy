@@ -45,7 +45,7 @@ class IOBlock(Block):
         ),
     ]
 
-    def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+    def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, Collection]:
         """Execute the IO operation (read or write)."""
         from scieasy.blocks.io.adapter_registry import AdapterRegistry
 

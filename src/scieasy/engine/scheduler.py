@@ -13,6 +13,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from scieasy.blocks.registry import BlockRegistry
 from scieasy.engine.dag import build_dag, topological_sort
 from scieasy.engine.events import (
     BLOCK_CANCELLED,
