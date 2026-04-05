@@ -28,3 +28,9 @@ class Text(DataObject):
         self.content = content
         self.format = format
         self.encoding = encoding
+
+    def get_in_memory_data(self) -> Any:
+        """Return text content for persistence."""
+        if self.content is not None:
+            return self.content
+        return super().get_in_memory_data()
