@@ -119,6 +119,21 @@ class TestBlockRegistryTier1:
         assert "Temp Block" not in reg.all_specs()
 
 
+class TestInferCategory:
+    """Tests for _infer_category helper."""
+
+    def test_infer_category_ai_block(self) -> None:
+        from scieasy.blocks.ai.ai_block import AIBlock
+        from scieasy.blocks.registry import _infer_category
+
+        assert _infer_category(AIBlock) == "ai"
+
+        class MyAIBlock(AIBlock):
+            pass
+
+        assert _infer_category(MyAIBlock) == "ai"
+
+
 class TestAdapterRegistry:
     """AdapterRegistry — extension-to-adapter mapping."""
 
