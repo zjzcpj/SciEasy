@@ -6,6 +6,7 @@ Uses spawn_block_process() as the single subprocess creation entry point.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import TYPE_CHECKING, Any
@@ -44,6 +45,7 @@ class LocalRunner:
         block: Any,
         inputs: dict[str, Any],
         config: dict[str, Any],
+        block_id: str | None = None,
     ) -> dict[str, Any]:
         """Execute *block* in an isolated subprocess.
 
@@ -59,6 +61,10 @@ class LocalRunner:
             Mapping of port names to input data references.
         config:
             Execution-time configuration for this invocation.
+        block_id:
+            Optional DAG node ID to use as the ProcessHandle identifier.
+            When provided, enables ProcessMonitor PROCESS_EXITED events
+            to be matched back to the correct DAGScheduler block.
 
         Returns
         -------
@@ -76,6 +82,7 @@ class LocalRunner:
             config=config,
             event_bus=self._event_bus,
             registry=registry,
+            block_id=block_id,
         )
 
         # Wait for subprocess to complete by reading stdout.
@@ -85,7 +92,8 @@ class LocalRunner:
         if popen is None:
             return {"error": "No subprocess handle available"}
 
-        stdout, stderr = popen.communicate()
+        loop = asyncio.get_running_loop()
+        stdout, stderr = await loop.run_in_executor(None, popen.communicate)
 
         if popen.returncode != 0:
             error_msg = stderr.decode(errors="replace") if stderr else "unknown error"

@@ -311,7 +311,7 @@ class TestSchedulerEventBusEndToEnd:
 
         execution_order: list[str] = []
 
-        async def track_run(block: object, inputs: dict, config: dict) -> dict:
+        async def track_run(block: object, inputs: dict, config: dict, **kwargs: object) -> dict:
             execution_order.append(block.id)  # type: ignore[attr-defined]
             return {"output": f"result_{block.id}"}  # type: ignore[attr-defined]
 
@@ -361,7 +361,7 @@ class TestSchedulerEventBusEndToEnd:
 
         call_order: list[str] = []
 
-        async def track_run(block: object, inputs: dict, config: dict) -> dict:
+        async def track_run(block: object, inputs: dict, config: dict, **kwargs: object) -> dict:
             call_order.append(block.id)  # type: ignore[attr-defined]
             return {"out": f"result_{block.id}"}  # type: ignore[attr-defined]
 
