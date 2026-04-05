@@ -141,8 +141,9 @@ class TestAppBlockExchangeDir:
         from scieasy.blocks.base.state import BlockState
 
         block = AppBlock()
-        # Transition to READY so run() can transition to RUNNING.
+        # Simulate scheduler: IDLE -> READY -> RUNNING before run().
         block.transition(BlockState.READY)
+        block.transition(BlockState.RUNNING)
 
         project_dir = tmp_path / "my_project"
         project_dir.mkdir()
@@ -195,8 +196,9 @@ class TestAppBlockExchangeDir:
         from scieasy.blocks.base.state import BlockState
 
         block = AppBlock()
-        # Transition to READY so run() can transition to RUNNING.
+        # Simulate scheduler: IDLE -> READY -> RUNNING before run().
         block.transition(BlockState.READY)
+        block.transition(BlockState.RUNNING)
 
         config = BlockConfig(
             params={
