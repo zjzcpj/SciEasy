@@ -38,6 +38,26 @@ class Array(DataObject):
         self.dtype = dtype
         self.chunk_shape = chunk_shape
 
+    def __array__(self, dtype: Any = None, copy: Any = None) -> Any:
+        """Support ``np.asarray(array_obj)`` via the NumPy array protocol.
+
+        Materialises the full data from storage. Requires a storage reference
+        to be set; raises ``ValueError`` for metadata-only instances.
+
+        Args:
+            dtype: Desired array data type (passed by NumPy).
+            copy: Copy semantics flag (NumPy >= 2.0 protocol).
+        """
+        import numpy as np
+
+        data = self.to_memory()
+        arr = np.asarray(data)
+        if dtype is not None:
+            arr = arr.astype(dtype)
+        if copy:
+            arr = arr.copy()
+        return arr
+
 
 class Image(Array):
     """2-D spatial image (y, x)."""
