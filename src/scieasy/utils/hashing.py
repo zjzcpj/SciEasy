@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import xxhash
+
+if TYPE_CHECKING:
+    from scieasy.core.types.collection import Collection
 
 
 def content_hash(data: Any) -> str:
@@ -50,3 +53,14 @@ def content_hash(data: Any) -> str:
         hasher.update(repr(data).encode("utf-8"))
 
     return hasher.hexdigest()
+
+
+def collection_hashes(collection: Collection) -> list[str]:
+    """Compute per-item content hashes for a Collection.
+
+    Returns a list of content hashes, one per item in the Collection,
+    preserving the Collection's item order.
+
+    Issue #55: Enables item-level lineage tracking for Collection ports.
+    """
+    return [content_hash(item) for item in collection]

@@ -11,8 +11,9 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from scieasy.blocks.registry import BlockRegistry
 from scieasy.engine.dag import build_dag, topological_sort
 from scieasy.engine.events import (
     BLOCK_CANCELLED,
@@ -29,6 +30,9 @@ from scieasy.engine.events import (
 )
 from scieasy.engine.resources import ResourceRequest
 from scieasy.workflow.definition import WorkflowDefinition
+
+if TYPE_CHECKING:
+    from scieasy.blocks.registry import BlockRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +73,11 @@ class DAGScheduler:
         ProcessRegistry for active subprocess tracking.
     runner:
         BlockRunner implementation (e.g. LocalRunner) for executing blocks.
+    registry:
+        Optional BlockRegistry for resolving NodeDef.block_type to Block
+        instances.  When provided, _dispatch instantiates a real Block
+        before passing it to the runner.  When None (default), the raw
+        NodeDef is forwarded.
     """
 
     def __init__(
@@ -78,12 +87,14 @@ class DAGScheduler:
         resource_manager: Any,
         process_registry: Any,
         runner: Any,
+        registry: BlockRegistry | None = None,
     ) -> None:
         self._workflow = workflow
         self._event_bus = event_bus
         self._resource_manager = resource_manager
         self._process_registry = process_registry
         self._runner = runner
+        self._registry = registry
 
         self._dag = build_dag(workflow)
         self._order = topological_sort(self._dag)
@@ -147,10 +158,17 @@ class DAGScheduler:
 
         # Gather inputs from upstream outputs using edge_map
         inputs = self._gather_inputs(node_id)
-        config = self._dag.nodes[node_id].config
+        node = self._dag.nodes[node_id]
+        config = node.config
 
         try:
-            result = await self._runner.run(self._dag.nodes[node_id], inputs, config)
+            # Resolve NodeDef.block_type -> Block instance via registry (#119).
+            block = (
+                self._registry.instantiate(node.block_type, config)
+                if self._registry is not None
+                else node  # backward compat for tests with mock runners
+            )
+            result = await self._runner.run(block, inputs, config)
             self._block_outputs[node_id] = result
             self._block_states[node_id] = "done"
             await self._event_bus.emit(
@@ -365,13 +383,13 @@ class DAGScheduler:
             return
         from datetime import datetime
 
-        from scieasy.engine.checkpoint import WorkflowCheckpoint
+        from scieasy.engine.checkpoint import WorkflowCheckpoint, serialize_intermediate_refs
 
         checkpoint = WorkflowCheckpoint(
             workflow_id=self._workflow.id if hasattr(self._workflow, "id") else "unknown",
             timestamp=datetime.now(),
             block_states=dict(self._block_states),
-            intermediate_refs={k: str(v) for k, v in self._block_outputs.items()},
+            intermediate_refs=serialize_intermediate_refs(self._block_outputs),
             skip_reasons=dict(self.skip_reasons),
         )
         checkpoint_manager.save(checkpoint)

@@ -1,4 +1,7 @@
-"""Extended tests for LineageStore and ProvenanceGraph edge cases."""
+"""Extended tests for LineageStore and ProvenanceGraph edge cases.
+
+Issue #55: Updated to use per-port dict format for input_hashes/output_hashes.
+"""
 
 from __future__ import annotations
 
@@ -27,8 +30,8 @@ class TestLineageStoreClose:
             block_id="b1",
             block_version="1.0",
             block_config={},
-            input_hashes=["h1"],
-            output_hashes=["h2"],
+            input_hashes={"p": ["h1"]},
+            output_hashes={"p": ["h2"]},
             timestamp="2026-01-01T00:00:00",
             duration_ms=100,
         )
@@ -50,8 +53,8 @@ class TestLineageStoreClose:
             block_id="b1",
             block_version="1.0",
             block_config={"param": "value"},
-            input_hashes=["in1"],
-            output_hashes=["out1"],
+            input_hashes={"data": ["in1"]},
+            output_hashes={"data": ["out1"]},
             timestamp="2026-01-01T00:00:00",
             duration_ms=50,
             termination="cancelled",
@@ -90,8 +93,8 @@ class TestProvenanceGraphEdgeCases:
             block_id="b1",
             block_version="1.0",
             block_config={},
-            input_hashes=["in1"],
-            output_hashes=["out1"],
+            input_hashes={"p": ["in1"]},
+            output_hashes={"p": ["out1"]},
             timestamp="2026-01-01T00:00:00",
             duration_ms=10,
         )
