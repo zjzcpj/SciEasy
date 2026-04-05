@@ -139,6 +139,25 @@ def test_block_categories_have_name_attribute(cls: type) -> None:
     BLOCK_CATEGORIES,
     ids=[c.__name__ for c in BLOCK_CATEGORIES],
 )
+def test_run_signature_uses_collection(cls: type) -> None:
+    """ADR-020: ``run()`` annotations must reference Collection, not Any."""
+    sig = inspect.signature(cls.run)
+    inputs_annotation = sig.parameters["inputs"].annotation
+    return_annotation = sig.return_annotation
+
+    assert "Collection" in str(inputs_annotation), (
+        f"{cls.__name__}.run(inputs=) annotation is {inputs_annotation!r}, expected dict[str, Collection]"
+    )
+    assert "Collection" in str(return_annotation), (
+        f"{cls.__name__}.run() return annotation is {return_annotation!r}, expected dict[str, Collection]"
+    )
+
+
+@pytest.mark.parametrize(
+    "cls",
+    BLOCK_CATEGORIES,
+    ids=[c.__name__ for c in BLOCK_CATEGORIES],
+)
 def test_block_categories_have_version_attribute(cls: type) -> None:
     """Every block category has a ``version`` class attribute (string)."""
     assert hasattr(cls, "version"), f"{cls.__name__} is missing 'version' class attribute"

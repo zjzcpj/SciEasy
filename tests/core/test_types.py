@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import numpy as np
 import pytest
 
 from scieasy.core.types.array import Array, FluorImage, Image, MSImage, SRSImage
@@ -307,3 +310,49 @@ class TestTypeSignatureSlotSchema:
             slot_schema={"X": "Array"},
         )
         assert not sig_a.matches(sig_b)
+
+
+# ---------------------------------------------------------------------------
+# Array.__array__() protocol
+# ---------------------------------------------------------------------------
+
+
+class TestArrayProtocol:
+    """Verify Array.__array__() supports np.asarray()."""
+
+    def test_array_protocol_with_storage(self, tmp_path: Path) -> None:
+        """Array.__array__() materialises data via storage reference."""
+        from scieasy.core.storage.ref import StorageReference
+        from scieasy.core.storage.zarr_backend import ZarrBackend
+
+        backend = ZarrBackend()
+        data = np.array([[1, 2], [3, 4]], dtype=np.float32)
+        ref = StorageReference(backend="zarr", path=str(tmp_path / "test.zarr"))
+        backend.write(data, ref)
+
+        arr = Array(shape=(2, 2), dtype="float32", storage_ref=ref)
+
+        result = np.asarray(arr)
+        np.testing.assert_array_equal(result, data)
+
+    def test_array_protocol_dtype_conversion(self, tmp_path: Path) -> None:
+        """Array.__array__() respects dtype parameter."""
+        from scieasy.core.storage.ref import StorageReference
+        from scieasy.core.storage.zarr_backend import ZarrBackend
+
+        backend = ZarrBackend()
+        data = np.array([[1, 2], [3, 4]], dtype=np.float32)
+        ref = StorageReference(backend="zarr", path=str(tmp_path / "test.zarr"))
+        backend.write(data, ref)
+
+        arr = Array(shape=(2, 2), dtype="float32", storage_ref=ref)
+
+        result = np.asarray(arr, dtype=np.float64)
+        assert result.dtype == np.float64
+        np.testing.assert_array_equal(result, data.astype(np.float64))
+
+    def test_array_protocol_without_storage_raises(self) -> None:
+        """Array.__array__() raises when no storage reference is set."""
+        arr = Array(shape=(2, 2), dtype="float32")
+        with pytest.raises(ValueError, match="storage reference"):
+            np.asarray(arr)

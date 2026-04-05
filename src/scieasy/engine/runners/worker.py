@@ -140,6 +140,16 @@ def main() -> None:
         config: dict[str, Any] = payload.get("config", {})
         output_dir: str = payload.get("output_dir", "")
 
+        # Set up flush context for auto-flush persistence (#127, #67)
+        if output_dir:
+            from pathlib import Path
+
+            Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+            from scieasy.core.storage.flush_context import set_output_dir
+
+            set_output_dir(output_dir)
+
         # Import block class
         module_path, class_name = block_class_path.rsplit(".", 1)
         module = importlib.import_module(module_path)
@@ -159,10 +169,15 @@ def main() -> None:
         # Execute
         outputs = block.run(inputs, block_config)
 
+        # Capture environment inside subprocess for accurate lineage (issue #54).
+        from scieasy.core.lineage.environment import EnvironmentSnapshot
+
+        env_snapshot = EnvironmentSnapshot.capture()
+
         # Serialize outputs
         result = serialise_outputs(outputs, output_dir) if isinstance(outputs, dict) else {"_result": str(outputs)}
 
-        print(json.dumps({"outputs": result}))
+        print(json.dumps({"outputs": result, "environment": env_snapshot.to_dict()}))
     except Exception:
         print(json.dumps({"error": traceback.format_exc()}))
         sys.exit(1)
