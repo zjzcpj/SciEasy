@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from scieasy.blocks.base.state import BlockState
 from scieasy.engine.events import (
     BLOCK_DONE,
@@ -394,6 +396,127 @@ class TestSchedulerState:
         wf = _wf(nodes=[("A", "proc")])
         scheduler, _, _ = _make_scheduler(wf)
         scheduler.save_checkpoint()
+
+
+# ---------------------------------------------------------------------------
+# Selective re-run (reset_block)
+# ---------------------------------------------------------------------------
+
+
+class TestResetBlock:
+    """Tests for DAGScheduler.reset_block() selective re-run logic."""
+
+    def test_reset_unknown_block_raises(self) -> None:
+        """ValueError raised for unknown block_id."""
+        wf = _wf(nodes=[("A", "proc")])
+        scheduler, _, _ = _make_scheduler(wf)
+
+        with pytest.raises(ValueError, match="Unknown block"):
+            asyncio.run(scheduler.reset_block("NONEXISTENT"))
+
+    def test_reset_error_block_to_idle(self) -> None:
+        """Reset an ERROR block sets it to idle."""
+        wf = _wf(
+            nodes=[("A", "proc"), ("B", "proc")],
+            edges=[("A:out", "B:in")],
+        )
+        scheduler, _, _runner = _make_scheduler(wf)
+        scheduler._dispatch = AsyncMock()
+
+        scheduler._block_states["A"] = "done"
+        scheduler._block_outputs["A"] = {"out": "data"}
+        scheduler._block_states["B"] = "error"
+        scheduler._block_outputs["B"] = {"out": "stale"}
+
+        asyncio.run(scheduler.reset_block("B"))
+
+        assert scheduler._block_states["B"] == BlockState.READY
+        assert "B" not in scheduler._block_outputs
+        scheduler._dispatch.assert_called()
+
+    def test_reset_cascades_to_skipped_downstream(self) -> None:
+        """Reset block also resets SKIPPED downstream blocks."""
+        wf = _wf(
+            nodes=[("A", "proc"), ("B", "proc"), ("C", "proc"), ("D", "proc")],
+            edges=[("A:out", "B:in"), ("B:out", "C:in"), ("C:out", "D:in")],
+        )
+        scheduler, _, _ = _make_scheduler(wf)
+        scheduler._dispatch = AsyncMock()
+
+        scheduler._block_states["A"] = "done"
+        scheduler._block_outputs["A"] = {"out": "data"}
+        scheduler._block_states["B"] = "error"
+        scheduler._block_states["C"] = "skipped"
+        scheduler.skip_reasons["C"] = "upstream B error"
+        scheduler._block_states["D"] = "skipped"
+        scheduler.skip_reasons["D"] = "upstream B error"
+
+        asyncio.run(scheduler.reset_block("B"))
+
+        assert scheduler._block_states["B"] == BlockState.READY
+        assert scheduler._block_states["C"] == BlockState.IDLE
+        assert scheduler._block_states["D"] == BlockState.IDLE
+        assert "C" not in scheduler.skip_reasons
+        assert "D" not in scheduler.skip_reasons
+
+    def test_reset_with_failed_upstream(self) -> None:
+        """Reset walks upstream and resets non-DONE predecessors."""
+        wf = _wf(
+            nodes=[("A", "proc"), ("B", "proc")],
+            edges=[("A:out", "B:in")],
+        )
+        scheduler, _, _ = _make_scheduler(wf)
+        scheduler._dispatch = AsyncMock()
+
+        scheduler._block_states["A"] = "error"
+        scheduler._block_states["B"] = "skipped"
+        scheduler.skip_reasons["B"] = "upstream A error"
+
+        asyncio.run(scheduler.reset_block("B"))
+
+        assert scheduler._block_states["A"] == BlockState.READY
+        assert scheduler._block_states["B"] == BlockState.IDLE
+
+    def test_reset_preserves_done_blocks(self) -> None:
+        """Done blocks are NOT reset."""
+        wf = _wf(
+            nodes=[("A", "proc"), ("B", "proc"), ("C", "proc")],
+            edges=[("A:out", "B:in"), ("B:out", "C:in")],
+        )
+        scheduler, _, _ = _make_scheduler(wf)
+        scheduler._dispatch = AsyncMock()
+
+        scheduler._block_states["A"] = "done"
+        scheduler._block_outputs["A"] = {"out": "data"}
+        scheduler._block_states["B"] = "error"
+        scheduler._block_outputs["B"] = {"out": "stale"}
+        scheduler._block_states["C"] = "skipped"
+        scheduler.skip_reasons["C"] = "upstream B error"
+
+        asyncio.run(scheduler.reset_block("B"))
+
+        assert scheduler._block_states["A"] == BlockState.DONE
+        assert scheduler._block_outputs["A"] == {"out": "data"}
+        assert scheduler._block_states["B"] == BlockState.READY
+        assert "B" not in scheduler._block_outputs
+        assert scheduler._block_states["C"] == BlockState.IDLE
+        assert "C" not in scheduler.skip_reasons
+
+    def test_reset_block_triggers_real_reexecution(self) -> None:
+        """reset_block on an errored block causes it to actually run again."""
+        wf = _wf(nodes=[("A", "proc")])
+        scheduler, _event_bus, runner = _make_scheduler(wf)
+
+        asyncio.run(scheduler.execute())
+        assert runner.run.call_count == 1
+        assert scheduler._block_states["A"] == BlockState.DONE
+
+        scheduler._block_states["A"] = "error"
+        scheduler._block_outputs.pop("A", None)
+
+        asyncio.run(scheduler.reset_block("A"))
+        assert runner.run.call_count == 2
+        assert scheduler._block_states["A"] == BlockState.DONE
 
 
 # ---------------------------------------------------------------------------

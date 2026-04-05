@@ -46,22 +46,15 @@ class FilterCollection(ProcessBlock):
             TypeError: If input is not a Collection.
             ValueError: If predicate_key is not specified.
         """
-        from scieasy.blocks.base.state import BlockState
         from scieasy.core.types.collection import Collection
 
-        self.transition(BlockState.RUNNING)
-        try:
-            collection = inputs["input"]
-            if not isinstance(collection, Collection):
-                raise TypeError("FilterCollection requires a Collection input")
-            predicate_key = config.params.get("predicate_key")
-            if predicate_key is None:
-                raise ValueError("FilterCollection requires 'predicate_key' in config.params")
-            predicate_value = config.params.get("predicate_value")
-            filtered = [item for item in collection if item.metadata.get(predicate_key) == predicate_value]
-            result = Collection(filtered, item_type=collection.item_type)
-            self.transition(BlockState.DONE)
-            return {"output": result}
-        except Exception:
-            self.transition(BlockState.ERROR)
-            raise
+        collection = inputs["input"]
+        if not isinstance(collection, Collection):
+            raise TypeError("FilterCollection requires a Collection input")
+        predicate_key = config.params.get("predicate_key")
+        if predicate_key is None:
+            raise ValueError("FilterCollection requires 'predicate_key' in config.params")
+        predicate_value = config.params.get("predicate_value")
+        filtered = [item for item in collection if item.metadata.get(predicate_key) == predicate_value]
+        result = Collection(filtered, item_type=collection.item_type)
+        return {"output": result}

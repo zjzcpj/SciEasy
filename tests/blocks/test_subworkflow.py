@@ -6,11 +6,11 @@ from typing import Any, ClassVar
 
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
-from scieasy.blocks.base.state import BlockState
 from scieasy.blocks.process.process_block import ProcessBlock
 from scieasy.blocks.subworkflow.subworkflow_block import SubWorkflowBlock, _sequential_execute
 from scieasy.core.types.base import DataObject
 from scieasy.core.types.collection import Collection
+from scieasy.blocks.base.state import BlockState
 
 
 class AddOneBlock(ProcessBlock):
@@ -23,10 +23,7 @@ class AddOneBlock(ProcessBlock):
     output_ports: ClassVar[list[OutputPort]] = [OutputPort(name="x", accepted_types=[])]
 
     def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
-        self.transition(BlockState.RUNNING)
-        result = {"x": inputs["x"] + 1}
-        self.transition(BlockState.DONE)
-        return result
+        return {"x": inputs["x"] + 1}
 
 
 class DoubleBlock(ProcessBlock):
@@ -39,10 +36,7 @@ class DoubleBlock(ProcessBlock):
     output_ports: ClassVar[list[OutputPort]] = [OutputPort(name="x", accepted_types=[])]
 
     def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
-        self.transition(BlockState.RUNNING)
-        result = {"x": inputs["x"] * 2}
-        self.transition(BlockState.DONE)
-        return result
+        return {"x": inputs["x"] * 2}
 
 
 class CollectionPassthroughBlock(ProcessBlock):
@@ -59,10 +53,7 @@ class CollectionPassthroughBlock(ProcessBlock):
     ]
 
     def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
-        self.transition(BlockState.RUNNING)
-        result = {"items": inputs["items"]}
-        self.transition(BlockState.DONE)
-        return result
+        return {"items": inputs["items"]}
 
 
 class TestSequentialExecute:
@@ -113,7 +104,6 @@ class TestSubWorkflowBlock:
         block = SubWorkflowBlock(config={"params": {"child_blocks": []}})
         block.transition(BlockState.READY)
         block.run({}, block.config)
-        assert block.state == BlockState.DONE
 
     def test_scheduler_factory_injection(self) -> None:
         """Verify that _scheduler_factory ClassVar can be set and triggers _run_with_scheduler."""

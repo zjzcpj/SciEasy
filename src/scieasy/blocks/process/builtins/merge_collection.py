@@ -41,23 +41,16 @@ class MergeCollection(ProcessBlock):
         Raises:
             TypeError: If inputs are not Collections or have mismatched item_type.
         """
-        from scieasy.blocks.base.state import BlockState
         from scieasy.core.types.collection import Collection
 
-        self.transition(BlockState.RUNNING)
-        try:
-            input_a = inputs["input_a"]
-            input_b = inputs["input_b"]
-            if not isinstance(input_a, Collection) or not isinstance(input_b, Collection):
-                raise TypeError("MergeCollection requires Collection inputs")
-            if input_a.item_type != input_b.item_type:
-                raise TypeError(
-                    f"Cannot merge Collections with different item types: "
-                    f"{input_a.item_type.__name__} vs {input_b.item_type.__name__}"
-                )
-            merged = Collection(list(input_a) + list(input_b), item_type=input_a.item_type)
-            self.transition(BlockState.DONE)
-            return {"output": merged}
-        except Exception:
-            self.transition(BlockState.ERROR)
-            raise
+        input_a = inputs["input_a"]
+        input_b = inputs["input_b"]
+        if not isinstance(input_a, Collection) or not isinstance(input_b, Collection):
+            raise TypeError("MergeCollection requires Collection inputs")
+        if input_a.item_type != input_b.item_type:
+            raise TypeError(
+                f"Cannot merge Collections with different item types: "
+                f"{input_a.item_type.__name__} vs {input_b.item_type.__name__}"
+            )
+        merged = Collection(list(input_a) + list(input_b), item_type=input_a.item_type)
+        return {"output": merged}

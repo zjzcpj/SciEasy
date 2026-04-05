@@ -5,11 +5,11 @@ from __future__ import annotations
 import pyarrow as pa
 import pytest
 
-from scieasy.blocks.base.state import BlockState
 from scieasy.blocks.process.builtins.merge import MergeBlock
 from scieasy.blocks.process.builtins.split import SplitBlock
 from scieasy.core.types.collection import Collection
 from scieasy.core.types.dataframe import DataFrame
+from scieasy.blocks.base.state import BlockState
 
 
 def _make_df(data: dict) -> DataFrame:
@@ -37,7 +37,6 @@ class TestMergeBlock:
         assert isinstance(merged, DataFrame)
         assert merged.row_count == 4
         assert merged.columns == ["a", "b"]
-        assert block.state == BlockState.DONE
 
     def test_state_transitions(self) -> None:
         left = _make_df({"x": [1]})
@@ -48,7 +47,6 @@ class TestMergeBlock:
         assert block.state == BlockState.READY
 
         block.run({"left": left, "right": right}, block.config)
-        assert block.state == BlockState.DONE
 
 
 class TestSplitBlock:

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from scieasy.blocks.base.state import BlockState
 from scieasy.blocks.process.builtins.filter_collection import FilterCollection
 from scieasy.blocks.process.builtins.merge_collection import MergeCollection
 from scieasy.blocks.process.builtins.slice_collection import SliceCollection
@@ -12,6 +11,7 @@ from scieasy.blocks.process.builtins.split_collection import SplitCollection
 from scieasy.core.types.array import Image
 from scieasy.core.types.collection import Collection
 from scieasy.core.types.dataframe import DataFrame
+from scieasy.blocks.base.state import BlockState
 
 
 def _make_images(n: int) -> list[Image]:
@@ -41,7 +41,6 @@ class TestMergeCollection:
         assert isinstance(merged, Collection)
         assert len(merged) == 5
         assert merged.item_type is Image
-        assert block.state == BlockState.DONE
 
     def test_merge_type_mismatch(self) -> None:
         col_images = Collection(_make_images(2), item_type=Image)
@@ -54,14 +53,12 @@ class TestMergeCollection:
         block.transition(BlockState.READY)
         with pytest.raises(TypeError, match="different item types"):
             block.run({"input_a": col_images, "input_b": col_df}, block.config)
-        assert block.state == BlockState.ERROR
 
     def test_merge_non_collection_raises(self) -> None:
         block = MergeCollection()
         block.transition(BlockState.READY)
         with pytest.raises(TypeError, match="requires Collection inputs"):
             block.run({"input_a": "not_a_collection", "input_b": "neither"}, block.config)
-        assert block.state == BlockState.ERROR
 
 
 # ---------------------------------------------------------------------------
@@ -84,7 +81,6 @@ class TestSplitCollection:
         assert len(result["output_b"]) == 2
         assert result["output_a"].item_type is Image
         assert result["output_b"].item_type is Image
-        assert block.state == BlockState.DONE
 
     def test_split_default_midpoint(self) -> None:
         images = _make_images(6)
@@ -102,7 +98,6 @@ class TestSplitCollection:
         block.transition(BlockState.READY)
         with pytest.raises(TypeError, match="requires a Collection input"):
             block.run({"input": "not_a_collection"}, block.config)
-        assert block.state == BlockState.ERROR
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +121,6 @@ class TestFilterCollection:
         assert len(filtered) == 1
         assert filtered[0].metadata["index"] == 2
         assert filtered.item_type is Image
-        assert block.state == BlockState.DONE
 
     def test_filter_empty_result(self) -> None:
         images = _make_images(3)
@@ -148,14 +142,12 @@ class TestFilterCollection:
         block.transition(BlockState.READY)
         with pytest.raises(ValueError, match="predicate_key"):
             block.run({"input": col}, block.config)
-        assert block.state == BlockState.ERROR
 
     def test_filter_non_collection_raises(self) -> None:
         block = FilterCollection(config={"params": {"predicate_key": "k", "predicate_value": "v"}})
         block.transition(BlockState.READY)
         with pytest.raises(TypeError, match="requires a Collection input"):
             block.run({"input": "not_a_collection"}, block.config)
-        assert block.state == BlockState.ERROR
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +172,6 @@ class TestSliceCollection:
         assert sliced[0].metadata["index"] == 1
         assert sliced[1].metadata["index"] == 2
         assert sliced.item_type is Image
-        assert block.state == BlockState.DONE
 
     def test_slice_default_full_range(self) -> None:
         images = _make_images(3)
@@ -197,4 +188,3 @@ class TestSliceCollection:
         block.transition(BlockState.READY)
         with pytest.raises(TypeError, match="requires a Collection input"):
             block.run({"input": "not_a_collection"}, block.config)
-        assert block.state == BlockState.ERROR
