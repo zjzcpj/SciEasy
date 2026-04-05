@@ -24,7 +24,13 @@ class ResourceRequest:
     requires_gpu: bool = False
     gpu_memory_gb: float = 0.0
     cpu_cores: int = 1
+    max_internal_workers: int = 1
     # ADR-022: estimated_memory_gb REMOVED
+
+    @property
+    def effective_cpu(self) -> int:
+        """Total CPU footprint: declared cores times internal parallelism."""
+        return self.cpu_cores * self.max_internal_workers
 
 
 @dataclass
@@ -103,7 +109,7 @@ class ResourceManager:
         if request.requires_gpu and self._gpu_in_use >= self.gpu_slots:
             return False
         # CPU check
-        if self._cpu_in_use + request.cpu_cores > self.max_cpu_workers:
+        if self._cpu_in_use + request.effective_cpu > self.max_cpu_workers:
             return False
         # Memory check via psutil (ADR-022)
         mem_percent = psutil.virtual_memory().percent / 100.0
@@ -124,7 +130,7 @@ class ResourceManager:
             return False
         if request.requires_gpu:
             self._gpu_in_use += 1
-        self._cpu_in_use += request.cpu_cores
+        self._cpu_in_use += request.effective_cpu
         if block_id:
             self._allocations[block_id] = request
         return True
@@ -136,7 +142,7 @@ class ResourceManager:
         """
         if request.requires_gpu:
             self._gpu_in_use = max(0, self._gpu_in_use - 1)
-        self._cpu_in_use = max(0, self._cpu_in_use - request.cpu_cores)
+        self._cpu_in_use = max(0, self._cpu_in_use - request.effective_cpu)
         if block_id and block_id in self._allocations:
             del self._allocations[block_id]
 

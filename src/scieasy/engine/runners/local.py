@@ -65,10 +65,17 @@ class LocalRunner:
         dict[str, Any]
             Parsed JSON result from the subprocess worker.
         """
+        import time
+        from pathlib import Path
+
         from scieasy.engine.runners.process_handle import ProcessRegistry, spawn_block_process
 
         block_class_path = f"{block.__class__.__module__}.{block.__class__.__qualname__}"
         registry = self._registry if self._registry is not None else ProcessRegistry()
+
+        run_id = f"run_{time.strftime('%Y%m%d_%H%M%S')}"
+        block_name = block_class_path.rsplit(".", 1)[-1]
+        output_dir = str(Path("data") / "runs" / run_id / block_name)
 
         handle = spawn_block_process(
             block_class=block_class_path,
@@ -76,6 +83,7 @@ class LocalRunner:
             config=config,
             event_bus=self._event_bus,
             registry=registry,
+            output_dir=output_dir,
         )
 
         # Wait for subprocess to complete by reading stdout.

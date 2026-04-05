@@ -13,22 +13,25 @@ class LineageRecord:
     """Immutable record of a single block execution for provenance tracking.
 
     Attributes:
-        input_hashes: Content hashes of each input data object.
+        input_hashes: Per-port content hashes of input data objects.
+            Keys are port names; values are lists of content hashes
+            (one per item for Collections, one-element list for scalars).
         block_id: Unique identifier of the block that executed.
         block_config: Frozen snapshot of the block's configuration/parameters.
         block_version: Semantic version of the block implementation.
-        output_hashes: Content hashes of each output data object.
+        output_hashes: Per-port content hashes of output data objects.
+            Keys are port names; values are lists of content hashes.
         timestamp: ISO-8601 timestamp of execution start.
         duration_ms: Wall-clock duration in milliseconds.
         environment: Optional snapshot of the runtime environment.
         batch_info: Optional batch/parallel execution metadata.
     """
 
-    input_hashes: list[str]
+    input_hashes: dict[str, list[str]]
     block_id: str
     block_config: dict[str, Any]
     block_version: str
-    output_hashes: list[str]
+    output_hashes: dict[str, list[str]]
     timestamp: str
     duration_ms: int
     environment: EnvironmentSnapshot | None = None

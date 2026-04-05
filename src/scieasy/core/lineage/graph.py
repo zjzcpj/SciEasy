@@ -28,10 +28,12 @@ class ProvenanceGraph:
         self._input_to_records = {}
 
         for record in self._records:
-            for out_hash in record.output_hashes:
-                self._output_to_record[out_hash] = record
-            for in_hash in record.input_hashes:
-                self._input_to_records.setdefault(in_hash, []).append(record)
+            for port_hashes in record.output_hashes.values():
+                for out_hash in port_hashes:
+                    self._output_to_record[out_hash] = record
+            for port_hashes in record.input_hashes.values():
+                for in_hash in port_hashes:
+                    self._input_to_records.setdefault(in_hash, []).append(record)
 
     def ancestors(self, output_hash: str) -> list[LineageRecord]:
         """Return all ancestor records of *output_hash*."""
@@ -49,9 +51,10 @@ class ProvenanceGraph:
             if record is not None and id(record) not in visited_records:
                 visited_records.add(id(record))
                 result.append(record)
-                for inp in record.input_hashes:
-                    if inp not in visited:
-                        queue.append(inp)
+                for port_hashes in record.input_hashes.values():
+                    for inp in port_hashes:
+                        if inp not in visited:
+                            queue.append(inp)
 
         return result
 
@@ -72,9 +75,10 @@ class ProvenanceGraph:
                 if id(record) not in visited_records:
                     visited_records.add(id(record))
                     result.append(record)
-                for out_hash in record.output_hashes:
-                    if out_hash not in visited:
-                        queue.append(out_hash)
+                for port_hashes in record.output_hashes.values():
+                    for out_hash in port_hashes:
+                        if out_hash not in visited:
+                            queue.append(out_hash)
 
         return result
 

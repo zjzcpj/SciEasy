@@ -3,6 +3,8 @@
 > Maps 1:1 to the Architecture Document (ARCHITECTURE.md).
 > Each file is annotated with its responsibility.
 
+> **Note:** This tree shows the **target architecture**. Sections marked *"planned"* contain files that do not yet exist in the repository.
+
 ```
 scieasy/                               # ← repo root
 │
@@ -304,7 +306,7 @@ scieasy/                               # ← repo root
 │  REACT FRONTEND  (Layer 6)
 │ ══════════════════════════════════════════════════════════════════
 │
-├── frontend/                                        # ADR-023: Frontend redesign
+├── frontend/                                        # Phase 8 — planned, not yet created (ADR-023)
 │   ├── package.json
 │   ├── tsconfig.json
 │   ├── vite.config.ts

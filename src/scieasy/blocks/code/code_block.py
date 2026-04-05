@@ -96,7 +96,7 @@ class CodeBlock(Block):
 
     # -- execution (ADR-017: subprocess delegation) ----------------------------
 
-    def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+    def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, Collection]:
         """Execute user code via the appropriate language runner.
 
         ADR-017: This method runs INSIDE an isolated subprocess (spawned
