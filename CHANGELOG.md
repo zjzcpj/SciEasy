@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- [#119] Inject BlockRegistry into DAGScheduler — resolve NodeDef.block_type to Block instance before dispatch (@claude, 2026-04-05, branch: fix/batch-a2/issues-119-121, session: 20260405-003357-wave-a2-inject-blockregistry-into-dagsch)
+- [#121] Pass BlockRegistry to CLI validate/run commands — enable type-compatibility and dangling-port checks (@claude, 2026-04-05, branch: fix/batch-a2/issues-119-121, session: 20260405-003357-wave-a2-inject-blockregistry-into-dagsch)
+
 ### Removed
 
 - [#59] Remove InputDelivery enum — MEMORY-only delivery via ADR-020 Collection auto-unpack (@claude, 2026-04-04, branch: fix/batch-1/issues-59-57-58-48, session: 20260404-192842-batch-1-remove-inputdelivery-postprocess)
