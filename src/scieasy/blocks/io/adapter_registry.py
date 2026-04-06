@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 import importlib.metadata
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+# Extensions owned by the core package.  External adapters registered via
+# entry-points are **not** allowed to override these -- see ADR-025 Section 6.
+BUILTIN_EXTENSIONS: frozenset[str] = frozenset({".csv", ".parquet", ".tiff", ".tif", ".zarr", ".json", ".npy", ".npz"})
 
 
 class AdapterRegistry:
@@ -47,10 +54,17 @@ class AdapterRegistry:
         self.register(GenericAdapter)
 
     def scan_entry_points(self) -> None:
-        """Discover adapters from scieasy.adapters entry-points."""
+        """Discover adapters from ``scieasy.adapters`` entry-points.
+
+        External adapters whose extensions collide with
+        :data:`BUILTIN_EXTENSIONS` are **skipped** with a warning so that
+        core format handling cannot be silently overridden by third-party
+        packages.
+        """
         try:
             eps = importlib.metadata.entry_points()
         except Exception:
+            logger.warning("Failed to read entry-points", exc_info=True)
             return
 
         adapter_eps: Any = (
@@ -60,9 +74,36 @@ class AdapterRegistry:
         for ep in adapter_eps:
             try:
                 cls = ep.load()
-                self.register(cls)
             except Exception:
+                logger.warning(
+                    "Failed to load adapter entry-point '%s'",
+                    ep.name,
+                    exc_info=True,
+                )
                 continue
+
+            self._register_external(cls, ep.name)
+
+    def _register_external(self, adapter_class: type, ep_name: str) -> None:
+        """Register an external adapter, skipping built-in extensions."""
+        instance = adapter_class()
+        extensions = instance.supported_extensions()
+
+        for ext in extensions:
+            key = self._normalise(ext)
+            if key in BUILTIN_EXTENSIONS:
+                logger.warning(
+                    "External adapter '%s' tried to override built-in extension '%s' -- skipped",
+                    ep_name,
+                    key,
+                )
+                continue
+            self._adapters[key] = adapter_class
+            logger.info(
+                "Registered external adapter '%s' for '%s'",
+                ep_name,
+                key,
+            )
 
     @staticmethod
     def _normalise(ext: str) -> str:
