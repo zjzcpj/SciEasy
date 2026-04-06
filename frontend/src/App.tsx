@@ -457,8 +457,8 @@ export default function App() {
               className="min-h-0 flex-1"
               onLayoutChanged={(layout) => {
                 const sizes = Object.values(layout);
-                if (sizes[0] != null) setPanelSize("palette", sizes[0]);
-                if (sizes[2] != null) setPanelSize("preview", sizes[2]);
+                if (sizes[0] != null && sizes[0] >= 4) setPanelSize("palette", sizes[0]);
+                if (sizes[2] != null && sizes[2] >= 4) setPanelSize("preview", sizes[2]);
               }}
             >
               {/* Block Palette — full height left column */}
@@ -481,7 +481,7 @@ export default function App() {
                   className="min-h-0 flex-1"
                   onLayoutChanged={(layout) => {
                     const sizes = Object.values(layout);
-                    if (sizes[1] != null) setPanelSize("bottom", sizes[1]);
+                    if (sizes[1] != null && sizes[1] >= 10) setPanelSize("bottom", sizes[1]);
                   }}
                 >
                   <ResizablePanel defaultSize={70} minSize={20}>
