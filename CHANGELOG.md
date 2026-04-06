@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- [#237] Fix canvas annotation code review issues — MiniMap crash guard, DAG edge KeyError guard, random position offset (@claude, 2026-04-06, branch: fix/issue-237/code-review-fixes)
+
 ### Added
 
 - [#230] Type Generator + Validator Stages 4-5 — generate_type() with LLM-driven code generation, family inference, retry loop; dry_run_generated_code() stage 4, validate_port_contracts() stage 5, validate_generated_type() pipeline; 45 new tests (@claude, 2026-04-05, branch: feat/issue-230/type-generator-validator, session: 20260405-232504-phase-9-1c-type-generator-validator-stag)

@@ -75,6 +75,10 @@ def build_dag(workflow: WorkflowDefinition) -> DAG:
         src_node = edge.source.split(":")[0]
         tgt_node = edge.target.split(":")[0]
 
+        # Skip edges that reference filtered-out nodes (e.g., _annotation, _group)
+        if src_node not in dag.nodes or tgt_node not in dag.nodes:
+            continue
+
         if tgt_node not in dag.adjacency[src_node]:
             dag.adjacency[src_node].append(tgt_node)
         if src_node not in dag.reverse_adjacency[tgt_node]:
