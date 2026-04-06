@@ -1,7 +1,8 @@
 """Tests for AI API endpoints.
 
-The generate-block endpoint is now wired to the block generator pipeline.
-Other endpoints (suggest-workflow, optimize-params) remain Phase 9 placeholders.
+The generate-block and optimize-params endpoints are now wired up.
+suggest-workflow remains a Phase 9 placeholder until PR #245 lands.
+Detailed coverage for optimize-params lives in ``test_ai_optimize.py``.
 """
 
 from __future__ import annotations
