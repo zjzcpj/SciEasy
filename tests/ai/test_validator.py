@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from scieasy.ai.generation.validator import (
     dry_run_generated_code,
     validate_generated_type,
@@ -60,6 +62,97 @@ class TestDryRunGeneratedCode:
         assert isinstance(result["passed"], bool)
         assert isinstance(result["errors"], list)
         assert isinstance(result["warnings"], list)
+
+
+# ---------------------------------------------------------------------------
+# Sandbox security tests (issue #247)
+# ---------------------------------------------------------------------------
+
+
+class TestDryRunSecurity:
+    """Tests for sandbox security in dry_run_generated_code."""
+
+    def test_import_blocked(self) -> None:
+        """exec() cannot use __import__ to load dangerous modules."""
+        code = "import os\nresult = os.getcwd()"
+        result = dry_run_generated_code(code)
+        assert result["passed"] is False
+        # Should fail because os is not in safe import whitelist.
+
+    def test_open_blocked(self) -> None:
+        """exec() cannot use open() for file access."""
+        code = "f = open('test.txt', 'w')"
+        result = dry_run_generated_code(code)
+        assert result["passed"] is False
+
+    def test_eval_blocked(self) -> None:
+        """exec() cannot use eval() for code execution."""
+        code = "result = eval('1 + 1')"
+        result = dry_run_generated_code(code)
+        assert result["passed"] is False
+
+    def test_exec_blocked(self) -> None:
+        """exec() cannot use nested exec()."""
+        code = "exec('x = 1')"
+        result = dry_run_generated_code(code)
+        assert result["passed"] is False
+
+    def test_dunder_import_blocked(self) -> None:
+        """Direct __import__('os') call is blocked."""
+        code = "os = __import__('os')"
+        result = dry_run_generated_code(code)
+        assert result["passed"] is False
+
+    def test_compile_blocked(self) -> None:
+        """compile() is not available in sandbox."""
+        code = "c = compile('1+1', '<string>', 'eval')"
+        result = dry_run_generated_code(code)
+        assert result["passed"] is False
+
+    def test_globals_blocked(self) -> None:
+        """globals() is not available in sandbox."""
+        code = "g = globals()\nclass Foo:\n    pass\n"
+        result = dry_run_generated_code(code)
+        assert result["passed"] is False
+
+    def test_safe_import_typing_allowed(self) -> None:
+        """Importing typing (whitelisted module) is allowed."""
+        code = "from typing import ClassVar\nclass MyType:\n    name: ClassVar[str] = 'test'\n"
+        result = dry_run_generated_code(code)
+        assert result["passed"] is True
+
+    def test_safe_import_math_allowed(self) -> None:
+        """Importing math (whitelisted module) is allowed."""
+        code = "import math\nclass MyType:\n    PI = math.pi\n"
+        result = dry_run_generated_code(code)
+        assert result["passed"] is True
+
+    def test_timeout_on_long_running_code(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Long-running code is caught by timeout.
+
+        Uses a reduced timeout (1s) and a Python-level ``while`` loop
+        that releases the GIL between bytecodes so the daemon thread
+        can be cleaned up and the test process exits cleanly.
+        """
+        import scieasy.ai.generation.validator as _val
+
+        monkeypatch.setattr(_val, "_DRY_RUN_TIMEOUT_SECONDS", 1.0)
+        code = "i = 0\nwhile i < 10**15:\n    i += 1\n"
+        result = dry_run_generated_code(code)
+        assert result["passed"] is False
+        assert "timeout" in result["errors"][0].lower()
+
+    def test_valid_class_still_works(self) -> None:
+        """Normal class definitions work in sandbox."""
+        code = 'class MyType:\n    """A simple type."""\n    def __init__(self):\n        self.value = 42\n'
+        result = dry_run_generated_code(code)
+        assert result["passed"] is True
+
+    def test_class_with_inheritance_works(self) -> None:
+        """Class inheritance works in sandbox."""
+        code = "class Base:\n    pass\n\nclass Child(Base):\n    def __init__(self):\n        super().__init__()\n"
+        result = dry_run_generated_code(code)
+        assert result["passed"] is True
 
 
 # ---------------------------------------------------------------------------

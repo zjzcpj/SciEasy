@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#247] Sandbox `dry_run_generated_code()` — restricted `__builtins__` to a safe whitelist (no `open`, `exec`, `eval`, `compile`, `globals`, etc.), restricted `__import__` to a module whitelist (typing, abc, dataclasses, enum, collections, functools, math), thread-based timeout (5s) for runaway code (@claude, 2026-04-06, branch: fix/issue-247/exec-sandbox)
 - [#237] Fix canvas annotation code review issues — MiniMap crash guard, DAG edge KeyError guard, random position offset (@claude, 2026-04-06, branch: fix/issue-237/code-review-fixes)
 
 ### Added
