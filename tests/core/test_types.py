@@ -255,6 +255,223 @@ class TestTypeRegistry:
 
 
 # ---------------------------------------------------------------------------
+# TypeRegistry entry-point scanning (ADR-025 Phase 2.3)
+# ---------------------------------------------------------------------------
+
+
+class TestTypeRegistryEntryPoints:
+    """Verify _scan_entrypoint_types discovers and registers external types."""
+
+    def test_scan_registers_valid_subclass(self) -> None:
+        """A well-formed entry-point returning [CustomType] registers the type."""
+        from unittest.mock import MagicMock, patch
+
+        class CustomImage(Image):
+            """A custom image type from an external package."""
+
+        mock_ep = MagicMock()
+        mock_ep.name = "my_plugin"
+        mock_ep.load.return_value = lambda: [CustomImage]
+
+        registry = TypeRegistry()
+        with patch("importlib.metadata.entry_points", return_value=[mock_ep]):
+            registry._scan_entrypoint_types()
+
+        assert "CustomImage" in registry.all_types()
+        spec = registry.resolve("CustomImage")
+        assert spec.base_type == "Image"
+
+    def test_scan_registers_multiple_types(self) -> None:
+        """A single entry-point returning multiple types registers all of them."""
+        from unittest.mock import MagicMock, patch
+
+        class TypeA(DataObject):
+            """Type A."""
+
+        class TypeB(DataObject):
+            """Type B."""
+
+        mock_ep = MagicMock()
+        mock_ep.name = "multi"
+        mock_ep.load.return_value = lambda: [TypeA, TypeB]
+
+        registry = TypeRegistry()
+        with patch("importlib.metadata.entry_points", return_value=[mock_ep]):
+            registry._scan_entrypoint_types()
+
+        assert "TypeA" in registry.all_types()
+        assert "TypeB" in registry.all_types()
+
+    def test_scan_load_failure_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """An entry-point that fails to load logs a warning and does not crash."""
+        from unittest.mock import MagicMock, patch
+
+        mock_ep = MagicMock()
+        mock_ep.name = "broken_load"
+        mock_ep.load.side_effect = ImportError("no such module")
+
+        registry = TypeRegistry()
+        with (
+            patch("importlib.metadata.entry_points", return_value=[mock_ep]),
+            caplog.at_level("WARNING", logger="scieasy.core.types.registry"),
+        ):
+            registry._scan_entrypoint_types()
+
+        assert "Failed to load entry-point 'broken_load'" in caplog.text
+        assert len(registry.all_types()) == 0
+
+    def test_scan_callable_exception_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """An entry-point whose callable raises logs a warning and does not crash."""
+        from unittest.mock import MagicMock, patch
+
+        def bad_factory() -> list[type]:
+            raise RuntimeError("boom")
+
+        mock_ep = MagicMock()
+        mock_ep.name = "broken_factory"
+        mock_ep.load.return_value = bad_factory
+
+        registry = TypeRegistry()
+        with (
+            patch("importlib.metadata.entry_points", return_value=[mock_ep]),
+            caplog.at_level("WARNING", logger="scieasy.core.types.registry"),
+        ):
+            registry._scan_entrypoint_types()
+
+        assert "Entry-point 'broken_factory' callable raised an exception" in caplog.text
+        assert len(registry.all_types()) == 0
+
+    def test_scan_non_list_return_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """An entry-point returning a non-list value logs a warning."""
+        from unittest.mock import MagicMock, patch
+
+        mock_ep = MagicMock()
+        mock_ep.name = "bad_return"
+        mock_ep.load.return_value = lambda: "not a list"
+
+        registry = TypeRegistry()
+        with (
+            patch("importlib.metadata.entry_points", return_value=[mock_ep]),
+            caplog.at_level("WARNING", logger="scieasy.core.types.registry"),
+        ):
+            registry._scan_entrypoint_types()
+
+        assert "returned str instead of a list" in caplog.text
+        assert len(registry.all_types()) == 0
+
+    def test_scan_non_dataobject_subclass_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """An entry-point returning a class not subclassing DataObject logs a warning."""
+        from unittest.mock import MagicMock, patch
+
+        class NotADataObject:
+            """Just a regular class."""
+
+        mock_ep = MagicMock()
+        mock_ep.name = "bad_class"
+        mock_ep.load.return_value = lambda: [NotADataObject]
+
+        registry = TypeRegistry()
+        with (
+            patch("importlib.metadata.entry_points", return_value=[mock_ep]),
+            caplog.at_level("WARNING", logger="scieasy.core.types.registry"),
+        ):
+            registry._scan_entrypoint_types()
+
+        assert "not a DataObject subclass" in caplog.text
+        assert len(registry.all_types()) == 0
+
+    def test_scan_non_class_item_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """An entry-point returning a non-class item (e.g. a string) logs a warning."""
+        from unittest.mock import MagicMock, patch
+
+        mock_ep = MagicMock()
+        mock_ep.name = "bad_item"
+        mock_ep.load.return_value = lambda: ["not_a_class"]
+
+        registry = TypeRegistry()
+        with (
+            patch("importlib.metadata.entry_points", return_value=[mock_ep]),
+            caplog.at_level("WARNING", logger="scieasy.core.types.registry"),
+        ):
+            registry._scan_entrypoint_types()
+
+        assert "not a DataObject subclass" in caplog.text
+        assert len(registry.all_types()) == 0
+
+    def test_scan_all_includes_builtins_and_entrypoints(self) -> None:
+        """scan_all() registers both builtins and entry-point types."""
+        from unittest.mock import MagicMock, patch
+
+        class ExternalType(DataObject):
+            """An external type."""
+
+        mock_ep = MagicMock()
+        mock_ep.name = "ext"
+        mock_ep.load.return_value = lambda: [ExternalType]
+
+        registry = TypeRegistry()
+        with patch("importlib.metadata.entry_points", return_value=[mock_ep]):
+            registry.scan_all()
+
+        all_t = registry.all_types()
+        # Builtins are present
+        assert "Image" in all_t
+        assert "DataFrame" in all_t
+        # External type is also present
+        assert "ExternalType" in all_t
+
+    def test_scan_all_works_with_no_entrypoints(self) -> None:
+        """scan_all() works fine when no entry-points exist."""
+        from unittest.mock import patch
+
+        registry = TypeRegistry()
+        with patch("importlib.metadata.entry_points", return_value=[]):
+            registry.scan_all()
+
+        all_t = registry.all_types()
+        assert "Image" in all_t
+        assert len(all_t) >= 18
+
+    def test_scan_skips_bad_entries_registers_good_ones(self) -> None:
+        """Mixed valid/invalid items: good ones register, bad ones are skipped."""
+        from unittest.mock import MagicMock, patch
+
+        class GoodType(DataObject):
+            """A valid type."""
+
+        class NotAType:
+            """Not a DataObject."""
+
+        mock_ep = MagicMock()
+        mock_ep.name = "mixed"
+        mock_ep.load.return_value = lambda: [GoodType, NotAType, "junk"]
+
+        registry = TypeRegistry()
+        with patch("importlib.metadata.entry_points", return_value=[mock_ep]):
+            registry._scan_entrypoint_types()
+
+        assert "GoodType" in registry.all_types()
+        assert len(registry.all_types()) == 1
+
+    def test_scan_tuple_return_accepted(self) -> None:
+        """Entry-point returning a tuple (instead of list) is also accepted."""
+        from unittest.mock import MagicMock, patch
+
+        class TupleType(DataObject):
+            """Returned as tuple."""
+
+        mock_ep = MagicMock()
+        mock_ep.name = "tuple_ep"
+        mock_ep.load.return_value = lambda: (TupleType,)
+
+        registry = TypeRegistry()
+        with patch("importlib.metadata.entry_points", return_value=[mock_ep]):
+            registry._scan_entrypoint_types()
+
+        assert "TupleType" in registry.all_types()
+
+
+# ---------------------------------------------------------------------------
 # TypeSignature slot_schema comparison
 # ---------------------------------------------------------------------------
 
