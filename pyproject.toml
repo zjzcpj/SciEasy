@@ -85,7 +85,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-scieasy = ["api/static/**/*"]
+scieasy = ["api/static/**/*", "cli/templates/**/*.tpl"]
 
 [tool.ruff]
 target-version = "py311"

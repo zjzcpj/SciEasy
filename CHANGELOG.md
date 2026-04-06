@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Added
 
 - [#228] LLM Provider Foundation — LLMProvider protocol, AnthropicProvider, OpenAIProvider, AIConfig, get_provider() factory, extract_code/extract_json parsers, [ai] optional deps, 64 tests (@claude, 2026-04-05, branch: feat/issue-228/llm-provider-foundation, session: 20260405-225710-phase-9-1a-llm-provider-foundation-228)
+- [#218] Block SDK end-to-end integration tests — 30 tests covering registry entry-point roundtrip, Tier 1 drop-in scanning, adapter priority enforcement, TypeRegistry entry-points, and cross-cutting integration (@claude, 2026-04-05, branch: test/issue-218/block-sdk-e2e, session: 20260405-225642-t3-5-block-sdk-integration-test-218)
+- [#217] Comprehensive block SDK developer guide covering all 5 block types, Tier 1/2 distribution, Collection transport, port system, configuration, and testing (@claude, 2026-04-05, branch: docs/issue-217/block-sdk-guide, session: 20260405-225639-t3-4-developer-documentation-for-block-s)
 - [#215] BlockTestHarness utility for external block developers — validates block contracts, PackageInfo, entry-point callables, and smoke-test execution (@claude, 2026-04-05, branch: feat/issue-215/block-test-harness, session: 20260405-224022-t3-1-blocktestharness-utility-215)
 - [#224] Write comprehensive project README.md covering architecture, features, tech stack, installation, and development setup (@claude, 2026-04-05, branch: docs/issue-224/readme-and-gitattributes, session: 20260405-223925-write-comprehensive-readme-md-and-fix-17)
 - [#172] Add .gitattributes with CHANGELOG.md merge=union to prevent merge conflicts (@claude, 2026-04-05, branch: docs/issue-224/readme-and-gitattributes, session: 20260405-223925-write-comprehensive-readme-md-and-fix-17)
@@ -44,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [#121] Pass BlockRegistry to CLI validate/run commands — enable type-compatibility and dangling-port checks (@claude, 2026-04-05, branch: fix/batch-a2/issues-119-121, session: 20260405-003357-wave-a2-inject-blockregistry-into-dagsch)
 ### Added
 
+- [#216] Block package templates and `scieasy init-block-package` CLI scaffold command (ADR-026 Phase 3.2+3.3) (@claude, 2026-04-05, branch: feat/issue-216/block-package-templates, session: 20260405-223950-t3-2-3-3-block-package-templates-cli-sca)
 - [#213] AdapterRegistry priority enforcement: external adapters cannot override built-in extensions (ADR-025 Phase 2.4) (@claude, 2026-04-05, branch: feat/issue-213/adapter-priority)
 - [#212] TypeRegistry entry-points scanning for external type plugins (ADR-025 Phase 2.3) (@claude, 2026-04-05, branch: feat/issue-212/type-registry-entrypoints, session: 20260405-221125-typeregistry-entry-points-scanning-phase)
 - [#211] PackageInfo dataclass and BlockRegistry callable entry-points protocol (ADR-025 Phase 2.1+2.2) (@claude, 2026-04-05, branch: feat/issue-211/package-info-registry)
