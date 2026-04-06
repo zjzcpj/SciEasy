@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- [#215] BlockTestHarness utility for external block developers — validates block contracts, PackageInfo, entry-point callables, and smoke-test execution (@claude, 2026-04-05, branch: feat/issue-215/block-test-harness, session: 20260405-224022-t3-1-blocktestharness-utility-215)
+
 ### Fixed
 
 - [#206] Browse button supports file multi-select for Load blocks, folder select for Save blocks (@claude, 2026-04-06, branch: fix/issue-206-207-208/io-block-ux)
