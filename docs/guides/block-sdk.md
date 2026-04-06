@@ -362,7 +362,11 @@ from typing import Any, ClassVar
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.process.process_block import ProcessBlock
-from scieasy.core.types.array import Image
+from scieasy.utils.constraints import has_axes
+
+# Plugin-provided type — not in core (ADR-027 D2).
+# Requires `pip install scieasy-blocks-imaging`.
+from scieasy_blocks_imaging.types import Image
 
 
 class GaussianBlurBlock(ProcessBlock):
@@ -371,7 +375,12 @@ class GaussianBlurBlock(ProcessBlock):
     algorithm: ClassVar[str] = "gaussian_blur"
 
     input_ports: ClassVar[list[InputPort]] = [
-        InputPort(name="images", accepted_types=[Image], description="Input images"),
+        InputPort(
+            name="images",
+            accepted_types=[Image],
+            constraint=has_axes("y", "x"),
+            description="Input images (must have spatial y, x axes)",
+        ),
     ]
     output_ports: ClassVar[list[OutputPort]] = [
         OutputPort(name="blurred", accepted_types=[Image], description="Blurred images"),
@@ -383,14 +392,19 @@ class GaussianBlurBlock(ProcessBlock):
         },
     }
 
-    def process_item(self, item: Any, config: BlockConfig) -> Any:
-        import numpy as np
+    def process_item(self, item: Image, config: BlockConfig, state=None) -> Image:
         from scipy.ndimage import gaussian_filter
+        from scieasy.utils.axis_iter import iterate_over_axes
 
         sigma = config.get("sigma", 1.0)
-        data = item.view().to_memory()
-        blurred = gaussian_filter(data, sigma=sigma)
-        return Image(data=blurred)
+
+        # iterate_over_axes handles 5D/6D inputs by looping over extra
+        # dimensions and calling the func on each (y, x) slice. Metadata
+        # and axes are preserved automatically (ADR-027 D3, D4).
+        def _blur_slice(slice_2d, coord):
+            return gaussian_filter(slice_2d, sigma=sigma)
+
+        return iterate_over_axes(item, operates_on={"y", "x"}, func=_blur_slice)
 ```
 
 **Tier 2/3 pattern** (override `run()` directly when you need cross-item logic):
@@ -547,7 +561,8 @@ It is a **homogeneous, ordered list of `DataObject` instances** with a declared
 
 ```python
 from scieasy.core.types.collection import Collection
-from scieasy.core.types.array import Image
+# Plugin-provided type (ADR-027 D2 — Image is not in core):
+from scieasy_blocks_imaging.types import Image
 
 # Create a Collection of Images
 images = Collection(items=[img1, img2, img3], item_type=Image)
@@ -573,6 +588,8 @@ count = len(images)
 ### Creating Collections
 
 ```python
+from scieasy_blocks_imaging.types import Image
+
 # From a list of DataObjects (item_type inferred from first item)
 col = Collection(items=[array1, array2])
 
@@ -594,7 +611,12 @@ Pack a list of `DataObject` instances into a Collection, auto-flushing each item
 to storage if it does not already have a `StorageReference`.
 
 ```python
-results = [Image(data=arr1), Image(data=arr2)]
+from scieasy_blocks_imaging.types import Image
+
+results = [
+    Image(axes=["y", "x"], shape=arr1.shape, dtype=arr1.dtype),
+    Image(axes=["y", "x"], shape=arr2.shape, dtype=arr2.dtype),
+]
 output_collection = self.pack(results, item_type=Image)
 ```
 
@@ -625,10 +647,16 @@ auto-flushed to storage. Returns a new Collection. Peak memory: one input item
 plus one output item per iteration step.
 
 ```python
-def blur(image):
+# Assumes `from scieasy_blocks_imaging.types import Image` at the top.
+
+def blur(image: Image) -> Image:
     from scipy.ndimage import gaussian_filter
     data = image.view().to_memory()
-    return Image(data=gaussian_filter(data, sigma=1.0))
+    result = gaussian_filter(data, sigma=1.0)
+    return Image(
+        axes=image.axes, shape=result.shape, dtype=result.dtype,
+        meta=image.meta,   # inherit domain metadata (ADR-027 D5)
+    )
 
 blurred = self.map_items(blur, inputs["images"])
 ```
@@ -653,19 +681,259 @@ a function that transforms a single item, and the framework handles iteration,
 auto-flushing, and Collection construction.
 
 ```python
-def process_item(self, item: Any, config: BlockConfig) -> Any:
+from scieasy_blocks_imaging.types import Image
+
+def process_item(self, item: Image, config: BlockConfig, state=None) -> Image:
     data = item.view().to_memory()
     result = my_transform(data)
-    return Image(data=result)
+    return Image(
+        axes=item.axes, shape=result.shape, dtype=result.dtype,
+        meta=item.meta,   # domain metadata inheritance
+    )
 ```
 
 The `ProcessBlock.run()` default implementation does the following automatically:
 
-1. Takes the first (primary) input Collection.
-2. Iterates each item.
-3. Calls `self.process_item(item, config)` for each.
-4. Auto-flushes each result to storage.
-5. Packs all results into an output Collection on the first output port.
+1. Calls `self.setup(config)` once (see next subsection).
+2. Takes the first (primary) input Collection.
+3. Iterates each item.
+4. Calls `self.process_item(item, config, state)` for each.
+5. Auto-flushes each result to storage.
+6. Packs all results into an output Collection on the first output port.
+7. Calls `self.teardown(state)` in a `finally` block.
+
+### Setup and teardown hooks (ADR-027 D7)
+
+For blocks with expensive one-time initialisation — loading an ML model, opening
+a database connection, compiling a regex cache — override `setup(config)` and
+`teardown(state)`. The returned `state` is passed to every `process_item` call
+during this `run()`, and `teardown` runs in a `finally` block so cleanup always
+happens.
+
+```python
+from scieasy.blocks.process.process_block import ProcessBlock
+from scieasy.blocks.base.ports import InputPort, OutputPort
+from scieasy.engine.resources import ResourceRequest
+from scieasy.utils.constraints import has_axes
+from scieasy_blocks_imaging.types import Image
+
+
+class CellposeSegment(ProcessBlock):
+    name = "Cellpose Segment"
+    input_ports  = [InputPort(name="images", accepted_types=[Image],
+                              constraint=has_axes("y", "x"))]
+    output_ports = [OutputPort(name="masks", accepted_types=[Image])]
+    resource_request = ResourceRequest(
+        requires_gpu=True, gpu_memory_gb=4.0, cpu_cores=2,
+    )
+
+    def setup(self, config):
+        """Load the cellpose model once per run."""
+        from cellpose import models
+        return models.Cellpose(
+            model_type=config.get("model", "cyto2"),
+            gpu=True,
+        )
+
+    def process_item(self, item: Image, config, state):
+        """Segment one image; reuse the loaded model."""
+        img_2d = item.to_memory()
+        masks, _, _, _ = state.eval(img_2d, diameter=config.get("diameter", 30))
+        return Image(
+            axes=item.axes, shape=masks.shape, dtype=masks.dtype,
+            meta=item.meta,
+        )
+
+    def teardown(self, state):
+        """Release GPU resources."""
+        import torch
+        torch.cuda.empty_cache()
+```
+
+Rules:
+
+- `setup` receives **only** `config`. It does not see the input Collection. Data-
+  driven initialisation (e.g. "pick the model based on the first image's modality")
+  belongs inside `process_item` with lazy caching on the `state` object.
+- `setup` runs **inside the worker subprocess** (ADR-017), after `TypeRegistry.scan()`
+  has loaded plugin types. It is safe to `import cellpose`, `torch`, etc.
+- `teardown` runs in a `finally` block even when `process_item` raises. Put GPU
+  cleanup, file closes, DB disconnects here.
+- Blocks that do not need expensive setup ignore the hooks entirely — the defaults
+  are no-ops. Existing 2-arg `process_item(self, item, config)` overrides continue
+  to work because the new `state` parameter defaults to `None`.
+
+### Working with `item.meta` — domain metadata (ADR-027 D5)
+
+Every `DataObject` carries stratified metadata in three slots:
+
+- `framework: FrameworkMeta` — framework-managed (created_at, object_id, source,
+  derived_from parent). Read-only from block authors.
+- `meta: BaseModel` — **typed Pydantic model** declared per subtype. This is where
+  domain metadata lives: pixel size, channel list, acquisition date, objective,
+  instrument. The exact fields depend on the subtype.
+- `user: dict[str, Any]` — free-form escape hatch. Framework never interprets
+  these fields.
+
+Reading is a simple typed attribute access:
+
+```python
+from scieasy.core.units import PhysicalQuantity as Q
+
+def process_item(self, item: FluorImage, config, state=None) -> FluorImage:
+    # Typed access — IDE autocomplete, Pydantic validation already done.
+    if item.meta.pixel_size < Q(0.2, "um"):
+        # super-resolution path
+        ...
+
+    for channel in item.meta.channels:
+        print(channel.name, channel.excitation_nm, channel.emission_nm)
+    ...
+```
+
+Writing uses the immutable `with_meta` helper. The returned object is a new
+instance; the original is unchanged:
+
+```python
+# Change pixel size after resampling.
+resampled = item.with_meta(pixel_size=Q(0.216, "um"))
+
+# Drop channels not selected by the user.
+selected_names = config.get("channels", [])
+filtered = item.with_meta(
+    channels=[c for c in item.meta.channels if c.name in selected_names],
+)
+```
+
+**Automatic inheritance**: most blocks do not need to touch `meta` at all. The
+`iterate_over_axes` utility and the default `ProcessBlock.run()` loop preserve
+`meta` across iterations by reference. If a block's output has the same metadata
+as its input, just pass `meta=item.meta` into the new instance constructor.
+
+**Backward compatibility shim**: the old `DataObject.metadata` dict is still
+accessible as a property that returns `self.user` with a `DeprecationWarning`.
+It is removed after Phase 11. Migrate to `item.meta.<field>` and `item.with_meta()`.
+
+### Parallelising over a Collection — L2 fan-out pattern (ADR-027 D9, D13)
+
+SciEasy's recommended way to parallelise a block across N workers is **not** to
+spawn threads or process pools inside the block. Instead, use the workflow graph
+to fan out the Collection across N separate block instances via the built-in
+`SplitCollection` and `MergeCollection` blocks. Each branch is a separate
+subprocess under `ProcessRegistry` supervision, acquires its own GPU slot from
+`ResourceManager`, and participates in DAG-level cancellation (ADR-018).
+
+```
+[LoadImages]
+    └─ Collection[Image] length=100
+[SplitCollection n_parts=4]
+    ├─ out_0 → [Cellpose A] ─┐
+    ├─ out_1 → [Cellpose B] ─┤
+    ├─ out_2 → [Cellpose C] ─┤
+    └─ out_3 → [Cellpose D] ─┤
+                             ↓
+                    [MergeCollection]
+```
+
+Workflow YAML:
+
+```yaml
+nodes:
+  - id: split
+    block_type: SplitCollection
+    config: {n_parts: 4}
+  - id: seg_0
+    block_type: CellposeSegment
+    config: {model: cyto2, diameter: 30}
+  - id: seg_1
+    block_type: CellposeSegment
+    config: {model: cyto2, diameter: 30}
+  - id: seg_2
+    block_type: CellposeSegment
+    config: {model: cyto2, diameter: 30}
+  - id: seg_3
+    block_type: CellposeSegment
+    config: {model: cyto2, diameter: 30}
+  - id: merge
+    block_type: MergeCollection
+    config: {}
+edges:
+  - {source: "split:output_0", target: "seg_0:images"}
+  - {source: "split:output_1", target: "seg_1:images"}
+  - {source: "split:output_2", target: "seg_2:images"}
+  - {source: "split:output_3", target: "seg_3:images"}
+  - {source: "seg_0:masks",    target: "merge:input_0"}
+  - {source: "seg_1:masks",    target: "merge:input_1"}
+  - {source: "seg_2:masks",    target: "merge:input_2"}
+  - {source: "seg_3:masks",    target: "merge:input_3"}
+```
+
+With the scheduler concurrency fix from ADR-018 Addendum 1, the four Cellpose
+branches dispatch concurrently. `ResourceManager` gates dispatch by GPU slot
+count — if the user has one GPU, branches run sequentially; if they have four
+GPUs, all four run in parallel.
+
+**Why not block-internal parallelism?** L2 fan-out scales across multiple GPUs
+and (future) multiple machines; block-internal ThreadPool does not. L2 fan-out
+respects `ResourceManager` gating; block-internal pools do not. L2 fan-out gives
+you DAG-level cancellation for free; block-internal pools require manual cleanup
+on cancel. Threads and process pools inside a block are still *allowed* as an
+escape hatch (see Thread policy below), but they are not the recommended path.
+
+**Library-native parallelism is fine**: if your library (cellpose, torch,
+tensorflow) has its own batched execution API, use it directly in `run()`. For
+example, cellpose's `model.eval([img1, img2, ...], batch_size=N)` uses GPU
+batching internally and is the best way to saturate a single GPU. Override `run()`
+in Tier 2 style and feed the whole Collection to the library's batch method.
+
+### Thread policy inside blocks (ADR-027 D8)
+
+Block authors **may** use `threading.Thread`, `concurrent.futures.ThreadPoolExecutor`,
+or any other thread-based concurrency inside their own `run()`. The core runtime
+(scheduler, ResourceManager, ProcessRegistry, event bus) does NOT use threads.
+
+**When threads work**:
+
+- The library releases the GIL: numpy, scipy, torch, cellpose, and most C-extension
+  scientific libraries. Threads give real parallelism for these workloads.
+- The work is I/O-bound: file reads, network calls, subprocess waits.
+
+**When threads do not work**:
+
+- Pure-Python CPU-bound code. The GIL serialises execution; threads add overhead
+  without speedup.
+- You need sub-second cooperative cancellation. Python threads cannot be interrupted
+  mid-function — if your thread is 30 seconds into `cellpose.eval`, nothing short
+  of killing the whole subprocess will stop it.
+
+**Cancellation guarantees**:
+
+- A block's worker subprocess is **killable as a unit**. `ProcessHandle.terminate()`
+  sends SIGTERM (with grace period) followed by SIGKILL. All threads in the
+  subprocess die with it because process death releases all OS resources.
+- The framework does NOT provide a cooperative cancel token at the thread level.
+  If you need cancellation, rely on subprocess-level kill.
+
+**Declare your internal parallelism**: if a block uses a thread pool with N workers,
+set `max_internal_workers` on its `ResourceRequest` so the scheduler accounts
+for the actual CPU usage:
+
+```python
+class MyBlock(ProcessBlock):
+    resource_request = ResourceRequest(
+        cpu_cores=2,
+        max_internal_workers=4,   # ADR-027 D8: 2 × 4 = 8 CPU slots
+    )
+```
+
+`ResourceManager` uses `effective_cpu = cpu_cores * max_internal_workers` to gate
+dispatch. This prevents accidentally oversubscribing the CPU pool when many blocks
+each spawn their own pools.
+
+**In summary**: prefer L2 fan-out for Collection parallelism; use library-native
+batched APIs for single-node parallelism; use threads only when the library
+releases the GIL and you understand the cancellation trade-offs. Never use
+threads in core runtime code.
 
 ### Three-tier memory safety model
 
@@ -754,14 +1022,17 @@ You can also test blocks directly using `Collection` and `BlockConfig`:
 ```python
 import numpy as np
 from scieasy.blocks.base.config import BlockConfig
-from scieasy.core.types.array import Image
+from scieasy.core.types.array import Array
 from scieasy.core.types.collection import Collection
 
 def test_doubler_block():
     block = DoublerBlock()
     data = np.ones((100, 100))
-    img = Image(data=data)
-    inputs = {"data": Collection([img], item_type=Image)}
+    # Use the core Array directly when writing generic tests. If the block
+    # is imaging-specific, import the plugin type instead:
+    #     from scieasy_blocks_imaging.types import Image
+    arr = Array(axes=["y", "x"], shape=data.shape, dtype=data.dtype)
+    inputs = {"data": Collection([arr], item_type=Array)}
     config = BlockConfig(params={"factor": 2})
 
     outputs = block.run(inputs, config)
@@ -1033,42 +1304,110 @@ produce corrupt files.
 
 ## Appendix C: Custom Data Types
 
-External developers may define domain-specific types by subclassing core types:
+External developers define domain-specific types by subclassing **core** types
+(`Array`, `Series`, `DataFrame`, `Text`, `Artifact`, `CompositeData`). **Core
+ships no domain subtypes** (ADR-027 D2) — every `Image`, `Spectrum`, `PeakTable`,
+`AnnData`, etc. is provided by a plugin package. If you are writing an imaging
+block, your custom type goes in your own plugin package alongside your blocks,
+not in the core repo.
+
+Two levels of subclassing: intermediate "modality" types that live at the top
+of a plugin package, and further specialisations within that package.
 
 ```python
+# In scieasy-blocks-imaging/src/scieasy_blocks_imaging/types/image.py
 from typing import ClassVar
-from scieasy.core.types.array import Image
+from pydantic import BaseModel
+from scieasy.core.types.array import Array
+from scieasy.core.units import PhysicalQuantity
+
+
+class ChannelInfo(BaseModel):
+    name: str
+    dye: str | None = None
+    excitation_nm: float | None = None
+    emission_nm: float | None = None
+
+
+class Image(Array):
+    """Generic spatial image. Base for plugin-specific imaging types."""
+    required_axes:   ClassVar[frozenset[str]] = frozenset({"y", "x"})
+    allowed_axes:    ClassVar[frozenset[str]] = frozenset(
+        {"t", "z", "c", "lambda", "y", "x"}
+    )
+    canonical_order: ClassVar[tuple[str, ...]] = ("t", "z", "c", "lambda", "y", "x")
+
+    class Meta(BaseModel):
+        """Domain metadata — override per subtype."""
+        pixel_size: PhysicalQuantity | None = None
+
+    meta: "Image.Meta"
+
+
+class FluorImage(Image):
+    """Multichannel fluorescence image — channel axis mandatory."""
+    required_axes = frozenset({"y", "x", "c"})
+
+    class Meta(Image.Meta):
+        channels: list[ChannelInfo] = []
+        objective: str | None = None
+        acquisition_date: str | None = None
+
+    meta: "FluorImage.Meta"
+
 
 class SRSImage(Image):
     """SRS microscopy image with spectral wavenumber axis."""
-    axes: ClassVar[list[str] | None] = ["y", "x", "wavenumber"]
+    required_axes = frozenset({"y", "x", "lambda"})
+
+    class Meta(Image.Meta):
+        excitation_wavelength_nm: float | None = None
+        wavenumber_range_cm_1: tuple[float, float] | None = None
+
+    meta: "SRSImage.Meta"
 ```
 
 **Subclassing rules**:
 
 - Inherit from the nearest core type (`Array`, `DataFrame`, `Text`, etc.).
+  **Do not inherit from anything in `scieasy.core.types.array` that isn't
+  `Array` itself** — there is nothing else there (ADR-027 D2).
 - Storage backend is determined by the base type (`SRSImage` inherits `Array`'s
-  Zarr backend) -- no custom storage needed.
-- `axes` is a `ClassVar` that labels dimensions semantically, not their
-  coordinate values.
-- Instance-specific metadata (e.g., wavenumber coordinates, spatial calibration)
-  goes in `DataObject._metadata` dict.
+  Zarr backend) — no custom storage needed.
+- `axes` is **instance-level** (ADR-027 D1). At class level you declare
+  `required_axes`, `allowed_axes`, and `canonical_order` constraints only.
+  The base `Array.__init__` validates the passed-in `axes` against these.
+- Domain metadata goes in a nested `Meta` Pydantic `BaseModel` on the class
+  (ADR-027 D5). Override the parent's `Meta` to add more fields. Block authors
+  read via `img.meta.field` and write via `img.with_meta(field=new_value)`.
 - Maximum inheritance depth: 3 levels from `DataObject` (e.g.,
-  `DataObject -> Array -> Image -> SRSImage`).
+  `DataObject → Array → Image → SRSImage`).
 
-**Port type matching**: Uses `isinstance`, so `SRSImage` auto-matches ports
-expecting `Image` or `Array`. A port expecting `SRSImage` will NOT accept a
-plain `Image`.
+**Port type matching**: Uses `isinstance` + `TypeSignature` inheritance walk,
+so `SRSImage` auto-matches ports expecting `Image` or `Array`. A port expecting
+`SRSImage` will NOT accept a plain `Image`. For axis-level constraints use
+`has_axes(...)` from `scieasy.utils.constraints`.
 
 **Registration**: Custom types are registered via the `scieasy.types`
-entry-point group:
+entry-point group (ADR-025 callable protocol):
 
 ```python
-# In your package's types.py
+# In scieasy-blocks-imaging/src/scieasy_blocks_imaging/types/__init__.py
 def get_types():
-    from .types import SRSImage, RamanImage
-    return [SRSImage, RamanImage]
+    from .image import Image, FluorImage, SRSImage, HyperspectralImage
+    return [Image, FluorImage, SRSImage, HyperspectralImage]
 ```
+
+```toml
+# In scieasy-blocks-imaging/pyproject.toml
+[project.entry-points."scieasy.types"]
+imaging = "scieasy_blocks_imaging.types:get_types"
+```
+
+After `pip install scieasy-blocks-imaging`, the core `TypeRegistry` picks these
+types up automatically. The worker subprocess (ADR-027 D11) also scans the same
+entry points so `Image`, `FluorImage`, etc. are resolvable when reconstructing
+inputs from serialised `type_chain` metadata.
 
 ---
 
