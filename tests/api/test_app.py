@@ -114,7 +114,7 @@ class TestCORSOrigins:
 
     def test_cors_env_var_custom(self, monkeypatch: object) -> None:
         """SCIEASY_CORS_ORIGINS with custom comma-separated origins."""
-        monkeypatch.setenv("SCIEASY_CORS_ORIGINS", "http://example.com, http://other.com")  # type: ignore[union-attr]
+        monkeypatch.setenv("SCIEASY_CORS_ORIGINS", "http://localhost:3000, http://localhost:4000")  # type: ignore[union-attr]
         app = create_app()
         cors_mw = next(
             (m for m in app.user_middleware if m.cls is CORSMiddleware),
@@ -122,8 +122,10 @@ class TestCORSOrigins:
         )
         assert cors_mw is not None
         allowed = cors_mw.kwargs.get("allow_origins", [])
-        assert "http://example.com" in allowed
-        assert "http://other.com" in allowed
+        assert "http://localhost:3000" in allowed
+        assert "http://localhost:4000" in allowed
+
+
 class TestStaticMount:
     """Tests for conditional SPA static file mounting."""
 
