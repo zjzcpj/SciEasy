@@ -462,7 +462,7 @@ export default function App() {
               }}
             >
               {/* Block Palette — full height left column */}
-              <ResizablePanel defaultSize={15} minSize={4} maxSize={28} collapsible collapsedSize={0}>
+              <ResizablePanel defaultSize="15%" minSize="4%" maxSize="28%" collapsible collapsedSize="0%">
                 <BlockPalette
                   blocks={blocks}
                   collapsed={false}
@@ -475,7 +475,7 @@ export default function App() {
               <ResizableHandle withHandle />
 
               {/* Center: Canvas + Bottom Panel vertical split */}
-              <ResizablePanel defaultSize={63}>
+              <ResizablePanel defaultSize="63%">
                 <ResizablePanelGroup
                   orientation="vertical"
                   className="min-h-0 flex-1"
@@ -484,7 +484,7 @@ export default function App() {
                     if (sizes[1] != null && sizes[1] >= 10) setPanelSize("bottom", sizes[1]);
                   }}
                 >
-                  <ResizablePanel defaultSize={70} minSize={20}>
+                  <ResizablePanel defaultSize="70%" minSize="20%">
                     <WorkflowCanvas
                       blockStates={blockStates}
                       blocks={blocks.filter((block) => {
@@ -533,7 +533,7 @@ export default function App() {
                     />
                   </ResizablePanel>
                   <ResizableHandle withHandle />
-                  <ResizablePanel defaultSize={30} minSize={5} collapsible collapsedSize={3}>
+                  <ResizablePanel defaultSize="30%" minSize="5%" collapsible collapsedSize="3%">
                     <BottomPanel
                       activeTab={activeBottomTab}
                       chatMessages={chatMessages}
@@ -564,7 +564,7 @@ export default function App() {
               <ResizableHandle withHandle />
 
               {/* Data Preview — full height right column */}
-              <ResizablePanel defaultSize={22} minSize={15} maxSize={42} collapsible collapsedSize={0}>
+              <ResizablePanel defaultSize="22%" minSize="15%" maxSize="42%" collapsible collapsedSize="0%">
                 <DataPreview
                   blockOutputs={blockOutputs}
                   onCancelSelected={() => void cancelSelectedBlock()}
