@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- [#217] Comprehensive block SDK developer guide covering all 5 block types, Tier 1/2 distribution, Collection transport, port system, configuration, and testing (@claude, 2026-04-05, branch: docs/issue-217/block-sdk-guide, session: 20260405-225639-t3-4-developer-documentation-for-block-s)
 - [#215] BlockTestHarness utility for external block developers — validates block contracts, PackageInfo, entry-point callables, and smoke-test execution (@claude, 2026-04-05, branch: feat/issue-215/block-test-harness, session: 20260405-224022-t3-1-blocktestharness-utility-215)
 - [#224] Write comprehensive project README.md covering architecture, features, tech stack, installation, and development setup (@claude, 2026-04-05, branch: docs/issue-224/readme-and-gitattributes, session: 20260405-223925-write-comprehensive-readme-md-and-fix-17)
 - [#172] Add .gitattributes with CHANGELOG.md merge=union to prevent merge conflicts (@claude, 2026-04-05, branch: docs/issue-224/readme-and-gitattributes, session: 20260405-223925-write-comprehensive-readme-md-and-fix-17)
