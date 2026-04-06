@@ -31,6 +31,25 @@ export const useAppStore = create<AppStore>()(
         panelSizes: state.panelSizes,
         chatMessages: state.chatMessages,
       }),
+      onRehydrateStorage: () => (state) => {
+        if (!state) return;
+        const defaults = { palette: 15, preview: 22, bottom: 30 };
+        const mins = { palette: 4, preview: 4, bottom: 10 };
+        const sizes = state.panelSizes;
+        if (sizes) {
+          const fixed = { ...sizes };
+          let needsFix = false;
+          for (const key of ["palette", "preview", "bottom"] as const) {
+            if (sizes[key] < mins[key]) {
+              fixed[key] = defaults[key];
+              needsFix = true;
+            }
+          }
+          if (needsFix) {
+            state.panelSizes = fixed;
+          }
+        }
+      },
     },
   ),
 );
