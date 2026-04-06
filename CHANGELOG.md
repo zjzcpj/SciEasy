@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- [#232] Frontend AI Chat integration — real API dispatch, code preview, loading states, error handling (@claude, 2026-04-05, branch: feat/issue-232/frontend-ai-chat, session: 20260405-235013-feat-232-frontend-ai-chat-integration-wi)
 - [#241] Phase 10 Roadmap v0.3 — 4-stage integration plan: palette refinement, 5 domain plugin packages, block-level testing, demo workflows (@claude, 2026-04-05, branch: docs/phase10-roadmap-v0.3, session: 20260405-234433-phase-10-roadmap-v0-3-integration-domain)
 - [#237] Canvas annotation and group frame nodes -- _annotation (floating text note) and _group (resizable dashed-border frame) with toolbar buttons, DAG skip for _-prefixed nodes, 13 tests (@claude, 2026-04-05, branch: feat/issue-237/canvas-annotations, session: 20260405-232810-canvas-annotations-and-group-frames-237)
 - [#228] LLM Provider Foundation — LLMProvider protocol, AnthropicProvider, OpenAIProvider, AIConfig, get_provider() factory, extract_code/extract_json parsers, [ai] optional deps, 64 tests (@claude, 2026-04-05, branch: feat/issue-228/llm-provider-foundation, session: 20260405-225710-phase-9-1a-llm-provider-foundation-228)
