@@ -466,7 +466,13 @@ export default function App() {
                 <BlockPalette
                   blocks={blocks}
                   collapsed={false}
-                  onAddBlock={(block) => addNode(block, { x: 160, y: 160 })}
+                  onAddBlock={(block) => {
+                    const defaultParams: Record<string, unknown> | undefined =
+                      block.type_name === "io_block"
+                        ? { direction: block.name === "Load Block" ? "input" : "output" }
+                        : undefined;
+                    addNode(block, { x: 160, y: 160 }, defaultParams);
+                  }}
                   onReload={() => void refreshBlocks()}
                   onSearch={setPaletteSearch}
                   search={paletteSearch}

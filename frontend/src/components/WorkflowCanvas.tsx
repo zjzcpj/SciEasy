@@ -6,10 +6,11 @@ import {
   type Connection,
   type Edge,
   type Node,
+  type NodeChange,
   useReactFlow,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { resolveTypeColor } from "../config/typeColorMap";
 import type { BlockSchemaResponse, BlockSummary, WorkflowEdge, WorkflowNode } from "../types/api";
@@ -67,6 +68,11 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
     selectedNodeId,
   } = props;
 
+  // Track positions locally during drag so nodes follow the cursor smoothly.
+  // ReactFlow is in controlled mode (nodes prop), so without this the node
+  // would only jump to its final position on drag-stop.
+  const [dragPositions, setDragPositions] = useState<Record<string, { x: number; y: number }>>({});
+
   const makeOnRun = useCallback((nodeId: string) => () => onRunBlock(nodeId), [onRunBlock]);
   const makeOnRestart = useCallback((nodeId: string) => () => onRestartBlock(nodeId), [onRestartBlock]);
   const makeOnDelete = useCallback((nodeId: string) => () => onDeleteNode(nodeId), [onDeleteNode]);
@@ -76,18 +82,34 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
     [onUpdateNodeConfig],
   );
 
+  /** Derive canvas display label for a node. For io_block nodes the label
+   *  reflects the configured direction (Load Block / Save Block). */
+  const resolveLabel = useCallback(
+    (node: WorkflowNode, summary?: BlockSummary, schema?: BlockSchemaResponse) => {
+      if (node.block_type === "io_block") {
+        const params = (node.config.params as Record<string, unknown> | undefined) ?? {};
+        const direction = params.direction as string | undefined;
+        if (direction === "output") return "Save Block";
+        return "Load Block";
+      }
+      return summary?.name ?? schema?.name ?? node.block_type;
+    },
+    [],
+  );
+
   const flowNodes = useMemo<Array<Node<BlockNodeData>>>(() => {
     return nodes.map((node, index) => {
       const summary = blocks.find((block) => block.type_name === node.block_type);
       const schema = schemas[node.block_type];
       const params = ((node.config.params as Record<string, unknown> | undefined) ?? {}) as Record<string, unknown>;
+      const storePos = node.layout ?? { x: 120 + index * 80, y: 120 + index * 40 };
       return {
         id: node.id,
         type: "block",
         dragHandle: ".drag-handle",
-        position: node.layout ?? { x: 120 + index * 80, y: 120 + index * 40 },
+        position: dragPositions[node.id] ?? storePos,
         data: {
-          label: summary?.name ?? schema?.name ?? node.block_type,
+          label: resolveLabel(node, summary, schema),
           blockType: node.block_type,
           category: summary?.category ?? schema?.category ?? "custom",
           summary,
@@ -106,7 +128,7 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
         selected: selectedNodeId === node.id,
       };
     });
-  }, [blocks, blockStates, makeOnDelete, makeOnErrorClick, makeOnRestart, makeOnRun, makeOnUpdateConfig, nodes, schemas, selectedNodeId]);
+  }, [blocks, blockStates, dragPositions, makeOnDelete, makeOnErrorClick, makeOnRestart, makeOnRun, makeOnUpdateConfig, nodes, resolveLabel, schemas, selectedNodeId]);
 
   const flowEdges = useMemo<Array<Edge>>(() => {
     return edges.map((edge) => {
@@ -154,6 +176,20 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
         fitView
         nodeTypes={nodeTypes}
         nodes={flowNodes}
+        onNodesChange={(changes: NodeChange<Node<BlockNodeData>>[]) => {
+          // Apply position changes locally during drag so nodes follow the
+          // cursor in real time. Other change types (select, remove, etc.)
+          // are handled by dedicated callbacks below.
+          const positionUpdates: Record<string, { x: number; y: number }> = {};
+          for (const change of changes) {
+            if (change.type === "position" && change.position) {
+              positionUpdates[change.id] = change.position;
+            }
+          }
+          if (Object.keys(positionUpdates).length > 0) {
+            setDragPositions((prev) => ({ ...prev, ...positionUpdates }));
+          }
+        }}
         onConnect={async (connection: Connection) => {
           if (!connection.source || !connection.target || !connection.sourceHandle || !connection.targetHandle) {
             return;
@@ -178,7 +214,16 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
           });
         }}
         onNodeClick={(_, node) => onSelectNode(node.id)}
-        onNodeDragStop={(_, node) => onUpdateNodePosition(node.id, node.position)}
+        onNodeDragStop={(_, node) => {
+          // Persist the final position to the store and clear the local
+          // drag override so subsequent renders use the store value.
+          onUpdateNodePosition(node.id, node.position);
+          setDragPositions((prev) => {
+            const next = { ...prev };
+            delete next[node.id];
+            return next;
+          });
+        }}
         onNodesDelete={(deleted) => deleted.forEach((node) => onDeleteNode(node.id))}
         onPaneClick={() => onSelectNode(null)}
         deleteKeyCode={["Backspace", "Delete"]}

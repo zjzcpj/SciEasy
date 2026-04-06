@@ -1,5 +1,6 @@
 import { type Node, Handle, Position, type NodeProps } from "@xyflow/react";
 
+import { api } from "../../lib/api";
 import { resolveTypeColor } from "../../config/typeColorMap";
 import type { BlockNodeData } from "../../types/ui";
 
@@ -107,10 +108,12 @@ function InlineConfigField({
   prop,
   value,
   onChange,
+  blockType,
 }: {
   prop: ConfigProperty;
   value: unknown;
   onChange: (key: string, val: unknown) => void;
+  blockType?: string;
 }) {
   const { key, schema } = prop;
   const label = (schema.title as string) ?? key;
@@ -169,16 +172,40 @@ function InlineConfigField({
     );
   }
 
+  // Show Browse button for the path field on io_block
+  const showBrowse = blockType === "io_block" && key === "path";
+
   // Default: text input
   return (
     <label className="flex items-center justify-between gap-2 text-xs">
       <span className="shrink-0 text-stone-500">{label}</span>
-      <input
-        type="text"
-        className="nodrag nowheel min-w-0 flex-1 rounded border border-stone-200 bg-white px-2 py-1 text-xs text-ink focus:border-sea focus:outline-none"
-        value={String(value ?? schema.default ?? "")}
-        onChange={(e) => onChange(key, e.target.value)}
-      />
+      <div className={`flex min-w-0 ${showBrowse ? "flex-1 gap-1" : "flex-1"}`}>
+        <input
+          type="text"
+          className="nodrag nowheel min-w-0 flex-1 rounded border border-stone-200 bg-white px-2 py-1 text-xs text-ink focus:border-sea focus:outline-none"
+          value={String(value ?? schema.default ?? "")}
+          onChange={(e) => onChange(key, e.target.value)}
+        />
+        {showBrowse && (
+          <button
+            type="button"
+            className="nodrag shrink-0 rounded border border-stone-200 bg-white px-1.5 py-1 text-[10px] font-medium text-stone-600 transition hover:border-pine hover:bg-pine/5"
+            title="Browse for file or directory"
+            onClick={async () => {
+              try {
+                const result = await api.browseDirectory();
+                if (result.path) {
+                  onChange(key, result.path);
+                }
+              } catch {
+                // User cancelled or backend unavailable
+              }
+            }}
+          >
+            Browse
+          </button>
+        )}
+      </div>
     </label>
   );
 }
@@ -187,7 +214,11 @@ function InlineConfigField({
 // BlockNode component
 // ---------------------------------------------------------------------------
 export function BlockNode({ data, selected }: NodeProps<Node<BlockNodeData>>) {
-  const configProps = getTopConfigProperties(data.schema?.config_schema);
+  // For io_block, hide the "direction" field — it is determined by whether
+  // the user dragged a Load Block or Save Block from the palette.
+  const configProps = getTopConfigProperties(data.schema?.config_schema).filter(
+    (prop) => !(data.blockType === "io_block" && prop.key === "direction"),
+  );
   const typeHierarchy = data.schema?.type_hierarchy;
   const categoryIcon = categoryIcons[data.category] ?? categoryIcons.custom;
 
@@ -256,6 +287,7 @@ export function BlockNode({ data, selected }: NodeProps<Node<BlockNodeData>>) {
               prop={prop}
               value={data.config?.[prop.key]}
               onChange={handleConfigChange}
+              blockType={data.blockType}
             />
           ))
         ) : (
