@@ -7,8 +7,12 @@ class name, base type) — never the class object itself.
 from __future__ import annotations
 
 import importlib
+import importlib.metadata
+import logging
 from dataclasses import dataclass
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -106,3 +110,71 @@ class TypeRegistry:
                     description=cls.__doc__.split("\n")[0] if cls.__doc__ else "",
                 ),
             )
+
+    def _scan_entrypoint_types(self) -> None:
+        """Discover and register DataObject subtypes from ``scieasy.types`` entry-points.
+
+        Each entry-point must be a callable that returns a list of type classes
+        (subclasses of :class:`DataObject`).  Invalid entries are logged as
+        warnings and skipped — they never crash the registry.
+
+        See ADR-025 Section 4 for the protocol specification.
+        """
+        from scieasy.core.types.base import DataObject
+
+        eps = importlib.metadata.entry_points(group="scieasy.types")
+        for ep in eps:
+            try:
+                factory = ep.load()
+            except Exception:
+                logger.warning(
+                    "Failed to load entry-point '%s' from group 'scieasy.types'",
+                    ep.name,
+                    exc_info=True,
+                )
+                continue
+
+            try:
+                type_classes = factory()
+            except Exception:
+                logger.warning(
+                    "Entry-point '%s' callable raised an exception",
+                    ep.name,
+                    exc_info=True,
+                )
+                continue
+
+            if not isinstance(type_classes, (list, tuple)):
+                logger.warning(
+                    "Entry-point '%s' returned %s instead of a list of type classes; skipping",
+                    ep.name,
+                    type(type_classes).__name__,
+                )
+                continue
+
+            for cls in type_classes:
+                if not isinstance(cls, type) or not issubclass(cls, DataObject):
+                    logger.warning(
+                        "Entry-point '%s' returned item %r which is not a DataObject subclass; skipping",
+                        ep.name,
+                        cls,
+                    )
+                    continue
+
+                base = cls.__mro__[1].__name__ if len(cls.__mro__) > 2 else ""
+                self.register(
+                    cls.__name__,
+                    TypeSpec(
+                        name=cls.__name__,
+                        module_path=cls.__module__,
+                        class_name=cls.__name__,
+                        base_type=base,
+                        description=cls.__doc__.split("\n")[0] if cls.__doc__ else "",
+                    ),
+                )
+                logger.info("Registered external type '%s' from entry-point '%s'", cls.__name__, ep.name)
+
+    def scan_all(self) -> None:
+        """Register built-in types and then scan entry-points for external types."""
+        self.scan_builtins()
+        self._scan_entrypoint_types()
