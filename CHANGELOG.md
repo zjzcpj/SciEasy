@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- [#259] ADR-027 Addendum 1: clarify that worker subprocess returns typed DataObject instances (not ViewProxy). Resolves the contradiction between ADR-027 D11's pseudocode (returns ViewProxy) and ADR-027 D5/D7's user-facing API (item.meta, with_meta, isinstance checks). Specifies the _reconstruct_one / _serialise_one helpers, the _reconstruct_extra_kwargs / _serialise_extra_metadata classmethod hook contract on each base class, the Meta Pydantic constraints (frozen, no PrivateAttr, JSON-round-trippable), the PhysicalQuantity Pydantic v2 __get_pydantic_core_schema__ integration, and the demoted role of ViewProxy after this Addendum (@claude, 2026-04-06, branch: docs/issue-259/adr-027-addendum-1, session: 20260406-132622-adr-027-addendum-1-clarify-worker-subpro)
+
 ### Changed
 
 - [#257] Update ARCHITECTURE.md, PROJECT_TREE.md, and docs/guides/block-sdk.md to reflect ADR-018 Addendum 1 and ADR-027 — documentation only. §4.1 rewritten for 7-type core + plugin-provided domain subtypes and 6D instance-level axes; §4.5 documents iterate_over_axes utility; §5.1 adds setup/teardown hooks; §5.4 states core/plugin boundary; §6.1 documents scheduler concurrency model with asyncio.create_task + _active_tasks; §6.4 documents ResourceManager GPU auto-detect and ResourceRequest.max_internal_workers; Appendix A gains plugin prerequisite note. block-sdk.md gains new sections on setup/teardown, domain metadata conventions, L2 fan-out parallelism pattern, and thread policy; all core-Image imports in examples replaced with plugin-package imports (@claude, 2026-04-06, branch: docs/issue-257/phase10-arch-updates, session: 20260406-045449-phase-10-architecture-and-dev-guide-doc)
