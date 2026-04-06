@@ -3,6 +3,9 @@
 All three endpoints (generate-block, suggest-workflow, optimize-params) are
 now wired up. Detailed coverage for suggest-workflow lives in
 ``test_ai_suggest.py`` and for optimize-params in ``test_ai_optimize.py``.
+The generate-block and optimize-params endpoints are now wired up.
+suggest-workflow remains a Phase 9 placeholder until PR #245 lands.
+Detailed coverage for optimize-params lives in ``test_ai_optimize.py``.
 """
 
 from __future__ import annotations

@@ -86,6 +86,13 @@ def suggest_workflow(body: AISuggestWorkflowRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+async def suggest_workflow(body: AISuggestWorkflowRequest) -> dict[str, Any]:
+    """Return a clear Phase 9 placeholder for workflow suggestion.
+
+    The wired implementation lives in PR #245 and will replace this stub
+    once that PR merges.
+    """
+    raise HTTPException(status_code=501, detail="AI workflow suggestion will arrive in Phase 9.")
 
 
 @router.post("/optimize-params", response_model=AIOptimizeParamsResponse)
