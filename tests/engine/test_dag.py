@@ -159,9 +159,9 @@ class TestBuildDag:
             ],
             edges=[
                 ("A:out", "B:in"),
-                ("A:out", "note1:in"),       # edge TO a skipped node
-                ("note1:out", "B:in2"),       # edge FROM a skipped node
-                ("grp1:out", "A:in"),         # edge FROM a skipped group node
+                ("A:out", "note1:in"),  # edge TO a skipped node
+                ("note1:out", "B:in2"),  # edge FROM a skipped node
+                ("grp1:out", "A:in"),  # edge FROM a skipped group node
             ],
         )
         dag = build_dag(wf)
