@@ -33,6 +33,29 @@ def parquet_file(tmp_path: Path) -> Path:
     return path
 
 
+class TestIOBlockConfigSchema:
+    """IOBlock config_schema structure tests."""
+
+    def test_config_schema_has_no_format_field(self) -> None:
+        """The 'format' field was removed from config_schema (#207)."""
+        properties = IOBlock.config_schema["properties"]
+        assert "format" not in properties
+
+    def test_config_schema_has_path_field(self) -> None:
+        """The 'path' field must be present in config_schema."""
+        properties = IOBlock.config_schema["properties"]
+        assert "path" in properties
+
+    def test_config_schema_has_direction_field(self) -> None:
+        """The 'direction' field must be present in config_schema."""
+        properties = IOBlock.config_schema["properties"]
+        assert "direction" in properties
+
+    def test_config_schema_required_contains_path(self) -> None:
+        """The 'path' field must be required."""
+        assert "path" in IOBlock.config_schema["required"]
+
+
 class TestIOBlockInputLazy:
     """IOBlock in input mode -- produces a lazy Collection of StorageReferences."""
 

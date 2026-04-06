@@ -67,3 +67,34 @@ def test_browse_directory_endpoint(client: TestClient) -> None:
         resp = client.post("/api/projects/browse-directory")
         assert resp.status_code == 200
         assert resp.json()["path"] is None
+
+
+def test_browse_files_endpoint(client: TestClient) -> None:
+    """Browse files endpoint should return a list of paths (#208)."""
+    from unittest.mock import patch
+
+    with patch(
+        "scieasy.api.routes.projects._pick_files",
+        return_value=["/tmp/a.csv", "/tmp/b.csv"],
+    ):
+        resp = client.post("/api/projects/browse-files")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "paths" in data
+        assert data["paths"] == ["/tmp/a.csv", "/tmp/b.csv"]
+
+    with patch("scieasy.api.routes.projects._pick_files", return_value=[]):
+        resp = client.post("/api/projects/browse-files")
+        assert resp.status_code == 200
+        assert resp.json()["paths"] == []
+
+
+def test_pick_files_returns_empty_on_exception() -> None:
+    """_pick_files should return an empty list when tkinter is unavailable."""
+    from unittest.mock import patch
+
+    with patch.dict("sys.modules", {"tkinter": None}):
+        from scieasy.api.routes.projects import _pick_files
+
+        result = _pick_files()
+        assert result == []
