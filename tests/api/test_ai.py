@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 
 
 def test_suggest_workflow_returns_501(client: TestClient) -> None:
-    """suggest-workflow still returns a Phase 9 placeholder."""
+    """suggest-workflow returns 501 when no AI provider is configured."""
     suggest = client.post(
         "/api/ai/suggest-workflow",
         json={"data_description": "csv table", "goal": "cluster samples"},

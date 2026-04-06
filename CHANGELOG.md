@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- [#231] Workflow synthesis planner — data+goal to DAG generation with block catalog (@claude, 2026-04-05, branch: feat/issue-231/workflow-planner, session: 20260405-234942-feat-231-workflow-synthesis-planner-back)
 - [#233] Parameter optimization -- LLM-powered param suggestions with schema validation (@claude, 2026-04-05, branch: feat/issue-233/param-optimizer, session: 20260405-235030-feat-233-parameter-optimization-backend)
 - [#230] Type Generator + Validator Stages 4-5 — generate_type() with LLM-driven code generation, family inference, retry loop; dry_run_generated_code() stage 4, validate_port_contracts() stage 5, validate_generated_type() pipeline; 45 new tests (@claude, 2026-04-05, branch: feat/issue-230/type-generator-validator, session: 20260405-232504-phase-9-1c-type-generator-validator-stag)
 - [#229] Block Generator + API endpoint wiring — generate_block() pipeline with category inference, prompt construction, LLM call, code extraction, validation, retry loop; POST /api/ai/generate-block endpoint; 33 tests (@claude, 2026-04-05, branch: feat/issue-229/block-generator, session: 20260405-232453-phase-9-1b-block-generator-api-endpoint)

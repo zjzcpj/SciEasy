@@ -64,8 +64,21 @@ async def generate_block(body: AIGenerateBlockRequest) -> dict[str, Any]:
 
 @router.post("/suggest-workflow", response_model=AISuggestWorkflowResponse)
 async def suggest_workflow(body: AISuggestWorkflowRequest) -> dict[str, Any]:
-    """Return a clear Phase 9 placeholder for workflow suggestion."""
-    raise HTTPException(status_code=501, detail="AI workflow suggestion will arrive in Phase 9.")
+    """Synthesise a workflow DAG from a data description and goal."""
+    from scieasy.ai.synthesis.workflow_planner import plan_workflow
+
+    try:
+        result = plan_workflow(body.data_description, body.goal)
+        return {
+            "workflow": result.get("workflow", result),
+            "explanation": result.get("explanation", ""),
+        }
+    except NotImplementedError:
+        raise HTTPException(status_code=501, detail="Workflow synthesis not yet available") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.post("/optimize-params", response_model=AIOptimizeParamsResponse)
