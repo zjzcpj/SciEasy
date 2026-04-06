@@ -223,6 +223,21 @@ class CancelPropagationResponse(BaseModel):
     skip_reasons: dict[str, str] = Field(default_factory=dict)
 
 
+class AIOptimizeParamsRequest(BaseModel):
+    """Request body for AI parameter optimization."""
+
+    block_id: str
+    intermediate_results: dict[str, Any] = Field(default_factory=dict)
+    search_space: dict[str, Any] | None = None
+
+
+class AIOptimizeParamsResponse(BaseModel):
+    """Response body after AI parameter optimization."""
+
+    suggestions: dict[str, Any] = Field(default_factory=dict)
+    explanation: str = ""
+
+
 class ErrorResponse(BaseModel):
     """Standard error envelope returned by endpoints on failure."""
 
