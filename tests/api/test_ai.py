@@ -1,7 +1,8 @@
 """Tests for AI API endpoints.
 
-The generate-block endpoint is now wired to the block generator pipeline.
-Other endpoints (suggest-workflow, optimize-params) are tested separately.
+All three endpoints (generate-block, suggest-workflow, optimize-params) are
+now wired up. Detailed coverage for suggest-workflow lives in
+``test_ai_suggest.py`` and for optimize-params in ``test_ai_optimize.py``.
 """
 
 from __future__ import annotations
@@ -9,31 +10,6 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
-
-# ---------------------------------------------------------------------------
-# Endpoints without AI provider configured
-# ---------------------------------------------------------------------------
-
-
-def test_suggest_workflow_returns_501(client: TestClient) -> None:
-    """suggest-workflow returns 501 when no AI provider is configured."""
-    suggest = client.post(
-        "/api/ai/suggest-workflow",
-        json={"data_description": "csv table", "goal": "cluster samples"},
-    )
-    assert suggest.status_code == 501
-
-
-def test_optimize_params_returns_501(client: TestClient) -> None:
-    """optimize-params still returns a Phase 9 placeholder."""
-    optimize = client.post(
-        "/api/ai/optimize-params",
-        params={"block_id": "node-1"},
-        json={},
-    )
-    assert optimize.status_code == 501
-    assert "Phase 9" in optimize.json()["detail"]
-
 
 # ---------------------------------------------------------------------------
 # generate-block endpoint (now functional)

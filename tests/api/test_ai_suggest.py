@@ -7,11 +7,16 @@ from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
 
-class TestSuggestWorkflow501:
-    """Tests that endpoint returns proper error without AI configured."""
+class TestSuggestWorkflowNoProvider:
+    """Tests that endpoint returns a clear error when no AI provider is configured."""
 
-    def test_suggest_workflow_501_when_no_provider(self, client: TestClient) -> None:
-        """Call endpoint without AI configured, expect a 501 response."""
+    def test_suggest_workflow_400_when_no_provider(self, client: TestClient) -> None:
+        """Call endpoint without AI configured, expect a 400 response.
+
+        Per ADR-013, AI is an optional Layer 4 service. When no API key is
+        configured, the planner raises ``ValueError`` which the route maps
+        to HTTP 400 (client error: missing required configuration).
+        """
         response = client.post(
             "/api/ai/suggest-workflow",
             json={
@@ -19,9 +24,7 @@ class TestSuggestWorkflow501:
                 "goal": "cluster samples",
             },
         )
-        # Without an API key set, the planner raises ValueError which
-        # is caught and returned as 501
-        assert response.status_code == 501
+        assert response.status_code == 400
         body = response.json()
         assert "detail" in body
 
