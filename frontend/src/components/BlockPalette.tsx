@@ -2,6 +2,31 @@ import { useRef } from "react";
 
 import type { BlockSummary } from "../types/api";
 
+/*
+ * TODO(agent-b, stage-10.1): rewrite this component as a 3-level tree.
+ *
+ * Level 1: Package name (block.package_name, falling back to "SciEasy Core"
+ *          for builtins and "Custom" for Tier 1 drop-in blocks — i.e.
+ *          blocks with source === "custom").
+ * Level 2: Category within the package (block.category).
+ * Level 3: Individual blocks (existing card).
+ *
+ * Requirements (see docs/design/stage-10-1-palette.md §3.2.5):
+ *   - Packages and categories are both collapsible (useState per section).
+ *   - "Custom" package always sorts to the BOTTOM of the palette.
+ *   - Other packages sort alphabetically.
+ *   - Categories within a package sort alphabetically.
+ *   - Blocks within a category sort alphabetically.
+ *   - Empty categories/packages are hidden.
+ *   - Search/filter still works across all levels — when a query matches,
+ *     parent sections expand automatically.
+ *   - IO block expansion (expandIOBlocks) must still apply.
+ *
+ * Agent A (Part 1) leaves the current flat grouping in place intentionally;
+ * this component's rendered output is unchanged in Part 1. Agent B (Part 2)
+ * performs the full rewrite in a separate PR.
+ */
+
 interface BlockPaletteProps {
   blocks: BlockSummary[];
   search: string;

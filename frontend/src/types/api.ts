@@ -65,6 +65,11 @@ export interface BlockSummary {
   version: string;
   input_ports: BlockPortResponse[];
   output_ports: BlockPortResponse[];
+  // Stage 10.1 Part 1: optional palette grouping metadata.
+  // Optional because Agent A declares them; Agent B populates the backend in Part 2.
+  // See docs/design/stage-10-1-palette.md §3.1.5.
+  source?: string;
+  package_name?: string;
 }
 
 export interface TypeHierarchyEntry {
