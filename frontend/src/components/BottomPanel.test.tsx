@@ -10,6 +10,8 @@ describe("BottomPanel", () => {
     render(
       <BottomPanel
         activeTab="config"
+        aiError={null}
+        aiLoading={false}
         chatMessages={[]}
         logEntries={[]}
         onSendChat={() => {}}
