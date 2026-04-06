@@ -242,12 +242,14 @@ class TestFileExchangeBridgeCollection:
 
     def test_prepare_handles_collection(self, tmp_path: Path) -> None:
         """Bridge should serialize Collection items into a subdirectory."""
-        from scieasy.core.types.array import Image
+        from scieasy.core.types.array import Array
         from scieasy.core.types.collection import Collection
 
+        # ADR-027 D2: construct plain 2D Arrays instead of the removed
+        # core Image class (which now lives in scieasy-blocks-imaging).
         items = [
-            Image(shape=(3, 3), ndim=2, dtype="uint8"),
-            Image(shape=(5, 5), ndim=2, dtype="float32"),
+            Array(axes=["y", "x"], shape=(3, 3), dtype="uint8"),
+            Array(axes=["y", "x"], shape=(5, 5), dtype="float32"),
         ]
         collection = Collection(items)
 

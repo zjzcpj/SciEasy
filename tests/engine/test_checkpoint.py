@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
+from scieasy.core.types.array import Array
 from scieasy.engine.checkpoint import (
     CheckpointManager,
     WorkflowCheckpoint,
@@ -20,6 +22,30 @@ from scieasy.engine.events import (
     BLOCK_SKIPPED,
     EventBus,
 )
+
+# ---------------------------------------------------------------------------
+# Local test fixture.
+#
+# ADR-027 D2: the core ``Image`` class was removed in T-006; domain
+# specializations live in plugin packages. Checkpoint tests need a
+# concrete Array subclass with a stable, distinctive class name so the
+# serialized ``type_chain`` / ``item_type`` round-trip assertions still
+# carry meaning.
+# ---------------------------------------------------------------------------
+
+
+class Image(Array):
+    """Local 2D Array test fixture for checkpoint round-trip tests."""
+
+    def __init__(
+        self,
+        *,
+        shape: tuple[int, ...] | None = None,
+        dtype: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(axes=["y", "x"], shape=shape, dtype=dtype, **kwargs)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -187,7 +213,6 @@ class TestIntermediateRefsSerialization:
     def test_serialize_collection_output(self) -> None:
         """Collection outputs preserve structure instead of str()."""
         from scieasy.core.storage.ref import StorageReference
-        from scieasy.core.types.array import Image
         from scieasy.core.types.collection import Collection
 
         img = Image(shape=(10, 10))
@@ -213,7 +238,6 @@ class TestIntermediateRefsSerialization:
     def test_serialize_storage_ref_output(self) -> None:
         """DataObject with storage_ref serializes to ref dict."""
         from scieasy.core.storage.ref import StorageReference
-        from scieasy.core.types.array import Image
 
         img = Image(shape=(10, 10))
         img.storage_ref = StorageReference(backend="zarr", path="/tmp/img.zarr")
@@ -227,7 +251,6 @@ class TestIntermediateRefsSerialization:
         import json
 
         from scieasy.core.storage.ref import StorageReference
-        from scieasy.core.types.array import Image
         from scieasy.core.types.collection import Collection
 
         img = Image(shape=(5, 5))
@@ -242,7 +265,6 @@ class TestIntermediateRefsSerialization:
 
     def test_serialize_collection_item_without_storage_ref(self) -> None:
         """Collection item without storage_ref falls back to _value string."""
-        from scieasy.core.types.array import Image
         from scieasy.core.types.collection import Collection
 
         img = Image(shape=(3, 3))
@@ -278,7 +300,6 @@ class TestDeserializeIntermediateRefs:
 
         from scieasy.core.proxy import ViewProxy
         from scieasy.core.storage.ref import StorageReference
-        from scieasy.core.types.array import Image
         from scieasy.core.types.collection import Collection
 
         img = Image(shape=(10, 10))
@@ -315,7 +336,6 @@ class TestDeserializeIntermediateRefs:
 
         from scieasy.core.proxy import ViewProxy
         from scieasy.core.storage.ref import StorageReference
-        from scieasy.core.types.array import Image
 
         img = Image(shape=(5, 5))
         img.storage_ref = StorageReference(backend="zarr", path="/tmp/img.zarr")
