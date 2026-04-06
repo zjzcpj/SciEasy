@@ -16,10 +16,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
-
-if TYPE_CHECKING:
-    from scieasy.ai.config import AIConfig
+from typing import Any, Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +54,7 @@ class LLMProvider(Protocol):
         prompt: str,
         *,
         system: str = "",
-        config: AIConfig | None = None,
+        config: Any = None,
     ) -> str:
         """Send *prompt* to the LLM and return the text response.
 
@@ -68,8 +65,9 @@ class LLMProvider(Protocol):
         system:
             Optional system-level instruction.
         config:
-            Optional per-call configuration override.  When *None* the
-            provider uses its own defaults.
+            Optional per-call configuration override (typically an
+            ``AIConfig`` instance).  When *None* the provider uses
+            its own defaults.
 
         Returns
         -------
@@ -122,7 +120,7 @@ class AnthropicProvider:
         prompt: str,
         *,
         system: str = "",
-        config: AIConfig | None = None,
+        config: Any = None,
     ) -> str:
         """Call the Anthropic Messages API and return the text response."""
         model = self._model
@@ -153,7 +151,7 @@ class AnthropicProvider:
 
         # Extract text from the first content block.
         if response.content and hasattr(response.content[0], "text"):
-            return response.content[0].text  # type: ignore[return-value]
+            return str(response.content[0].text)
         return ""
 
 
@@ -198,7 +196,7 @@ class OpenAIProvider:
         prompt: str,
         *,
         system: str = "",
-        config: AIConfig | None = None,
+        config: Any = None,
     ) -> str:
         """Call the OpenAI Chat Completions API and return the text response."""
         model = self._model
@@ -230,5 +228,5 @@ class OpenAIProvider:
 
         # Extract text from the first choice.
         if response.choices and response.choices[0].message.content:
-            return response.choices[0].message.content
+            return str(response.choices[0].message.content)
         return ""
