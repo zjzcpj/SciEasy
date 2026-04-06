@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- [#237] Fix canvas annotation code review issues — MiniMap crash guard, DAG edge KeyError guard, random position offset (@claude, 2026-04-06, branch: fix/issue-237/code-review-fixes)
+
 ### Added
 
 - [#241] Phase 10 Roadmap v0.3 — 4-stage integration plan: palette refinement, 5 domain plugin packages, block-level testing, demo workflows (@claude, 2026-04-05, branch: docs/phase10-roadmap-v0.3, session: 20260405-234433-phase-10-roadmap-v0-3-integration-domain)
