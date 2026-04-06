@@ -172,16 +172,23 @@ class TestDataObjectDtypeInfo:
 
 
 class TestDataObjectMetadata:
-    """Verify metadata handling."""
+    """Verify the three-slot metadata API (T-005, ADR-027 D5).
 
-    def test_default_metadata_empty(self) -> None:
+    The legacy ``metadata`` dict was migrated to the ``user`` slot.
+    The pre-T-005 single-dict tests are now expressed against
+    ``obj.user``; the deprecation shim is regression-tested in
+    ``tests/core/test_stratified_metadata.py`` and
+    ``tests/core/test_dataobject_extended.py``.
+    """
+
+    def test_default_user_empty(self) -> None:
         obj = DataObject()
-        assert obj.metadata == {}
+        assert obj.user == {}
 
-    def test_custom_metadata(self) -> None:
-        obj = DataObject(metadata={"source": "test", "units": "nm"})
-        assert obj.metadata["source"] == "test"
-        assert obj.metadata["units"] == "nm"
+    def test_custom_user(self) -> None:
+        obj = DataObject(user={"source": "test", "units": "nm"})
+        assert obj.user["source"] == "test"
+        assert obj.user["units"] == "nm"
 
 
 # ---------------------------------------------------------------------------
