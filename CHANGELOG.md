@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- [#255] ADR-018 Addendum 1 (scheduler concurrency implementation) and ADR-027 (Phase 10 core type system and block runtime refinements) — documentation only, codifying Phase 10 architectural decisions on 6D axes, domain-type extraction from core, iterate_over_axes utility, lazy iter_over/sel, stratified Pydantic metadata, PhysicalQuantity units, setup/teardown hooks, thread policy, L2 fan-out parallelism, ResourceManager GPU auto-detect, and worker TypeRegistry scan (@claude, 2026-04-06, branch: docs/issue-255/phase10-adrs, session: 20260406-043746-phase-10-architectural-adrs-scheduler-co)
+
 ### Fixed
 
 - [#232] Fix frontend AI chat code review issues — AIGenerateBlockResponse type drift (add validation_report, category), ErrorBanner timer reset via useCallback, Enter-key send test (@claude, 2026-04-05, branch: feat/issue-232/frontend-ai-chat)

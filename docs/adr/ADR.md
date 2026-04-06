@@ -1090,6 +1090,209 @@ The `EventBus` becomes the backbone of the runtime. All runtime components commu
 
 ---
 
+## ADR-018 Addendum 1: Scheduler concurrency implementation
+
+**Status**: proposed
+**Date**: 2026-04-06
+
+### Purpose
+
+ADR-018 committed to an event-driven DAGScheduler that reacts to events as they arrive and dispatches independent branches of the workflow concurrently. ARCHITECTURE.md §6.1 and Appendix A both describe this behaviour — for example, the multimodal walkthrough states that "Three IOBlocks load data in parallel (independent branches). Each runs in its own subprocess (ADR-017)".
+
+The implementation in `src/scieasy/engine/scheduler.py` as of 2026-04-06 does **not** match that contract. Independent branches execute strictly in topological order, serialised on `popen.communicate()` inside the scheduler coroutine. This addendum documents the discrepancy, specifies the required implementation change, and captures the decisions made during Phase 10 planning about how concurrency, cancellation, and resource throttling must interact.
+
+This addendum does **not** revise any of ADR-018's user-visible decisions (state machine, cancel propagation, event catalogue, subscription matrix). Those remain authoritative. The addendum only narrows the implementation strategy.
+
+### Context
+
+ADR-018 §5 ("Event-driven runtime architecture") and the subscription matrix assume that the scheduler is a true event loop: `DAGScheduler.execute()` kicks off the initial set of READY blocks and then awaits events, and each `BLOCK_DONE` event fires an `_on_block_done` handler that dispatches newly-ready successors. The expected behaviour is that when two blocks with no data dependency between them are simultaneously READY, they both start immediately — each on its own subprocess — and the scheduler returns to the event loop to await whichever finishes first.
+
+Source code audit (grep of `asyncio.(create_task|gather|ensure_future)` across `src/scieasy/engine/scheduler.py`) returns **zero matches**. Every dispatch is performed as a direct `await self._dispatch(node_id)`, and `_dispatch` itself performs `await self._runner.run(block, inputs, node.config)` inline, which in turn awaits `popen.communicate()` on the worker subprocess. The call chain is synchronous with respect to the event loop — no other coroutine runs until the current block's subprocess exits.
+
+**Concrete observations** (referenced lines may shift as the file is edited):
+
+- `scheduler.py` line 122–125 (in `execute()`): `for node_id in self._order: if self._block_states[node_id] == BlockState.IDLE and self._check_readiness(node_id): self._block_states[node_id] = BlockState.READY; await self._dispatch(node_id)`.
+- `scheduler.py` line 155 (in `_dispatch()`): `result = await self._runner.run(block, inputs, node.config)` — direct inline await.
+- `scheduler.py` line 218–223 (in `_on_block_done()`): scans for newly-ready nodes and calls `await self._dispatch(next_id)` — same inline pattern.
+- `scheduler.py` line 409–412, 481, 584 (in `resume()`, `reset_block()`, `execute_from()`): all use `await self._dispatch(node_id)` inline.
+- `runners/local.py` line 93: `stdout, stderr = await asyncio.to_thread(popen.communicate, stdin_payload)` — this bit is correct (the blocking call is off-loaded to a thread), but because every scheduler dispatch awaits it inline, the event loop still blocks progressing to the next dispatch until the subprocess finishes.
+
+**User-visible consequence**: A workflow like the one in ARCH Appendix A with three independent IOBlock roots (load LC-MS, load Raman, load IF) executes as `load_lcms → (completes) → load_raman → (completes) → load_if → …`. A workflow that fans out a Collection via `SplitCollection` into four parallel `CellposeSegment` branches executes the Cellpose blocks serially, one after another, regardless of GPU availability.
+
+**Phase 10 impact**: every parallelism story in Phase 10 depends on fixing this. Specifically:
+
+- DAG branch parallelism (L1 in the Phase 10 discussion) is directly broken.
+- Collection fan-out via `SplitCollection` → N parallel branches → `MergeCollection` (L2 in the Phase 10 discussion) is indirectly broken because it relies on branch parallelism.
+- Any future multi-GPU imaging workflow is blocked.
+- ResourceManager GPU slot gating becomes meaningless under serialised execution — a `gpu_slots=4` configuration behaves identically to `gpu_slots=1` because the scheduler never tries to dispatch a second GPU block concurrently.
+
+### Discussion points and resolution
+
+| # | Topic | Options discussed | Final decision |
+|---|---|---|---|
+| 1 | Where should the subprocess `await` happen so that independent branches run concurrently? | (A) Inline in `_dispatch`, as today. (B) In an `asyncio.Task` created by `_dispatch`, tracked separately. (C) Collected in a list and passed to `asyncio.gather` in `execute()`. | **Decision: (B).** `_dispatch` performs the synchronous state transition and input gathering, then wraps the long-running `runner.run(...)` call in `asyncio.create_task`. The task is stored in `self._active_tasks[block_id]` and runs independently. (A) is the current broken behaviour. (C) does not compose with event-driven re-dispatch triggered by `_on_block_done` — `gather` works for the initial root set but becomes awkward as new generations of READY blocks emerge. |
+| 2 | How does `execute()` know when the workflow is done? | (A) Track a completion event set by `_check_completion` when all blocks are terminal (current approach). (B) Return from `execute()` only when `self._active_tasks` is empty AND all blocks are terminal. | **Decision: (A) + (B).** Keep the existing `self._completed_event` asyncio.Event pattern. Update `_check_completion` to require `all(state in terminal for state in block_states.values())` (unchanged) AND `not self._active_tasks` (new). This ensures `execute()` does not return before all running subprocesses have finalised. |
+| 3 | How does cancellation propagate through the new task model? | (A) Use `task.cancel()` exclusively. (B) Use `ProcessHandle.terminate()` exclusively. (C) Use `ProcessHandle.terminate()` as the primary path and `task.cancel()` only for blocks still in pre-subprocess setup. | **Decision: (C).** The authoritative cancellation path stays as per ADR-019 — `ProcessHandle.terminate()` sends SIGTERM (+grace+SIGKILL on POSIX) or `TerminateJobObject` (Windows) to the worker subprocess. The task naturally unwinds when the subprocess exits, reads exit code, and transitions to CANCELLED. `task.cancel()` is only required for the small window between `_dispatch` entering and `spawn_block_process` returning — if cancellation is requested while the block is still in that setup phase, there is no `ProcessHandle` to terminate yet, so `task.cancel()` injects a `CancelledError` to abort setup. |
+| 4 | Do we need locks around state mutation? | (A) Introduce an `asyncio.Lock` per block or a single scheduler lock. (B) Rely on cooperative scheduling (asyncio coroutines do not preempt). | **Decision: (B).** asyncio is single-threaded; a coroutine only yields at `await` points. As long as state mutations happen between awaits (rather than across them), no lock is needed. The existing `_reset_lock` for `reset_block()` is kept because that path can be triggered from an external caller and has multi-step state updates. |
+| 5 | How are blocks throttled when `ResourceManager.can_dispatch()` returns False? | (A) Block inside `_dispatch` until resources free up. (B) Leave the block in READY state and retry dispatch when a resource event fires. | **Decision: (B).** Blocking inside `_dispatch` would reintroduce the serialisation bug under a different guise. Instead, `_dispatch` checks `can_dispatch` and, if refused, resets the block to READY and returns immediately. A new helper `_dispatch_newly_ready()` is called from `_on_block_done`, `_on_process_exited`, and the `ResourceManager`'s release callback; it re-scans for READY blocks and retries dispatch. |
+| 6 | Should each `RunHandle.result` `asyncio.Future` be the source of truth for "block finished"? | (A) Yes — subscribe to the future's done callback and emit BLOCK_DONE from there. (B) No — keep the "await runner.run then emit" pattern, just move it into a task. | **Decision: (B).** Minimises the change surface. `RunHandle.result` remains an `asyncio.Future` (per `scheduler.py:40`) but is implemented as the result of `runner.run()` awaited inside `_run_and_finalize`. The exception-handling structure stays nearly identical to the current `_dispatch`, only moved one level in. |
+| 7 | What happens if `execute()` raises mid-workflow (bug in a callback, cancelled externally)? | (A) Leak active tasks. (B) Cancel all active tasks in a `finally` block. | **Decision: (B).** `execute()` wraps its main body in `try: await self._completed_event.wait(); finally: await self._cancel_active_tasks_on_shutdown()`. The shutdown helper iterates `self._active_tasks`, terminates each subprocess via `ProcessHandle.terminate()`, and awaits task completion. This prevents zombie subprocesses after an engine-level exception. |
+| 8 | Do existing tests still pass under the new implementation? | (A) Yes, because tests only check eventual state. (B) No, because some tests assume strict sequential ordering. | **Decision: (B).** Tests that assert "block A's BLOCK_DONE event arrives before block B's BLOCK_RUNNING event" when A and B are in independent branches will fail — that ordering was an artefact of the bug, not a guarantee. Acceptance criterion for this fix: all existing scheduler tests either pass unchanged, or are updated with a written rationale that the old assertion relied on the serialisation bug. |
+
+### Decision
+
+`DAGScheduler._dispatch` is split into two methods:
+
+1. **`async def _dispatch(self, node_id: str) -> None`** — synchronous prelude performed on the scheduler coroutine: check `_paused`, check `_resource_manager.can_dispatch()` (re-queue if False), transition to RUNNING, emit BLOCK_RUNNING event, record lineage start, gather inputs, instantiate the block, wrap `_run_and_finalize(node_id, block, inputs, node)` in `asyncio.create_task`, store the task in `self._active_tasks[node_id]`, and return. The method no longer awaits the runner.
+
+2. **`async def _run_and_finalize(self, node_id, block, inputs, node) -> None`** — the long-running body, executed as an independent task: await `self._runner.run(block, inputs, node.config)`, store output refs in `self._block_outputs[node_id]`, transition to DONE, emit BLOCK_DONE event, save checkpoint. Exception handling mirrors the current `try/except` in `_dispatch`, including the "post-cancellation clean exit" early return. On finally, pop `node_id` from `self._active_tasks`.
+
+**New scheduler field**: `self._active_tasks: dict[str, asyncio.Task[None]] = {}` — keyed by `block_id`, tracks currently running block tasks.
+
+**`_on_cancel_block(event)`** — updated cancellation path:
+1. Look up `self._process_registry.get_handle(block_id)`.
+2. If a handle exists: call `handle.terminate(grace_period_sec=block.terminate_grace_sec)`. Set `_block_states[block_id] = CANCELLED` and emit `BLOCK_CANCELLED`. The `_run_and_finalize` task will unwind naturally when the subprocess exits (it catches the exception raised by `runner.run()`, sees the current state is already CANCELLED, and early-returns).
+3. If no handle exists (block is still in pre-subprocess setup): call `self._active_tasks[block_id].cancel()`. The `_run_and_finalize` task raises `CancelledError`, the scheduler transitions the block to CANCELLED, and emits `BLOCK_CANCELLED`.
+4. Call `_propagate_skip(block_id, "cancelled")`.
+5. Call `_check_completion()`.
+
+**`_on_cancel_workflow(event)`** — iterates all running blocks and applies `_on_cancel_block` logic to each, then marks any still-IDLE/READY blocks as SKIPPED with reason "workflow cancelled".
+
+**`_on_block_done(event)`** and **`_on_process_exited(event)`** — after their existing logic, call a new helper `_dispatch_newly_ready()`:
+
+```python
+async def _dispatch_newly_ready(self) -> None:
+    """Scan for READY blocks that were previously blocked by can_dispatch
+    and retry their dispatch. Also scan for IDLE blocks whose predecessors
+    are now all DONE."""
+    for node_id in self._order:
+        state = self._block_states[node_id]
+        if state == BlockState.IDLE and self._check_readiness(node_id):
+            self._block_states[node_id] = BlockState.READY
+            await self._dispatch(node_id)
+        elif state == BlockState.READY and node_id not in self._active_tasks:
+            # Previously blocked by can_dispatch; retry.
+            await self._dispatch(node_id)
+```
+
+Note that `_dispatch` is itself idempotent now: if `can_dispatch()` returns False again, the block stays in READY and the method returns without creating a task.
+
+**`_check_completion()`** — updated:
+
+```python
+def _check_completion(self) -> None:
+    terminal = {BlockState.DONE, BlockState.ERROR, BlockState.CANCELLED, BlockState.SKIPPED}
+    if all(s in terminal for s in self._block_states.values()) and not self._active_tasks:
+        self._completed_event.set()
+```
+
+**`execute()`** — updated:
+
+```python
+async def execute(self) -> None:
+    await self._event_bus.emit(EngineEvent(event_type=WORKFLOW_STARTED, ...))
+    if not self._dag.nodes:
+        self._completed_event.set()
+        await self._event_bus.emit(EngineEvent(event_type=WORKFLOW_COMPLETED, ...))
+        return
+    try:
+        # Initial dispatch of root-ready blocks. Note: no inline await on runner.
+        for node_id in self._order:
+            if self._block_states[node_id] == BlockState.IDLE and self._check_readiness(node_id):
+                self._block_states[node_id] = BlockState.READY
+                await self._dispatch(node_id)
+        # Wait for event-driven completion. Event handlers dispatch successors
+        # via _dispatch_newly_ready() called from _on_block_done / _on_process_exited.
+        await self._completed_event.wait()
+    finally:
+        await self._cancel_active_tasks_on_shutdown()
+    await self._event_bus.emit(EngineEvent(event_type=WORKFLOW_COMPLETED, ...))
+
+async def _cancel_active_tasks_on_shutdown(self) -> None:
+    """Best-effort cleanup of any tasks still running when execute() exits.
+    Terminates subprocesses via ProcessRegistry, then awaits task completion.
+    Swallows exceptions — this runs in a finally block."""
+    for block_id, task in list(self._active_tasks.items()):
+        handle = self._process_registry.get_handle(block_id) if self._process_registry else None
+        if handle is not None:
+            try:
+                handle.terminate()
+            except Exception:
+                logger.exception("Error terminating process for block %s during shutdown", block_id)
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except BaseException:
+                pass
+```
+
+### Alternatives considered
+
+- **Keep inline `await` and use `multiprocessing.Pool` at scheduler level**: duplicates the ProcessHandle / ProcessRegistry infrastructure built in ADR-019, loses ProcessMonitor's crash detection for those children, and fragments the process management story. Rejected.
+- **Use `asyncio.gather(*[self._dispatch(n) for n in ready_roots])` in `execute()`**: correct for the initial root dispatch but does not extend to `_on_block_done` which needs to dispatch newly-ready blocks on the fly. A mix of gather (for roots) and create_task (for successors) would be inconsistent. Rejected in favour of pure create_task.
+- **Switch to `threading.Thread` per block instead of `asyncio.Task`**: threads in Python are GIL-bound for CPU work and provide no isolation advantage over the subprocess-per-block model we already have (ADR-017). They also complicate cancellation — see ADR-027 §8 (thread policy) — and would not interoperate with the existing `asyncio` event bus without a bridging layer. Rejected.
+- **Defer the fix to Phase 11**: ADR-018 already promised this behaviour, and Phase 10 imaging workflows fundamentally depend on it (fan-out across 4 GPU workers, multi-branch multimodal workflows, etc.). Deferring would block Phase 10 from delivering any meaningful parallelism. Rejected.
+- **Expose a per-workflow `sequential: bool` config flag**: allows callers to opt in to the current broken behaviour for deterministic test runs. This is a legitimate debugging feature but should not be the default. Deferred to a follow-up: if test determinism becomes a pain point, a `deterministic=True` flag can be added that internally uses `asyncio.gather` in dependency order rather than fully concurrent dispatch. Not in scope for this addendum.
+
+### Consequences
+
+- Independent DAG branches execute concurrently, restoring the behaviour ADR-018 §5 and ARCH Appendix A promised.
+- `ResourceManager.can_dispatch()` becomes load-bearing: it is the sole throttle preventing unbounded subprocess fan-out. Bugs in `can_dispatch` (e.g., the `gpu_slots=0` default identified in ADR-027 §9) now have user-visible impact rather than being masked by serialised execution.
+- Tests that asserted strict sequential ordering between independent blocks will fail and must be updated. Tests that check dependency-respecting ordering (A before B when B depends on A) continue to work unchanged.
+- Debuggability degrades slightly because async stack traces interleave. Mitigation: set `task.set_name(f"dispatch:{block_id}")` for better logs and exception reporting.
+- The implementation is more sensitive to exceptions in event handlers. A bug in a subscriber (e.g., LineageRecorder raising) must not cascade — `EventBus.emit` already logs-and-continues on subscriber exceptions, but the scheduler-level try/finally in `execute()` is new and needs careful testing.
+- Cancellation on engine shutdown is now explicit via `_cancel_active_tasks_on_shutdown`. Previously the scheduler could leak subprocesses if `execute()` raised. This change is a correctness improvement.
+- The scheduler's memory footprint grows by a few pointers per running block (the `_active_tasks` dict). Negligible.
+
+### Detailed impact scope
+
+#### Rewritten files
+
+| File | Current state | New state | Detailed changes |
+|---|---|---|---|
+| `src/scieasy/engine/scheduler.py` | `_dispatch` inline awaits `runner.run`. Every `await self._dispatch(...)` is inline-awaited by the caller. Zero `asyncio.create_task`. | `_dispatch` is a synchronous prelude that creates a task for `_run_and_finalize`. `execute()` wraps its body in `try/finally` to guarantee task cleanup. Event handlers call `_dispatch_newly_ready()` for throttling retries. `_check_completion()` additionally checks `_active_tasks` is empty. New `_cancel_active_tasks_on_shutdown()` helper. | **Add** field `self._active_tasks: dict[str, asyncio.Task[None]] = {}` in `__init__`. **Split** `_dispatch` (current ~34 lines) into `_dispatch` (prelude, ~15 lines) and `_run_and_finalize` (body, ~30 lines). **Add** `_dispatch_newly_ready()` (~12 lines). **Add** `_cancel_active_tasks_on_shutdown()` (~15 lines). **Change** `execute()` to wrap in `try/finally`. **Change** `_on_block_done` and `_on_process_exited` to call `_dispatch_newly_ready` instead of scanning inline (smaller, ~5 lines each). **Change** `_on_cancel_block` to branch on "handle present → terminate" vs "handle absent → task.cancel()". **Change** `_check_completion` to also check `not self._active_tasks`. Total diff approximately 150 lines changed across one file. |
+
+#### Modified files
+
+| File | Current state | Changes |
+|---|---|---|
+| `tests/engine/test_scheduler.py` (and related) | Some tests may assert strict serial ordering of independent blocks. | **Audit** each test. Tests asserting ordering within independent branches must be updated to assert "A happened before B" only when B depends on A. **Add** a new test: `test_independent_branches_run_concurrently` that constructs a two-root DAG with a sleep in each block and asserts the total wall time is approximately `max(a, b)` rather than `a + b`. **Add** a new test: `test_resource_throttling_retries_dispatch` that constructs a DAG where two blocks both require a GPU, sets `gpu_slots=1`, and asserts the second block enters RUNNING only after the first completes. **Add** a new test: `test_scheduler_shutdown_cleanup` that triggers an exception mid-workflow and asserts `_active_tasks` is empty and all subprocesses are terminated after `execute()` returns. |
+| `tests/engine/test_dag.py` | Tests for DAG construction. | No changes expected. |
+| `tests/engine/test_runner.py` | Tests for LocalRunner. | No changes expected — the `LocalRunner` interface is unchanged. |
+| `tests/integration/test_multimodal_workflow.py` | Existing integration tests may implicitly depend on serial execution. | **Audit** the test. If it checks output values only, no change. If it checks event ordering between independent branches, update assertions. |
+
+#### New tests required
+
+- `tests/engine/test_scheduler_concurrency.py` (new file) containing:
+  - `test_independent_branches_run_concurrently`
+  - `test_resource_throttling_retries_dispatch`
+  - `test_scheduler_shutdown_cleanup_on_exception`
+  - `test_cancel_block_before_subprocess_starts` (edge case: task.cancel() path)
+  - `test_cancel_block_during_subprocess_run` (normal case: ProcessHandle.terminate() path)
+  - `test_cancel_workflow_with_mix_of_running_and_ready_blocks`
+
+#### Documentation impact
+
+| Document | Current state | Required changes |
+|---|---|---|
+| `docs/architecture/ARCHITECTURE.md` §6.1 (DAG scheduler) | Describes event-driven scheduler at a conceptual level. Does not mention `asyncio.Task` or `_active_tasks`. | **Clarify** that scheduling is implemented via `asyncio.create_task` per block, with `_active_tasks` as the concurrent task registry. **Add** a short paragraph on ResourceManager throttling semantics (blocks stay in READY when `can_dispatch` returns False; retry is triggered on the next resource release event). **Update** the pseudo-code in the section to reflect the split between `_dispatch` and `_run_and_finalize`. |
+| `docs/architecture/ARCHITECTURE.md` §6.1 EventBus subscription matrix | Shows DAGScheduler subscribing to BLOCK_DONE, BLOCK_ERROR, etc. | No change — the subscriptions are unchanged, only the internal dispatch strategy is. |
+| `docs/architecture/ARCHITECTURE.md` Appendix A (concrete example walkthrough) | States "Three IOBlocks load data in parallel". | No change — the addendum makes the prose accurate; previously it described behaviour that the implementation did not provide. |
+| `docs/adr/ADR.md` | This addendum. | Appended after ADR-018's Detailed impact scope table. |
+| `CHANGELOG.md` | Current entries. | **Add** entry under `[Unreleased]` → `### Fixed`: "Scheduler concurrency implementation per ADR-018 Addendum 1". |
+
+#### Out of scope
+
+- **No changes to BlockState, EventBus event types, or the subscription matrix**. ADR-018 remains authoritative for those.
+- **No changes to cancellation message protocol on WebSocket**. ADR-018 §8.3 remains authoritative.
+- **No changes to LineageRecord schema**. ADR-018's addition of termination fields remains authoritative.
+- **No changes to ProcessHandle, ProcessRegistry, or spawn_block_process**. ADR-019 remains authoritative.
+- **No changes to Collection transport or block iteration model**. ADR-020 remains authoritative.
+- **No new block states, no new events**. This addendum is implementation-only.
+
+---
+
 ## ADR-019: ProcessHandle, ProcessRegistry, and cross-platform process lifecycle
 
 **Status**: proposed
@@ -3752,3 +3955,687 @@ Does the standard adapter return the wrong type?
 | `docs/architecture/PROJECT_TREE.md` | **Add** `testing/__init__.py` and `testing/harness.py` entries under `src/scieasy/`. **Add** `cli/templates/` directory entry with annotation "Jinja2 templates for init-block-package scaffolding". **Add** `cli/_scaffold.py` entry. **Add** `docs/block-development/` directory listing. |
 | `docs/adr/ADR.md` | This ADR (ADR-026). |
 | `CHANGELOG.md` | **Add** entry under `[Unreleased]` → `### Added`. |
+
+---
+
+## ADR-027: Phase 10 core type system and block runtime refinements
+
+**Status**: proposed
+**Date**: 2026-04-06
+
+### Context
+
+Phase 10 introduces the first domain plugin package (`scieasy-blocks-imaging`) and with it the first sustained contact between the core runtime and real 5D/6D scientific data. The planning discussion surfaced a set of gaps between the architecture described in ADRs 001–026 and the code actually needed to ship a working imaging pipeline:
+
+1. **The current `Array` / `Image` hierarchy is not usable for routine microscopy data.** `src/scieasy/core/types/array.py` declares `axes` as `ClassVar[list[str] | None]` and hard-codes `Image.axes = ["y", "x"]`, `MSImage.axes = ["y", "x", "mz"]`, etc. There is no way to represent a 5D `(t, z, c, y, x)` fluorescence stack or a 6D hyperspectral time-course without inventing yet another subclass for every permutation. This is the literal opposite of what the architecture §4.1 promises about "extensibility through named axes".
+
+2. **Domain subtypes leak into core.** `Image`, `FluorImage`, `SRSImage`, `MSImage` are all defined in `src/scieasy/core/types/array.py`. ADR-002 (named axes), ADR-003 (broadcast as utility), and CLAUDE.md §2.3 ("Core must stay small and stable") all pressure in the direction of core holding only base primitives. The current placement contradicts that goal and blocks `scieasy-blocks-imaging` from owning its own type definitions cleanly.
+
+3. **No ergonomic metadata story.** `DataObject._metadata` is a free `dict[str, Any]` validated only as JSON-serialisable (`core/types/base.py:93`). A `FluorImage` author who wants to record pixel size, acquisition date, channel list, and objective lens has to cram everything into one flat untyped dict. There is no schema, no unit handling, no propagation rule, and no way for a downstream block to autocomplete `img.metadata["pix..."]`.
+
+4. **`Block` has no setup/teardown lifecycle.** Running Cellpose (or any GPU model) inside a `ProcessBlock` currently requires loading the model inside `process_item`, which means reloading it for every item in a Collection — a 5-second penalty per item on a 100-item batch. The default `run()` implementation in `ProcessBlock` iterates and calls `process_item` directly with no hook for per-run setup.
+
+5. **Thread policy was left implicit during earlier discussions.** ADR-017 requires subprocess isolation but says nothing about whether a block's own `run()` may use threads internally. A permissive reading allows threads (cellpose-style L3 parallelism inside a block); a restrictive reading forbids them. Phase 10 needs this policy written down.
+
+6. **`ResourceManager` defaults are broken for GPU workloads.** `resources.py:70` sets `gpu_slots: int = 0`, and `can_dispatch` refuses any `requires_gpu=True` block when `_gpu_in_use >= gpu_slots`. With `gpu_slots=0`, every GPU block fails `can_dispatch` unconditionally. The fix is a one-line default change plus auto-detection.
+
+7. **There is no common utility for "iterate over extra axes".** ADR-003 decided broadcast is a utility in `scieasy.utils.broadcast.broadcast_apply`, but that helper was designed for the "low-dim source + high-dim target" case (applying a 2D mask over an MSI hypercube), not the more common "single Array with axes I want to process one slice at a time" case. Phase 10 imaging blocks all need the latter.
+
+8. **Worker subprocess cannot reconstruct domain types after they move out of core.** `engine/runners/worker.py:37-60` imports `TypeSignature` and `ViewProxy` but does not call any `TypeRegistry.scan()`. Once `Image` lives in `scieasy-blocks-imaging`, a worker running a Cellpose block must be able to `import` that package and find the `Image` class to reconstruct a typed instance from a `StorageReference`. Without a scan, the worker only has core base classes available.
+
+9. **Collection-level parallelism pattern is undocumented.** With ADR-018 Addendum 1 restoring DAG-branch parallelism, the natural way to parallelise Cellpose over 100 images is `SplitCollection → 4 parallel Cellpose branches → MergeCollection`. This is the "L2 fan-out" pattern. It works with existing built-in blocks but has never been written down as the recommended approach, so block authors will invent ad-hoc alternatives.
+
+10. **OptEasy's `iter_over(axis)` and `sel(**kwargs)` helpers on `ArrayData` are missed.** Block authors writing 5D processing code in SciEasy currently have to `to_memory()` the whole volume and manually index with `tuple(slice(None) ... 15 ... slice(None))`. Every Phase 10 imaging block would repeat this pattern.
+
+These issues are cross-cutting and interdependent — for example, moving domain types to plugins (#2) requires worker TypeRegistry scanning (#8), and `iter_over` laziness (#10) interacts with the metadata inheritance story (#3). They are bundled into a single ADR because they form a coherent Phase 10 preparation package rather than a sequence of unrelated fixes.
+
+### Discussion points and resolution
+
+| # | Topic | Options discussed | Final decision |
+|---|---|---|---|
+| 1 | Should `Array.axes` be class-level, instance-level, or a hybrid? | (A) Keep class-level, users subclass for every new combination. (B) Move to instance-level; class declares only constraints. (C) OptEasy-style single `dims: str` per instance. | **Decision: (B).** `Array` instances carry their own `axes: list[str]`. Classes declare `required_axes: frozenset[str]` (minimum set any instance must have), `allowed_axes: frozenset[str] | None` (superset of axes the class accepts; `None` means any), and `canonical_order: tuple[str, ...]` (preferred ordering for reorder operations). Option (A) is the current broken state. Option (C) sacrifices the typed-class discipline that makes port validation work in SciEasy. |
+| 2 | How large is the axis alphabet for Phase 10? | (A) Just `(y, x)` plus a couple extras. (B) 5D: `(t, z, c, y, x)`. (C) 6D including spectral: `(t, z, c, lambda, y, x)`. | **Decision: (C).** Spectral imaging (SRS, hyperspectral) is a first-class target modality, and the `lambda` axis semantically differs from `c` (continuous spectral vs. discrete channel). Allowing both supports rare-but-real combined modalities (e.g., multichannel hyperspectral). Axis name `lambda` is spelled out (not the Greek letter `λ`) for YAML/JSON/URL safety. Canonical order is `(t, z, c, lambda, y, x)` following OME convention with spectral inserted between channel and spatial. |
+| 3 | Should `c` (discrete channel) and `lambda` (continuous spectral) coexist in one axes list? | (A) Forbid; a class picks one. (B) Allow; rare but valid. | **Decision: (B).** Allow. Block authors restrict via port `constraint` helpers (e.g., `has_axes("y", "x", "c")` for multichannel, `has_axes("y", "x", "lambda")` for spectral). Framework does not forbid the combination. |
+| 4 | Where should domain subtypes (`Image`, `Spectrum`, `AnnData`, `PeakTable`, etc.) live? | (A) Stay in core alongside base types. (B) Move all domain subtypes out of `scieasy/core/types/` into plugin packages. | **Decision: (B).** Core keeps only the seven base types (`DataObject`, `Array`, `Series`, `DataFrame`, `Text`, `Artifact`, `CompositeData`). All domain subtypes move to their respective plugin packages. This includes `Image`, `FluorImage`, `SRSImage`, `MSImage` (→ `scieasy-blocks-imaging`), `Spectrum`, `RamanSpectrum`, `MassSpectrum`, `PeakTable`, `MetabPeakTable` (→ `scieasy-blocks-spectral`), `AnnData` (→ future `scieasy-blocks-singlecell`), `SpatialData` (→ future `scieasy-blocks-spatial-omics`). This is the purest reading of CLAUDE.md §2.3 and ADR-008's Tier 2 package model. |
+| 5 | How is broadcast-like iteration exposed to block authors? | (A) New base class hierarchy (`SpatialBlock`, `SpectralBlock`, `AxisIteratingBlock`) with override points. (B) Utility function `iterate_over_axes(source, operates_on, func)` that block authors call explicitly inside `process_item`. | **Decision: (B).** A base class per dimensional pattern multiplies the Block inheritance tree without adding expressive power — the only thing that varies is the set of axes to iterate over, which is a function argument, not a type. Utility function places the decision in the block author's hands without class-level commitment. Matches CLAUDE.md §7.2 ("Favor composition over deep inheritance"). |
+| 6 | Should the iteration utility be lazy, eager, or lazy-capable? | (A) Eager: load the whole Array, iterate in memory. (B) Level 1 lazy: `iter_over(axis)` is a generator that reads one slice per step. (C) Level 2 lazy: return new Array instances with `SlicedStorageReference` that read lazily at every subsequent access. | **Decision: (B) for Phase 10.** Level 1 laziness ensures peak memory is one slice, not the full volume. Each yielded slice is an in-memory Array instance (fresh `storage_ref=None`, data in `_data`), so downstream access is free. Level 2 (virtual slice refs threaded through ViewProxy) is deferred as a Phase 11+ optimisation under a separate ADR if profiling justifies it. |
+| 7 | Must `iter_over`/`sel` preserve metadata? | (A) Return raw numpy arrays. (B) Return new Array instances with all metadata inherited. | **Decision: (B).** Yielded slices are same-class-as-source (e.g., iterating a `FluorImage` yields `FluorImage` slices). `framework` metadata is derived (with a lineage hint), `meta` (domain metadata) is shared by reference since it is frozen Pydantic, `user` metadata is shallow-copied, `axes` has the iterated dimension removed. Block authors never lose metadata just because they iterated. |
+| 8 | How should metadata be structured? | (A) Free `dict[str, Any]` (current). (B) Structured per-subtype using dataclasses. (C) Structured per-subtype using Pydantic BaseModel with three slots (framework / domain / user). | **Decision: (C).** Three slots: `framework: FrameworkMeta` (immutable framework-managed fields — created_at, object_id, source, lineage hint), `meta: DomainMeta` (typed Pydantic BaseModel declared per subtype), `user: dict[str, Any]` (free-form escape hatch). Pydantic gives IDE autocompletion, type validation, clean JSON round-trip for subprocess transport, and painless schema evolution via field defaults. |
+| 9 | How are physical units represented? | (A) Raw floats; unit lives in a sibling field. (B) Use `pint`. (C) Self-written `PhysicalQuantity` with a small unit table. | **Decision: (C).** `pint` is ~200–400 ms import time per subprocess worker — unacceptable when every block spawns a fresh interpreter. `PhysicalQuantity` is a ~50-line dataclass covering the ~15 units SciEasy actually needs (length, time, frequency, wavenumber). Drop-in replacement with `pint` remains possible in a future phase by swapping the `scieasy.core.units` module internals. |
+| 10 | How does a block declare expensive one-time setup? | (A) Do it in `process_item`, pay the cost N times. (B) Add `setup(config)` / `teardown(state)` hooks to `ProcessBlock`. (C) Add a new `StatefulBlock` base class. | **Decision: (B).** Smallest surface change. Default `setup` returns `None`, default `teardown` does nothing. `process_item(item, config, state=None)` receives whatever `setup` returned. `ProcessBlock.run()` calls `setup` once, iterates, calls `teardown` in a `finally` block. Authors of stateless blocks ignore the hooks entirely. |
+| 11 | Should `setup` receive the inputs dict? | (A) Yes, for data-driven setup. (B) No, only config. | **Decision: (B).** `setup(config)` sees only the config. Data-driven decisions (e.g. "pick the model based on the first image's modality") happen lazily inside `process_item` and cache their result on the `state` object. Keeping `setup` config-only prevents a tangled contract where `setup` becomes responsible for Collection-aware logic. |
+| 12 | Are threads allowed inside a block's `run()`? | (A) Forbidden. (B) Allowed as an escape hatch, documented as not recommended. (C) Encouraged as the default parallelism pattern. | **Decision: (B).** Threads inside a block's worker subprocess are acceptable — SIGTERM/SIGKILL on the subprocess cleanly terminates all of its threads because OS-level process death releases thread resources. Threads CANNOT be interrupted cooperatively at sub-second granularity (there is no graceful "stop this thread mid-`cellpose.eval`"), so hard kill is the only reliable abort. Documentation must state: (1) threads are allowed, (2) L2 fan-out is preferred for Collection-level parallelism because it scales across machines and plays nicely with `ResourceManager`, (3) threads should be used only when a library releases the GIL (numpy/torch/cellpose C extensions) or for I/O-bound work, (4) cancellation is guaranteed only via subprocess kill, not via cooperative thread signalling. |
+| 13 | What is the recommended pattern for Collection-level parallelism? | (A) Block-internal ThreadPool. (B) Block-internal ProcessPool. (C) L2 fan-out: `SplitCollection → N parallel branches → MergeCollection` at the workflow graph level. | **Decision: (C).** Pushing parallelism up to the workflow graph means each branch is a separate subprocess under `ProcessRegistry` supervision, gets its own `ResourceManager` GPU/CPU slot, benefits from DAG-level cancellation semantics, and scales naturally to multi-GPU and multi-machine execution (future). Block-internal pools are permitted as an escape hatch (per #12) but not the documented default. |
+| 14 | Does `cellpose` specifically need block-internal parallelism? | (A) Yes, iterate items with a ThreadPool. (B) No, cellpose's own `model.eval([img1, img2, ...], batch_size=N)` uses GPU batching internally. | **Decision: (B).** Cellpose's parallelism is GPU-batched kernels inside a single `eval` call. A Phase 10 `CellposeSegment` block uses the Tier 2 pattern (override `run()`, call `setup()` once to load the model, then loop over the Collection in GPU-sized batches via `eval([...], batch_size=N)`). No thread pool or process pool needed at the block level. Multi-GPU parallelism uses L2 fan-out (per #13). |
+| 15 | What is the default value of `ResourceManager.gpu_slots`? | (A) `0` (current — GPU blocks never dispatch). (B) `1` (always allow one GPU block). (C) Auto-detect via `torch.cuda.device_count()` or `nvidia-smi` with `0` fallback. | **Decision: (C) + fallback behaviour.** `ResourceManager.__init__` takes `gpu_slots: int | None = None`. If `None`, call `_auto_detect_gpu_slots()` which tries `torch.cuda.device_count()` first, then `nvidia-smi -L`, then returns `0`. If the detected value is `0` but any block declares `requires_gpu=True`, log a single warning explaining that the user can override via project config. Explicit integer values passed to `__init__` are respected unchanged. Auto-detect runs once per scheduler instantiation, not per dispatch. |
+| 16 | Should the worker subprocess (`engine/runners/worker.py`) call `TypeRegistry.scan()` before reconstructing inputs? | (A) No — only core types are reconstructable, plugin types remain dict-like. (B) Yes — scan entry-points at worker startup so plugin types work. | **Decision: (B).** Once domain subtypes move to plugins (#4), the worker must be able to resolve `type_chain=["DataObject", "Array", "Image", "FluorImage"]` by importing `scieasy-blocks-imaging`. This means adding a `TypeRegistry.scan()` call at the top of `worker.main()` before `reconstruct_inputs()`. The scan is the same `scieasy.types` entry-point scan that the main process uses (ADR-025). Subprocess cold start grows by ~50 ms for a package with five types, acceptable given subprocess startup already dominates (~150 ms). |
+
+### Decision
+
+The Phase 10 decisions from the discussion table are codified below. Each section has a one-paragraph summary and a code-shape sketch where appropriate. Exact line-by-line impact is in the "Detailed impact scope" section further down.
+
+#### D1. Instance-level axes with class-level schema (covers discussion #1–3)
+
+`Array` holds `axes` as a per-instance list. Subclasses declare axis constraints at class level. The 6D axis alphabet is `{"t", "z", "c", "lambda", "y", "x"}`. `lambda` (spectral) and `c` (discrete channel) are distinct and may coexist in a single instance.
+
+```python
+class Array(DataObject):
+    # Class-level schema (subclass overrides)
+    required_axes:   ClassVar[frozenset[str]] = frozenset()
+    allowed_axes:    ClassVar[frozenset[str] | None] = None   # None = any
+    canonical_order: ClassVar[tuple[str, ...]] = ()
+
+    def __init__(
+        self,
+        *,
+        axes: list[str],            # now required
+        shape: tuple[int, ...] | None = None,
+        dtype: Any = None,
+        chunk_shape: tuple[int, ...] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.axes = list(axes)
+        self.shape = shape
+        self.dtype = dtype
+        self.chunk_shape = chunk_shape
+        self._validate_axes()
+
+    def _validate_axes(self) -> None:
+        axes_set = set(self.axes)
+        if not self.required_axes.issubset(axes_set):
+            missing = self.required_axes - axes_set
+            raise ValueError(
+                f"{type(self).__name__} requires axes {sorted(self.required_axes)}, "
+                f"missing: {sorted(missing)}"
+            )
+        if self.allowed_axes is not None and not axes_set.issubset(self.allowed_axes):
+            extra = axes_set - self.allowed_axes
+            raise ValueError(
+                f"{type(self).__name__} accepts only {sorted(self.allowed_axes)}, "
+                f"unexpected: {sorted(extra)}"
+            )
+        if len(set(self.axes)) != len(self.axes):
+            raise ValueError(f"Duplicate axes in {self.axes}")
+```
+
+Domain subtypes (defined in plugins per D2):
+
+```python
+# In scieasy-blocks-imaging
+class Image(Array):
+    required_axes   = frozenset({"y", "x"})
+    allowed_axes    = frozenset({"t", "z", "c", "lambda", "y", "x"})
+    canonical_order = ("t", "z", "c", "lambda", "y", "x")
+
+class FluorImage(Image):
+    required_axes = frozenset({"y", "x", "c"})   # channel mandatory
+
+class HyperspectralImage(Image):
+    required_axes = frozenset({"y", "x", "lambda"})
+```
+
+`TypeSignature.from_type(cls)` additionally records `required_axes` as part of the signature so that port `port_accepts_signature` checks can enforce "incoming instance must have at least required_axes of target port type".
+
+#### D2. Core contains only base types; all domain subtypes live in plugins (covers discussion #4)
+
+`src/scieasy/core/types/` ends Phase 10 holding exactly these classes:
+
+- `base.py` → `DataObject`, `TypeSignature`
+- `array.py` → `Array` (no `Image`, no `MSImage`, no `SRSImage`, no `FluorImage`)
+- `series.py` → `Series` (no `Spectrum`, `RamanSpectrum`, `MassSpectrum`)
+- `dataframe.py` → `DataFrame` (no `PeakTable`, `MetabPeakTable`)
+- `text.py` → `Text`
+- `artifact.py` → `Artifact`
+- `composite.py` → `CompositeData` (no `AnnData`, `SpatialData`)
+- `collection.py` → `Collection` (unchanged)
+- `registry.py` → `TypeRegistry` (unchanged behaviour, but becomes the sole source of truth for domain types)
+
+Plugin package map:
+
+| Domain type | Target plugin package |
+|---|---|
+| `Image`, `FluorImage`, `BrightfieldImage`, `HyperspectralImage`, `SRSImage` | `scieasy-blocks-imaging` |
+| `MSImage`, `MALDIImage` | `scieasy-blocks-msi` (new) |
+| `Spectrum`, `RamanSpectrum`, `MassSpectrum` | `scieasy-blocks-spectral` |
+| `PeakTable`, `MetabPeakTable` | `scieasy-blocks-spectral` |
+| `AnnData` | `scieasy-blocks-singlecell` (new) |
+| `SpatialData` | `scieasy-blocks-spatial-omics` (new) |
+
+Built-in blocks that currently reference `Image` directly (e.g. `MergeCollection`, `FilterCollection`, `SliceCollection`) are audited and changed to reference `Array` (or a plugin-provided type via entry-point import) — see impact scope.
+
+#### D3. `iterate_over_axes` utility (covers discussion #5)
+
+New module `src/scieasy/utils/axis_iter.py`:
+
+```python
+from typing import Callable
+import numpy as np
+from scieasy.core.types.array import Array
+from scieasy.core.exceptions import BroadcastError
+
+def iterate_over_axes(
+    source: Array,
+    operates_on: set[str],
+    func: Callable[[np.ndarray, dict[str, int]], np.ndarray],
+) -> Array:
+    """Iterate `func` over all axes in source NOT in operates_on.
+
+    For each combination of the non-operates_on axes, calls:
+        func(slice_data, slice_coord)
+    where slice_data is a numpy array containing only the operates_on
+    dimensions, and slice_coord is a dict mapping extra-axis name to
+    current integer index.
+
+    Results are stacked back into a new instance of source's concrete
+    class, preserving axes, shape, and metadata (framework/meta/user).
+
+    Raises BroadcastError if slice outputs have inconsistent shapes or
+    if operates_on is not a subset of source.axes.
+    """
+    ...
+```
+
+The function is serial. It does not use threads or subprocesses. Memory footprint is O(one slice + one result slice). Errors in user-provided `func` propagate unchanged. Metadata inheritance follows D5 (see below).
+
+This utility is placed in `scieasy.utils.axis_iter`, adjacent to the existing `scieasy.utils.broadcast.broadcast_apply` (ADR-003). The two cover complementary use cases: `iterate_over_axes` handles "iterate a single Array's extra dims" (common case), `broadcast_apply` handles "project a low-dim object onto a high-dim object" (cross-modal fusion case).
+
+#### D4. `Array.iter_over()` and `Array.sel()` with Level 1 laziness (covers discussion #6, #7)
+
+New methods on `Array`:
+
+```python
+class Array(DataObject):
+    def sel(self, **kwargs: int | slice) -> "Array":
+        """Select a sub-array along named axes.
+
+        Example:
+            img.sel(z=15, c=0)        # single z index, single channel
+            img.sel(z=slice(10, 20))  # z range
+
+        Returns a new instance of self.__class__ with axes reduced by the
+        scalar-index selections. Integer indices remove the axis; slice
+        objects keep the axis. Supports integers and slice objects;
+        does NOT support lists of indices or boolean masks in Phase 10.
+
+        Metadata inheritance:
+            framework: derived (lineage hint back to parent)
+            meta: shared by reference (immutable Pydantic)
+            user: shallow copy
+            axes: reduced per the selection
+
+        Laziness:
+            If self.storage_ref is Zarr-backed and supports partial reads,
+            only the requested chunk(s) are materialised. For other backends,
+            falls back to self.view().to_memory() then numpy indexing.
+        """
+        ...
+
+    def iter_over(self, axis: str) -> Iterator["Array"]:
+        """Yield sub-arrays along one named axis.
+
+        Example:
+            for z_slice in img.iter_over("z"):
+                ...
+
+        Memory: O(one slice per iteration step). Each yielded Array has
+        `axis` removed from its axes list, same class as self, metadata
+        preserved per sel()'s rules.
+
+        Implementation: generator that calls `self.sel(**{axis: k})` for
+        k in range(axis_size). Lazy in the iteration sense — each step
+        reads one chunk on demand.
+        """
+        ...
+```
+
+Phase 10 implements Level 1 laziness: lazy iteration (one slice per step) for Zarr-backed instances; for filesystem-backed instances, fall back to materialising once on first access. Level 2 laziness (persistent `SlicedStorageReference` carried through ViewProxy) is deferred.
+
+#### D5. Stratified metadata with Pydantic (covers discussion #8)
+
+`DataObject` gains three slots replacing the current flat `_metadata` dict:
+
+```python
+from pydantic import BaseModel, Field
+
+class FrameworkMeta(BaseModel):
+    """Framework-managed, block-authors do not mutate."""
+    created_at: datetime
+    object_id: str
+    source: str = ""           # free-form origin description
+    lineage_id: str | None = None   # links into LineageRecorder
+    derived_from: str | None = None # parent object_id for derived slices
+
+class DataObject:
+    framework: FrameworkMeta
+    meta: BaseModel              # subclass overrides with typed subclass
+    user: dict[str, Any]         # free-form, framework does not interpret
+
+    # Backward-compat shim: `metadata` property maps to `user` for the
+    # duration of Phase 10, emitting a DeprecationWarning. Removed in Phase 11.
+```
+
+Each Array subtype declares its own `Meta` Pydantic model:
+
+```python
+# In scieasy-blocks-imaging
+class FluorImage(Image):
+    class Meta(BaseModel):
+        pixel_size:       PhysicalQuantity              # see D6
+        channels:         list[ChannelInfo] = []
+        objective:        str | None = None
+        acquisition_date: datetime | None = None
+        instrument:       str | None = None
+        exposure_ms:      dict[str, float] | None = None
+
+    meta: "FluorImage.Meta"
+```
+
+New helper `with_meta(**changes)` on `DataObject` for immutable update:
+
+```python
+def with_meta(self, **changes: Any) -> "Self":
+    """Return a new DataObject with meta fields changed.
+    Other slots (framework, user, storage_ref, shape, etc.) preserved."""
+    new_meta = self.meta.model_copy(update=changes)
+    return self.__class__(..., meta=new_meta, ...)
+```
+
+Propagation rule in `iterate_over_axes` and `iter_over`:
+
+- `framework`: new `framework` with `derived_from=parent.framework.object_id`, new `object_id`, `created_at=now()`.
+- `meta`: shared by reference (Pydantic model is frozen).
+- `user`: shallow copy.
+- `axes`: reduced per the slicing operation.
+
+Backward-compat: `DataObject.metadata` remains as a property that returns `self.user` with a `DeprecationWarning`. Removed after Phase 11.
+
+#### D6. `PhysicalQuantity` (covers discussion #9)
+
+New module `src/scieasy/core/units.py`:
+
+```python
+from dataclasses import dataclass
+
+_LENGTH   = {"m": 1.0, "mm": 1e-3, "um": 1e-6, "nm": 1e-9, "pm": 1e-12, "A": 1e-10}
+_TIME     = {"s": 1.0, "ms": 1e-3, "us": 1e-6, "ns": 1e-9, "min": 60.0, "hr": 3600.0}
+_FREQ     = {"Hz": 1.0, "kHz": 1e3, "MHz": 1e6, "GHz": 1e9}
+_WAVENUM  = {"cm-1": 100.0, "m-1": 1.0}
+
+_KIND = {
+    **{u: "length"     for u in _LENGTH},
+    **{u: "time"       for u in _TIME},
+    **{u: "freq"       for u in _FREQ},
+    **{u: "wavenumber" for u in _WAVENUM},
+}
+_SCALE = {**_LENGTH, **_TIME, **_FREQ, **_WAVENUM}
+
+@dataclass(frozen=True)
+class PhysicalQuantity:
+    value: float
+    unit: str
+
+    def __post_init__(self) -> None:
+        if self.unit not in _SCALE:
+            raise ValueError(f"Unknown unit: {self.unit!r}")
+
+    def to(self, target_unit: str) -> "PhysicalQuantity":
+        if _KIND[self.unit] != _KIND[target_unit]:
+            raise ValueError(f"Cannot convert {_KIND[self.unit]} to {_KIND[target_unit]}")
+        return PhysicalQuantity(
+            self.value * _SCALE[self.unit] / _SCALE[target_unit],
+            target_unit,
+        )
+
+    def __lt__(self, other: "PhysicalQuantity") -> bool:
+        if _KIND[self.unit] != _KIND[other.unit]:
+            raise TypeError("Incompatible kinds")
+        return self.value * _SCALE[self.unit] < other.value * _SCALE[other.unit]
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, PhysicalQuantity):
+            return NotImplemented
+        if _KIND[self.unit] != _KIND[other.unit]:
+            return False
+        return abs(self.value * _SCALE[self.unit] - other.value * _SCALE[other.unit]) < 1e-12
+```
+
+Pydantic validator ensures `PhysicalQuantity` fields serialise as `{"value": ..., "unit": ...}` for JSON transport across subprocesses. A custom serialiser/validator module inside `scieasy.core.units` handles the Pydantic integration.
+
+#### D7. `ProcessBlock.setup()` and `teardown()` hooks (covers discussion #10, #11)
+
+`ProcessBlock` base class gains two hooks and a three-argument `process_item`:
+
+```python
+class ProcessBlock(Block):
+    def setup(self, config: BlockConfig) -> Any:
+        """Called once per run() before iterating the Collection.
+        Return value is passed to every process_item() as `state`.
+        Default: returns None.
+        Use for: loading ML models, opening DB connections, compiling
+        regexes, anything expensive that should be reused across items."""
+        return None
+
+    def teardown(self, state: Any) -> None:
+        """Called once per run() in a finally block, even on error.
+        Default: no-op.
+        Use for: releasing resources (close files, free GPU memory)."""
+        pass
+
+    def process_item(
+        self,
+        item: DataObject,
+        config: BlockConfig,
+        state: Any = None,
+    ) -> DataObject:
+        raise NotImplementedError
+
+    def run(self, inputs, config):
+        from scieasy.core.types.collection import Collection
+        primary = next(iter(inputs.values()))
+        state = self.setup(config)
+        try:
+            if isinstance(primary, Collection):
+                results = []
+                for item in primary:
+                    result = self.process_item(item, config, state)
+                    result = self._auto_flush(result)
+                    results.append(result)
+                output_name = self.output_ports[0].name if self.output_ports else "output"
+                return {output_name: Collection(results, item_type=primary.item_type)}
+            else:
+                result = self.process_item(primary, config, state)
+                output_name = self.output_ports[0].name if self.output_ports else "output"
+                return {output_name: result}
+        finally:
+            self.teardown(state)
+```
+
+`setup` receives only `config`. It must not access `inputs`. Blocks that need data-driven initialisation do it lazily inside `process_item` and cache on the `state` object.
+
+Existing blocks that override `process_item(self, item, config)` (two-argument form) remain source-compatible because the new third argument has a default of `None`. Adding `state` is purely additive.
+
+#### D8. Thread policy (covers discussion #12)
+
+Threads are permitted inside a block's `run()` as an escape hatch. They are NOT permitted in the engine, scheduler, event bus, process registry, or any core runtime component. The block-developer documentation must state:
+
+1. A block's worker subprocess is killable as a unit. SIGTERM/SIGKILL terminates all threads within it. You do not need to manually cancel threads.
+2. Threads cannot be interrupted cooperatively between `await` points or mid-function. If your block's thread is inside `cellpose.eval()` for 30 seconds, the only way to stop it before 30 seconds is to kill the whole subprocess.
+3. Threads are worthwhile only when: (a) the library releases the GIL (numpy, torch, cellpose internals), (b) the work is I/O-bound (file or network reads).
+4. For Collection-level parallelism, prefer L2 fan-out (D9) over block-internal threads. Fan-out scales across multiple GPUs and machines, threads do not.
+5. If a block uses a thread pool, it should set `max_internal_workers` on its `ResourceRequest` so the `ResourceManager` can count the block's actual CPU footprint toward the scheduler-wide CPU pool. The existing `ResourceRequest.max_internal_workers` field (already present at `resources.py:27`, currently unused) is formally activated by this ADR.
+
+#### D9. L2 fan-out as the recommended Collection-level parallelism pattern (covers discussion #13, #14)
+
+Block authors who need N-way parallelism on a Collection express it in the workflow graph using existing built-in blocks:
+
+```
+[LoadImages]
+    └─ Collection[Image] length=100
+[SplitCollection n_parts=4]
+    ├─ out_0 → [Cellpose A] ─┐
+    ├─ out_1 → [Cellpose B] ─┤
+    ├─ out_2 → [Cellpose C] ─┤
+    └─ out_3 → [Cellpose D] ─┤
+                             ↓
+                    [MergeCollection]
+```
+
+Each `Cellpose*` branch is a separate subprocess under `ProcessRegistry` supervision, acquires its own GPU slot from `ResourceManager`, has its own setup/teardown cycle, and can be cancelled independently via ADR-018's cancel flow. Scheduler concurrency per ADR-018 Addendum 1 is a prerequisite.
+
+`SplitCollection` and `MergeCollection` already exist as built-in blocks (`blocks/process/builtins/split_collection.py`, `merge_collection.py`). No new code is required for the pattern itself — only documentation and examples in the block developer guide.
+
+Phase 10 `CellposeSegment` block uses Tier 2 (override `run()`) to exploit cellpose's built-in GPU batching:
+
+```python
+class CellposeSegment(ProcessBlock):
+    input_ports  = [InputPort(name="images", accepted_types=[Image],
+                              constraint=has_axes("y", "x"))]
+    output_ports = [OutputPort(name="masks", accepted_types=[Image])]
+    resource_request = ResourceRequest(
+        requires_gpu=True, gpu_memory_gb=4.0, cpu_cores=2,
+    )
+
+    def setup(self, config):
+        from cellpose import models
+        return models.Cellpose(
+            model_type=config.get("model", "cyto2"),
+            gpu=True,
+        )
+
+    def run(self, inputs, config):
+        state = self.setup(config)
+        try:
+            images = inputs["images"]
+            batch_size = config.get("batch_size", 8)
+            results = []
+            item_list = list(images)
+            for i in range(0, len(item_list), batch_size):
+                batch_items = item_list[i:i+batch_size]
+                batch_arrays = [it.to_memory() for it in batch_items]
+                masks_list, _, _, _ = state.eval(
+                    batch_arrays,
+                    batch_size=batch_size,
+                    diameter=config.get("diameter", 30),
+                )
+                for orig, mask in zip(batch_items, masks_list):
+                    result = Image(
+                        axes=orig.axes, shape=mask.shape, dtype=mask.dtype,
+                        meta=orig.meta,
+                    )
+                    results.append(self._auto_flush(result))
+            return {"masks": Collection(results, item_type=Image)}
+        finally:
+            import torch
+            torch.cuda.empty_cache()
+```
+
+#### D10. `ResourceManager` auto-detects GPU slots (covers discussion #15)
+
+`ResourceManager.__init__` signature change:
+
+```python
+class ResourceManager:
+    def __init__(
+        self,
+        gpu_slots: int | None = None,      # was: int = 0
+        cpu_workers: int = 4,
+        memory_high_watermark: float = 0.80,
+        memory_critical: float = 0.95,
+        event_bus: Any | None = None,
+    ) -> None:
+        if gpu_slots is None:
+            gpu_slots = _auto_detect_gpu_slots()
+        self.gpu_slots = gpu_slots
+        ...
+
+def _auto_detect_gpu_slots() -> int:
+    """Best-effort GPU count detection. Tries torch, then nvidia-smi, then 0."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return torch.cuda.device_count()
+    except ImportError:
+        pass
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["nvidia-smi", "-L"], capture_output=True, text=True, timeout=2,
+        )
+        if result.returncode == 0:
+            return sum(1 for line in result.stdout.splitlines() if line.startswith("GPU "))
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        pass
+    return 0
+```
+
+If auto-detection returns 0 but any block in the loaded workflow declares `requires_gpu=True`, log a single WARNING at scheduler start-up explaining that no GPU was detected and pointing the user at the project config override. Explicit integer values passed to `__init__` are respected unchanged.
+
+**Important caveat**: auto-detection returns physical GPU count, not "how many cellpose instances can coexist in VRAM". Users with large models on small cards should override via project config. Phase 10 does NOT introduce VRAM-based slot calculation because `gpu_memory_gb` declarations are block-declared, not enforced, and VRAM is not reliably monitorable cross-platform per ADR-022.
+
+#### D11. Worker subprocess TypeRegistry scan (covers discussion #16)
+
+`src/scieasy/engine/runners/worker.py` `main()` gains an early call:
+
+```python
+def main() -> None:
+    try:
+        # ADR-027 D11: scan entry-points so plugin-provided DataObject
+        # subtypes can be resolved during reconstruct_inputs.
+        from scieasy.core.types.registry import TypeRegistry
+        TypeRegistry.scan()
+
+        raw = sys.stdin.read()
+        payload = json.loads(raw)
+        # ... rest unchanged ...
+```
+
+`reconstruct_inputs` is enhanced to look up `type_chain` in the registry and construct the correct subclass instance instead of always returning a bare `DataObject`:
+
+```python
+def reconstruct_inputs(payload):
+    from scieasy.core.proxy import ViewProxy
+    from scieasy.core.storage.ref import StorageReference
+    from scieasy.core.types.base import TypeSignature
+    from scieasy.core.types.registry import TypeRegistry
+
+    raw_inputs = payload.get("inputs", {})
+    result = {}
+    for key, value in raw_inputs.items():
+        if isinstance(value, dict) and "backend" in value and "path" in value:
+            ref = StorageReference(...)
+            type_chain = value.get("metadata", {}).get("type_chain", ["DataObject"])
+            # Resolve the most specific class known to the registry.
+            cls = TypeRegistry.resolve(type_chain) or DataObject
+            sig = TypeSignature(type_chain=type_chain)
+            # Wrap in ViewProxy; callers can upgrade to a typed instance via
+            # their port-aware layer or by constructing cls from the ref.
+            result[key] = ViewProxy(storage_ref=ref, dtype_info=sig)
+        else:
+            result[key] = value
+    return result
+```
+
+(The exact mapping from `type_chain` back to a concrete subclass may need a small helper in `TypeRegistry`; that helper is listed in the impact scope.)
+
+### Alternatives considered
+
+- **Keep all domain subtypes in core (D2 Option A)**: preserves the current import paths and test layout. Rejected because it contradicts CLAUDE.md §2.3 and makes the core untestable without implicit assumptions about imaging. The audit of `src/scieasy/blocks/` to update `accepted_types=[Image]` → `accepted_types=[Array]` is routine.
+- **Single `dims: str` like OptEasy (D1 Option C)**: one-line schema, zero validation. Rejected because it cannot express per-class required-axes constraints, cannot handle axis names longer than one character (`"lambda"`, `"wavenumber"`, `"mz"`), and gives up the typed-class contract that makes port checking work in SciEasy. OptEasy gets away with this because it is imaging-only.
+- **New base class `SpatialBlock` / `SpectralBlock` / `AxisIteratingBlock` (D3 Option A)**: aesthetically tidy, but creates a new layer of the inheritance tree for every dimensional pattern and forces block authors to choose a base class before they understand their problem. A utility function gives the same capability without the commitment. CLAUDE.md §7.2 explicitly favours composition.
+- **Use `pint` for units (D6 Option B)**: mature, well-tested, handles dimensional algebra. Rejected for Phase 10 on cold-start grounds: every subprocess worker imports Python fresh, and `pint` adds 200–400 ms to that. For a workflow with 50 blocks, that is 10–20 seconds of wall-clock overhead unconditionally. A 50-line self-written quantity class covers 99% of actual SciEasy metadata and can be swapped for pint later without API changes.
+- **Forbid threads entirely (D8 Option A)**: simpler to explain but costs us the ability to use libraries like `torch.nn.DataParallel` or any numpy operation that internally spawns MKL/OpenBLAS threads. Those "threads" already exist implicitly in numpy code; forbidding explicit thread use in blocks would be arbitrary and inconsistent. Rejected.
+- **Auto-detect VRAM-aware GPU slot count (D10)**: tried to match physical VRAM against declared `gpu_memory_gb` to compute "how many cellpose instances can coexist". Rejected for Phase 10 because `gpu_memory_gb` is block-declared, not enforced, and because VRAM monitoring requires nvml bindings (`pynvml`) which are platform-specific and another dependency. The simpler "physical GPU count with user override" covers 90% of cases.
+- **Deep worker-side type reconstruction returning concrete subclass instances (D11 Option B maximalist)**: instead of leaving reconstructed inputs as `ViewProxy`, construct `Image(storage_ref=..., ...)` directly so that downstream code sees typed instances. Rejected because it would make `reconstruct_inputs` responsible for invoking each subclass's `__init__` with the right arguments, which we cannot generically do (different subclasses have different required metadata). The middle ground is: scan the registry (D11), map `type_chain` to a concrete class for signature matching, but still return a `ViewProxy`. Block authors call `item.view()` or `item.to_memory()` in the usual way; the registry-resolved class is used only for `TypeSignature` and port validation.
+
+### Consequences
+
+- **Phase 10 becomes a clean start for imaging.** The `scieasy-blocks-imaging` package can own its own type hierarchy without fighting core. 6D data is a first-class supported shape, not a cast-to-Array workaround.
+- **Core shrinks by several files' worth of domain code.** `src/scieasy/core/types/array.py` loses four subclass definitions; `series.py`, `dataframe.py`, `composite.py` lose their domain subclasses similarly (audit will confirm exact counts). Each deleted class reappears inside the appropriate plugin package.
+- **Every block that referenced a domain type directly must be updated.** Core built-in blocks (`MergeCollection`, `FilterCollection`, `SliceCollection`, maybe `TransformBlock`) currently declare `accepted_types=[Image]` in some test fixtures. These become `accepted_types=[Array]` with optional constraint helpers. Tests under `tests/blocks/` that `from scieasy.core.types.array import Image` must either switch to `Array` or be marked as requiring `scieasy-blocks-imaging` installed (see impact scope).
+- **Metadata becomes typed.** Pydantic-validated fields are a breaking change to the current free-dict interface. `DataObject.metadata` becomes a property returning `self.user` with a `DeprecationWarning`; callers relying on it for domain metadata (e.g., `img.metadata["pixel_size"]`) will see warnings and should migrate to `img.meta.pixel_size` during Phase 10.
+- **Subprocess cold start cost grows by ~50 ms per worker.** `TypeRegistry.scan()` adds the entry-point iteration to every worker startup. Acceptable because startup is already dominated by Python interpreter boot.
+- **`ResourceManager` becomes meaningfully throttling.** With `gpu_slots > 0` by default and scheduler concurrency fixed (ADR-018 Addendum 1), GPU block dispatch is now actually gated. Users on multi-GPU machines see parallel execution; users on single-GPU machines see serial GPU access without spinning.
+- **Cellpose parallelism story is documented.** Block authors have three clear options: (a) Tier 1 setup+process_item for simple per-item processing, (b) Tier 2 override `run()` for library-native batching (cellpose, stardist), (c) L2 fan-out via SplitCollection for multi-GPU.
+- **Block-developer docs must be updated.** Thread policy, setup/teardown, metadata conventions, axis semantics, and the fan-out pattern all need explicit documentation. This is tracked as Deliverable B in issue #255 and will land in a separate PR.
+- **Test fixtures across `tests/` need a one-shot migration.** Roughly 75 `Image(...)` instantiations across 17 test files must be updated to pass `axes=[...]`. A shim can be introduced temporarily (`def _test_image(...): return Image(axes=["y","x"], ...)`) to minimise diff noise.
+- **AI block generator templates must be updated.** ADR-013 / ADR-027 cross-reference: AI-generated blocks in Phase 9 produced code using `Image` imported from core. Generated code must be regenerated to import from `scieasy_blocks_imaging.types`, or the validator (ADR-013 §7.1) must reject core-Image imports.
+
+### Detailed impact scope
+
+#### New files
+
+| File | Contents |
+|---|---|
+| `src/scieasy/utils/axis_iter.py` | `iterate_over_axes(source, operates_on, func)` utility (D3). ~80 lines including docstrings and `BroadcastError` raises. |
+| `src/scieasy/utils/constraints.py` | Port constraint helper factory functions (D4 context): `has_axes(*required)`, `has_exact_axes(*axes)`, `has_shape(ndim)`, etc. Small module, ~40 lines, used in port `constraint=` kwargs. |
+| `src/scieasy/core/units.py` | `PhysicalQuantity` dataclass + unit tables + Pydantic integration (D6). ~120 lines. |
+| `src/scieasy/core/meta/__init__.py` | Public exports for `FrameworkMeta`, `with_meta` helper, `ChannelInfo` BaseModel used by plugins (D5). |
+| `src/scieasy/core/meta/framework.py` | `FrameworkMeta` BaseModel implementation. ~30 lines. |
+
+#### Rewritten files
+
+| File | Current state | New state | Detailed changes |
+|---|---|---|---|
+| `src/scieasy/core/types/array.py` | Defines `Array` with `axes: ClassVar`, plus `Image`, `MSImage`, `SRSImage`, `FluorImage` subclasses. 84 lines. | `Array` only, with instance-level `axes`, class-level `required_axes`/`allowed_axes`/`canonical_order`, `_validate_axes` method. New `sel()` and `iter_over()` methods per D4. No domain subclasses. | **Delete** lines 62–83 (all `Image`-family subclasses). **Change** `Array` constructor: `axes` becomes a required keyword argument (`axes: list[str]`). **Add** `required_axes`, `allowed_axes`, `canonical_order` ClassVars (all default to empty/None). **Add** `_validate_axes` method called from `__init__`. **Add** `sel(**kwargs)` method (~40 lines). **Add** `iter_over(axis)` generator method (~20 lines). **Remove** the class-level `axes: ClassVar` declaration. |
+| `src/scieasy/core/types/base.py` | `DataObject.__init__(metadata, storage_ref)`, single free-dict metadata field, JSON validator. | `DataObject.__init__(framework, meta, user, storage_ref)` with three slots. Backward-compat `metadata` property delegating to `user`. | **Add** `framework: FrameworkMeta`, `meta: BaseModel`, `user: dict` fields. **Add** `with_meta(**changes)` method. **Keep** `metadata` as `@property` returning `self.user` with `DeprecationWarning`. **Update** JSON-serialisability check to cover `user` dict only (framework and meta use Pydantic's own serialisation). **Update** `TypeSignature.from_type` to include `required_axes` when the class has them (so the signature carries the constraint into port checks). |
+| `src/scieasy/core/types/series.py` | `Series` base class; domain subclasses if present. | `Series` only. | **Delete** any `Spectrum`, `RamanSpectrum`, `MassSpectrum` class definitions (audit — some may not exist yet). |
+| `src/scieasy/core/types/dataframe.py` | `DataFrame` base; domain subclasses. | `DataFrame` only. | **Delete** `PeakTable`, `MetabPeakTable` if present. |
+| `src/scieasy/core/types/composite.py` | `CompositeData`; domain subclasses. | `CompositeData` only. | **Delete** `AnnData`, `SpatialData` if present. |
+| `src/scieasy/blocks/process/process_block.py` | `ProcessBlock` with `process_item(self, item, config)` 2-arg signature, default `run()` iterates and calls `process_item`. | `ProcessBlock` with `setup(config)`, `teardown(state)`, `process_item(self, item, config, state=None)` 3-arg signature, default `run()` calls `setup`, iterates, calls `teardown` in finally. | **Add** `setup` and `teardown` methods (default no-op). **Change** `process_item` signature to accept `state=None` (backward-compatible — existing 2-arg overrides continue to work because they ignore the new parameter). **Change** `run()` to wrap iteration in `state = self.setup(config); try: ... finally: self.teardown(state)`. |
+| `src/scieasy/engine/runners/worker.py` | `main()` parses stdin, imports block, runs it. `reconstruct_inputs` creates bare `ViewProxy` with `DataObject` type chain when registry info is absent. | `main()` scans `TypeRegistry` entry-points first. `reconstruct_inputs` resolves `type_chain` to the most specific registered class. | **Add** `TypeRegistry.scan()` call at the top of `main()` before `reconstruct_inputs`. **Add** import of `TypeRegistry`. **Change** `reconstruct_inputs` to call `TypeRegistry.resolve(type_chain)` (new helper) and pass the resolved class into `TypeSignature`. **No change** to output serialisation path. |
+| `src/scieasy/engine/resources.py` | `ResourceManager.__init__(gpu_slots: int = 0, ...)`. `ResourceRequest.max_internal_workers` exists but is not officially enforced. | `ResourceManager.__init__(gpu_slots: int | None = None, ...)` with auto-detect. Formally document `max_internal_workers` as the block author's declaration of intended internal parallelism. | **Change** default of `gpu_slots` to `None`. **Add** `_auto_detect_gpu_slots()` module function. **Add** one-time WARNING log when detected slots is 0 but a GPU block is scheduled. **Update** docstrings of `ResourceRequest.max_internal_workers` and `effective_cpu` to point to ADR-027 D8 for the thread-policy context. |
+| `src/scieasy/core/types/registry.py` | `TypeRegistry` with register/scan for core types. | `TypeRegistry` with a new `resolve(type_chain: list[str]) -> type | None` helper that finds the most specific registered class matching a chain. | **Add** `resolve(type_chain)` method that walks the chain from most-specific to least-specific and returns the first match. **Ensure** `scan()` is idempotent (safe to call from worker subprocess every startup). |
+
+#### Modified files
+
+| File | Changes |
+|---|---|
+| `src/scieasy/blocks/io/adapters/tiff_adapter.py` | **Change** line 26 `img = Image(...)` to import `Image` from `scieasy_blocks_imaging.types` (plugin) if available, else raise a clear error. Alternatively, the built-in TIFF adapter can be moved entirely to `scieasy-blocks-imaging` as part of Phase 10. Final decision deferred to the implementation ticket but captured here for visibility. |
+| `src/scieasy/blocks/process/builtins/*.py` (MergeCollection, FilterCollection, SliceCollection, TransformBlock, MergeBlock, SplitBlock) | **Audit** each for `accepted_types=[Image]` or similar domain-type references. **Change** to `accepted_types=[Array]` with optional constraint helpers. These built-ins are domain-agnostic by design and must not import from plugins. |
+| `src/scieasy/blocks/base/ports.py` | **Add** integration with `has_axes` constraint helper (constraint is the existing mechanism; no new field). **Update** `port_accepts_signature` to also check `TypeSignature.required_axes` compatibility (target port's required axes must be a subset of source type's required axes). |
+| `src/scieasy/api/routes/blocks.py` | **Audit** endpoints that return block schemas. If any hardcode domain-type names, generalise to read from `TypeRegistry`. |
+| `src/scieasy/ai/validators/*.py` (Phase 9 code generator validators) | **Update** type-reference checks so that AI-generated blocks cannot import `Image` from `scieasy.core.types.array` (it is no longer there). Validator must enforce plugin imports for domain types. |
+| `tests/core/test_types.py` | **Update** ~3 `Image(...)` instantiations: either use `Array` directly with `axes=["y","x"]`, or install `scieasy-blocks-imaging` as a test dependency. Chosen approach: switch to `Array` where the test is actually about core behaviour, keep `Image` imports in imaging-specific tests that live under `scieasy-blocks-imaging/tests/`. |
+| `tests/core/test_dataobject_extended.py` | **Update** ~1 instantiation per above. |
+| `tests/core/test_composite.py` | **Update** ~1 instantiation. |
+| `tests/core/test_proxy.py` | **Update** ~1 instantiation. |
+| `tests/core/test_collection.py` | **Update** ~21 instantiations. Largest migration. Most use `Image` as a generic Collection fixture; all can switch to `Array(axes=["y","x"], ...)`. |
+| `tests/blocks/test_block_base.py` | **Update** ~16 instantiations per above. |
+| `tests/blocks/test_collection_blocks.py` | **Update** ~1 instantiation. |
+| `tests/blocks/test_adapters.py` | **Update** ~1 instantiation. (May move entirely to imaging plugin tests.) |
+| `tests/blocks/test_ports.py` | **Update** ~3 instantiations. |
+| `tests/blocks/test_lazy_list.py` | **Update** ~3 instantiations. |
+| `tests/blocks/test_app_block.py` | **Update** ~2 instantiations. |
+| `tests/engine/test_checkpoint.py` | **Update** ~7 instantiations. |
+| `tests/integration/test_block_sdk_e2e.py` | **Update** ~1 instantiation. |
+| `tests/integration/test_multimodal_workflow.py` | **Update** ~7 instantiations OR move this test into `scieasy-blocks-imaging` as an integration test that requires all three plugin packages installed. Phase 10 decision: keep in core repo but mark with a pytest marker `@pytest.mark.requires_imaging` that is skipped when the plugin is not installed. |
+| `tests/api/test_data.py` | **Update** ~1 instantiation. |
+| `tests/workflow/test_validator.py` | **Update** 1 `from scieasy.core.types.array import Array, Image` → `Array` only. |
+| `tests/ai/test_validator.py` | **Update** ~4 instantiations. AI validator tests verify the "you cannot import Image from core" rule. |
+| `tests/ai/test_type_generator.py` | **Update** ~2 instantiations. |
+
+#### Deleted files
+
+No outright deletions. Domain subclasses are moved (deleted from core, recreated in plugins), but the Phase 10 plan tracks plugin-side additions as a separate work package in the `scieasy-blocks-imaging` repo scaffold task, not as file creations inside this repo.
+
+#### New tests required
+
+| Test file | Coverage |
+|---|---|
+| `tests/core/test_array_axes.py` | Instance-level axes, `required_axes` / `allowed_axes` validation, 6D instantiation, axis ordering, `sel()` single-index, `sel()` slice, `iter_over()` memory-bounded iteration, metadata inheritance across `sel`/`iter_over`. |
+| `tests/utils/test_axis_iter.py` | `iterate_over_axes` happy path (3D input, iterate over `z`), shape-mismatch → BroadcastError, `operates_on` not a subset → BroadcastError, metadata preservation, `source.__class__` preservation on output. |
+| `tests/core/test_units.py` | `PhysicalQuantity` construction, unit validation, `to()` conversion within a kind, cross-kind rejection, `__lt__` / `__eq__`, Pydantic integration (round-trip a model with a PhysicalQuantity field through `model_dump_json` / `model_validate_json`). |
+| `tests/core/test_stratified_metadata.py` | `FrameworkMeta` auto-population, `with_meta()` immutable update, `metadata` deprecation warning, Pydantic-backed `meta` field round-trip. |
+| `tests/blocks/test_process_block_lifecycle.py` | `setup` called once before iteration, `teardown` called once after, `state` passed to `process_item`, `teardown` called even on error via `finally`. |
+| `tests/engine/test_worker_type_registry.py` | Worker subprocess can reconstruct a `FluorImage` instance from a `StorageReference` when the plugin is installed. Simulated by injecting a test-only type registration. |
+| `tests/engine/test_resource_manager_gpu_autodetect.py` | `gpu_slots=None` triggers auto-detect; mocked `torch.cuda.device_count` returns various values; fallback to `nvidia-smi`; explicit integer respected. |
+
+#### Documentation impact
+
+| Document | Required changes |
+|---|---|
+| `docs/architecture/ARCHITECTURE.md` §4.1 (Base type hierarchy) | **Rewrite** the class diagram: core shows only the 7 base types with a "domain subtypes provided by plugin packages" annotation below. **Remove** references to `Image`, `MSImage`, `FluorImage`, `SRSImage`, `Spectrum`, `AnnData`, `SpatialData`, `PeakTable` from the core diagram. **Add** an "extended example (plugin-provided)" inset showing an imaging plugin's hierarchy as illustrative. |
+| `docs/architecture/ARCHITECTURE.md` §4.1 (Named axes on Array) | **Rewrite** the `axes` example code to show instance-level axes: `Image(axes=["t","z","c","y","x"], shape=(10,30,4,512,512))`. **Add** discussion of `required_axes` / `allowed_axes` / `canonical_order`. **Add** the 6D axis alphabet table (`t, z, c, lambda, y, x`) with descriptions. |
+| `docs/architecture/ARCHITECTURE.md` §4.5 (Broadcast utility) | **Add** cross-reference to `scieasy.utils.axis_iter.iterate_over_axes` (new sibling function). Describe the split of responsibility: `broadcast_apply` = low-dim → high-dim projection, `iterate_over_axes` = single Array extra-dim iteration. |
+| `docs/architecture/ARCHITECTURE.md` §5.1 (Block base class) | **Add** `setup(config)` and `teardown(state)` to the ProcessBlock contract description. **Update** `process_item` signature to 3-arg. |
+| `docs/architecture/ARCHITECTURE.md` §6.4 (Resource management) | **Update** to note that `gpu_slots` auto-detects by default in Phase 10 and references ADR-027 D10. |
+| `docs/architecture/ARCHITECTURE.md` §4.4 / metadata discussion | **Rewrite** to describe the `framework` / `meta` / `user` three-slot model. **Add** example of a Pydantic `Meta` subclass on a domain type. |
+| `docs/architecture/ARCHITECTURE.md` §5.4 (Block and type distribution) | **Add** note that Phase 10 moves all domain types out of core. Plugin packages are the only path. Core contains only base types. |
+| `docs/architecture/ARCHITECTURE.md` Appendix A (multimodal example) | **Audit** code snippets that import `Image`, `MSImage`, etc. from core. Update to import from plugin packages with `from scieasy_blocks_imaging.types import FluorImage`. |
+| `docs/architecture/PROJECT_TREE.md` | **Remove** `Image`, `MSImage`, `SRSImage`, `FluorImage` from `core/types/array.py` description. **Add** `utils/axis_iter.py`, `utils/constraints.py`, `core/units.py`, `core/meta/__init__.py`, `core/meta/framework.py` entries. |
+| `docs/guides/block-sdk.md` | **Rewrite** all `from scieasy.core.types.array import Image` imports to use plugin packages. **Add** section on setup/teardown hooks. **Add** section on metadata conventions (`img.meta.pixel_size`, `with_meta()`). **Add** subsection on L2 fan-out as the recommended Collection-level parallelism pattern. **Add** explicit thread policy paragraph. |
+| `docs/testing/phase-5-to-8-human-tests.md` and `phase-5-human-tests.md` | **Update** example snippets that import core `Image`. |
+| `docs/adr/ADR.md` | This ADR (ADR-027). |
+| `CHANGELOG.md` | **Add** entry under `[Unreleased]` → `### Added` for ADR-027. |
+
+#### Out of scope
+
+- **Level 2 laziness** (`SlicedStorageReference` threaded through ViewProxy). Deferred to Phase 11+.
+- **`pint` integration**. `PhysicalQuantity` is the Phase 10 unit story; pint is a future option if dimensional algebra is ever needed.
+- **Block-internal `parallel_slices` or `ThreadPoolExecutor` helpers** built into the framework. Block authors may use threads (D8) but the framework provides no blessed helper in Phase 10.
+- **VRAM-aware GPU slot calculation**. Physical GPU count with user override is sufficient for Phase 10.
+- **New block states, new BlockEvent types, new ExecutionMode variants**. All runtime protocols remain as ADR-018 defined them.
+- **Changes to `Collection`, `ViewProxy`, or storage backends beyond the registry scan requirement**.
+- **Any code changes in this PR**. This ADR is documentation only. Implementation lands under Phase 10 implementation tickets, each referencing specific ADR-027 sections.
+- **Any updates to `docs/architecture/ARCHITECTURE.md`, `docs/guides/block-sdk.md`, or `docs/architecture/PROJECT_TREE.md` in this PR**. Those updates are tracked as Deliverable B of issue #255 and will ship in a follow-up PR with its own gate workflow.
