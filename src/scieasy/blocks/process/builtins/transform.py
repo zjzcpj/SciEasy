@@ -33,8 +33,13 @@ class TransformBlock(ProcessBlock):
         },
     }
 
-    def process_item(self, item: Any, config: BlockConfig) -> Any:
-        """Return the item unchanged after an optional sleep."""
+    def process_item(self, item: Any, config: BlockConfig, state: Any = None) -> Any:
+        """Return the item unchanged after an optional sleep.
+
+        ADR-027 D7: accepts ``state`` (unused by this passthrough block)
+        for signature parity with the new ProcessBlock lifecycle contract.
+        """
+        del state  # unused — this passthrough block has no setup state
         sleep_seconds = float(config.get("sleep_seconds", 0) or 0)
         if sleep_seconds > 0:
             time.sleep(sleep_seconds)
