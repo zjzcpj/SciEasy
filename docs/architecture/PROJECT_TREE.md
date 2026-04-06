@@ -29,22 +29,47 @@ scieasy/                               # ← repo root
 │       ├── core/
 │       │   ├── __init__.py
 │       │   │
-│       │   ├── types/                  # DataObject type hierarchy
-│       │   │   ├── __init__.py         # Re-exports all base types
-│       │   │   ├── base.py             # DataObject ABC, TypeSignature, metadata
-│       │   │   ├── array.py            # Array (wraps ndarray-like, Zarr-backed)
-│       │   │   ├── series.py           # Series (1D indexed data)
-│       │   │   ├── dataframe.py        # DataFrame (columnar tabular data)
+│       │   ├── types/                  # DataObject type hierarchy — CORE BASE TYPES ONLY
+│       │   │   │                       #   (ADR-027 D2): domain subtypes (Image, Spectrum,
+│       │   │   │                       #   PeakTable, AnnData, etc.) live in plugin packages
+│       │   │   │                       #   and register via the scieasy.types entry-point.
+│       │   │   ├── __init__.py         # Re-exports the seven base types
+│       │   │   ├── base.py             # DataObject ABC, TypeSignature, framework/meta/user
+│       │   │   │                       #   slots (ADR-027 D5). No free-dict metadata;
+│       │   │   │                       #   .metadata property is a backward-compat shim.
+│       │   │   ├── array.py            # Array (wraps ndarray-like, Zarr-backed).
+│       │   │   │                       #   Instance-level `axes` + class-level
+│       │   │   │                       #   required_axes/allowed_axes/canonical_order
+│       │   │   │                       #   (ADR-027 D1). Methods: sel(), iter_over()
+│       │   │   │                       #   with Level 1 laziness and metadata preservation
+│       │   │   │                       #   (ADR-027 D4). NO Image/MSImage/FluorImage/SRSImage.
+│       │   │   ├── series.py           # Series (1D indexed data). NO Spectrum subclasses.
+│       │   │   ├── dataframe.py        # DataFrame (columnar tabular data). NO PeakTable subclasses.
 │       │   │   ├── text.py             # Text (plain text, markdown, JSON)
 │       │   │   ├── artifact.py         # Artifact (opaque files: PDF, binary, etc.)
-│       │   │   ├── composite.py        # CompositeData (named heterogeneous slots)
+│       │   │   ├── composite.py        # CompositeData (named heterogeneous slots).
+│       │   │   │                       #   NO AnnData/SpatialData subclasses — plugin-provided.
 │       │   │   ├── collection.py       # Collection: homogeneous ordered transport wrapper
 │       │   │   │                       #   for DataObjects between blocks (ADR-020).
 │       │   │   │                       #   NOT a DataObject subclass — type identity from contents.
 │       │   │   └── registry.py         # TypeRegistry: discovers types from
 │       │   │                           #   Tier 1: {project}/types/ + ~/.scieasy/types/
 │       │   │                           #   Tier 2: scieasy.types entry_points
-│       │   │                           #   Resolves inheritance for port matching
+│       │   │                           #   Resolves inheritance for port matching.
+│       │   │                           #   resolve(type_chain) helper for worker subprocess
+│       │   │                           #   type reconstruction (ADR-027 D11).
+│       │   │
+│       │   ├── meta/                   # Framework metadata slot (ADR-027 D5)
+│       │   │   ├── __init__.py         # Public exports: FrameworkMeta, ChannelInfo,
+│       │   │   │                       #   with_meta helper
+│       │   │   └── framework.py        # FrameworkMeta Pydantic BaseModel
+│       │   │                           #   (created_at, object_id, source, lineage_id,
+│       │   │                           #   derived_from)
+│       │   │
+│       │   ├── units.py                # PhysicalQuantity dataclass + unit tables
+│       │   │                           #   (length/time/freq/wavenumber). ~50 LOC.
+│       │   │                           #   Pydantic integration for subprocess JSON round-trip.
+│       │   │                           #   ADR-027 D6: not pint — cold-start sensitive.
 │       │   │
 │       │   ├── storage/                # Storage backends (per-type persistence)
 │       │   │   ├── __init__.py
@@ -302,6 +327,13 @@ scieasy/                               # ← repo root
 │       │   ├── wrapping.py            # wrap_as_dataobject(): auto-detect type from raw data
 │       │   ├── broadcast.py           # broadcast_apply(): named-axis-aware broadcast of
 │       │   │                           #   low-dim arrays over high-dim arrays (e.g. mask → MSI)
+│       │   ├── axis_iter.py           # iterate_over_axes(source, operates_on, func):
+│       │   │                           #   iterate single Array over its non-operates_on axes,
+│       │   │                           #   preserving metadata, class, and axis names
+│       │   │                           #   (ADR-027 D3). Sibling of broadcast_apply.
+│       │   ├── constraints.py         # Port constraint helper factories:
+│       │   │                           #   has_axes(*required), has_exact_axes(*axes),
+│       │   │                           #   has_shape(ndim), etc. Used in InputPort(constraint=...)
 │       │   └── logging.py             # Structured logging config (JSON, levels, rotation)
 │       │
 │       │
