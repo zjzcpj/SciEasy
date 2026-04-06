@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- [#265] T-002: ResourceManager.gpu_slots default changes from 0 to None, triggering best-effort auto-detect via torch.cuda.device_count() then nvidia-smi -L per ADR-027 D10. Existing GPU blocks become dispatchable on CUDA-enabled machines without explicit project-config override. ResourceRequest.max_internal_workers and effective_cpu property formally activated for ADR-027 D8 thread-policy context. (@claude, 2026-04-06, branch: feat/issue-265/T-002-resource-manager-gpu-autodetect, session: 20260406-171241-t-002-resourcemanager-gpu-auto-detect-pe)
 - [#257] Update ARCHITECTURE.md, PROJECT_TREE.md, and docs/guides/block-sdk.md to reflect ADR-018 Addendum 1 and ADR-027 — documentation only. §4.1 rewritten for 7-type core + plugin-provided domain subtypes and 6D instance-level axes; §4.5 documents iterate_over_axes utility; §5.1 adds setup/teardown hooks; §5.4 states core/plugin boundary; §6.1 documents scheduler concurrency model with asyncio.create_task + _active_tasks; §6.4 documents ResourceManager GPU auto-detect and ResourceRequest.max_internal_workers; Appendix A gains plugin prerequisite note. block-sdk.md gains new sections on setup/teardown, domain metadata conventions, L2 fan-out parallelism pattern, and thread policy; all core-Image imports in examples replaced with plugin-package imports (@claude, 2026-04-06, branch: docs/issue-257/phase10-arch-updates, session: 20260406-045449-phase-10-architecture-and-dev-guide-doc)
 
 ### Added
