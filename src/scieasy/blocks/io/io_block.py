@@ -54,7 +54,6 @@ class IOBlock(Block):
                 "title": "Direction",
                 "ui_priority": 2,
             },
-            "format": {"type": "string", "title": "Format Override", "ui_priority": 3},
         },
         "required": ["path"],
     }

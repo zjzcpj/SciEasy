@@ -51,6 +51,7 @@ export const api = {
       method: "DELETE",
     }),
   browseDirectory: () => apiFetch<{ path: string | null }>("/api/projects/browse-directory", { method: "POST" }),
+  browseFiles: () => apiFetch<{ paths: string[] }>("/api/projects/browse-files", { method: "POST" }),
   listBlocks: () => apiFetch<BlockListResponse>("/api/blocks/"),
   getBlockSchema: (blockType: string) =>
     apiFetch<BlockSchemaResponse>(`/api/blocks/${encodeURIComponent(blockType)}/schema`),
