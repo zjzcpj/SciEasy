@@ -447,8 +447,8 @@ export default function App() {
             }}
             onReloadBlocks={() => void refreshBlocks()}
             onStartFromSelected={() => void startFromSelected()}
-            onAddAnnotation={() => addAnnotationNode({ x: 200, y: 200 })}
-            onAddGroup={() => addGroupNode({ x: 200, y: 200 })}
+            onAddAnnotation={() => addAnnotationNode({ x: 150 + Math.random() * 200, y: 150 + Math.random() * 200 })}
+            onAddGroup={() => addGroupNode({ x: 150 + Math.random() * 200, y: 150 + Math.random() * 200 })}
           />
 
           {lastError ? (
