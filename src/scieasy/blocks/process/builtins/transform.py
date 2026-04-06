@@ -25,6 +25,13 @@ class TransformBlock(ProcessBlock):
     output_ports: ClassVar[list[OutputPort]] = [
         OutputPort(name="output", accepted_types=[DataObject], description="Primary output"),
     ]
+    config_schema: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "sleep_seconds": {"type": "number", "default": 0, "title": "Sleep Seconds", "ui_priority": 1},
+            "label": {"type": "string", "default": "", "title": "Label", "ui_priority": 2},
+        },
+    }
 
     def process_item(self, item: Any, config: BlockConfig) -> Any:
         """Return the item unchanged after an optional sleep."""

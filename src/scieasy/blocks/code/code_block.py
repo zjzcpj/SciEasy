@@ -48,6 +48,27 @@ class CodeBlock(Block):
     output_ports: ClassVar[list[OutputPort]] = [
         OutputPort(name="result", accepted_types=[DataObject], description="Script output"),
     ]
+    config_schema: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "language": {
+                "type": "string",
+                "enum": ["python", "r", "julia"],
+                "default": "python",
+                "title": "Language",
+                "ui_priority": 1,
+            },
+            "mode": {
+                "type": "string",
+                "enum": ["inline", "script"],
+                "default": "inline",
+                "title": "Execution Mode",
+                "ui_priority": 2,
+            },
+            "code": {"type": "string", "title": "Inline Code", "ui_priority": 3},
+            "script_path": {"type": "string", "title": "Script Path", "ui_priority": 4},
+        },
+    }
 
     # -- auto-unpack / repack (ADR-020-Add4) -----------------------------------
 

@@ -66,6 +66,20 @@ class AppBlock(Block):
     output_ports: ClassVar[list[OutputPort]] = [
         OutputPort(name="result", accepted_types=[Artifact], description="Output artifacts from the app"),
     ]
+    config_schema: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "app_command": {"type": "string", "title": "Application Command", "ui_priority": 1},
+            "output_patterns": {
+                "type": "string",
+                "title": "Output File Patterns",
+                "default": "*",
+                "ui_priority": 2,
+            },
+            "watch_timeout": {"type": "integer", "title": "Watch Timeout (s)", "default": 300, "ui_priority": 3},
+        },
+        "required": ["app_command"],
+    }
 
     def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, Collection]:
         """Prepare inputs, launch the external app, and collect outputs.
