@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ChatMessage } from "../types/api";
 
@@ -99,11 +99,15 @@ export function AIChat({ messages, onSendChat, isLoading, error, onApplyWorkflow
     }
   }, [messages, isLoading]);
 
+  const handleDismissError = useCallback(() => {
+    setDismissedError(error);
+  }, [error]);
+
   const showError = error && error !== dismissedError;
 
   return (
     <div className="flex h-full flex-col">
-      {showError ? <ErrorBanner message={error} onDismiss={() => setDismissedError(error)} /> : null}
+      {showError ? <ErrorBanner message={error} onDismiss={handleDismissError} /> : null}
 
       <div className="flex-1 space-y-3 overflow-auto">
         {messages.map((message) => {

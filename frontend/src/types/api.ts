@@ -148,6 +148,8 @@ export interface AIGenerateBlockResponse {
   code: string;
   block_name: string;
   validation_passed: boolean;
+  validation_report: Record<string, unknown>;
+  category: string;
 }
 
 export interface AISuggestWorkflowRequest {

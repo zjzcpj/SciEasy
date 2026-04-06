@@ -187,6 +187,8 @@ class AIGenerateBlockResponse(BaseModel):
     code: str
     block_name: str
     validation_passed: bool
+    validation_report: dict[str, Any]
+    category: str
 
 
 class AISuggestWorkflowRequest(BaseModel):

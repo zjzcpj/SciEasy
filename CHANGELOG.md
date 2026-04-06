@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- [#232] Fix frontend AI chat code review issues — AIGenerateBlockResponse type drift (add validation_report, category), ErrorBanner timer reset via useCallback, Enter-key send test (@claude, 2026-04-05, branch: feat/issue-232/frontend-ai-chat)
+
 ### Added
 
 - [#232] Frontend AI Chat integration — real API dispatch, code preview, loading states, error handling (@claude, 2026-04-05, branch: feat/issue-232/frontend-ai-chat, session: 20260405-235013-feat-232-frontend-ai-chat-integration-wi)

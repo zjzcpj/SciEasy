@@ -173,4 +173,15 @@ describe("AIChat", () => {
 
     expect(screen.queryByTestId("apply-to-canvas")).not.toBeInTheDocument();
   });
+
+  it("sends message on Enter key press", () => {
+    const onSendChat = vi.fn();
+    render(<AIChat {...makeProps()} onSendChat={onSendChat} />);
+
+    const input = screen.getByPlaceholderText("Ask to generate blocks or suggest workflows...");
+    fireEvent.change(input, { target: { value: "Hello from Enter" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(onSendChat).toHaveBeenCalledWith("Hello from Enter");
+  });
 });
