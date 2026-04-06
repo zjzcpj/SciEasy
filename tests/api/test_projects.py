@@ -52,3 +52,18 @@ def test_project_crud_and_path_opening(client: TestClient, project_parent: Path)
     deleted = client.delete(f"/api/projects/{first_payload['id']}")
     assert deleted.status_code == 204
     assert not Path(first_payload["path"]).exists()
+
+
+def test_browse_directory_endpoint(client: TestClient) -> None:
+    """Browse directory endpoint should return a path or null without error."""
+    from unittest.mock import patch
+
+    with patch("scieasy.api.routes.projects._pick_directory", return_value="/tmp/picked"):
+        resp = client.post("/api/projects/browse-directory")
+        assert resp.status_code == 200
+        assert resp.json()["path"] == "/tmp/picked"
+
+    with patch("scieasy.api.routes.projects._pick_directory", return_value=None):
+        resp = client.post("/api/projects/browse-directory")
+        assert resp.status_code == 200
+        assert resp.json()["path"] is None
