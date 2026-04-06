@@ -7,6 +7,7 @@ import type {
   DataPreviewResponse,
   DataUploadResponse,
   ExecuteFromResponse,
+  PackageListResponse,
   ProjectResponse,
   WorkflowExecutionResponse,
   WorkflowResponse,
@@ -52,6 +53,7 @@ export const api = {
     }),
   browseDirectory: () => apiFetch<{ path: string | null }>("/api/projects/browse-directory", { method: "POST" }),
   listBlocks: () => apiFetch<BlockListResponse>("/api/blocks/"),
+  listPackages: () => apiFetch<PackageListResponse>("/api/blocks/packages"),
   getBlockSchema: (blockType: string) =>
     apiFetch<BlockSchemaResponse>(`/api/blocks/${encodeURIComponent(blockType)}/schema`),
   validateConnection: (body: {

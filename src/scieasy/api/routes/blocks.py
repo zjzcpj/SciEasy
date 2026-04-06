@@ -14,6 +14,8 @@ from scieasy.api.schemas import (
     BlockSchemaResponse,
     BlockSummary,
     ConnectionValidationResponse,
+    PackageInfoResponse,
+    PackageListResponse,
     TypeHierarchyEntry,
 )
 from scieasy.blocks.base.ports import InputPort, OutputPort, validate_connection
@@ -45,6 +47,7 @@ def _summary(spec: Any) -> BlockSummary:
         category=spec.category,
         description=spec.description,
         version=spec.version,
+        package_name=getattr(spec, "package_name", ""),
         input_ports=[_port_response(port, direction="input") for port in spec.input_ports],
         output_ports=[_port_response(port, direction="output") for port in spec.output_ports],
     )
@@ -56,6 +59,22 @@ async def list_blocks(registry: BlockRegistryDep) -> BlockListResponse:
     blocks = [_summary(spec) for spec in registry.all_specs().values()]
     blocks.sort(key=lambda item: (item.category, item.name))
     return BlockListResponse(blocks=blocks)
+
+
+@router.get("/packages", response_model=PackageListResponse)
+async def list_packages(registry: BlockRegistryDep) -> PackageListResponse:
+    """Return metadata for all registered block packages."""
+    packages = [
+        PackageInfoResponse(
+            name=info.name,
+            description=info.description,
+            author=info.author,
+            version=info.version,
+        )
+        for info in registry.packages().values()
+    ]
+    packages.sort(key=lambda p: p.name)
+    return PackageListResponse(packages=packages)
 
 
 @router.get("/{block_type}/schema", response_model=BlockSchemaResponse)

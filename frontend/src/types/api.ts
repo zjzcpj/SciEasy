@@ -63,6 +63,7 @@ export interface BlockSummary {
   category: string;
   description: string;
   version: string;
+  package_name: string;
   input_ports: BlockPortResponse[];
   output_ports: BlockPortResponse[];
 }
@@ -85,6 +86,17 @@ export interface BlockSchemaResponse extends BlockSummary {
 
 export interface BlockListResponse {
   blocks: BlockSummary[];
+}
+
+export interface PackageInfoResponse {
+  name: string;
+  description: string;
+  author: string;
+  version: string;
+}
+
+export interface PackageListResponse {
+  packages: PackageInfoResponse[];
 }
 
 export interface ConnectionValidationResponse {

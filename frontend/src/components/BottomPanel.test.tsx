@@ -26,6 +26,7 @@ describe("BottomPanel", () => {
           category: "process",
           description: "",
           version: "0.1.0",
+          package_name: "",
           input_ports: [],
           output_ports: [],
           config_schema: {

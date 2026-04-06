@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- [#214] Add package_name to block palette API, /api/blocks/packages endpoint, and two-level palette grouping (package -> category -> block) in frontend (@claude, 2026-04-05, branch: feat/issue-214/palette-grouping, session: 20260405-222647-api-package-name-field-frontend-palette)
+
 ### Fixed
 
 - [#203] Handle asyncio.CancelledError in WebSocket handler for clean server shutdown (@claude, 2026-04-05, branch: fix/issue-203/ws-shutdown-hang, session: 20260405-212520-fix-websocket-shutdown-hang-by-handling)

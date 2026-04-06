@@ -89,6 +89,7 @@ class BlockSummary(BaseModel):
     category: str
     description: str = ""
     version: str = "0.1.0"
+    package_name: str = ""
     input_ports: list[BlockPortResponse] = Field(default_factory=list)
     output_ports: list[BlockPortResponse] = Field(default_factory=list)
 
@@ -219,6 +220,21 @@ class CancelPropagationResponse(BaseModel):
     cancelled_blocks: list[str] = Field(default_factory=list)
     skipped_blocks: list[str] = Field(default_factory=list)
     skip_reasons: dict[str, str] = Field(default_factory=dict)
+
+
+class PackageInfoResponse(BaseModel):
+    """Metadata for a registered block package."""
+
+    name: str
+    description: str = ""
+    author: str = ""
+    version: str = "0.1.0"
+
+
+class PackageListResponse(BaseModel):
+    """Response body for the block packages listing."""
+
+    packages: list[PackageInfoResponse] = Field(default_factory=list)
 
 
 class ErrorResponse(BaseModel):

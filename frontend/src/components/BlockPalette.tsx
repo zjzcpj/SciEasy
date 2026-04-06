@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState, useCallback } from "react";
 
 import type { BlockSummary } from "../types/api";
 
@@ -13,6 +13,11 @@ interface BlockPaletteProps {
 
 const categoryOrder = ["io", "process", "code", "app", "ai", "subworkflow", "custom"];
 
+/** Display label for a package_name. Empty string becomes "Core". */
+function packageLabel(packageName: string): string {
+  return packageName || "Core";
+}
+
 /**
  * Expand io_block into separate Load Block / Save Block palette entries.
  * Both map to the same backend block type with different default direction.
@@ -26,8 +31,6 @@ function expandIOBlocks(blocks: BlockSummary[]): BlockSummary[] {
         name: "Load Block",
         description: "Load data from a file (input)",
         type_name: "io_block",
-        // We tag a virtual key so palette can distinguish them.
-        // The actual type_name stays io_block for the backend.
       });
       result.push({
         ...block,
@@ -42,6 +45,67 @@ function expandIOBlocks(blocks: BlockSummary[]): BlockSummary[] {
   return result;
 }
 
+interface CategoryGroup {
+  category: string;
+  blocks: BlockSummary[];
+}
+
+interface PackageGroup {
+  packageName: string;
+  label: string;
+  categories: CategoryGroup[];
+}
+
+/**
+ * Group filtered blocks into a two-level hierarchy: package -> category -> blocks.
+ * Packages are sorted with "Core" (empty package_name) first, then alphabetically.
+ * Categories within each package follow the standard categoryOrder.
+ */
+function groupByPackageAndCategory(blocks: BlockSummary[]): PackageGroup[] {
+  // Group by package_name first
+  const byPackage: Record<string, BlockSummary[]> = {};
+  for (const block of blocks) {
+    const pkg = block.package_name ?? "";
+    if (!byPackage[pkg]) byPackage[pkg] = [];
+    byPackage[pkg].push(block);
+  }
+
+  // Sort package names: "" (Core) first, then alphabetical
+  const packageNames = Object.keys(byPackage).sort((a, b) => {
+    if (a === "") return -1;
+    if (b === "") return 1;
+    return a.localeCompare(b);
+  });
+
+  return packageNames.map((packageName) => {
+    const pkgBlocks = byPackage[packageName];
+    const categories = categoryOrder
+      .map((category) => ({
+        category,
+        blocks: pkgBlocks.filter((block) => block.category === category),
+      }))
+      .filter((entry) => entry.blocks.length > 0);
+
+    // Also include blocks with categories not in categoryOrder
+    const knownCategories = new Set(categoryOrder);
+    const unknownCategories = new Set(
+      pkgBlocks.map((b) => b.category).filter((c) => !knownCategories.has(c)),
+    );
+    for (const cat of unknownCategories) {
+      categories.push({
+        category: cat,
+        blocks: pkgBlocks.filter((b) => b.category === cat),
+      });
+    }
+
+    return {
+      packageName,
+      label: packageLabel(packageName),
+      categories,
+    };
+  });
+}
+
 export function BlockPalette({
   blocks,
   search,
@@ -51,6 +115,8 @@ export function BlockPalette({
   onAddBlock,
 }: BlockPaletteProps) {
   const dragImageRef = useRef<HTMLDivElement | null>(null);
+  const [collapsedPackages, setCollapsedPackages] = useState<Record<string, boolean>>({});
+  const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
 
   const expanded = expandIOBlocks(blocks);
 
@@ -59,17 +125,27 @@ export function BlockPalette({
     return value.includes(search.toLowerCase());
   });
 
-  const grouped = categoryOrder
-    .map((category) => ({
-      category,
-      blocks: filtered.filter((block) => block.category === category),
-    }))
-    .filter((entry) => entry.blocks.length);
+  const packageGroups = groupByPackageAndCategory(filtered);
+
+  // When there is only one package, skip the outer package grouping layer
+  const singlePackage = packageGroups.length <= 1;
+
+  const togglePackage = useCallback((packageName: string) => {
+    setCollapsedPackages((prev) => ({
+      ...prev,
+      [packageName]: !prev[packageName],
+    }));
+  }, []);
+
+  const toggleCategory = useCallback((key: string) => {
+    setCollapsedCategories((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  }, []);
 
   const handleDragStart = (event: React.DragEvent, block: BlockSummary) => {
-    // Set the block data for drop handling
     const payload = { ...block };
-    // Inject default direction for split IO blocks
     if (block.type_name === "io_block") {
       (payload as Record<string, unknown>)._default_direction =
         block.name === "Load Block" ? "input" : "output";
@@ -77,7 +153,6 @@ export function BlockPalette({
     event.dataTransfer.setData("application/scieasy-block", JSON.stringify(payload));
     event.dataTransfer.effectAllowed = "copy";
 
-    // Create a drag ghost image
     if (dragImageRef.current) {
       dragImageRef.current.textContent = block.name;
       dragImageRef.current.style.display = "block";
@@ -86,6 +161,62 @@ export function BlockPalette({
         if (dragImageRef.current) dragImageRef.current.style.display = "none";
       });
     }
+  };
+
+  const renderBlockCard = (block: BlockSummary, index: number) => (
+    <div
+      className="rounded-[1.4rem] border border-stone-200 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-ember"
+      draggable
+      key={`${block.type_name}-${block.name}-${index}`}
+      onDragStart={(event) => handleDragStart(event, block)}
+    >
+      <button
+        className="w-full text-left"
+        onClick={() => onAddBlock(block)}
+        type="button"
+      >
+        <p className="font-medium text-ink">{collapsed ? block.name.slice(0, 2) : block.name}</p>
+        {collapsed ? null : (
+          <>
+            <p className="mt-1 text-xs text-stone-500">{block.description}</p>
+            <p className="mt-2 text-[11px] uppercase tracking-[0.25em] text-stone-400">
+              {block.input_ports.length} in / {block.output_ports.length} out
+            </p>
+          </>
+        )}
+      </button>
+    </div>
+  );
+
+  const renderCategorySection = (
+    group: CategoryGroup,
+    packageName: string,
+  ) => {
+    const catKey = `${packageName}:${group.category}`;
+    const isCatCollapsed = collapsedCategories[catKey] ?? false;
+
+    return (
+      <section key={catKey}>
+        {collapsed ? null : (
+          <button
+            className="mb-2 flex w-full items-center gap-1 text-left"
+            onClick={() => toggleCategory(catKey)}
+            type="button"
+          >
+            <span className="text-[10px] text-stone-400">{isCatCollapsed ? "\u25B6" : "\u25BC"}</span>
+            <span className="text-[11px] uppercase tracking-[0.3em] text-stone-500">
+              {group.category}
+            </span>
+            <span className="text-[10px] text-stone-400">({group.blocks.length})</span>
+          </button>
+        )}
+        {isCatCollapsed ? null : (
+          <div className="space-y-2">
+            {group.blocks.map((block, index) => renderBlockCard(block, index))}
+          </div>
+        )}
+      </section>
+    );
   };
 
   return (
@@ -116,39 +247,45 @@ export function BlockPalette({
       )}
 
       <div className="mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto pb-6 scrollbar-thin">
-        {grouped.map((group) => (
-          <section key={group.category}>
-            {collapsed ? null : (
-              <p className="mb-2 text-[11px] uppercase tracking-[0.3em] text-stone-500">{group.category}</p>
-            )}
-            <div className="space-y-2">
-              {group.blocks.map((block, index) => (
-                <div
-                  className="rounded-[1.4rem] border border-stone-200 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-ember"
-                  draggable
-                  key={`${block.type_name}-${block.name}-${index}`}
-                  onDragStart={(event) => handleDragStart(event, block)}
+        {packageGroups.map((pkg) => {
+          const isPkgCollapsed = collapsedPackages[pkg.packageName] ?? false;
+
+          if (singlePackage) {
+            // Skip the package-level wrapper when there is only one package
+            return pkg.categories.map((group) =>
+              renderCategorySection(group, pkg.packageName),
+            );
+          }
+
+          return (
+            <div key={pkg.packageName || "__core__"} className="space-y-2">
+              {collapsed ? null : (
+                <button
+                  className="flex w-full items-center gap-1.5 rounded-lg px-1 py-1 text-left transition hover:bg-stone-100"
+                  onClick={() => togglePackage(pkg.packageName)}
+                  type="button"
                 >
-                  <button
-                    className="w-full text-left"
-                    onClick={() => onAddBlock(block)}
-                    type="button"
-                  >
-                    <p className="font-medium text-ink">{collapsed ? block.name.slice(0, 2) : block.name}</p>
-                    {collapsed ? null : (
-                      <>
-                        <p className="mt-1 text-xs text-stone-500">{block.description}</p>
-                        <p className="mt-2 text-[11px] uppercase tracking-[0.25em] text-stone-400">
-                          {block.input_ports.length} in / {block.output_ports.length} out
-                        </p>
-                      </>
-                    )}
-                  </button>
+                  <span className="text-[11px] text-stone-400">
+                    {isPkgCollapsed ? "\u25B6" : "\u25BC"}
+                  </span>
+                  <span className="font-display text-sm font-semibold text-ink">
+                    {pkg.label}
+                  </span>
+                  <span className="text-[10px] text-stone-400">
+                    ({pkg.categories.reduce((sum, c) => sum + c.blocks.length, 0)})
+                  </span>
+                </button>
+              )}
+              {isPkgCollapsed ? null : (
+                <div className="space-y-3 pl-2">
+                  {pkg.categories.map((group) =>
+                    renderCategorySection(group, pkg.packageName),
+                  )}
                 </div>
-              ))}
+              )}
             </div>
-          </section>
-        ))}
+          );
+        })}
       </div>
     </aside>
   );

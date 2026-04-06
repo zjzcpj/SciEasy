@@ -26,6 +26,40 @@ def test_list_blocks_and_schema_alias_endpoints(client: TestClient) -> None:
     assert alias.json() == schema_payload
 
 
+def test_list_blocks_includes_package_name_field(client: TestClient) -> None:
+    """Each block in the palette response should include a package_name field."""
+    response = client.get("/api/blocks/")
+    assert response.status_code == 200
+    payload = response.json()
+    for block in payload["blocks"]:
+        assert "package_name" in block, f"Block {block['name']} missing package_name"
+        # Built-in blocks should have empty package_name
+        assert isinstance(block["package_name"], str)
+
+
+def test_builtin_blocks_have_empty_package_name(client: TestClient) -> None:
+    """Built-in blocks should have an empty string package_name."""
+    response = client.get("/api/blocks/")
+    assert response.status_code == 200
+    payload = response.json()
+    # All built-in blocks should have package_name == ""
+    for block in payload["blocks"]:
+        assert block["package_name"] == "", (
+            f"Built-in block {block['name']} has non-empty package_name: {block['package_name']!r}"
+        )
+
+
+def test_list_packages_endpoint_returns_empty_for_builtins(client: TestClient) -> None:
+    """With no external packages installed, /api/blocks/packages returns an empty list."""
+    response = client.get("/api/blocks/packages")
+    assert response.status_code == 200
+    payload = response.json()
+    assert "packages" in payload
+    assert isinstance(payload["packages"], list)
+    # No external packages registered in test environment
+    assert payload["packages"] == []
+
+
 def test_validate_connection_endpoint_uses_registry_type_information(client: TestClient) -> None:
     """Connection validation should accept compatible ports and reject mismatches."""
     compatible = client.post(
