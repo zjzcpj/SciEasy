@@ -332,12 +332,13 @@ scieasy/                               # ← repo root
 │           │                           #   scaffold_block_package(name, display_name, author,
 │           │                           #   categories, target_dir). Reads .tpl files, substitutes
 │           │                           #   placeholders, writes output. ~100 lines.
-│           └── templates/              # Jinja2/string templates for init-block-package (ADR-026)
-│               ├── pyproject.toml.tpl  # Template with entry-points, {{package_name}}, {{author}}
-│               ├── __init__.py.tpl     # PackageInfo + get_blocks() importing per-category modules
-│               ├── example_block.py.tpl # Minimal block with contract-explaining comments
-│               ├── test_block.py.tpl   # Example test using BlockTestHarness
-│               └── README.md.tpl       # Quick start, dev setup, publishing checklist
+│           └── templates/              # String templates for init-block-package (ADR-026)
+│               └── block_package/      # {placeholder} substitution, no Jinja2 dependency
+│                   ├── pyproject.toml.tpl  # Template with entry-points, {package_name}, {author}
+│                   ├── __init__.py.tpl     # PackageInfo + get_blocks() callable protocol
+│                   ├── blocks.py.tpl       # Example ProcessBlock with process_item()
+│                   ├── test_block.py.tpl   # Example test verifying callable protocol
+│                   └── README.md.tpl       # Quick start, dev setup, publishing checklist
 │
 │
 │ ══════════════════════════════════════════════════════════════════
@@ -477,8 +478,8 @@ scieasy/                               # ← repo root
 │   ��
 │   ├── cli/
 │   │   ├── test_cli.py                # CLI command tests: gui --help, --no-browser, default port
-│   │   └── test_init_block_package.py # Scaffolding tests (ADR-026): directory structure,
-│   │                                   #   pyproject.toml entry-points, PackageInfo, per-category dirs
+│   │   └── test_new_block_package.py  # Scaffolding tests (ADR-026): directory structure,
+│   │                                   #   pyproject.toml entry-points, callable protocol, CLI integration
 │   │
 │   ��── integration/
 │       ├── test_multimodal_workflow.py # Full example: LC-MS + Raman + IF + SRS pipeline
