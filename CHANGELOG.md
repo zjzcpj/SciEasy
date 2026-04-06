@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- [#251] Stage 10.1 Part 1: Palette research, skeleton, and design doc — adds category ClassVar on Block, source/package_name fields on BlockSummary (with safe defaults), optional source?/package_name? on TS type, TODO markers in _infer_category/_summary/BlockPalette.tsx, and 13 skipped test stubs for Agent B to implement in Part 2; includes docs/design/stage-10-1-palette.md (661 lines) with current state analysis, proposed changes, test plan, and migration notes (@claude, 2026-04-06, branch: feat/issue-251/stage-10-1-skeleton, session: 20260406-015803-stage-10-1-part-1-research-skeleton-and)
+
 ### Fixed
 
 - [#232] Fix frontend AI chat code review issues — AIGenerateBlockResponse type drift (add validation_report, category), ErrorBanner timer reset via useCallback, Enter-key send test (@claude, 2026-04-05, branch: feat/issue-232/frontend-ai-chat)
