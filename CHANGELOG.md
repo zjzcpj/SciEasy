@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [#121] Pass BlockRegistry to CLI validate/run commands — enable type-compatibility and dangling-port checks (@claude, 2026-04-05, branch: fix/batch-a2/issues-119-121, session: 20260405-003357-wave-a2-inject-blockregistry-into-dagsch)
 ### Added
 
+- [#216] Block package templates and `scieasy init-block-package` CLI scaffold command (ADR-026 Phase 3.2+3.3) (@claude, 2026-04-05, branch: feat/issue-216/block-package-templates, session: 20260405-223950-t3-2-3-3-block-package-templates-cli-sca)
 - [#213] AdapterRegistry priority enforcement: external adapters cannot override built-in extensions (ADR-025 Phase 2.4) (@claude, 2026-04-05, branch: feat/issue-213/adapter-priority)
 - [#212] TypeRegistry entry-points scanning for external type plugins (ADR-025 Phase 2.3) (@claude, 2026-04-05, branch: feat/issue-212/type-registry-entrypoints, session: 20260405-221125-typeregistry-entry-points-scanning-phase)
 - [#211] PackageInfo dataclass and BlockRegistry callable entry-points protocol (ADR-025 Phase 2.1+2.2) (@claude, 2026-04-05, branch: feat/issue-211/package-info-registry)
