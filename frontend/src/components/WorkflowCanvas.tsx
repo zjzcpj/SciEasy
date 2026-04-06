@@ -15,10 +15,16 @@ import { useCallback, useMemo, useState } from "react";
 import { resolveTypeColor } from "../config/typeColorMap";
 import type { BlockSchemaResponse, BlockSummary, WorkflowEdge, WorkflowNode } from "../types/api";
 import type { BlockNodeData } from "../types/ui";
+import { AnnotationNode } from "./nodes/AnnotationNode";
 import { BlockNode } from "./nodes/BlockNode";
+import { GroupNode } from "./nodes/GroupNode";
 import { TypedEdge } from "./TypedEdge";
 
-const nodeTypes = { block: BlockNode };
+const nodeTypes = {
+  block: BlockNode,
+  _annotation: AnnotationNode,
+  _group: GroupNode,
+};
 const edgeTypes = { typed: TypedEdge };
 
 function parsePortRef(ref: string): { nodeId: string; portName: string } {
@@ -97,17 +103,56 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
     [],
   );
 
-  const flowNodes = useMemo<Array<Node<BlockNodeData>>>(() => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const flowNodes = useMemo<Array<Node<any>>>(() => {
     return nodes.map((node, index) => {
+      const storePos = node.layout ?? { x: 120 + index * 80, y: 120 + index * 40 };
+      const position = dragPositions[node.id] ?? storePos;
+      const params = ((node.config.params as Record<string, unknown> | undefined) ?? {}) as Record<string, unknown>;
+
+      // Annotation node
+      if (node.block_type === "_annotation") {
+        return {
+          id: node.id,
+          type: "_annotation",
+          position,
+          data: {
+            text: (params.text as string) ?? "Note",
+            onUpdateText: (text: string) => onUpdateNodeConfig(node.id, { text }),
+          },
+          selected: selectedNodeId === node.id,
+        };
+      }
+
+      // Group frame node
+      if (node.block_type === "_group") {
+        return {
+          id: node.id,
+          type: "_group",
+          position,
+          style: {
+            width: (node.config.style as Record<string, unknown> | undefined)?.width as number ?? 400,
+            height: (node.config.style as Record<string, unknown> | undefined)?.height as number ?? 250,
+          },
+          data: {
+            title: (params.title as string) ?? "Group",
+            note: (params.note as string) ?? "",
+            color: (params.color as string) ?? "gray",
+            onUpdateTitle: (title: string) => onUpdateNodeConfig(node.id, { title }),
+            onUpdateNote: (note: string) => onUpdateNodeConfig(node.id, { note }),
+          },
+          selected: selectedNodeId === node.id,
+        };
+      }
+
+      // Regular block node
       const summary = blocks.find((block) => block.type_name === node.block_type);
       const schema = schemas[node.block_type];
-      const params = ((node.config.params as Record<string, unknown> | undefined) ?? {}) as Record<string, unknown>;
-      const storePos = node.layout ?? { x: 120 + index * 80, y: 120 + index * 40 };
       return {
         id: node.id,
         type: "block",
         dragHandle: ".drag-handle",
-        position: dragPositions[node.id] ?? storePos,
+        position,
         data: {
           label: resolveLabel(node, summary, schema),
           blockType: node.block_type,
@@ -128,7 +173,7 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
         selected: selectedNodeId === node.id,
       };
     });
-  }, [blocks, blockStates, dragPositions, makeOnDelete, makeOnErrorClick, makeOnRestart, makeOnRun, makeOnUpdateConfig, nodes, resolveLabel, schemas, selectedNodeId]);
+  }, [blocks, blockStates, dragPositions, makeOnDelete, makeOnErrorClick, makeOnRestart, makeOnRun, makeOnUpdateConfig, nodes, onUpdateNodeConfig, resolveLabel, schemas, selectedNodeId]);
 
   const flowEdges = useMemo<Array<Edge>>(() => {
     return edges.map((edge) => {
