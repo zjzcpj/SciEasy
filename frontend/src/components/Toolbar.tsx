@@ -12,6 +12,8 @@ import {
   ChevronDown,
   Plus,
   X,
+  StickyNote,
+  BoxSelect,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -54,6 +56,8 @@ interface ToolbarProps {
   onDelete: () => void;
   onReloadBlocks: () => void;
   onStartFromSelected: () => void;
+  onAddAnnotation: () => void;
+  onAddGroup: () => void;
 }
 
 function StatusPill({
@@ -144,6 +148,8 @@ export function Toolbar(props: ToolbarProps) {
     onDelete,
     onReloadBlocks,
     onStartFromSelected,
+    onAddAnnotation,
+    onAddGroup,
   } = props;
 
   return (
@@ -293,6 +299,18 @@ export function Toolbar(props: ToolbarProps) {
             icon={RefreshCw}
             label="Reload"
             onClick={onReloadBlocks}
+          />
+          <ToolbarButton
+            icon={StickyNote}
+            label="Note"
+            disabled={!currentProject}
+            onClick={onAddAnnotation}
+          />
+          <ToolbarButton
+            icon={BoxSelect}
+            label="Group"
+            disabled={!currentProject}
+            onClick={onAddGroup}
           />
         </div>
 

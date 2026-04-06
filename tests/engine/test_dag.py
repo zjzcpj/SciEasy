@@ -116,6 +116,38 @@ class TestBuildDag:
         assert "A:output" in dag.edge_map
         assert dag.edge_map["A:output"] == ["B:input"]
 
+    def test_build_dag_skips_underscore_prefix_nodes(self) -> None:
+        """Nodes with block_type starting with '_' are excluded from the DAG."""
+        wf = _wf(
+            nodes=[
+                ("A", "proc"),
+                ("B", "proc"),
+                ("note1", "_annotation"),
+                ("grp1", "_group"),
+            ],
+            edges=[("A:out", "B:in")],
+        )
+        dag = build_dag(wf)
+
+        assert set(dag.nodes.keys()) == {"A", "B"}
+        assert "note1" not in dag.nodes
+        assert "grp1" not in dag.nodes
+
+    def test_build_dag_underscore_nodes_dont_break_topo_sort(self) -> None:
+        """Workflow with annotation/group nodes still produces valid topological order."""
+        wf = _wf(
+            nodes=[
+                ("A", "proc"),
+                ("B", "proc"),
+                ("note1", "_annotation"),
+            ],
+            edges=[("A:out", "B:in")],
+        )
+        dag = build_dag(wf)
+        order = topological_sort(dag)
+
+        assert order == ["A", "B"]
+
     def test_build_dag_no_duplicate_adjacency(self) -> None:
         """Multiple edges between same nodes don't create duplicate adjacency entries."""
         wf = _wf(
