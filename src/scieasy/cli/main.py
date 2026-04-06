@@ -223,6 +223,47 @@ def blocks() -> None:
     typer.echo(f"\nFound {len(all_specs)} block(s)")
 
 
+@app.command("init-block-package")
+def init_block_package(
+    name: str = typer.Argument(..., help="Package name (e.g. scieasy-blocks-srs)"),
+    display_name: str = typer.Option("", "--display-name", help="Human-readable display name"),
+    author: str = typer.Option("", "--author", help="Author name"),
+    description: str = typer.Option("", "--description", help="One-line package description"),
+) -> None:
+    """Scaffold a new SciEasy block package.
+
+    Creates a ready-to-develop package directory with pyproject.toml,
+    entry-points configuration, example block, and tests.
+    """
+    from scieasy.cli._scaffold import scaffold_block_package
+
+    output_dir = Path.cwd()
+    try:
+        result = scaffold_block_package(
+            output_dir,
+            name,
+            author=author,
+            description=description,
+            display_name=display_name,
+        )
+    except FileExistsError:
+        typer.echo(f"Error: directory '{name}' already exists.", err=True)
+        raise typer.Exit(code=1) from None
+
+    root: Path = result["root"]
+    files: list[str] = result["files"]
+
+    typer.echo(f"Created block package: {root.name}/")
+    for f in files:
+        typer.echo(f"  {f}")
+    typer.echo("")
+    typer.echo("Next steps:")
+    typer.echo(f"  cd {root.name}")
+    typer.echo("  pip install -e '.[dev]'")
+    typer.echo("  pytest")
+    typer.echo("  scieasy blocks  # verify registration")
+
+
 @app.command()
 def serve(host: str = "0.0.0.0", port: int = 8000) -> None:
     """Start the FastAPI server."""
