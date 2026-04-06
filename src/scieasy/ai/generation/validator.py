@@ -73,19 +73,18 @@ def validate_generated_code(code: str) -> dict[str, Any]:
         )
 
     if "self.transition(" in code:
-        # Allow PAUSED for AppBlock, but flag others.
+        # Allow PAUSED for AppBlock, but flag others as errors (ADR-017).
         transitions = re.findall(r"self\.transition\(([^)]+)\)", code)
         for transition_arg in transitions:
             if "PAUSED" not in transition_arg:
-                warnings.append(
-                    f"Code calls self.transition({transition_arg}). "
+                errors.append(
+                    f"ADR-017 violation: self.transition({transition_arg}) is forbidden. "
                     f"State transitions are managed by the engine in subprocess "
-                    f"isolation (ADR-017). Remove unless this is an AppBlock "
-                    f"PAUSED transition."
+                    f"isolation. Only AppBlock may use self.transition(BlockState.PAUSED)."
                 )
 
     if "dict[str, Any]" in code:
-        warnings.append("Code uses 'dict[str, Any]' for port data. Use 'dict[str, Collection]' per ADR-020.")
+        errors.append("ADR-020 violation: use Collection for inter-block data, not dict[str, Any].")
 
     passed = len(errors) == 0
     return {"passed": passed, "errors": errors, "warnings": warnings}
