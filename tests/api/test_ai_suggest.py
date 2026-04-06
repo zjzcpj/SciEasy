@@ -74,10 +74,11 @@ class TestOtherEndpointsUnchanged:
     """Verify the other AI endpoints are not broken."""
 
     def test_generate_block_returns_error_without_ai(self, client: TestClient) -> None:
-        """generate-block returns 503 when AI deps are not installed."""
+        """generate-block returns an error when AI is not configured."""
         response = client.post(
             "/api/ai/generate-block",
             json={"description": "make a block"},
         )
-        # 503 when AI optional deps missing, 501 if still a stub
-        assert response.status_code in (501, 503)
+        # 503 when AI optional deps missing, 500 when deps installed
+        # but no API key configured, 501 if still a stub
+        assert response.status_code in (500, 501, 503)

@@ -1,7 +1,7 @@
 """Tests for AI API endpoints.
 
 The generate-block endpoint is now wired to the block generator pipeline.
-Other endpoints (suggest-workflow, optimize-params) remain Phase 9 placeholders.
+Other endpoints (suggest-workflow, optimize-params) are tested separately.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
 # ---------------------------------------------------------------------------
-# Placeholder endpoints (still 501)
+# Endpoints without AI provider configured
 # ---------------------------------------------------------------------------
 
 
@@ -24,19 +24,15 @@ def test_suggest_workflow_returns_501(client: TestClient) -> None:
     assert suggest.status_code == 501
 
 
-def test_optimize_params_returns_error_without_provider(client: TestClient) -> None:
-    """optimize-params returns 400/500 when no AI provider is configured.
-
-    The endpoint is now wired to the real optimizer. Without a configured
-    AI provider it returns 400 (ValueError) or 500 (RuntimeError).
-    """
+def test_optimize_params_returns_501(client: TestClient) -> None:
+    """optimize-params still returns a Phase 9 placeholder."""
     optimize = client.post(
         "/api/ai/optimize-params",
-        json={"block_id": "node-1", "intermediate_results": {}},
+        params={"block_id": "node-1"},
+        json={},
     )
-    # Either 400 (no AI provider) or 500 (runtime error) is acceptable
-    # now that the endpoint is wired to the real implementation.
-    assert optimize.status_code in (400, 500)
+    assert optimize.status_code == 501
+    assert "Phase 9" in optimize.json()["detail"]
 
 
 # ---------------------------------------------------------------------------

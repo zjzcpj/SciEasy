@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#231] Fix workflow planner endpoint: response mapping bug, revert optimize-params scope leak, sync endpoint for blocking call, remove dead exception handler (@claude, 2026-04-05, branch: feat/issue-231/workflow-planner)
 - [#206] Browse button supports file multi-select for Load blocks, folder select for Save blocks (@claude, 2026-04-06, branch: fix/issue-206-207-208/io-block-ux)
 - [#207] Remove unused Format Override field from IO block config schema (@claude, 2026-04-06, branch: fix/issue-206-207-208/io-block-ux)
 - [#208] Hide direction field in bottom Config panel for IO blocks to match canvas display (@claude, 2026-04-06, branch: fix/issue-206-207-208/io-block-ux)
