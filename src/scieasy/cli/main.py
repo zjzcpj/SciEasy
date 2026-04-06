@@ -230,3 +230,21 @@ def serve(host: str = "0.0.0.0", port: int = 8000) -> None:
 
     typer.echo(f"Starting SciEasy server on {host}:{port}...")
     uvicorn.run("scieasy.api.app:create_app", host=host, port=port, factory=True)
+
+
+@app.command()
+def gui(
+    port: int = typer.Option(8000, help="Port for the API server"),
+    no_browser: bool = typer.Option(False, "--no-browser", help="Do not open browser automatically"),
+) -> None:
+    """Launch SciEasy GUI in your default browser."""
+    import threading
+    import webbrowser
+
+    import uvicorn
+
+    url = f"http://localhost:{port}"
+    typer.echo(f"Starting SciEasy GUI on {url} ...")
+    if not no_browser:
+        threading.Timer(1.5, webbrowser.open, args=[url]).start()
+    uvicorn.run("scieasy.api.app:create_app", host="0.0.0.0", port=port, factory=True)

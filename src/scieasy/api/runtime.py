@@ -68,17 +68,38 @@ def _infer_type_name_from_ref(ref: StorageReference) -> str:
 
 
 def _image_data_uri_from_matrix(values: list[list[float]]) -> str:
-    width = len(values[0]) if values and values[0] else 0
+    """Encode a 2D float matrix as a grayscale PNG data URI.
+
+    Uses stdlib struct + zlib to produce a minimal valid PNG.
+    No external dependencies.  Universal browser support.
+    """
+    import struct
+    import zlib
+
     height = len(values)
-    max_value = max((value for row in values for value in row), default=1.0) or 1.0
-    pixels = bytearray()
+    width = len(values[0]) if values and values[0] else 0
+    if width == 0 or height == 0:
+        return ""
+    max_val = max((v for row in values for v in row), default=1.0) or 1.0
+
+    # Build raw scanlines: each row has a filter byte (0 = None) followed by pixel bytes.
+    raw = b""
     for row in values:
-        for value in row:
-            intensity = max(0, min(255, int((value / max_value) * 255)))
-            pixels.extend((intensity, intensity, intensity))
-    header = f"P6 {width} {height} 255 ".encode("ascii")
-    payload = base64.b64encode(header + bytes(pixels)).decode("ascii")
-    return f"data:image/x-portable-pixmap;base64,{payload}"
+        raw += b"\x00"  # PNG filter: None
+        raw += bytes(max(0, min(255, int(v / max_val * 255))) for v in row)
+
+    def _png_chunk(chunk_type: bytes, data: bytes) -> bytes:
+        body = chunk_type + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+
+    # IHDR: width, height, bit-depth=8, color-type=0 (grayscale)
+    ihdr_data = struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0)
+    png = b"\x89PNG\r\n\x1a\n"
+    png += _png_chunk(b"IHDR", ihdr_data)
+    png += _png_chunk(b"IDAT", zlib.compress(raw))
+    png += _png_chunk(b"IEND", b"")
+
+    return f"data:image/png;base64,{base64.b64encode(png).decode('ascii')}"
 
 
 @dataclass

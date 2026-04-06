@@ -56,6 +56,9 @@ data/previews/
 node_modules/
 .next/
 
+# Built frontend served by Python backend (not committed, created by CI)
+src/scieasy/api/static/
+
 
 # Workflow gate state files (local per-developer)
 .workflow/active/

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +13,7 @@ from fastapi.responses import RedirectResponse
 
 from scieasy.api.routes import ai, blocks, data, projects, workflows
 from scieasy.api.runtime import ApiRuntime
+from scieasy.api.spa import SPAStaticFiles
 from scieasy.api.sse import sse_handler
 from scieasy.api.ws import websocket_handler
 from scieasy.engine.runners.process_handle import ProcessRegistry
@@ -55,10 +57,6 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    @app.get("/", include_in_schema=False)
-    async def root() -> RedirectResponse:
-        return RedirectResponse(url="/docs")
-
     app.include_router(workflows.router)
     app.include_router(blocks.router)
     app.include_router(data.router)
@@ -73,5 +71,16 @@ def create_app() -> FastAPI:
     async def ws_endpoint(websocket: WebSocket) -> None:
         runtime = app.state.runtime
         await websocket_handler(websocket, runtime.event_bus)
+
+    # SPA static files (production) or redirect to API docs (development).
+    # Must be registered AFTER all /api/* and /ws routes.
+    static_dir = Path(__file__).parent / "static"
+    if static_dir.exists():
+        app.mount("/", SPAStaticFiles(directory=str(static_dir), html=True), name="spa")
+    else:
+
+        @app.get("/", include_in_schema=False)
+        async def root() -> RedirectResponse:
+            return RedirectResponse(url="/docs")
 
     return app

@@ -18,7 +18,7 @@ class TestCLIHelp:
     def test_help_shows_commands(self) -> None:
         result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0
-        for cmd in ("init", "validate", "run", "blocks", "serve"):
+        for cmd in ("init", "validate", "run", "blocks", "serve", "gui"):
             assert cmd in result.output
 
 
@@ -138,6 +138,58 @@ class TestCLIServe:
         assert "9000" in result.output
         assert calls["host"] == "127.0.0.1"
         assert calls["port"] == 9000
+
+
+class TestCLIGui:
+    """Tests for the ``scieasy gui`` command."""
+
+    def test_gui_help_prints_usage(self) -> None:
+        result = runner.invoke(app, ["gui", "--help"])
+        assert result.exit_code == 0
+        assert "Launch SciEasy GUI" in result.output
+
+    def test_gui_starts_uvicorn_with_factory(self, monkeypatch: object) -> None:
+        calls: dict[str, object] = {}
+
+        def fake_run(app_target: str, *, host: str, port: int, factory: bool) -> None:
+            calls.update({"app_target": app_target, "host": host, "port": port, "factory": factory})
+
+        monkeypatch.setattr("uvicorn.run", fake_run)  # type: ignore[union-attr]
+        result = runner.invoke(app, ["gui", "--no-browser"])
+        assert result.exit_code == 0
+        assert calls == {
+            "app_target": "scieasy.api.app:create_app",
+            "host": "0.0.0.0",
+            "port": 8000,
+            "factory": True,
+        }
+
+    def test_gui_default_port(self, monkeypatch: object) -> None:
+        monkeypatch.setattr("uvicorn.run", lambda *args, **kwargs: None)  # type: ignore[union-attr]
+        result = runner.invoke(app, ["gui", "--no-browser"])
+        assert result.exit_code == 0
+        assert "8000" in result.output
+
+    def test_gui_custom_port(self, monkeypatch: object) -> None:
+        calls: dict[str, object] = {}
+
+        def fake_run(app_target: str, *, host: str, port: int, factory: bool) -> None:
+            calls["port"] = port
+
+        monkeypatch.setattr("uvicorn.run", fake_run)  # type: ignore[union-attr]
+        result = runner.invoke(app, ["gui", "--port", "9000", "--no-browser"])
+        assert result.exit_code == 0
+        assert "9000" in result.output
+        assert calls["port"] == 9000
+
+    def test_gui_no_browser_skips_open(self, monkeypatch: object) -> None:
+        browser_calls: list[str] = []
+
+        monkeypatch.setattr("uvicorn.run", lambda *args, **kwargs: None)  # type: ignore[union-attr]
+        monkeypatch.setattr("webbrowser.open", lambda url: browser_calls.append(url))  # type: ignore[union-attr]
+        result = runner.invoke(app, ["gui", "--no-browser"])
+        assert result.exit_code == 0
+        assert len(browser_calls) == 0
 
 
 class TestCLIValidate:
