@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#192] Fix post-redesign frontend: panel resize handles (12px hit area), block delete button, IO block split into Load/Save, drag ghost preview, port label row removal, horizontal scrollbar overflow (@claude, 2026-04-05, branch: fix/issue-192/post-redesign-frontend, session: 20260405-202012-fix-p0-post-redesign-frontend-issues-pan)
 - [#179] Restrict CORS origins to localhost by default, configurable via SCIEASY_CORS_ORIGINS env var (@claude, 2026-04-05, branch: fix/issue-179/cors-origins, session: 20260405-193319-fix-179-restrict-cors-allow-origins-befo)
 - [#178] Replace PPM image preview with PNG encoding for universal browser support (@claude, 2026-04-05, branch: fix/issue-178/png-image-preview, session: 20260405-192915-fix-178-replace-ppm-image-preview-with-p)
 - [#180] Generate block config schema from Block class metadata instead of hardcoding (@claude, 2026-04-05, branch: fix/issue-180/block-config-schema, session: 20260405-193622-fix-180-generate-block-config-schema-fro)
