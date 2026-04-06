@@ -53,7 +53,7 @@ export const createWorkflowSlice: StateCreator<AppStore, [], [], WorkflowSlice> 
       workflowHistory: [],
       workflowFuture: [],
     }),
-  addNode: (block, position) =>
+  addNode: (block, position, defaultParams) =>
     set((state) => ({
       ...pushHistory(state),
       workflowDirty: true,
@@ -63,7 +63,7 @@ export const createWorkflowSlice: StateCreator<AppStore, [], [], WorkflowSlice> 
         {
           id: `${block.type_name}-${Date.now()}`,
           block_type: block.type_name,
-          config: { params: {} },
+          config: { params: defaultParams ?? {} },
           layout: position,
         },
       ],

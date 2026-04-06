@@ -71,6 +71,7 @@ export default function App() {
   const togglePreview = useAppStore((state) => state.togglePreview);
   const toggleBottomPanel = useAppStore((state) => state.toggleBottomPanel);
   const toggleMinimap = useAppStore((state) => state.toggleMinimap);
+  const setPanelSize = useAppStore((state) => state.setPanelSize);
   const setLastError = useAppStore((state) => state.setLastError);
 
   const blocks = useAppStore((state) => state.blocks);
@@ -416,7 +417,7 @@ export default function App() {
   return (
     <ReactFlowProvider>
       <TooltipProvider delayDuration={300}>
-        <div className="flex h-screen flex-col bg-canvas text-stone-800">
+        <div className="flex h-screen flex-col overflow-x-hidden bg-canvas text-stone-800">
           <Toolbar
             currentProject={currentProject}
             workflowId={workflowId}
@@ -451,7 +452,15 @@ export default function App() {
           ) : null}
 
           {currentProject ? (
-            <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
+            <ResizablePanelGroup
+              orientation="horizontal"
+              className="min-h-0 flex-1"
+              onLayoutChanged={(layout) => {
+                const sizes = Object.values(layout);
+                if (sizes[0] != null) setPanelSize("palette", sizes[0]);
+                if (sizes[2] != null) setPanelSize("preview", sizes[2]);
+              }}
+            >
               {/* Block Palette — full height left column */}
               <ResizablePanel defaultSize={15} minSize={4} maxSize={28} collapsible collapsedSize={0}>
                 <BlockPalette
@@ -467,7 +476,14 @@ export default function App() {
 
               {/* Center: Canvas + Bottom Panel vertical split */}
               <ResizablePanel defaultSize={63}>
-                <ResizablePanelGroup orientation="vertical">
+                <ResizablePanelGroup
+                  orientation="vertical"
+                  className="min-h-0 flex-1"
+                  onLayoutChanged={(layout) => {
+                    const sizes = Object.values(layout);
+                    if (sizes[1] != null) setPanelSize("bottom", sizes[1]);
+                  }}
+                >
                   <ResizablePanel defaultSize={70} minSize={20}>
                     <WorkflowCanvas
                       blockStates={blockStates}
