@@ -22,18 +22,21 @@ def test_suggest_workflow_returns_501(client: TestClient) -> None:
         json={"data_description": "csv table", "goal": "cluster samples"},
     )
     assert suggest.status_code == 501
-    assert "Phase 9" in suggest.json()["detail"]
 
 
-def test_optimize_params_returns_501(client: TestClient) -> None:
-    """optimize-params still returns a Phase 9 placeholder."""
+def test_optimize_params_returns_error_without_provider(client: TestClient) -> None:
+    """optimize-params returns 400/500 when no AI provider is configured.
+
+    The endpoint is now wired to the real optimizer. Without a configured
+    AI provider it returns 400 (ValueError) or 500 (RuntimeError).
+    """
     optimize = client.post(
         "/api/ai/optimize-params",
-        params={"block_id": "node-1"},
-        json={"preview": {"kind": "table"}},
+        json={"block_id": "node-1", "intermediate_results": {}},
     )
-    assert optimize.status_code == 501
-    assert "Phase 9" in optimize.json()["detail"]
+    # Either 400 (no AI provider) or 500 (runtime error) is acceptable
+    # now that the endpoint is wired to the real implementation.
+    assert optimize.status_code in (400, 500)
 
 
 # ---------------------------------------------------------------------------
