@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -36,9 +37,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(title="SciEasy API", version="0.1.0", lifespan=lifespan)
+    cors_origins_raw = os.getenv("SCIEASY_CORS_ORIGINS", "").strip()
+    if cors_origins_raw == "*":
+        origins: list[str] = ["*"]
+    elif cors_origins_raw:
+        origins = [o.strip() for o in cors_origins_raw.split(",")]
+    else:
+        origins = [
+            "http://localhost:5173",
+            "http://localhost:8000",
+            "http://127.0.0.1:5173",
+            "http://127.0.0.1:8000",
+        ]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=origins,
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],

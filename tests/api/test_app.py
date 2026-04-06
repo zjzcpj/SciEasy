@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.testclient import TestClient
 
 from scieasy.api.app import create_app, lifespan
@@ -81,6 +82,48 @@ class TestLifespan:
         """The app from create_app() has the lifespan wired in."""
         app = create_app()
         assert app.router.lifespan_context is not None
+
+
+class TestCORSOrigins:
+    """Tests for CORS origin configuration."""
+
+    def test_default_cors_restricts_to_localhost(self, monkeypatch: object) -> None:
+        """Without SCIEASY_CORS_ORIGINS env var, only localhost origins are allowed."""
+        monkeypatch.delenv("SCIEASY_CORS_ORIGINS", raising=False)  # type: ignore[union-attr]
+        app = create_app()
+        cors_mw = next(
+            (m for m in app.user_middleware if m.cls is CORSMiddleware),
+            None,
+        )
+        assert cors_mw is not None
+        allowed = cors_mw.kwargs.get("allow_origins", [])
+        assert "http://localhost:5173" in allowed
+        assert "http://localhost:8000" in allowed
+        assert "*" not in allowed
+
+    def test_cors_env_var_wildcard(self, monkeypatch: object) -> None:
+        """SCIEASY_CORS_ORIGINS=* allows all origins."""
+        monkeypatch.setenv("SCIEASY_CORS_ORIGINS", "*")  # type: ignore[union-attr]
+        app = create_app()
+        cors_mw = next(
+            (m for m in app.user_middleware if m.cls is CORSMiddleware),
+            None,
+        )
+        assert cors_mw is not None
+        assert cors_mw.kwargs.get("allow_origins") == ["*"]
+
+    def test_cors_env_var_custom(self, monkeypatch: object) -> None:
+        """SCIEASY_CORS_ORIGINS with custom comma-separated origins."""
+        monkeypatch.setenv("SCIEASY_CORS_ORIGINS", "http://localhost:3000, http://localhost:4000")  # type: ignore[union-attr]
+        app = create_app()
+        cors_mw = next(
+            (m for m in app.user_middleware if m.cls is CORSMiddleware),
+            None,
+        )
+        assert cors_mw is not None
+        allowed = cors_mw.kwargs.get("allow_origins", [])
+        assert "http://localhost:3000" in allowed
+        assert "http://localhost:4000" in allowed
 
 
 class TestStaticMount:

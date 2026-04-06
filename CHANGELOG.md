@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#179] Restrict CORS origins to localhost by default, configurable via SCIEASY_CORS_ORIGINS env var (@claude, 2026-04-05, branch: fix/issue-179/cors-origins, session: 20260405-193319-fix-179-restrict-cors-allow-origins-befo)
 - [#178] Replace PPM image preview with PNG encoding for universal browser support (@claude, 2026-04-05, branch: fix/issue-178/png-image-preview, session: 20260405-192915-fix-178-replace-ppm-image-preview-with-p)
 - [#180] Generate block config schema from Block class metadata instead of hardcoding (@claude, 2026-04-05, branch: fix/issue-180/block-config-schema, session: 20260405-193622-fix-180-generate-block-config-schema-fro)
 - [#184] Align frontend GUI with ARCHITECTURE.md Section 9 spec: resizable 3-column layout, 3-part BlockNode with inline editable config, spec-correct port type colors, 6 bottom panel tabs, 14+ keyboard shortcuts, shadcn/ui integration, Projects dropdown toolbar (@claude, 2026-04-05, branch: fix/issue-184/frontend-spec-compliance, session: 20260405-192530-fix-critical-frontend-design-deviations)
