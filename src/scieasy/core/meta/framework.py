@@ -24,7 +24,7 @@ T-004.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -55,7 +55,7 @@ class FrameworkMeta(BaseModel):
     # accidental mutation raises ValidationError. ADR-027 Addendum 1 §3
     # also requires ``frozen=True`` on ``Meta`` subclasses; matching that
     # convention on ``FrameworkMeta`` keeps the rules consistent.
-    created_at: datetime = Field(default_factory=lambda: datetime.utcnow())
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     object_id: str = Field(default="")
     source: str = ""
     lineage_id: str | None = None
