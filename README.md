@@ -1,0 +1,427 @@
+# SciEasy
+
+**AI-native, inclusive workflow runtime for multimodal scientific data.**
+
+[![CI](https://github.com/zjzcpj/SciEasy/actions/workflows/ci.yml/badge.svg)](https://github.com/zjzcpj/SciEasy/actions/workflows/ci.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+[![Development Status](https://img.shields.io/badge/status-pre--alpha-orange.svg)]()
+
+---
+
+## What is SciEasy?
+
+Modern biomedical research generates multi-modal datasets -- RNA/DNA sequencing, LC-MS metabolomics, spatial transcriptomics, immunofluorescence microscopy, SRS imaging, mass spectrometry imaging, and more. Each modality demands its own processing software, programming language, and data format. Researchers face two compounding problems:
+
+1. **Fragmented processing**: tools are scattered across R scripts, Python notebooks, standalone GUI applications (ElMAVEN, Fiji, napari), and command-line pipelines. Exchanging intermediate results is manual, error-prone, and poorly documented.
+2. **High barrier for non-developers**: researchers without strong programming backgrounds cannot efficiently chain together complex multi-step analyses, let alone integrate data across modalities.
+
+SciEasy is a **modality-agnostic, building-block workflow framework** where:
+
+- Every processing step is encapsulated as a **Block** with standardized inputs and outputs.
+- All data flows through a small set of **base data types** that are extensible via inheritance.
+- Users compose workflows visually by wiring blocks together on a canvas -- no code required for standard pipelines.
+- Existing tools are **included, not replaced**: users can embed R/Python scripts, launch GUI applications, or call CLI tools as blocks within the same workflow.
+- Multiple data modalities coexist in a **single workflow graph**, enabling true cross-modal fusion analysis.
+- The framework is **AI-native**: AI can generate blocks, synthesize workflows, and optimize parameters at runtime.
+
+> **Status**: SciEasy is in **pre-alpha** (v0.1.0-dev). The core runtime, block system, execution engine, API layer, and frontend workflow editor are implemented and under active development. See [Current Status](#current-status) for details.
+
+---
+
+## Key Features
+
+### Type-Safe Data Model
+
+Six base data types -- `Array`, `Series`, `DataFrame`, `Text`, `Artifact`, and `CompositeData` -- cover the full spectrum of scientific data. Domain-specific types (e.g., `Image`, `Spectrum`, `PeakTable`, `AnnData`, `SpatialData`) extend these bases. Port-level type checking prevents invalid connections at design time.
+
+### Lazy by Default
+
+Data objects hold references, not payloads. A 100 GB dataset stays on disk (Zarr, Parquet, or filesystem) until a block requests a specific slice via `ViewProxy`. Memory usage stays bounded even for enormous datasets.
+
+### Five Block Categories + Composition
+
+| Category | Purpose |
+|----------|---------|
+| **IOBlock** | Load and save data in any format (mzXML, TIFF, CSV, h5ad, Zarr, etc.) |
+| **ProcessBlock** | Deterministic data transformations (denoise, segment, merge, filter) |
+| **CodeBlock** | Run user-provided Python, R, or Julia scripts |
+| **AppBlock** | Bridge external GUI software (ElMAVEN, Fiji, napari, MestReNova) via file exchange |
+| **AIBlock** | LLM-powered classification, summarization, and parameter suggestion |
+| **SubWorkflowBlock** | Encapsulate an entire workflow as a single reusable block |
+
+### Manual Steps Are First-Class
+
+Human review, annotation, and approval are part of the formal workflow model -- not hacks. AppBlock pauses the workflow while the user operates external software, then automatically resumes when output files appear.
+
+### Subprocess Isolation
+
+All blocks execute in isolated subprocesses. The engine process is a pure orchestrator that never executes block logic directly. This provides reliable cancellation (OS-level process signals), crash isolation (a segfault in one block does not affect others), and hang protection.
+
+### Event-Driven Execution Engine
+
+The DAG scheduler reacts to block completion, errors, cancellation, and process death events via an `EventBus`. Features include parallel execution of independent branches, cancellation with automatic skip propagation to downstream blocks, pause/resume with checkpoint persistence, and resource-aware dispatch gating (GPU slots, CPU cores, OS memory monitoring via psutil).
+
+### Community-Extensible Plugin System
+
+- **Tier 1 (drop-in)**: place a `.py` file in `{project}/blocks/` or `~/.scieasy/blocks/` -- it appears in the palette immediately.
+- **Tier 2 (pip install)**: publish a block package to PyPI with `scieasy.blocks` entry-points. Users install with `pip install scieasy-yourpackage` and blocks register automatically.
+- **Block SDK**: `scieasy init-block-package` scaffolds a complete package; `BlockTestHarness` simplifies testing.
+
+### Visual Workflow Editor
+
+A React + ReactFlow frontend provides a drag-and-drop canvas for composing workflows, with real-time execution state updates via WebSocket, inline block configuration, type-colored port handles, and data preview panels.
+
+---
+
+## Architecture Overview
+
+SciEasy is organized into six horizontal layers, each depending only on the layers below it:
+
+```
++-------------------------------------------------------------+
+|  Layer 6: Frontend                                          |
+|  ReactFlow canvas, block palette, monitoring dashboard      |
++-------------------------------------------------------------+
+|  Layer 5: API + SPA Serving                                 |
+|  FastAPI REST, WebSocket, SSE, SPA fallback middleware      |
++-------------------------------------------------------------+
+|  Layer 4: AI Services                                       |
+|  Block generation, workflow synthesis, param optimization   |
++-------------------------------------------------------------+
+|  Layer 3: Execution Engine                                  |
+|  DAG scheduler, process lifecycle, resource management      |
++-------------------------------------------------------------+
+|  Layer 2: Block System                                      |
+|  Port typing, block registry, state machine, runners        |
++-------------------------------------------------------------+
+|  Layer 1: Data Foundation                                   |
+|  Type hierarchy, storage backends, lazy loading, lineage    |
++-------------------------------------------------------------+
+|  Plugin Ecosystem (cross-cutting)                           |
+|  Entry-points protocol, Block SDK, community blocks         |
++-------------------------------------------------------------+
+```
+
+**Workflow graph is the source of truth.** The graph definition, runtime state, block contracts, lineage, and execution semantics belong to the backend/runtime layer. The frontend is an editor and viewer, not the source of truth.
+
+**Data flows as references, not large in-memory payloads.** Objects passed between blocks are typed object references backed by storage (Zarr for arrays, Parquet for tables, filesystem for files). The `Collection` transport wrapper carries batches of items between blocks without the engine ever unpacking or inspecting the contents.
+
+For the full architecture document, see [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md).
+
+---
+
+## Technology Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Language | Python 3.11+ |
+| Web framework | FastAPI (REST + WebSocket + SSE) |
+| Data validation | Pydantic v2 |
+| Array storage | Zarr v3 (chunked, compressed) |
+| Tabular storage | Apache Arrow / Parquet |
+| Metadata DB | SQLite (lineage records, project metadata) |
+| Process lifecycle | Cross-platform: POSIX signals + process groups, Windows Job Objects |
+| System monitoring | psutil (OS memory for dispatch gating) |
+| Frontend framework | React 18 + TypeScript |
+| Workflow canvas | ReactFlow (`@xyflow/react`) |
+| State management | Zustand |
+| UI toolkit | shadcn/ui + Tailwind CSS |
+| Data visualization | Plotly.js (inline previews) |
+| Build tool | Vite |
+| AI integration | Anthropic / OpenAI API |
+| Package format | PyPI with `scieasy.*` entry-points |
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.11 or later
+- Node.js 18+ (only for frontend development; not needed for `pip install`)
+
+### Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/zjzcpj/SciEasy.git
+cd SciEasy
+
+# Install in development mode with dev dependencies
+pip install -e ".[dev]"
+```
+
+### Launch the GUI
+
+```bash
+scieasy gui
+```
+
+This starts the FastAPI backend and opens the workflow editor in your default browser at `http://localhost:8000`.
+
+### CLI Commands
+
+```bash
+scieasy --help          # Show all available commands
+scieasy init            # Initialize a new project workspace
+scieasy validate FILE   # Validate a workflow YAML file
+scieasy run FILE        # Execute a workflow from a YAML file
+scieasy blocks          # List all registered blocks
+scieasy serve           # Start API server (headless, no browser)
+scieasy gui             # Start API server and open browser
+```
+
+---
+
+## Project Structure
+
+```
+SciEasy/
+├── src/scieasy/                    # Python backend (pip-installable)
+│   ├── core/                       # Layer 1: Data foundation
+│   │   ├── types/                  #   DataObject hierarchy + TypeRegistry
+│   │   ├── storage/                #   Zarr, Arrow/Parquet, filesystem backends
+│   │   ├── proxy.py                #   ViewProxy (lazy loading)
+│   │   └── lineage/                #   Provenance tracking (SQLite)
+│   ├── blocks/                     # Layer 2: Block system
+│   │   ├── base/                   #   Block ABC, ports, state machine, config
+│   │   ├── io/                     #   IOBlock + format adapters
+│   │   ├── process/                #   ProcessBlock + built-in operations
+│   │   ├── code/                   #   CodeBlock + language runners
+│   │   ├── app/                    #   AppBlock + file exchange bridge
+│   │   ├── ai/                     #   AIBlock
+│   │   └── subworkflow/            #   SubWorkflowBlock
+│   ├── engine/                     # Layer 3: Execution engine
+│   │   ├── dag.py                  #   DAG construction + topological sort
+│   │   ├── scheduler.py            #   Event-driven DAG scheduler
+│   │   ├── events.py               #   EventBus pub/sub
+│   │   ├── resources.py            #   ResourceManager (GPU/CPU/memory)
+│   │   ├── checkpoint.py           #   Checkpoint save/load/resume
+│   │   └── runners/                #   LocalRunner, ProcessHandle, worker.py
+│   ├── ai/                         # Layer 4: AI services
+│   │   ├── generation/             #   Block + type generation + validation
+│   │   ├── synthesis/              #   Workflow synthesis
+│   │   └── optimization/           #   Parameter optimization
+│   ├── api/                        # Layer 5: FastAPI backend
+│   │   ├── app.py                  #   App factory + SPA static file serving
+│   │   ├── routes/                 #   REST endpoints (workflows, blocks, data, projects)
+│   │   └── ws.py                   #   WebSocket handler
+│   ├── workflow/                   # Workflow definition + YAML serialization
+│   ├── cli/                        # Typer CLI (scieasy command)
+│   └── utils/                      # Hashing, broadcast, wrapping utilities
+├── frontend/                       # Layer 6: React + TypeScript frontend
+│   ├── src/
+│   │   ├── components/             #   React components (canvas, palette, panels)
+│   │   ├── stores/                 #   Zustand state management
+│   │   └── config/                 #   Type color map, constants
+│   └── package.json
+├── tests/                          # Test suite (pytest)
+│   ├── architecture/               #   Structural / layer dependency tests
+│   ├── core/                       #   Data layer tests
+│   ├── blocks/                     #   Block system tests
+│   ├── engine/                     #   Execution engine tests
+│   └── integration/                #   End-to-end integration tests
+├── docs/                           # Documentation
+│   ├── architecture/               #   ARCHITECTURE.md, PROJECT_TREE.md
+│   ├── adr/                        #   Architecture Decision Records
+│   └── roadmap/                    #   Phased development roadmap
+├── .github/                        # CI/CD workflows, issue/PR templates
+├── CLAUDE.md                       # Project governance and AI assistant rules
+├── CHANGELOG.md                    # Keep-a-Changelog format
+└── pyproject.toml                  # Package metadata, dependencies, tool config
+```
+
+---
+
+## Project Workspace
+
+When you create a project in SciEasy, it generates a self-contained directory:
+
+```
+my_project/
+├── project.yaml              # Project metadata and settings
+├── workflows/                # Workflow DAG definitions (YAML)
+├── data/
+│   ├── raw/                  # Original uploaded files (read-only after import)
+│   ├── zarr/                 # Zarr stores for Array-type data
+│   ├── parquet/              # Parquet files for DataFrame-type data
+│   └── artifacts/            # PDFs, reports, images, other files
+├── blocks/                   # Project-local custom blocks (drop-in .py files)
+├── types/                    # Project-local custom data types (drop-in .py files)
+├── checkpoints/              # Serialized workflow states for pause/resume
+├── lineage/                  # SQLite lineage database
+└── logs/                     # Execution logs
+```
+
+---
+
+## Writing Custom Blocks
+
+### Drop-in Block (Tier 1)
+
+Save a `.py` file in your project's `blocks/` directory:
+
+```python
+from scieasy.blocks.base import ProcessBlock, InputPort, OutputPort
+from scieasy.core.types import Spectrum
+
+class RamanDenoise(ProcessBlock):
+    name = "Raman denoise"
+    description = "Savitzky-Golay smoothing for Raman spectra"
+    version = "0.1.0"
+    category = "spectroscopy"
+
+    input_ports = [InputPort(name="spectrum", accepted_types=[Spectrum])]
+    output_ports = [OutputPort(name="smoothed", accepted_types=[Spectrum])]
+
+    def process_item(self, item, config):
+        from scipy.signal import savgol_filter
+        data = item.view().to_memory()
+        return savgol_filter(data, config.get("window", 11), config.get("order", 3))
+```
+
+Click "Reload Blocks" in the GUI and it appears in the palette.
+
+### Publishable Package (Tier 2)
+
+For community distribution:
+
+```bash
+scieasy init-block-package scieasy-blocks-mylab
+```
+
+This scaffolds a complete package with entry-points, example blocks, tests using `BlockTestHarness`, and a README. Publish to PyPI and users install with `pip install scieasy-blocks-mylab`.
+
+---
+
+## Development Setup
+
+### Backend
+
+```bash
+# Install with dev dependencies
+pip install -e ".[dev]"
+
+# Run tests
+pytest
+
+# Lint and format
+ruff check .
+ruff format --check .
+
+# Type check
+mypy src/scieasy/ --ignore-missing-imports
+```
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev     # Vite dev server with HMR (proxies /api to backend)
+```
+
+### Pre-commit Hooks
+
+```bash
+pre-commit install
+```
+
+### CI
+
+The GitHub Actions CI pipeline runs on every PR:
+- Ruff lint + format check
+- mypy type checking
+- pytest with coverage enforcement (85% minimum)
+- Import contract verification (layer dependency rules)
+
+---
+
+## Contributing
+
+SciEasy follows a structured development workflow to ensure traceability and architectural consistency. Please read [`CLAUDE.md`](CLAUDE.md) for the full set of development rules, including:
+
+- **Branch discipline**: all changes go through PRs; no direct push to main.
+- **Gate workflow**: every task follows a 6-stage pipeline (issue, change plan, branch, PR, docs, changelog).
+- **Focused commits**: use conventional commit messages (`feat(module):`, `fix(module):`, `docs:`, etc.).
+- **Tests are part of the change**: bug fixes include regression tests; new features include validation tests.
+- **Architecture boundaries**: enforced by import-linter contracts in CI.
+
+### Architecture Decision Records
+
+Significant design decisions are documented as ADRs in [`docs/adr/ADR.md`](docs/adr/ADR.md). Notable decisions include:
+
+| ADR | Decision |
+|-----|----------|
+| ADR-017 | Subprocess isolation for all blocks |
+| ADR-018 | Event-driven scheduler with CANCELLED/SKIPPED states |
+| ADR-019 | Cross-platform ProcessHandle abstraction |
+| ADR-020 | Collection-based data transport between blocks |
+| ADR-021 | Collection operation blocks (merge, split, filter, slice) |
+| ADR-022 | psutil-based OS memory monitoring (replacing per-block estimates) |
+| ADR-023 | Frontend layout redesign (three-column with bottom panel) |
+| ADR-024 | Frontend bundling into Python wheel + `scieasy gui` command |
+| ADR-025 | Plugin entry-points callable protocol with PackageInfo |
+| ADR-026 | Block SDK (scaffolding, test harness, developer docs) |
+
+---
+
+## Current Status
+
+SciEasy is in **pre-alpha** (v0.1.0-dev). The following is implemented and under active development:
+
+**Implemented:**
+- Core data type hierarchy with six base types and domain-specific subtypes
+- Storage backends: Zarr (arrays), Arrow/Parquet (tables), filesystem (text/artifacts), composite store
+- ViewProxy lazy loading with chunk-aware slicing
+- Lineage tracking with SQLite-backed provenance graph
+- All six block categories (IO, Process, Code, App, AI, SubWorkflow)
+- Block registry with Tier 1 (drop-in) and Tier 2 (entry-points) discovery
+- Format adapters (CSV, Parquet, TIFF) with adapter registry
+- Python code runner (inline and script modes); R and Julia runners are stubs
+- Collection-based data transport (ADR-020)
+- Event-driven DAG scheduler with cancellation and skip propagation
+- Subprocess isolation with cross-platform ProcessHandle
+- ResourceManager with GPU/CPU slot counting and psutil memory watermarks
+- Checkpoint save/load/resume
+- FastAPI REST + WebSocket API
+- React + ReactFlow frontend with live execution, block palette, config panels, data previews
+- CLI commands: init, validate, run, blocks, serve, gui
+- Plugin entry-points protocol with PackageInfo (ADR-025)
+- 85%+ test coverage enforced in CI
+
+**Planned / In Progress:**
+- Block SDK scaffolding CLI and BlockTestHarness (ADR-026)
+- AI block generation and workflow synthesis (templates exist, runtime integration in progress)
+- Runtime parameter optimization
+- R and Julia code runners (stubs exist)
+- Remote execution runners (SSH, Slurm, cloud -- interfaces designed)
+- Block marketplace and version pinning
+- Streaming/pipelined data transfer (StreamPort)
+- Container and WASM sandboxing
+
+---
+
+## Roadmap
+
+Development follows a phased plan. Completed phases:
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| 0 | Repository bootstrap and tooling | Done |
+| 1 | Interface skeleton (all ABCs and Protocols) | Done |
+| 2 | Architecture tests and CI hardening | Done |
+| 3 | Core data layer (types, storage, lineage) | Done |
+| 4 | Block system (all categories, registries, adapters) | Done |
+| 5 | Execution engine (DAG scheduler, subprocess isolation, events) | Done |
+| 6 | Workflow serialization and CLI | Done |
+| 7-8 | API layer and frontend workflow editor | Done |
+
+See [`docs/roadmap/ROADMAP.md`](docs/roadmap/ROADMAP.md) for the full phased roadmap.
+
+---
+
+## License
+
+SciEasy is released under the [MIT License](https://opensource.org/licenses/MIT).
