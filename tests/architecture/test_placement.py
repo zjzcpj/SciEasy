@@ -112,6 +112,7 @@ def test_no_py_files_outside_known_packages() -> None:
         "workflow",
         "utils",
         "cli",
+        "testing",
     }
     stray: list[str] = []
     for filepath in SRC_ROOT.rglob("*.py"):
