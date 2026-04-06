@@ -30,6 +30,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+ai = [
+    "anthropic>=0.30",
+    "openai>=1.30",
+]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=6.0",

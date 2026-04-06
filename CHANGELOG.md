@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- [#228] LLM Provider Foundation — LLMProvider protocol, AnthropicProvider, OpenAIProvider, AIConfig, get_provider() factory, extract_code/extract_json parsers, [ai] optional deps, 64 tests (@claude, 2026-04-05, branch: feat/issue-228/llm-provider-foundation, session: 20260405-225710-phase-9-1a-llm-provider-foundation-228)
 - [#218] Block SDK end-to-end integration tests — 30 tests covering registry entry-point roundtrip, Tier 1 drop-in scanning, adapter priority enforcement, TypeRegistry entry-points, and cross-cutting integration (@claude, 2026-04-05, branch: test/issue-218/block-sdk-e2e, session: 20260405-225642-t3-5-block-sdk-integration-test-218)
 - [#217] Comprehensive block SDK developer guide covering all 5 block types, Tier 1/2 distribution, Collection transport, port system, configuration, and testing (@claude, 2026-04-05, branch: docs/issue-217/block-sdk-guide, session: 20260405-225639-t3-4-developer-documentation-for-block-s)
 - [#215] BlockTestHarness utility for external block developers — validates block contracts, PackageInfo, entry-point callables, and smoke-test execution (@claude, 2026-04-05, branch: feat/issue-215/block-test-harness, session: 20260405-224022-t3-1-blocktestharness-utility-215)
