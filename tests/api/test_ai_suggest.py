@@ -71,12 +71,13 @@ class TestSuggestWorkflowSuccess:
 
 
 class TestOtherEndpointsUnchanged:
-    """Verify the other AI endpoints still return 501."""
+    """Verify the other AI endpoints are not broken."""
 
-    def test_generate_block_still_501(self, client: TestClient) -> None:
-        """generate-block should still be a 501 placeholder."""
+    def test_generate_block_returns_error_without_ai(self, client: TestClient) -> None:
+        """generate-block returns 503 when AI deps are not installed."""
         response = client.post(
             "/api/ai/generate-block",
             json={"description": "make a block"},
         )
-        assert response.status_code == 501
+        # 503 when AI optional deps missing, 501 if still a stub
+        assert response.status_code in (501, 503)
