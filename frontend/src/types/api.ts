@@ -138,3 +138,34 @@ export interface ChatMessage {
   content: string;
   timestamp: string;
 }
+
+export interface AIGenerateBlockRequest {
+  description: string;
+  block_category?: string | null;
+}
+
+export interface AIGenerateBlockResponse {
+  code: string;
+  block_name: string;
+  validation_passed: boolean;
+}
+
+export interface AISuggestWorkflowRequest {
+  data_description: string;
+  goal: string;
+}
+
+export interface AISuggestWorkflowResponse {
+  workflow: Record<string, unknown>;
+  explanation: string;
+}
+
+export interface AIOptimizeParamsRequest {
+  block_id: string;
+  intermediate_results: Record<string, unknown>;
+}
+
+export interface AIOptimizeParamsResponse {
+  suggestions: Record<string, unknown>;
+  explanation: string;
+}

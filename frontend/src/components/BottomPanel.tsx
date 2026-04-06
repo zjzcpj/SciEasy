@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 
 import type { BlockSchemaResponse, ChatMessage, LogEntry, WorkflowNode } from "../types/api";
 import type { BottomTab } from "../types/ui";
+import { AIChat } from "./AIChat";
 
 interface BottomPanelProps {
   activeTab: BottomTab;
@@ -9,9 +10,12 @@ interface BottomPanelProps {
   selectedSchema?: BlockSchemaResponse;
   chatMessages: ChatMessage[];
   logEntries: LogEntry[];
+  aiLoading: boolean;
+  aiError: string | null;
   onTabChange: (tab: BottomTab) => void;
   onUpdateConfig: (patch: Record<string, unknown>) => void;
   onSendChat: (message: string) => void;
+  onApplyWorkflow?: (workflow: Record<string, unknown>) => void;
 }
 
 const TAB_LABELS: Record<BottomTab, string> = {
@@ -93,50 +97,6 @@ function ConfigPanel({
   );
 }
 
-function AIChat({ messages, onSendChat }: { messages: ChatMessage[]; onSendChat: (message: string) => void }) {
-  const [draft, setDraft] = useState("");
-
-  return (
-    <div className="flex h-full flex-col">
-      <div className="mb-4 rounded-[1.5rem] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-        The Phase 8 AI tab is a shell only. Real generation, workflow synthesis, and optimization arrive in Phase 9.
-      </div>
-      <div className="flex-1 space-y-3 overflow-auto">
-        {messages.map((message) => (
-          <div
-            className={`rounded-[1.4rem] px-4 py-3 text-sm ${message.role === "user" ? "bg-ink text-white" : "bg-white text-stone-700"}`}
-            key={message.id}
-          >
-            <p className="text-[11px] uppercase tracking-[0.25em] opacity-70">{message.role}</p>
-            <p className="mt-2 whitespace-pre-wrap">{message.content}</p>
-          </div>
-        ))}
-      </div>
-      <div className="mt-4 flex gap-3">
-        <input
-          className="flex-1 rounded-full border border-stone-300 bg-white px-4 py-3"
-          onChange={(event) => setDraft(event.target.value)}
-          placeholder="Ask for workflow ideas, then get the Phase 9 placeholder."
-          value={draft}
-        />
-        <button
-          className="rounded-full bg-ink px-5 py-3 text-sm font-medium text-white"
-          onClick={() => {
-            if (!draft.trim()) {
-              return;
-            }
-            onSendChat(draft);
-            setDraft("");
-          }}
-          type="button"
-        >
-          Send
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function LogViewer({ entries }: { entries: LogEntry[] }) {
   const [level, setLevel] = useState("all");
   const filtered = useMemo(() => {
@@ -184,9 +144,12 @@ export function BottomPanel({
   selectedSchema,
   chatMessages,
   logEntries,
+  aiLoading,
+  aiError,
   onTabChange,
   onUpdateConfig,
   onSendChat,
+  onApplyWorkflow,
 }: BottomPanelProps) {
   return (
     <section className="flex h-full flex-col overflow-hidden bg-[linear-gradient(180deg,_rgba(255,255,255,0.94),_rgba(238,231,219,0.98))]">
@@ -208,7 +171,13 @@ export function BottomPanel({
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 scrollbar-thin">
         <div className="h-full rounded-[1.8rem] border border-stone-200 bg-white/80 p-4">
           {activeTab === "ai" ? (
-            <AIChat messages={chatMessages} onSendChat={onSendChat} />
+            <AIChat
+              error={aiError}
+              isLoading={aiLoading}
+              messages={chatMessages}
+              onApplyWorkflow={onApplyWorkflow}
+              onSendChat={onSendChat}
+            />
           ) : activeTab === "config" ? (
             <ConfigPanel onUpdateConfig={onUpdateConfig} schema={selectedSchema} selectedNode={selectedNode} />
           ) : activeTab === "logs" ? (

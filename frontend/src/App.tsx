@@ -5,7 +5,7 @@ import { api } from "./lib/api";
 import { useLogStream } from "./hooks/useSSE";
 import { useWorkflowWebSocket } from "./hooks/useWebSocket";
 import { useAppStore } from "./store";
-import type { ProjectResponse, WorkflowResponse } from "./types/api";
+import type { ChatMessage, ProjectResponse, WorkflowResponse } from "./types/api";
 import { BlockPalette } from "./components/BlockPalette";
 import { BottomPanel } from "./components/BottomPanel";
 import { DataPreview } from "./components/DataPreview";
@@ -92,6 +92,8 @@ export default function App() {
   const pushChatMessage = useAppStore((state) => state.pushChatMessage);
 
   const [busy, setBusy] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
   const bootedRef = useRef(false);
 
   const { connected: wsConnected } = useWorkflowWebSocket(Boolean(currentProject));
@@ -416,6 +418,58 @@ export default function App() {
     undoWorkflow,
   ]);
 
+  const onSendChat = useCallback(
+    async (message: string) => {
+      const userMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "user",
+        content: message,
+        timestamp: new Date().toISOString(),
+      };
+      pushChatMessage(userMsg);
+      setAiLoading(true);
+      setAiError(null);
+
+      try {
+        const lowerMsg = message.toLowerCase();
+        let response: string;
+
+        if (lowerMsg.includes("generate") && lowerMsg.includes("block")) {
+          const result = await api.generateBlock({ description: message });
+          response = result.validation_passed
+            ? `Generated block \`${result.block_name}\`:\n\n\`\`\`python\n${result.code}\n\`\`\``
+            : `Block generation completed but validation failed. Code:\n\n\`\`\`python\n${result.code}\n\`\`\``;
+        } else if (
+          lowerMsg.includes("workflow") ||
+          lowerMsg.includes("pipeline") ||
+          lowerMsg.includes("suggest")
+        ) {
+          const result = await api.suggestWorkflow({
+            data_description: message,
+            goal: message,
+          });
+          response = `${result.explanation}\n\n\`\`\`json\n${JSON.stringify(result.workflow, null, 2)}\n\`\`\``;
+        } else {
+          response =
+            'I can help you **generate blocks** or **suggest workflows**. Try:\n- "Generate a block that filters images by intensity"\n- "Suggest a workflow for Raman spectral analysis"';
+        }
+
+        const assistantMsg: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: response,
+          timestamp: new Date().toISOString(),
+        };
+        pushChatMessage(assistantMsg);
+      } catch (err) {
+        setAiError(err instanceof Error ? err.message : "AI request failed");
+      } finally {
+        setAiLoading(false);
+      }
+    },
+    [pushChatMessage],
+  );
+
   return (
     <ReactFlowProvider>
       <TooltipProvider delayDuration={300}>
@@ -546,19 +600,11 @@ export default function App() {
                   <ResizablePanel defaultSize="30%" minSize="5%" collapsible collapsedSize="3%">
                     <BottomPanel
                       activeTab={activeBottomTab}
+                      aiError={aiError}
+                      aiLoading={aiLoading}
                       chatMessages={chatMessages}
                       logEntries={logEntries}
-                      onSendChat={(message) => {
-                        const timestamp = new Date().toISOString();
-                        pushChatMessage({ id: `${timestamp}-user`, role: "user", content: message, timestamp });
-                        pushChatMessage({
-                          id: `${timestamp}-assistant`,
-                          role: "assistant",
-                          content:
-                            "Phase 9 will provide actual AI-backed generation, synthesis, and optimization. This Phase 8 tab is a persisted shell.",
-                          timestamp,
-                        });
-                      }}
+                      onSendChat={onSendChat}
                       onTabChange={setActiveBottomTab}
                       onUpdateConfig={(patch) => {
                         if (selectedNodeId) {
