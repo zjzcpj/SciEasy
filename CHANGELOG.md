@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- [#237] Fix canvas annotation code review issues — MiniMap crash guard, DAG edge KeyError guard, random position offset (@claude, 2026-04-06, branch: fix/issue-237/code-review-fixes)
+
 ### Added
 
 - [#231] Workflow synthesis planner — data+goal to DAG generation with block catalog (@claude, 2026-04-05, branch: feat/issue-231/workflow-planner, session: 20260405-234942-feat-231-workflow-synthesis-planner-back)
@@ -25,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - [#231] Fix workflow planner endpoint: response mapping bug, revert optimize-params scope leak, sync endpoint for blocking call, remove dead exception handler (@claude, 2026-04-05, branch: feat/issue-231/workflow-planner)
+- [#233] Expose search_space in optimize-params API, wire endpoint to param_optimizer, remove dead NotImplementedError catch (@claude, 2026-04-05, branch: feat/issue-233/param-optimizer)
 - [#206] Browse button supports file multi-select for Load blocks, folder select for Save blocks (@claude, 2026-04-06, branch: fix/issue-206-207-208/io-block-ux)
 - [#207] Remove unused Format Override field from IO block config schema (@claude, 2026-04-06, branch: fix/issue-206-207-208/io-block-ux)
 - [#208] Hide direction field in bottom Config panel for IO blocks to match canvas display (@claude, 2026-04-06, branch: fix/issue-206-207-208/io-block-ux)

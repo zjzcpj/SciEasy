@@ -228,6 +228,7 @@ class AIOptimizeParamsRequest(BaseModel):
 
     block_id: str
     intermediate_results: dict[str, Any] = Field(default_factory=dict)
+    search_space: dict[str, Any] | None = None
 
 
 class AIOptimizeParamsResponse(BaseModel):
