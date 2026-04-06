@@ -58,25 +58,12 @@ def test_physical_quantity_construction_raises_not_implemented() -> None:
 
 # ---------------------------------------------------------------------------
 # T-011 / ADR-027 D3 — scieasy.utils.axis_iter.iterate_over_axes
+#
+# T-011 has landed; the smoke tests that lived here have been replaced by
+# the real per-feature suite in ``tests/utils/test_axis_iter.py``. The
+# cross-skeleton co-import check below still exercises the axis_iter
+# module's public surface.
 # ---------------------------------------------------------------------------
-
-
-def test_axis_iter_module_importable() -> None:
-    from scieasy.utils.axis_iter import SliceFn, iterate_over_axes
-
-    assert SliceFn is not None
-    assert callable(iterate_over_axes)
-
-
-def test_iterate_over_axes_skeleton_raises_not_implemented() -> None:
-    from scieasy.utils.axis_iter import iterate_over_axes
-
-    with pytest.raises(NotImplementedError, match="T-011"):
-        iterate_over_axes(
-            source=None,  # type: ignore[arg-type]
-            operates_on={"y", "x"},
-            func=lambda data, coord: data,  # type: ignore[arg-type,return-value]
-        )
 
 
 # ---------------------------------------------------------------------------
