@@ -198,7 +198,7 @@ export function BottomPanel({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-hidden px-4 py-4">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 scrollbar-thin">
         <div className="h-full rounded-[1.8rem] border border-stone-200 bg-white/80 p-4">
           {activeTab === "ai" ? (
             <AIChat messages={chatMessages} onSendChat={onSendChat} />

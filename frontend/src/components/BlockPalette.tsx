@@ -90,7 +90,7 @@ export function BlockPalette({
 
   return (
     <aside
-      className="h-full overflow-hidden border-r border-stone-200 bg-[linear-gradient(180deg,_rgba(255,255,255,0.95),_rgba(245,241,232,0.98))] p-4"
+      className="flex h-full flex-col overflow-hidden border-r border-stone-200 bg-[linear-gradient(180deg,_rgba(255,255,255,0.95),_rgba(245,241,232,0.98))] p-4"
     >
       {/* Drag ghost element (offscreen) */}
       <div
@@ -115,7 +115,7 @@ export function BlockPalette({
         />
       )}
 
-      <div className="mt-4 flex-1 space-y-4 overflow-auto pb-6">
+      <div className="mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto pb-6 scrollbar-thin">
         {grouped.map((group) => (
           <section key={group.category}>
             {collapsed ? null : (
