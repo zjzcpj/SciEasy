@@ -143,7 +143,7 @@ export function DataPreview({
   const preview = activeRef ? previewCache[activeRef] : null;
 
   return (
-    <aside className="flex h-full flex-col border-l border-stone-200 bg-[linear-gradient(180deg,_rgba(255,255,255,0.94),_rgba(245,241,232,0.98))] p-4">
+    <aside className="flex h-full flex-col overflow-hidden border-l border-stone-200 bg-[linear-gradient(180deg,_rgba(255,255,255,0.94),_rgba(245,241,232,0.98))] p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-[0.35em] text-stone-500">Preview</p>
@@ -183,7 +183,7 @@ export function DataPreview({
               </button>
             ))}
           </div>
-          <div className="mt-4 flex-1 overflow-auto">
+          <div className="mt-4 min-h-0 flex-1 overflow-y-auto scrollbar-thin">
             {activeRef && previewLoading[activeRef] ? (
               <div className="rounded-[1.6rem] border border-stone-200 bg-white p-4 text-sm text-stone-500">Loading preview…</div>
             ) : preview ? (
