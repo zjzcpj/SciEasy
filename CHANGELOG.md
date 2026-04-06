@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- [#237] Fix canvas annotation code review issues — MiniMap crash guard, DAG edge KeyError guard, random position offset (@claude, 2026-04-06, branch: fix/issue-237/code-review-fixes)
+
 ### Added
 
 - [#231] Workflow synthesis planner — data+goal to DAG generation with block catalog (@claude, 2026-04-05, branch: feat/issue-231/workflow-planner, session: 20260405-234942-feat-231-workflow-synthesis-planner-back)
