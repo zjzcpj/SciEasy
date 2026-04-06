@@ -117,7 +117,7 @@ async def websocket_handler(websocket: WebSocket, event_bus: EventBus) -> None:
                     )
                 else:
                     logger.warning("Unknown WebSocket message type: %s", msg_type)
-        except WebSocketDisconnect:
+        except (WebSocketDisconnect, asyncio.CancelledError):
             pass
 
     async def _outbound_loop() -> None:
@@ -126,12 +126,12 @@ async def websocket_handler(websocket: WebSocket, event_bus: EventBus) -> None:
             while True:
                 payload = await outbound_queue.get()
                 await websocket.send_json(payload)
-        except WebSocketDisconnect:
+        except (WebSocketDisconnect, asyncio.CancelledError):
             pass
 
     try:
         await asyncio.gather(_inbound_loop(), _outbound_loop())
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, asyncio.CancelledError):
         pass
     finally:
         for event_type in _OUTBOUND_EVENTS:
