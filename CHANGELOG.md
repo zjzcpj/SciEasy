@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#203] Handle asyncio.CancelledError in WebSocket handler for clean server shutdown (@claude, 2026-04-05, branch: fix/issue-203/ws-shutdown-hang, session: 20260405-212520-fix-websocket-shutdown-hang-by-handling)
 - [#195] Guard panel resize persistence — minimum size threshold in onLayoutChanged + hydration validation in Zustand store (@claude, 2026-04-05, branch: fix/issue-195/panel-resize-persist, session: 20260405-205531-fix-panel-resize-broken-onlayoutchanged)
 - [#194] Improve project dialog UX — remove useless "Optional note" field, add Browse button for native directory selection (@claude, 2026-04-05, branch: fix/issue-194/project-dialog-browse, session: 20260405-205530-fix-project-dialog-ux-remove-useless-fie)
 - [#192] Fix post-redesign frontend: panel resize handles (12px hit area), block delete button, IO block split into Load/Save, drag ghost preview, port label row removal, horizontal scrollbar overflow (@claude, 2026-04-05, branch: fix/issue-192/post-redesign-frontend, session: 20260405-202012-fix-p0-post-redesign-frontend-issues-pan)
