@@ -35,6 +35,20 @@ _SAFE_IMPORT_MODULES: frozenset[str] = frozenset(
     }
 )
 
+# Module prefixes allowed in the sandbox.  These cover the SciEasy public
+# data-object hierarchy that AI-generated subtypes legitimately need to
+# import (e.g. ``from scieasy.core.types.array import Array``).  Only the
+# core type modules are exposed -- engine, storage, blocks, runners, and
+# IO adapters remain blocked.
+_SAFE_IMPORT_PREFIXES: tuple[str, ...] = ("scieasy.core.types",)
+
+
+def _is_safe_import(name: str) -> bool:
+    """Return True if *name* refers to a whitelisted module or prefix."""
+    if name in _SAFE_IMPORT_MODULES:
+        return True
+    return any(name == prefix or name.startswith(prefix + ".") for prefix in _SAFE_IMPORT_PREFIXES)
+
 
 def _safe_import(
     name: str,
@@ -44,9 +58,11 @@ def _safe_import(
     level: int = 0,
 ) -> Any:
     """Restricted import that only allows a whitelist of safe modules."""
-    if name not in _SAFE_IMPORT_MODULES:
+    if not _is_safe_import(name):
         raise ImportError(
-            f"Import of '{name}' is not allowed in the sandbox. Allowed modules: {sorted(_SAFE_IMPORT_MODULES)}"
+            f"Import of '{name}' is not allowed in the sandbox. "
+            f"Allowed modules: {sorted(_SAFE_IMPORT_MODULES)}; "
+            f"allowed prefixes: {list(_SAFE_IMPORT_PREFIXES)}"
         )
     return __import__(name, globals, locals, fromlist, level)
 
