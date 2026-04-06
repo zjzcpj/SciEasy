@@ -37,7 +37,7 @@ export interface WorkflowSlice {
   workflowHistory: WorkflowHistoryEntry[];
   workflowFuture: WorkflowHistoryEntry[];
   setWorkflow: (workflow: WorkflowResponse | null) => void;
-  addNode: (block: BlockSummary, position: { x: number; y: number }) => void;
+  addNode: (block: BlockSummary, position: { x: number; y: number }, defaultParams?: Record<string, unknown>) => void;
   updateNodeConfig: (nodeId: string, config: Record<string, unknown>) => void;
   updateNodeLayout: (nodeId: string, position: { x: number; y: number }) => void;
   connectNodes: (edge: WorkflowEdge) => void;

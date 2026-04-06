@@ -18,6 +18,7 @@ export interface BlockNodeData extends Record<string, unknown> {
   selected?: boolean;
   onRun?: () => void;
   onRestart?: () => void;
+  onDelete?: () => void;
   onUpdateConfig?: (patch: Record<string, unknown>) => void;
   onErrorClick?: () => void;
 }

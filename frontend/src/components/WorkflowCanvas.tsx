@@ -34,7 +34,7 @@ interface WorkflowCanvasProps {
   selectedNodeId: string | null;
   minimapVisible: boolean;
   onSelectNode: (nodeId: string | null) => void;
-  onAddNode: (block: BlockSummary, position: { x: number; y: number }) => void;
+  onAddNode: (block: BlockSummary, position: { x: number; y: number }, defaultParams?: Record<string, unknown>) => void;
   onUpdateNodePosition: (nodeId: string, position: { x: number; y: number }) => void;
   onUpdateNodeConfig: (nodeId: string, config: Record<string, unknown>) => void;
   onConnect: (connection: WorkflowEdge) => Promise<void>;
@@ -69,6 +69,7 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
 
   const makeOnRun = useCallback((nodeId: string) => () => onRunBlock(nodeId), [onRunBlock]);
   const makeOnRestart = useCallback((nodeId: string) => () => onRestartBlock(nodeId), [onRestartBlock]);
+  const makeOnDelete = useCallback((nodeId: string) => () => onDeleteNode(nodeId), [onDeleteNode]);
   const makeOnErrorClick = useCallback((nodeId: string) => () => onErrorClick(nodeId), [onErrorClick]);
   const makeOnUpdateConfig = useCallback(
     (nodeId: string) => (patch: Record<string, unknown>) => onUpdateNodeConfig(nodeId, patch),
@@ -98,13 +99,14 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
           selected: selectedNodeId === node.id,
           onRun: makeOnRun(node.id),
           onRestart: makeOnRestart(node.id),
+          onDelete: makeOnDelete(node.id),
           onUpdateConfig: makeOnUpdateConfig(node.id),
           onErrorClick: makeOnErrorClick(node.id),
         },
         selected: selectedNodeId === node.id,
       };
     });
-  }, [blocks, blockStates, makeOnErrorClick, makeOnRestart, makeOnRun, makeOnUpdateConfig, nodes, schemas, selectedNodeId]);
+  }, [blocks, blockStates, makeOnDelete, makeOnErrorClick, makeOnRestart, makeOnRun, makeOnUpdateConfig, nodes, schemas, selectedNodeId]);
 
   const flowEdges = useMemo<Array<Edge>>(() => {
     return edges.map((edge) => {
@@ -141,9 +143,9 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
         if (!payload) {
           return;
         }
-        const block = JSON.parse(payload) as BlockSummary;
+        const parsed = JSON.parse(payload) as BlockSummary & { _default_direction?: string };
         const position = reactFlow.screenToFlowPosition({ x: event.clientX, y: event.clientY });
-        onAddNode(block, position);
+        onAddNode(parsed, position, parsed._default_direction ? { direction: parsed._default_direction } : undefined);
       }}
     >
       <ReactFlow

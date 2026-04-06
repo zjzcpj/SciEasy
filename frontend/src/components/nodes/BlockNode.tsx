@@ -232,6 +232,16 @@ export function BlockNode({ data, selected }: NodeProps<Node<BlockNodeData>>) {
               <path d="M13 8a5 5 0 1 1-1.5-3.5M13 3v2.5h-2.5" />
             </svg>
           </button>
+          <button
+            type="button"
+            className="nodrag rounded p-1 text-stone-400 transition-colors hover:bg-red-50 hover:text-red-500"
+            title="Remove block"
+            onClick={() => data.onDelete?.()}
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M4 4l8 8M12 4l-8 8" />
+            </svg>
+          </button>
         </div>
       </div>
 
@@ -256,41 +266,6 @@ export function BlockNode({ data, selected }: NodeProps<Node<BlockNodeData>>) {
       </div>
 
       {/* ----------------------------------------------------------------- */}
-      {/* Ports                                                             */}
-      {/* ----------------------------------------------------------------- */}
-      <div className="relative px-3 py-2">
-        <div className="flex items-start justify-between gap-2">
-          {/* Input ports */}
-          <div className="flex flex-col gap-1">
-            {data.inputPorts.map((port) => {
-              const color = resolveTypeColor(port.accepted_types, typeHierarchy);
-              return (
-                <span
-                  key={port.name}
-                  className="text-[10px] text-stone-500"
-                  title={`${port.accepted_types.join(", ")}${port.description ? " \u2014 " + port.description : ""}`}
-                >
-                  {port.name}
-                </span>
-              );
-            })}
-          </div>
-          {/* Output ports */}
-          <div className="flex flex-col items-end gap-1">
-            {data.outputPorts.map((port) => (
-              <span
-                key={port.name}
-                className="text-[10px] text-stone-500"
-                title={`${port.accepted_types.join(", ")}${port.description ? " \u2014 " + port.description : ""}`}
-              >
-                {port.name}
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* ----------------------------------------------------------------- */}
       {/* Port handles (positioned absolutely by React Flow)                */}
       {/* ----------------------------------------------------------------- */}
       {data.inputPorts.map((port, index) => {
@@ -305,11 +280,11 @@ export function BlockNode({ data, selected }: NodeProps<Node<BlockNodeData>>) {
             type="target"
             position={Position.Left}
             className="!h-3.5 !w-3.5 !border-2 !bg-white"
-            title={`${port.accepted_types.join(", ")}${port.description ? " \u2014 " + port.description : ""}`}
+            title={`${port.name}: ${port.accepted_types.join(", ")}${port.description ? " \u2014 " + port.description : ""}`}
             style={{
               borderColor: color,
               left: -7,
-              top: 108 + index * 20,
+              top: 80 + index * 20,
               boxShadow: collectionShadow,
             }}
           />
@@ -327,11 +302,11 @@ export function BlockNode({ data, selected }: NodeProps<Node<BlockNodeData>>) {
             type="source"
             position={Position.Right}
             className="!h-3.5 !w-3.5 !border-2 !bg-white"
-            title={`${port.accepted_types.join(", ")}${port.description ? " \u2014 " + port.description : ""}`}
+            title={`${port.name}: ${port.accepted_types.join(", ")}${port.description ? " \u2014 " + port.description : ""}`}
             style={{
               borderColor: color,
               right: -7,
-              top: 108 + index * 20,
+              top: 80 + index * 20,
               boxShadow: collectionShadow,
             }}
           />
