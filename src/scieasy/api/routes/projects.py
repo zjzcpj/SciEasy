@@ -30,6 +30,15 @@ async def list_projects(runtime: RuntimeDep) -> list[ProjectResponse]:
     return [ProjectResponse(**runtime.project_response(project)) for project in runtime.list_projects()]
 
 
+@router.post("/browse-directory")
+async def browse_directory() -> dict:
+    """Open a native directory picker dialog and return the selected path."""
+    import asyncio
+
+    path = await asyncio.get_event_loop().run_in_executor(None, _pick_directory)
+    return {"path": path}
+
+
 @router.get("/{project_id:path}", response_model=ProjectResponse)
 async def get_project(project_id: str, runtime: RuntimeDep) -> ProjectResponse:
     """Retrieve and open a project by identifier or filesystem path."""
@@ -63,3 +72,19 @@ async def delete_project(project_id: str, runtime: RuntimeDep) -> None:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _pick_directory() -> str | None:
+    """Show a native folder selection dialog using tkinter."""
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        folder = filedialog.askdirectory(title="Select directory")
+        root.destroy()
+        return folder if folder else None
+    except Exception:
+        return None
