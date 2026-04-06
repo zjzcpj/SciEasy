@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#249] Fix duplicate suggest_workflow definition in routes/ai.py (@claude, 2026-04-06, branch: feat/issue-231/workflow-planner, session: 20260406-014039-fix-duplicate-suggest-workflow-in-pr-245)
 - [#232] Fix frontend AI chat code review issues — AIGenerateBlockResponse type drift (add validation_report, category), ErrorBanner timer reset via useCallback, Enter-key send test (@claude, 2026-04-05, branch: feat/issue-232/frontend-ai-chat)
 
 ### Added
