@@ -108,24 +108,28 @@ class TestValidator:
         assert result["passed"] is False
         assert any("estimated_memory_gb" in e for e in result["errors"])
 
-    def test_dict_str_any_warns(self) -> None:
-        """Code using dict[str, Any] generates a warning."""
+    def test_dict_str_any_errors(self) -> None:
+        """Code using dict[str, Any] generates an error (ADR-020)."""
         code = "class MyBlock:\n    def run(self, inputs: dict[str, Any]) -> dict[str, Any]:\n        return {}\n"
         result = validate_generated_code(code)
-        assert any("dict[str, Any]" in w for w in result["warnings"])
+        assert result["passed"] is False
+        assert any("dict[str, Any]" in e for e in result["errors"])
 
-    def test_state_transition_warns(self) -> None:
-        """Code calling self.transition() generates a warning."""
+    def test_state_transition_errors(self) -> None:
+        """Code calling self.transition() with non-PAUSED state generates an error (ADR-017)."""
         code = "class MyBlock:\n    def run(self):\n        self.transition(BlockState.RUNNING)\n        return {}\n"
         result = validate_generated_code(code)
-        assert any("transition" in w for w in result["warnings"])
+        assert result["passed"] is False
+        assert any("transition" in e for e in result["errors"])
 
-    def test_paused_transition_no_warning(self) -> None:
-        """AppBlock PAUSED transition does not generate a warning."""
+    def test_paused_transition_no_error(self) -> None:
+        """AppBlock PAUSED transition does not generate an error or warning."""
         code = "class MyAppBlock:\n    def run(self):\n        self.transition(BlockState.PAUSED)\n        return {}\n"
         result = validate_generated_code(code)
-        # PAUSED transitions should not generate warnings.
+        # PAUSED transitions should not generate errors or warnings.
+        transition_errors = [e for e in result["errors"] if "transition" in e]
         transition_warnings = [w for w in result["warnings"] if "transition" in w]
+        assert len(transition_errors) == 0
         assert len(transition_warnings) == 0
 
     def test_result_structure(self) -> None:
