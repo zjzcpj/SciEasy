@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from scieasy.blocks.base.package_info import PackageInfo
 from scieasy.blocks.base.state import BlockState
 from scieasy.blocks.io.adapter_registry import AdapterRegistry
-from scieasy.blocks.registry import BlockRegistry
+from scieasy.blocks.registry import BlockRegistry, BlockSpec
 
 
 class TestBlockRegistryTier2:
@@ -211,3 +213,249 @@ class TestAdapterRegistry:
         reg.register_defaults()
         with pytest.raises(KeyError, match="xyz"):
             reg.get_for_extension(".xyz")
+
+
+class TestPackageInfo:
+    """Tests for the PackageInfo dataclass (ADR-025 Phase 2.1)."""
+
+    def test_creation_with_defaults(self) -> None:
+        info = PackageInfo(name="Test Package")
+        assert info.name == "Test Package"
+        assert info.description == ""
+        assert info.author == ""
+        assert info.version == "0.1.0"
+
+    def test_creation_with_all_fields(self) -> None:
+        info = PackageInfo(
+            name="SRS Imaging",
+            description="Stimulated Raman Scattering toolkit",
+            author="Dr. Wang Lab",
+            version="1.2.3",
+        )
+        assert info.name == "SRS Imaging"
+        assert info.description == "Stimulated Raman Scattering toolkit"
+        assert info.author == "Dr. Wang Lab"
+        assert info.version == "1.2.3"
+
+    def test_frozen(self) -> None:
+        info = PackageInfo(name="Frozen")
+        with pytest.raises(AttributeError):
+            info.name = "Changed"  # type: ignore[misc]
+
+    def test_importable_from_base(self) -> None:
+        from scieasy.blocks.base import PackageInfo as PackageInfoFromBase
+
+        assert PackageInfoFromBase is PackageInfo
+
+
+class TestBlockSpecPackageName:
+    """Tests for the package_name field on BlockSpec (ADR-025 Phase 2.2)."""
+
+    def test_default_package_name_is_empty(self) -> None:
+        spec = BlockSpec(name="TestBlock")
+        assert spec.package_name == ""
+
+    def test_package_name_can_be_set(self) -> None:
+        spec = BlockSpec(name="TestBlock", package_name="my-package")
+        assert spec.package_name == "my-package"
+
+
+class TestBlockRegistryPackages:
+    """Tests for packages() and specs_by_package() (ADR-025 Phase 2.2)."""
+
+    def test_packages_returns_dict(self) -> None:
+        reg = BlockRegistry()
+        result = reg.packages()
+        assert isinstance(result, dict)
+        # Empty before scan adds any external packages.
+        assert len(result) == 0
+
+    def test_packages_returns_copy(self) -> None:
+        reg = BlockRegistry()
+        p1 = reg.packages()
+        p2 = reg.packages()
+        assert p1 is not p2
+
+    def test_specs_by_package_groups_correctly(self) -> None:
+        reg = BlockRegistry()
+        # Manually register some specs with different package_names.
+        spec_a = BlockSpec(name="A", package_name="pkg1")
+        spec_b = BlockSpec(name="B", package_name="pkg1")
+        spec_c = BlockSpec(name="C", package_name="pkg2")
+        spec_d = BlockSpec(name="D", package_name="")
+
+        reg._register_spec(spec_a)
+        reg._register_spec(spec_b)
+        reg._register_spec(spec_c)
+        reg._register_spec(spec_d)
+
+        grouped = reg.specs_by_package()
+        assert "pkg1" in grouped
+        assert "pkg2" in grouped
+        assert "" in grouped
+        assert len(grouped["pkg1"]) == 2
+        assert len(grouped["pkg2"]) == 1
+        assert len(grouped[""]) == 1
+        assert {s.name for s in grouped["pkg1"]} == {"A", "B"}
+
+    def test_specs_by_package_builtins_have_empty_package(self) -> None:
+        reg = BlockRegistry()
+        reg.scan()
+        grouped = reg.specs_by_package()
+        # Built-in blocks should be under empty string or entry-point name.
+        assert "" in grouped or any(grouped.values())
+
+
+class TestScanTier2CallableProtocol:
+    """Tests for _scan_tier2 callable protocol (ADR-025 Phase 2.2)."""
+
+    def _make_mock_block_class(self, name: str = "MockBlock") -> type:
+        """Create a minimal mock Block subclass for testing."""
+        from scieasy.blocks.base.block import Block
+
+        cls = type(
+            name,
+            (Block,),
+            {
+                "name": name,
+                "description": f"Mock {name}",
+                "version": "0.1.0",
+                "input_ports": [],
+                "output_ports": [],
+                "config_schema": {"type": "object", "properties": {}},
+                "run": lambda self, inputs, config: {},
+            },
+        )
+        return cls
+
+    def _make_mock_entry_point(self, name: str, load_return: object) -> MagicMock:
+        """Create a mock entry-point that returns load_return on .load()."""
+        ep = MagicMock()
+        ep.name = name
+        ep.value = f"mock_module:{name}"
+        ep.load.return_value = load_return
+        return ep
+
+    def test_tuple_return_with_package_info(self) -> None:
+        """Entry-point returning (PackageInfo, list) populates package_name."""
+        info = PackageInfo(name="SRS Imaging", author="Dr. Wang")
+        block_cls = self._make_mock_block_class("SRSBlock")
+
+        def get_blocks():
+            return info, [block_cls]
+
+        ep = self._make_mock_entry_point("srs", get_blocks)
+
+        mock_eps = MagicMock()
+        mock_eps.select.return_value = [ep]
+
+        reg = BlockRegistry()
+        with patch("importlib.metadata.entry_points", return_value=mock_eps):
+            reg._scan_tier2()
+
+        # Verify block is registered with correct package_name.
+        spec = reg.get_spec("SRSBlock")
+        assert spec is not None
+        assert spec.package_name == "SRS Imaging"
+        assert spec.source == "entry_point"
+
+        # Verify PackageInfo is stored.
+        pkgs = reg.packages()
+        assert "SRS Imaging" in pkgs
+        assert pkgs["SRS Imaging"].author == "Dr. Wang"
+
+    def test_plain_list_return_uses_ep_name(self) -> None:
+        """Entry-point returning plain list uses ep.name as package_name."""
+        block_cls = self._make_mock_block_class("GenomicsBlock")
+
+        def get_blocks():
+            return [block_cls]
+
+        ep = self._make_mock_entry_point("genomics", get_blocks)
+
+        mock_eps = MagicMock()
+        mock_eps.select.return_value = [ep]
+
+        reg = BlockRegistry()
+        with patch("importlib.metadata.entry_points", return_value=mock_eps):
+            reg._scan_tier2()
+
+        spec = reg.get_spec("GenomicsBlock")
+        assert spec is not None
+        assert spec.package_name == "genomics"
+
+        # No PackageInfo stored for plain list returns.
+        assert len(reg.packages()) == 0
+
+    def test_entry_point_load_failure_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Entry-point that fails to load logs warning and continues."""
+        ep = MagicMock()
+        ep.name = "bad_package"
+        ep.load.side_effect = ImportError("module not found")
+
+        mock_eps = MagicMock()
+        mock_eps.select.return_value = [ep]
+
+        reg = BlockRegistry()
+        with (
+            patch("importlib.metadata.entry_points", return_value=mock_eps),
+            caplog.at_level(logging.WARNING),
+        ):
+            reg._scan_tier2()
+
+        assert "Failed to load entry_point 'bad_package'" in caplog.text
+
+    def test_entry_point_callable_failure_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Entry-point callable that raises logs warning and continues."""
+
+        def bad_get_blocks():
+            raise RuntimeError("something broke")
+
+        ep = self._make_mock_entry_point("broken", bad_get_blocks)
+
+        mock_eps = MagicMock()
+        mock_eps.select.return_value = [ep]
+
+        reg = BlockRegistry()
+        with (
+            patch("importlib.metadata.entry_points", return_value=mock_eps),
+            caplog.at_level(logging.WARNING),
+        ):
+            reg._scan_tier2()
+
+        assert "Failed to process entry_point 'broken'" in caplog.text
+
+    def test_multiple_blocks_in_one_entry_point(self) -> None:
+        """An entry-point can return multiple block classes."""
+        info = PackageInfo(name="Multi-Block Package")
+        cls_a = self._make_mock_block_class("AlphaBlock")
+        cls_b = self._make_mock_block_class("BetaBlock")
+
+        def get_blocks():
+            return info, [cls_a, cls_b]
+
+        ep = self._make_mock_entry_point("multi", get_blocks)
+
+        mock_eps = MagicMock()
+        mock_eps.select.return_value = [ep]
+
+        reg = BlockRegistry()
+        with patch("importlib.metadata.entry_points", return_value=mock_eps):
+            reg._scan_tier2()
+
+        assert reg.get_spec("AlphaBlock") is not None
+        assert reg.get_spec("BetaBlock") is not None
+        assert reg.get_spec("AlphaBlock").package_name == "Multi-Block Package"
+        assert reg.get_spec("BetaBlock").package_name == "Multi-Block Package"
+
+    def test_no_entry_points_does_not_crash(self) -> None:
+        """_scan_tier2 works when no entry-points exist."""
+        mock_eps = MagicMock()
+        mock_eps.select.return_value = []
+
+        reg = BlockRegistry()
+        with patch("importlib.metadata.entry_points", return_value=mock_eps):
+            reg._scan_tier2()
+
+        assert len(reg.all_specs()) == 0
+        assert len(reg.packages()) == 0

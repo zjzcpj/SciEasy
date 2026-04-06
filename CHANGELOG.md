@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [#121] Pass BlockRegistry to CLI validate/run commands — enable type-compatibility and dangling-port checks (@claude, 2026-04-05, branch: fix/batch-a2/issues-119-121, session: 20260405-003357-wave-a2-inject-blockregistry-into-dagsch)
 ### Added
 
+- [#211] PackageInfo dataclass and BlockRegistry callable entry-points protocol (ADR-025 Phase 2.1+2.2) (@claude, 2026-04-05, branch: feat/issue-211/package-info-registry)
 - [#189] Frontend bundling, SPA serving, and `scieasy gui` command (ADR-024 Phase 1) (@claude, 2026-04-05, branch: feat/issue-189/frontend-bundling-gui, session: 20260405-194020-phase-1-frontend-bundling-and-scieasy-gu)
 - [#64] AI generation templates and validation pipeline updated for Collection model (@claude, 2026-04-05, branch: feat/issue-64/ai-generation-templates, session: 20260405-014102-feat-ai-generation-templates-for-collect)
 - [#127] Auto-flush data persistence pipeline: BackendRouter MRO resolution, flush_context, DataObject.save() with idempotency, _auto_flush() safety net (@claude, 2026-04-05, branch: fix/batch-a1/issues-127-49-52-67)

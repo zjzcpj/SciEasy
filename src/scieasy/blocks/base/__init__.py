@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from scieasy.blocks.base.block import Block
 from scieasy.blocks.base.config import BlockConfig
+from scieasy.blocks.base.package_info import PackageInfo
 from scieasy.blocks.base.ports import (
     InputPort,
     OutputPort,
@@ -29,6 +30,7 @@ __all__ = [
     "ExecutionMode",
     "InputPort",
     "OutputPort",
+    "PackageInfo",
     "Port",
     "port_accepts_signature",
     "port_accepts_type",
