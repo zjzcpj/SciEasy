@@ -109,11 +109,14 @@ function InlineConfigField({
   value,
   onChange,
   blockType,
+  ioDirection,
 }: {
   prop: ConfigProperty;
   value: unknown;
   onChange: (key: string, val: unknown) => void;
   blockType?: string;
+  /** For io_block nodes: "input" (Load) or "output" (Save). */
+  ioDirection?: string;
 }) {
   const { key, schema } = prop;
   const label = (schema.title as string) ?? key;
@@ -190,12 +193,31 @@ function InlineConfigField({
           <button
             type="button"
             className="nodrag shrink-0 rounded border border-stone-200 bg-white px-1.5 py-1 text-[10px] font-medium text-stone-600 transition hover:border-pine hover:bg-pine/5"
-            title="Browse for file or directory"
+            title={ioDirection === "output" ? "Browse for directory" : "Browse for files"}
             onClick={async () => {
               try {
-                const result = await api.browseDirectory();
-                if (result.path) {
-                  onChange(key, result.path);
+                if (ioDirection === "output") {
+                  // Save Block: pick a directory
+                  const result = await api.browseDirectory();
+                  if (result.path) {
+                    onChange(key, result.path);
+                  }
+                } else {
+                  // Load Block: pick files (multi-select)
+                  const result = await api.browseFiles();
+                  if (result.paths && result.paths.length > 0) {
+                    // If a single file is selected, use its path directly.
+                    // If multiple files are selected, use their common parent directory.
+                    if (result.paths.length === 1) {
+                      onChange(key, result.paths[0]);
+                    } else {
+                      // Find common directory prefix for multi-select
+                      const first = result.paths[0];
+                      const dir = first.substring(0, first.lastIndexOf("/") + 1) ||
+                                  first.substring(0, first.lastIndexOf("\\") + 1);
+                      onChange(key, dir || result.paths[0]);
+                    }
+                  }
                 }
               } catch {
                 // User cancelled or backend unavailable
@@ -221,6 +243,10 @@ export function BlockNode({ data, selected }: NodeProps<Node<BlockNodeData>>) {
   );
   const typeHierarchy = data.schema?.type_hierarchy;
   const categoryIcon = categoryIcons[data.category] ?? categoryIcons.custom;
+  // Resolve io_block direction for Browse button behavior
+  const ioDirection = data.blockType === "io_block"
+    ? (data.config?.direction as string | undefined) ?? "input"
+    : undefined;
 
   const handleConfigChange = (key: string, value: unknown) => {
     data.onUpdateConfig?.({ [key]: value });
@@ -288,6 +314,7 @@ export function BlockNode({ data, selected }: NodeProps<Node<BlockNodeData>>) {
               value={data.config?.[prop.key]}
               onChange={handleConfigChange}
               blockType={data.blockType}
+              ioDirection={ioDirection}
             />
           ))
         ) : (
