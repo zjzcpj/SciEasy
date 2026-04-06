@@ -50,6 +50,7 @@ export const api = {
     apiFetch<void>(`/api/projects/${encodeURIComponent(projectId)}`, {
       method: "DELETE",
     }),
+  browseDirectory: () => apiFetch<{ path: string | null }>("/api/projects/browse-directory", { method: "POST" }),
   listBlocks: () => apiFetch<BlockListResponse>("/api/blocks/"),
   getBlockSchema: (blockType: string) =>
     apiFetch<BlockSchemaResponse>(`/api/blocks/${encodeURIComponent(blockType)}/schema`),
