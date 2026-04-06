@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
 
 from scieasy.api.runtime import ApiRuntime
-from scieasy.engine.events import BLOCK_DONE, CANCEL_BLOCK_REQUEST, CANCEL_WORKFLOW_REQUEST, EngineEvent
+from scieasy.api.ws import websocket_handler
+from scieasy.engine.events import BLOCK_DONE, CANCEL_BLOCK_REQUEST, CANCEL_WORKFLOW_REQUEST, EngineEvent, EventBus
 from tests.api.helpers import wait_for_condition
 
 
@@ -52,3 +55,32 @@ def test_websocket_inbound_messages_emit_cancel_events(client: TestClient, runti
 
     assert (CANCEL_BLOCK_REQUEST, "node-3", "wf-2") in seen
     assert (CANCEL_WORKFLOW_REQUEST, None, "wf-2") in seen
+
+
+def test_websocket_handler_handles_cancelled_error_on_shutdown() -> None:
+    """websocket_handler must exit cleanly when asyncio.CancelledError is raised.
+
+    Regression test for #203: CancelledError was not caught alongside
+    WebSocketDisconnect, causing the handler to hang on server shutdown.
+    """
+
+    async def _run() -> None:
+        ws = AsyncMock()
+        ws.accept = AsyncMock()
+        # Simulate server shutdown: receive_text raises CancelledError
+        ws.receive_text = AsyncMock(side_effect=asyncio.CancelledError)
+        ws.send_json = AsyncMock(side_effect=asyncio.CancelledError)
+
+        event_bus = EventBus()
+
+        # Wrap in a task and cancel it after a short delay to simulate
+        # server shutdown cancelling all tasks (which is the real scenario).
+        task = asyncio.create_task(websocket_handler(ws, event_bus))
+        # Give the handler a moment to start, then cancel
+        await asyncio.sleep(0.05)
+        task.cancel()
+        # The handler should exit without propagating CancelledError
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    asyncio.run(_run())
