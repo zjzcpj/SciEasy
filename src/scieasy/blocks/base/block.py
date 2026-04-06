@@ -54,6 +54,7 @@ class Block(ABC):
     terminate_grace_sec: ClassVar[float] = 5.0
 
     key_dependencies: ClassVar[list[str]] = []
+    config_schema: ClassVar[dict[str, Any]] = {"type": "object", "properties": {}}
 
     # -- instance lifecycle ----------------------------------------------------
 

@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - [#178] Replace PPM image preview with PNG encoding for universal browser support (@claude, 2026-04-05, branch: fix/issue-178/png-image-preview, session: 20260405-192915-fix-178-replace-ppm-image-preview-with-p)
+- [#180] Generate block config schema from Block class metadata instead of hardcoding (@claude, 2026-04-05, branch: fix/issue-180/block-config-schema, session: 20260405-193622-fix-180-generate-block-config-schema-fro)
 - [#184] Align frontend GUI with ARCHITECTURE.md Section 9 spec: resizable 3-column layout, 3-part BlockNode with inline editable config, spec-correct port type colors, 6 bottom panel tabs, 14+ keyboard shortcuts, shadcn/ui integration, Projects dropdown toolbar (@claude, 2026-04-05, branch: fix/issue-184/frontend-spec-compliance, session: 20260405-192530-fix-critical-frontend-design-deviations)
 - [#182] Add Vite dev server proxy for /api and /ws to fix HTML-instead-of-JSON error in dev mode (@claude, 2026-04-05, branch: fix/issue-182/vite-api-proxy, session: 20260405-182205-fix-frontend-dev-server-missing-api-prox)
 - [#166] Create LineageRecorder component that persists LineageRecord on terminal block events via EventBus (@claude, 2026-04-05, branch: fix/batch-b2/issues-166-169, session: 20260405-163539-fix-issues-166-169-lineagerecorder-zarrb)
@@ -28,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [#121] Pass BlockRegistry to CLI validate/run commands — enable type-compatibility and dangling-port checks (@claude, 2026-04-05, branch: fix/batch-a2/issues-119-121, session: 20260405-003357-wave-a2-inject-blockregistry-into-dagsch)
 ### Added
 
+- [#189] Frontend bundling, SPA serving, and `scieasy gui` command (ADR-024 Phase 1) (@claude, 2026-04-05, branch: feat/issue-189/frontend-bundling-gui, session: 20260405-194020-phase-1-frontend-bundling-and-scieasy-gu)
 - [#64] AI generation templates and validation pipeline updated for Collection model (@claude, 2026-04-05, branch: feat/issue-64/ai-generation-templates, session: 20260405-014102-feat-ai-generation-templates-for-collect)
 - [#127] Auto-flush data persistence pipeline: BackendRouter MRO resolution, flush_context, DataObject.save() with idempotency, _auto_flush() safety net (@claude, 2026-04-05, branch: fix/batch-a1/issues-127-49-52-67)
 ### Fixed
