@@ -71,10 +71,18 @@ class TypeRegistry:
     def scan_builtins(self) -> None:
         """Register all built-in DataObject subclasses shipped with SciEasy.
 
-        Per ADR-027 D2 and T-006, the Array-family domain subtypes
-        (``Image``, ``FluorImage``, ``MSImage``, ``SRSImage``) no longer
-        live in core — they have moved to the ``scieasy-blocks-imaging``
-        plugin. The registry therefore no longer auto-registers them.
+        Per ADR-027 D2, the domain subtypes no longer live in core:
+
+        - T-006 removed the Array family (``Image``, ``FluorImage``,
+          ``MSImage``, ``SRSImage``) to ``scieasy-blocks-imaging``.
+        - T-007 removed the remaining Series/DataFrame/Composite
+          families (``Spectrum``, ``RamanSpectrum``, ``MassSpectrum``,
+          ``PeakTable``, ``MetabPeakTable``, ``AnnData``,
+          ``SpatialData``) to ``scieasy-blocks-spectral``,
+          ``scieasy-blocks-singlecell``, and
+          ``scieasy-blocks-spatial-omics`` respectively.
+
+        The registry therefore no longer auto-registers any of them.
         They are re-registered via the ``scieasy.types`` entry-point
         mechanism when the plugin is installed (see
         :meth:`_scan_entrypoint_types`).
@@ -82,26 +90,19 @@ class TypeRegistry:
         from scieasy.core.types.array import Array
         from scieasy.core.types.artifact import Artifact
         from scieasy.core.types.base import DataObject
-        from scieasy.core.types.composite import AnnData, CompositeData, SpatialData
-        from scieasy.core.types.dataframe import DataFrame, MetabPeakTable, PeakTable
-        from scieasy.core.types.series import MassSpectrum, RamanSpectrum, Series, Spectrum
+        from scieasy.core.types.composite import CompositeData
+        from scieasy.core.types.dataframe import DataFrame
+        from scieasy.core.types.series import Series
         from scieasy.core.types.text import Text
 
         builtins: list[type] = [
             DataObject,
             Array,
             Series,
-            Spectrum,
-            RamanSpectrum,
-            MassSpectrum,
             DataFrame,
-            PeakTable,
-            MetabPeakTable,
             Text,
             Artifact,
             CompositeData,
-            AnnData,
-            SpatialData,
         ]
         for cls in builtins:
             base = cls.__mro__[1].__name__ if len(cls.__mro__) > 2 else ""

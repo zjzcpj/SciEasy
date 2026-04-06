@@ -13,9 +13,12 @@ from __future__ import annotations
 import pytest
 
 # TODO(T-008): T-006 removed Image/MSImage/SRSImage/FluorImage from core
-# per ADR-027 D2. Alias them to Array here so this architecture test
-# module still collects; the per-subclass invariants here will be
-# rewritten in T-008 to cover only the seven remaining base types.
+# per ADR-027 D2; T-007 additionally removed Spectrum/RamanSpectrum/
+# MassSpectrum/PeakTable/MetabPeakTable/AnnData/SpatialData. Alias all
+# deleted domain subtypes to their remaining core base classes here so
+# this architecture test module still collects; the per-subclass
+# invariants here will be rewritten in T-008 to cover only the seven
+# remaining base types.
 from scieasy.core.types.array import Array
 from scieasy.core.types.array import Array as FluorImage
 from scieasy.core.types.array import Array as Image
@@ -23,9 +26,16 @@ from scieasy.core.types.array import Array as MSImage
 from scieasy.core.types.array import Array as SRSImage
 from scieasy.core.types.artifact import Artifact
 from scieasy.core.types.base import DataObject, TypeSignature
-from scieasy.core.types.composite import AnnData, CompositeData, SpatialData
-from scieasy.core.types.dataframe import DataFrame, MetabPeakTable, PeakTable
-from scieasy.core.types.series import MassSpectrum, RamanSpectrum, Series, Spectrum
+from scieasy.core.types.composite import CompositeData
+from scieasy.core.types.composite import CompositeData as AnnData
+from scieasy.core.types.composite import CompositeData as SpatialData
+from scieasy.core.types.dataframe import DataFrame
+from scieasy.core.types.dataframe import DataFrame as MetabPeakTable
+from scieasy.core.types.dataframe import DataFrame as PeakTable
+from scieasy.core.types.series import Series
+from scieasy.core.types.series import Series as MassSpectrum
+from scieasy.core.types.series import Series as RamanSpectrum
+from scieasy.core.types.series import Series as Spectrum
 from scieasy.core.types.text import Text
 
 # ---------------------------------------------------------------------------

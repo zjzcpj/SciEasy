@@ -11,15 +11,20 @@ from scieasy.blocks.base.ports import (
     validate_port_constraint,
 )
 
-# TODO(T-008): full Image → Array migration. T-006 removed the core
-# Image class; this shim preserves the old import surface so the block
-# port tests still collect and run until T-008 lands the real migration.
+# TODO(T-008): full Image → Array / Spectrum → Series / etc. migration.
+# T-006 removed the core Image class; T-007 removed the remaining
+# Spectrum / PeakTable / AnnData domain subtypes. These shim aliases
+# preserve the old import surface so the block port tests still collect
+# until T-008 lands the real migration.
 from scieasy.core.types.array import Array
 from scieasy.core.types.array import Array as Image
 from scieasy.core.types.base import DataObject, TypeSignature
-from scieasy.core.types.composite import AnnData, CompositeData
-from scieasy.core.types.dataframe import DataFrame, PeakTable
-from scieasy.core.types.series import Series, Spectrum
+from scieasy.core.types.composite import CompositeData
+from scieasy.core.types.composite import CompositeData as AnnData
+from scieasy.core.types.dataframe import DataFrame
+from scieasy.core.types.dataframe import DataFrame as PeakTable
+from scieasy.core.types.series import Series
+from scieasy.core.types.series import Series as Spectrum
 
 
 class TestPortAcceptsType:

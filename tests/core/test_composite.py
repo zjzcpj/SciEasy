@@ -1,8 +1,8 @@
 """Tests for CompositeData slot access and nested composites (Phase 3.1).
 
-T-006 (ADR-027 D2) removed ``Image`` from core. The one test that uses
-it (test_set_subtype_accepted) now uses a local shim subclass. Full
-migration is T-008.
+T-006 (ADR-027 D2) removed ``Image`` from core. T-007 additionally
+removed ``AnnData`` and ``SpatialData``. Tests that need those names
+define local shim subclasses below. Full migration is T-008.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import pytest
 from scieasy.core.types.array import Array
 from scieasy.core.types.artifact import Artifact
 from scieasy.core.types.base import DataObject
-from scieasy.core.types.composite import AnnData, CompositeData, SpatialData
+from scieasy.core.types.composite import CompositeData
 from scieasy.core.types.dataframe import DataFrame
 
 
@@ -32,6 +32,28 @@ class Image(Array):
         **kwargs: Any,
     ) -> None:
         super().__init__(axes=["y", "x"], shape=shape, dtype=dtype, **kwargs)
+
+
+class AnnData(CompositeData):
+    """T-007 shim for the removed core ``AnnData`` class."""
+
+    expected_slots: ClassVar[dict[str, type]] = {
+        "X": Array,
+        "obs": DataFrame,
+        "var": DataFrame,
+        "uns": Artifact,
+    }
+
+
+class SpatialData(CompositeData):
+    """T-007 shim for the removed core ``SpatialData`` class."""
+
+    expected_slots: ClassVar[dict[str, type]] = {
+        "images": Array,
+        "points": DataFrame,
+        "shapes": DataFrame,
+        "table": AnnData,
+    }
 
 
 class TestCompositeDataSlotAccess:
