@@ -307,13 +307,13 @@ scieasy/                               # ← repo root
 │       │
 │       │ ── Testing Utilities ──────────────────────────────────────
 │       │
-│       ├── testing/                    # Block SDK test utilities (ADR-026)
+│       ├── testing/                    # Block SDK test utilities (ADR-026) [implemented]
 │       │   ├── __init__.py             # Re-export: from scieasy.testing.harness import BlockTestHarness
-│       │   └── harness.py             # BlockTestHarness (~150 lines): wraps raw data into
-│       │                               #   DataObjects/Collections, calls block.run(), materializes
-│       │                               #   outputs for assertion. Methods: run(inputs, params),
-│       │                               #   validate_contract(block_class). Helpers: _wrap_input(),
-│       │                               #   _materialize_output().
+│       │   └── harness.py             # BlockTestHarness: validate_block() checks port/name/run
+│       │                               #   contract, validate_package_info() checks PackageInfo,
+│       │                               #   validate_entry_point_callable() checks ADR-025 format,
+│       │                               #   smoke_test(inputs, params) runs block and returns outputs.
+│       │                               #
 │       │
 │       │
 │       │ ── CLI ───────────────────────────────────────────────────
