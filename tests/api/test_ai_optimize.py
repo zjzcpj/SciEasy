@@ -36,6 +36,70 @@ class TestOptimizeParamsEndpointSuccess:
         assert "explanation" in body
         assert body["suggestions"]["threshold"] == 0.8
 
+    def test_search_space_passed_through(self, client: TestClient) -> None:
+        """search_space from the request body is forwarded to optimize_params()."""
+        search_space = {"learning_rate": {"min": 0.001, "max": 0.1}}
+        mock_result = {
+            "suggestions": {"learning_rate": 0.01},
+            "explanation": "Lower learning rate for stability.",
+        }
+        with patch(
+            "scieasy.ai.optimization.param_optimizer.optimize_params",
+            return_value=mock_result,
+        ) as mock_fn:
+            response = client.post(
+                "/api/ai/optimize-params",
+                json={
+                    "block_id": "node-1",
+                    "intermediate_results": {"loss": 0.5},
+                    "search_space": search_space,
+                },
+            )
+
+        assert response.status_code == 200
+        mock_fn.assert_called_once_with(
+            block_id="node-1",
+            intermediate_results={"loss": 0.5},
+            search_space=search_space,
+        )
+        assert response.json()["suggestions"] == {"learning_rate": 0.01}
+
+    def test_search_space_defaults_to_none(self, client: TestClient) -> None:
+        """search_space is None when omitted from the request."""
+        mock_result = {"suggestions": {}, "explanation": "No changes needed."}
+        with patch(
+            "scieasy.ai.optimization.param_optimizer.optimize_params",
+            return_value=mock_result,
+        ) as mock_fn:
+            response = client.post(
+                "/api/ai/optimize-params",
+                json={"block_id": "node-1", "intermediate_results": {}},
+            )
+
+        assert response.status_code == 200
+        mock_fn.assert_called_once_with(
+            block_id="node-1",
+            intermediate_results={},
+            search_space=None,
+        )
+
+
+class TestOptimizeParamsEndpointImportError:
+    """AI dependencies are not installed -- should return 503."""
+
+    def test_returns_503_on_import_error(self, client: TestClient) -> None:
+        """ImportError from lazy import maps to 503."""
+        import sys
+
+        with patch.dict(sys.modules, {"scieasy.ai.optimization.param_optimizer": None}):
+            response = client.post(
+                "/api/ai/optimize-params",
+                json={"block_id": "node-1", "intermediate_results": {}},
+            )
+
+        assert response.status_code == 503
+        assert "AI dependencies not installed" in response.json()["detail"]
+
 
 class TestOptimizeParamsEndpointNoProvider:
     """AI provider is not configured -- should return an error."""

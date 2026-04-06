@@ -81,13 +81,11 @@ async def optimize_params_endpoint(body: AIOptimizeParamsRequest) -> dict[str, A
         result = optimize_params(
             block_id=body.block_id,
             intermediate_results=body.intermediate_results,
+            search_space=body.search_space,
         )
         return result
-    except NotImplementedError:
-        raise HTTPException(
-            status_code=501,
-            detail="Parameter optimization not yet available",
-        ) from None
+    except ImportError:
+        raise HTTPException(status_code=503, detail="AI dependencies not installed") from None
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
