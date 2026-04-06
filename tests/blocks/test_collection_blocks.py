@@ -9,7 +9,10 @@ from scieasy.blocks.process.builtins.filter_collection import FilterCollection
 from scieasy.blocks.process.builtins.merge_collection import MergeCollection
 from scieasy.blocks.process.builtins.slice_collection import SliceCollection
 from scieasy.blocks.process.builtins.split_collection import SplitCollection
-from scieasy.core.types.array import Image
+
+# TODO(T-008): T-006 removed core Image; shim preserves collection
+# until the real Image → Array migration lands.
+from scieasy.core.types.array import Array as Image
 from scieasy.core.types.collection import Collection
 from scieasy.core.types.dataframe import DataFrame
 

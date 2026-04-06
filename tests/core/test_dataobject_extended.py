@@ -12,18 +12,35 @@ from __future__ import annotations
 
 import warnings
 from pathlib import Path
+from typing import Any, ClassVar
 
 import numpy as np
 import pytest
 
 from scieasy.core.storage.ref import StorageReference
 from scieasy.core.storage.zarr_backend import ZarrBackend
-from scieasy.core.types.array import Array, Image
+from scieasy.core.types.array import Array
 from scieasy.core.types.artifact import Artifact
 from scieasy.core.types.base import DataObject
 from scieasy.core.types.dataframe import DataFrame
 from scieasy.core.types.series import Series
 from scieasy.core.types.text import Text
+
+
+class Image(Array):
+    """T-006 shim for the removed core ``Image`` class (see T-008)."""
+
+    required_axes: ClassVar[frozenset[str]] = frozenset({"y", "x"})
+
+    def __init__(
+        self,
+        *,
+        shape: tuple[int, ...] | None = None,
+        ndim: int | None = None,
+        dtype: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(axes=["y", "x"], shape=shape, dtype=dtype, **kwargs)
 
 
 class TestUserSlotValidation:
@@ -151,7 +168,7 @@ class TestTypeAttributes:
     """Type attribute storage on concrete DataObject subclasses."""
 
     def test_array_shape_dtype(self) -> None:
-        arr = Array(shape=(10, 20), ndim=2, dtype="float32")
+        arr = Array(axes=["y", "x"], shape=(10, 20), dtype="float32")
         assert arr.shape == (10, 20)
         assert arr.ndim == 2
         assert arr.dtype == "float32"

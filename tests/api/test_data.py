@@ -10,7 +10,10 @@ from pytest import MonkeyPatch
 
 from scieasy.api.runtime import ApiRuntime
 from scieasy.core.storage.ref import StorageReference
-from scieasy.core.types.array import Image
+
+# TODO(T-008): T-006 removed the core Image class; shim to Array
+# preserves import until the proper migration lands.
+from scieasy.core.types.array import Array as Image
 from scieasy.core.types.composite import CompositeData
 from scieasy.core.types.series import Series
 

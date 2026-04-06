@@ -10,7 +10,11 @@ from scieasy.blocks.base.block import Block
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.base.state import BlockState
-from scieasy.core.types.array import Array, Image
+
+# TODO(T-008): T-006 removed core Image; shim preserves collection until
+# the full Image → Array migration lands.
+from scieasy.core.types.array import Array
+from scieasy.core.types.array import Array as Image
 from scieasy.core.types.base import TypeSignature
 from scieasy.core.types.dataframe import DataFrame
 

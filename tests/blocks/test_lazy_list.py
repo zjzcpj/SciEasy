@@ -7,7 +7,10 @@ from unittest.mock import MagicMock
 import pytest
 
 from scieasy.blocks.code.lazy_list import _ITEM_COUNT_WARNING_THRESHOLD, LazyList
-from scieasy.core.types.array import Image
+
+# TODO(T-008): T-006 removed core Image; shim preserves collection
+# until the real Image → Array migration lands.
+from scieasy.core.types.array import Array as Image
 from scieasy.core.types.base import DataObject
 from scieasy.core.types.collection import Collection
 

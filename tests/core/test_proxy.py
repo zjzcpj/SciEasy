@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, ClassVar
 
 import numpy as np
 import pytest
@@ -10,8 +11,24 @@ import pytest
 from scieasy.core.proxy import ViewProxy
 from scieasy.core.storage.ref import StorageReference
 from scieasy.core.storage.zarr_backend import ZarrBackend
-from scieasy.core.types.array import Image
+from scieasy.core.types.array import Array
 from scieasy.core.types.base import TypeSignature
+
+
+class Image(Array):
+    """T-006 shim for the removed core ``Image`` class (T-008 migration)."""
+
+    required_axes: ClassVar[frozenset[str]] = frozenset({"y", "x"})
+
+    def __init__(
+        self,
+        *,
+        shape: tuple[int, ...] | None = None,
+        ndim: int | None = None,
+        dtype: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(axes=["y", "x"], shape=shape, dtype=dtype, **kwargs)
 
 
 class TestViewProxyLazyLoading:

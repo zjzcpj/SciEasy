@@ -10,7 +10,12 @@ from scieasy.blocks.base.ports import (
     validate_connection,
     validate_port_constraint,
 )
-from scieasy.core.types.array import Array, Image
+
+# TODO(T-008): full Image → Array migration. T-006 removed the core
+# Image class; this shim preserves the old import surface so the block
+# port tests still collect and run until T-008 lands the real migration.
+from scieasy.core.types.array import Array
+from scieasy.core.types.array import Array as Image
 from scieasy.core.types.base import DataObject, TypeSignature
 from scieasy.core.types.composite import AnnData, CompositeData
 from scieasy.core.types.dataframe import DataFrame, PeakTable
@@ -162,7 +167,7 @@ class TestCollectionTransparency:
 
     def test_collection_image_matches_image_port(self) -> None:
         """Collection[Image] should be accepted by a port accepting Image."""
-        from scieasy.core.types.array import Image
+        from scieasy.core.types.array import Array as Image  # T-008
         from scieasy.core.types.collection import Collection
 
         port = InputPort(name="in", accepted_types=[Image])
@@ -183,7 +188,7 @@ class TestCollectionTransparency:
 
     def test_collection_subtype_matches(self) -> None:
         """Collection[Image] (subtype of Array) should match Array port."""
-        from scieasy.core.types.array import Image
+        from scieasy.core.types.array import Array as Image  # T-008
         from scieasy.core.types.collection import Collection
 
         port = InputPort(name="in", accepted_types=[Array])

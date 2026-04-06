@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.registry import BlockRegistry, BlockSpec
-from scieasy.core.types.array import Array, Image
+
+# TODO(T-008): T-006 removed core Image; shim preserves collection
+# until the real Image → Array migration lands.
+from scieasy.core.types.array import Array
+from scieasy.core.types.array import Array as Image
 from scieasy.core.types.series import Series
 from scieasy.workflow.definition import EdgeDef, NodeDef, WorkflowDefinition
 from scieasy.workflow.validator import validate_workflow

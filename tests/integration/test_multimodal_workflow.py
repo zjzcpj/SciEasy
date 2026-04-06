@@ -12,7 +12,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 from scieasy.blocks.base.block import Block
 from scieasy.blocks.base.state import BlockState
-from scieasy.core.types.array import Image
+
+# TODO(T-008): T-006 removed core Image; shim preserves collection
+# until the real Image → Array migration lands.
+from scieasy.core.types.array import Array as Image
 from scieasy.core.types.collection import Collection
 from scieasy.engine.dag import build_dag, topological_sort
 from scieasy.engine.events import (
