@@ -15,7 +15,10 @@ import inspect
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from scieasy.blocks.base.package_info import PackageInfo
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +44,7 @@ class BlockSpec:
     config_schema: dict[str, Any] = field(default_factory=dict)
     source: str = ""
     type_name: str = ""
+    package_name: str = ""
 
 
 class BlockRegistry:
@@ -57,6 +61,7 @@ class BlockRegistry:
         self._registry: dict[str, BlockSpec] = {}
         self._aliases: dict[str, str] = {}
         self._scan_dirs: list[Path] = []
+        self._packages: dict[str, PackageInfo] = {}
 
     def add_scan_dir(self, directory: str | Path) -> None:
         """Add a directory to the Tier 1 scan path."""
@@ -146,8 +151,19 @@ class BlockRegistry:
                     continue
 
     def _scan_tier2(self) -> None:
-        """Tier 2: scan ``scieasy.blocks`` entry-points."""
+        """Tier 2: scan ``scieasy.blocks`` entry-points using callable protocol.
+
+        Each entry-point resolves to a callable.  When invoked, it returns
+        either:
+
+        * ``(PackageInfo, list[type[Block]])`` -- package metadata + block list
+        * ``list[type[Block]]`` -- plain list (backward compatible, uses
+          entry-point name as the package display name)
+
+        See ADR-025 for the full specification.
+        """
         from scieasy.blocks.base.block import Block
+        from scieasy.blocks.base.package_info import PackageInfo
 
         try:
             eps = importlib.metadata.entry_points()
@@ -159,15 +175,67 @@ class BlockRegistry:
 
         for ep in block_eps:
             try:
-                cls = ep.load()
-                if isinstance(cls, type) and issubclass(cls, Block) and not inspect.isabstract(cls):
-                    block_spec = _spec_from_class(cls, source="entry_point")
-                    block_spec.module_path = f"{ep.value.rsplit(':', 1)[0]}"
-                    block_spec.class_name = cls.__name__
-                    self._register_spec(block_spec)
+                loaded = ep.load()
             except Exception:
                 logger.warning(
-                    "Failed to load block from entry_point '%s'",
+                    "Failed to load entry_point '%s'",
+                    ep.name,
+                    exc_info=True,
+                )
+                continue
+
+            try:
+                # Invoke the callable to get blocks (and optionally PackageInfo).
+                result = loaded() if callable(loaded) else loaded
+
+                info: PackageInfo | None = None
+                block_classes: list[type] = []
+
+                if isinstance(result, tuple) and len(result) == 2:
+                    first, second = result
+                    if isinstance(first, PackageInfo) and isinstance(second, list):
+                        info = first
+                        block_classes = second
+                    else:
+                        logger.warning(
+                            "Entry-point '%s' returned unexpected tuple format",
+                            ep.name,
+                        )
+                        continue
+                elif isinstance(result, list):
+                    block_classes = result
+                else:
+                    # Legacy path: entry-point points directly to a class.
+                    if isinstance(result, type) and issubclass(result, Block):
+                        block_classes = [result]
+                    else:
+                        logger.warning(
+                            "Entry-point '%s' returned unsupported type: %s",
+                            ep.name,
+                            type(result).__name__,
+                        )
+                        continue
+
+                pkg_name = info.name if info is not None else ep.name
+                if info is not None:
+                    self._packages[info.name] = info
+
+                for cls in block_classes:
+                    if isinstance(cls, type) and issubclass(cls, Block) and not inspect.isabstract(cls):
+                        block_spec = _spec_from_class(cls, source="entry_point")
+                        block_spec.module_path = cls.__module__
+                        block_spec.class_name = cls.__name__
+                        block_spec.package_name = pkg_name
+                        self._register_spec(block_spec)
+                    else:
+                        logger.warning(
+                            "Entry-point '%s' contained non-Block item: %s",
+                            ep.name,
+                            cls,
+                        )
+            except Exception:
+                logger.warning(
+                    "Failed to process entry_point '%s'",
                     ep.name,
                     exc_info=True,
                 )
@@ -226,6 +294,25 @@ class BlockRegistry:
 
         # Re-scan Tier 1 only.
         self._scan_tier1()
+
+    def packages(self) -> dict[str, PackageInfo]:
+        """Return registered package metadata keyed by package name.
+
+        Only packages that provided a :class:`PackageInfo` via the
+        ``(PackageInfo, list)`` return convention are included.
+        """
+        return dict(self._packages)
+
+    def specs_by_package(self) -> dict[str, list[BlockSpec]]:
+        """Return block specs grouped by ``package_name``.
+
+        Blocks without a ``package_name`` (builtins, Tier 1) are grouped
+        under the empty string key ``""``.
+        """
+        grouped: dict[str, list[BlockSpec]] = {}
+        for spec in self._registry.values():
+            grouped.setdefault(spec.package_name, []).append(spec)
+        return grouped
 
     def all_specs(self) -> dict[str, BlockSpec]:
         """Return a copy of the full registry mapping."""
