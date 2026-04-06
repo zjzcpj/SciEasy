@@ -187,8 +187,8 @@ class AIGenerateBlockResponse(BaseModel):
     code: str
     block_name: str
     validation_passed: bool
-    validation_report: dict[str, Any]
-    category: str
+    validation_report: dict[str, Any] = Field(default_factory=dict)
+    category: str = ""
 
 
 class AISuggestWorkflowRequest(BaseModel):
@@ -228,6 +228,7 @@ class AIOptimizeParamsRequest(BaseModel):
 
     block_id: str
     intermediate_results: dict[str, Any] = Field(default_factory=dict)
+    search_space: dict[str, Any] | None = None
 
 
 class AIOptimizeParamsResponse(BaseModel):

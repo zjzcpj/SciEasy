@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Added
 
 - [#232] Frontend AI Chat integration — real API dispatch, code preview, loading states, error handling (@claude, 2026-04-05, branch: feat/issue-232/frontend-ai-chat, session: 20260405-235013-feat-232-frontend-ai-chat-integration-wi)
+- [#237] Fix canvas annotation code review issues — MiniMap crash guard, DAG edge KeyError guard, random position offset (@claude, 2026-04-06, branch: fix/issue-237/code-review-fixes)
+
+### Added
+
+- [#233] Parameter optimization -- LLM-powered param suggestions with schema validation (@claude, 2026-04-05, branch: feat/issue-233/param-optimizer, session: 20260405-235030-feat-233-parameter-optimization-backend)
+- [#230] Type Generator + Validator Stages 4-5 — generate_type() with LLM-driven code generation, family inference, retry loop; dry_run_generated_code() stage 4, validate_port_contracts() stage 5, validate_generated_type() pipeline; 45 new tests (@claude, 2026-04-05, branch: feat/issue-230/type-generator-validator, session: 20260405-232504-phase-9-1c-type-generator-validator-stag)
+- [#229] Block Generator + API endpoint wiring — generate_block() pipeline with category inference, prompt construction, LLM call, code extraction, validation, retry loop; POST /api/ai/generate-block endpoint; 33 tests (@claude, 2026-04-05, branch: feat/issue-229/block-generator, session: 20260405-232453-phase-9-1b-block-generator-api-endpoint)
 - [#241] Phase 10 Roadmap v0.3 — 4-stage integration plan: palette refinement, 5 domain plugin packages, block-level testing, demo workflows (@claude, 2026-04-05, branch: docs/phase10-roadmap-v0.3, session: 20260405-234433-phase-10-roadmap-v0-3-integration-domain)
 - [#237] Canvas annotation and group frame nodes -- _annotation (floating text note) and _group (resizable dashed-border frame) with toolbar buttons, DAG skip for _-prefixed nodes, 13 tests (@claude, 2026-04-05, branch: feat/issue-237/canvas-annotations, session: 20260405-232810-canvas-annotations-and-group-frames-237)
 - [#228] LLM Provider Foundation — LLMProvider protocol, AnthropicProvider, OpenAIProvider, AIConfig, get_provider() factory, extract_code/extract_json parsers, [ai] optional deps, 64 tests (@claude, 2026-04-05, branch: feat/issue-228/llm-provider-foundation, session: 20260405-225710-phase-9-1a-llm-provider-foundation-228)
@@ -25,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#233] Expose search_space in optimize-params API, wire endpoint to param_optimizer, remove dead NotImplementedError catch (@claude, 2026-04-05, branch: feat/issue-233/param-optimizer)
 - [#206] Browse button supports file multi-select for Load blocks, folder select for Save blocks (@claude, 2026-04-06, branch: fix/issue-206-207-208/io-block-ux)
 - [#207] Remove unused Format Override field from IO block config schema (@claude, 2026-04-06, branch: fix/issue-206-207-208/io-block-ux)
 - [#208] Hide direction field in bottom Config panel for IO blocks to match canvas display (@claude, 2026-04-06, branch: fix/issue-206-207-208/io-block-ux)

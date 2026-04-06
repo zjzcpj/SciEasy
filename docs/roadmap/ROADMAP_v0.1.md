@@ -147,9 +147,9 @@ All green. Zero implementation, zero failures.
 ### 1.9 AI service stubs
 
 - [ ] `ai/generation/block_generator.py` — signature only
-- [ ] `ai/generation/type_generator.py` — signature only
-- [ ] `ai/generation/validator.py` — validation pipeline signature
-- [ ] `ai/generation/templates.py` — empty template dict
+- [x] `ai/generation/type_generator.py` — full implementation (#230)
+- [x] `ai/generation/validator.py` — stages 1-5 implemented (#230)
+- [x] `ai/generation/templates.py` — block + type templates (#64)
 - [ ] `ai/synthesis/workflow_planner.py` — signature only
 - [ ] `ai/optimization/param_optimizer.py` — signature only
 
