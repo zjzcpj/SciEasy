@@ -38,6 +38,8 @@ export interface WorkflowSlice {
   workflowFuture: WorkflowHistoryEntry[];
   setWorkflow: (workflow: WorkflowResponse | null) => void;
   addNode: (block: BlockSummary, position: { x: number; y: number }, defaultParams?: Record<string, unknown>) => void;
+  addAnnotationNode: (position: { x: number; y: number }) => void;
+  addGroupNode: (position: { x: number; y: number }) => void;
   updateNodeConfig: (nodeId: string, config: Record<string, unknown>) => void;
   updateNodeLayout: (nodeId: string, position: { x: number; y: number }) => void;
   connectNodes: (edge: WorkflowEdge) => void;
