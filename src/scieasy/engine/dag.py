@@ -63,6 +63,9 @@ def build_dag(workflow: WorkflowDefinition) -> DAG:
     dag = DAG()
 
     for node in workflow.nodes:
+        # Skip non-executing annotation/group nodes (block_type starts with "_").
+        if node.block_type.startswith("_"):
+            continue
         dag.nodes[node.id] = node
         dag.adjacency.setdefault(node.id, [])
         dag.reverse_adjacency.setdefault(node.id, [])

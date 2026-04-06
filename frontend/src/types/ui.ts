@@ -24,3 +24,18 @@ export interface BlockNodeData extends Record<string, unknown> {
 }
 
 export type BlockCanvasNode = Node<BlockNodeData>;
+
+/** Data carried by an _annotation node on the canvas. */
+export interface AnnotationNodeData extends Record<string, unknown> {
+  text: string;
+  onUpdateText?: (text: string) => void;
+}
+
+/** Data carried by a _group frame node on the canvas. */
+export interface GroupNodeData extends Record<string, unknown> {
+  title: string;
+  note: string;
+  color: string;
+  onUpdateTitle?: (title: string) => void;
+  onUpdateNote?: (note: string) => void;
+}

@@ -68,6 +68,39 @@ export const createWorkflowSlice: StateCreator<AppStore, [], [], WorkflowSlice> 
         },
       ],
     })),
+  addAnnotationNode: (position) =>
+    set((state) => ({
+      ...pushHistory(state),
+      workflowDirty: true,
+      workflowId: state.workflowId ?? "main",
+      workflowNodes: [
+        ...state.workflowNodes,
+        {
+          id: `note-${Date.now()}`,
+          block_type: "_annotation",
+          config: { params: { text: "Note" } },
+          layout: position,
+        },
+      ],
+    })),
+  addGroupNode: (position) =>
+    set((state) => ({
+      ...pushHistory(state),
+      workflowDirty: true,
+      workflowId: state.workflowId ?? "main",
+      workflowNodes: [
+        ...state.workflowNodes,
+        {
+          id: `group-${Date.now()}`,
+          block_type: "_group",
+          config: {
+            params: { title: "Group", note: "", color: "gray" },
+            style: { width: 400, height: 250 },
+          },
+          layout: position,
+        },
+      ],
+    })),
   updateNodeConfig: (nodeId, config) =>
     set((state) => ({
       ...pushHistory(state),

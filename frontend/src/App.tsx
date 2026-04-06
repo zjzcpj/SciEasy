@@ -52,6 +52,8 @@ export default function App() {
   const connectNodes = useAppStore((state) => state.connectNodes);
   const removeNode = useAppStore((state) => state.removeNode);
   const removeEdge = useAppStore((state) => state.removeEdge);
+  const addAnnotationNode = useAppStore((state) => state.addAnnotationNode);
+  const addGroupNode = useAppStore((state) => state.addGroupNode);
   const markWorkflowSaved = useAppStore((state) => state.markWorkflowSaved);
   const undoWorkflow = useAppStore((state) => state.undoWorkflow);
   const redoWorkflow = useAppStore((state) => state.redoWorkflow);
@@ -445,6 +447,8 @@ export default function App() {
             }}
             onReloadBlocks={() => void refreshBlocks()}
             onStartFromSelected={() => void startFromSelected()}
+            onAddAnnotation={() => addAnnotationNode({ x: 200, y: 200 })}
+            onAddGroup={() => addGroupNode({ x: 200, y: 200 })}
           />
 
           {lastError ? (
