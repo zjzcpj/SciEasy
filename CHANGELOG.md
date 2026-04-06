@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- [#224] Write comprehensive project README.md covering architecture, features, tech stack, installation, and development setup (@claude, 2026-04-05, branch: docs/issue-224/readme-and-gitattributes, session: 20260405-223925-write-comprehensive-readme-md-and-fix-17)
+- [#172] Add .gitattributes with CHANGELOG.md merge=union to prevent merge conflicts (@claude, 2026-04-05, branch: docs/issue-224/readme-and-gitattributes, session: 20260405-223925-write-comprehensive-readme-md-and-fix-17)
+
 ### Fixed
 
 - [#206] Browse button supports file multi-select for Load blocks, folder select for Save blocks (@claude, 2026-04-06, branch: fix/issue-206-207-208/io-block-ux)
