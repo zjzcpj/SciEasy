@@ -40,59 +40,10 @@ def test_physical_quantity_construction_raises_not_implemented() -> None:
 
 # ---------------------------------------------------------------------------
 # T-004 / ADR-027 D5 — FrameworkMeta + scieasy.core.meta module
+#
+# T-004 has landed; the smoke tests that lived here have been replaced by
+# the real per-feature suite in ``tests/core/test_framework_meta.py``.
 # ---------------------------------------------------------------------------
-
-
-def test_framework_meta_module_importable() -> None:
-    from scieasy.core.meta.framework import FrameworkMeta
-
-    assert FrameworkMeta is not None
-
-
-def test_framework_meta_can_be_instantiated_in_skeleton_phase() -> None:
-    """The skeleton uses placeholder defaults so that ``FrameworkMeta()``
-    is instantiable. T-004 will replace these with the real
-    uuid4-based ``object_id`` and frozen config."""
-    from scieasy.core.meta.framework import FrameworkMeta
-
-    instance = FrameworkMeta()
-    assert hasattr(instance, "created_at")
-    assert hasattr(instance, "object_id")
-    assert hasattr(instance, "source")
-    assert hasattr(instance, "lineage_id")
-    assert hasattr(instance, "derived_from")
-
-
-def test_framework_meta_derive_raises_not_implemented() -> None:
-    from scieasy.core.meta.framework import FrameworkMeta
-
-    with pytest.raises(NotImplementedError, match="T-004"):
-        FrameworkMeta().derive()
-
-
-def test_core_meta_package_re_exports() -> None:
-    from scieasy.core.meta import ChannelInfo, FrameworkMeta, with_meta
-
-    assert FrameworkMeta is not None
-    assert ChannelInfo is not None
-    assert callable(with_meta)
-
-
-def test_channel_info_skeleton_raises_not_implemented() -> None:
-    from scieasy.core.meta import ChannelInfo
-
-    with pytest.raises(NotImplementedError, match="T-004"):
-        ChannelInfo(name="DAPI")
-
-
-def test_with_meta_helper_skeleton_raises_not_implemented() -> None:
-    from scieasy.core.meta import with_meta
-
-    class _Stub:
-        pass
-
-    with pytest.raises(NotImplementedError, match="T-004"):
-        with_meta(_Stub(), pixel_size=1.0)  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
@@ -177,8 +128,11 @@ def test_iterate_over_axes_skeleton_raises_not_implemented() -> None:
 
 def test_all_skeletons_co_importable() -> None:
     """The PR description claims all 5 skeletons import together
-    cleanly. Guard that claim."""
-    from scieasy.core.meta import ChannelInfo, FrameworkMeta, with_meta
+    cleanly. Guard that claim. T-004 has landed, so the
+    ``scieasy.core.meta`` symbols (``FrameworkMeta``, ``ChannelInfo``,
+    ``with_meta_changes``) are real implementations rather than
+    placeholders, but the import-surface contract still applies."""
+    from scieasy.core.meta import ChannelInfo, FrameworkMeta, with_meta_changes
     from scieasy.core.meta.framework import FrameworkMeta as FrameworkMetaDirect
     from scieasy.core.units import PhysicalQuantity
     from scieasy.utils.axis_iter import iterate_over_axes
@@ -187,7 +141,7 @@ def test_all_skeletons_co_importable() -> None:
     assert FrameworkMeta is FrameworkMetaDirect
     assert PhysicalQuantity is not None
     assert ChannelInfo is not None
-    assert callable(with_meta)
+    assert callable(with_meta_changes)
     assert callable(iterate_over_axes)
     assert callable(has_axes)
     assert callable(has_exact_axes)
