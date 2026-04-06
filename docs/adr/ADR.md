@@ -4639,3 +4639,532 @@ No outright deletions. Domain subclasses are moved (deleted from core, recreated
 - **Changes to `Collection`, `ViewProxy`, or storage backends beyond the registry scan requirement**.
 - **Any code changes in this PR**. This ADR is documentation only. Implementation lands under Phase 10 implementation tickets, each referencing specific ADR-027 sections.
 - **Any updates to `docs/architecture/ARCHITECTURE.md`, `docs/guides/block-sdk.md`, or `docs/architecture/PROJECT_TREE.md` in this PR**. Those updates are tracked as Deliverable B of issue #255 and will ship in a follow-up PR with its own gate workflow.
+
+---
+
+## ADR-027 Addendum 1: Worker subprocess type reconstruction returns typed DataObject instances, not ViewProxy
+
+**Status**: proposed
+**Date**: 2026-04-06
+
+### Purpose
+
+ADR-027 D11 (worker subprocess `TypeRegistry.scan()`) and ADR-027 D5 (stratified Pydantic metadata) are mutually inconsistent as written. This Addendum resolves the contradiction by formally adopting "Option B" — `worker.reconstruct_inputs` returns typed `DataObject` instances rather than `ViewProxy`. It also locks down the per-base-class reconstruction contract, the `Meta` Pydantic constraints, the `PhysicalQuantity` Pydantic integration approach, and the resulting role of `ViewProxy` after this Addendum.
+
+This Addendum **does not** modify any of the other ADR-027 decisions (D1–D10 stand unchanged) and does **not** revise the discussion-table row for D11 (the high-level commitment "worker scans entry-points so plugin types can be resolved" remains correct). It supersedes only the specific pseudocode example inside D11's Decision section and the corresponding entry under "Alternatives considered" that rejected typed reconstruction.
+
+### Context
+
+ADR-027 D11's "Decision" section specifies that the worker subprocess should call `TypeRegistry.resolve(type_chain)` and use the resolved class — but the code sample then computes `cls` and immediately discards it, returning a bare `ViewProxy`:
+
+```python
+# From ADR-027 D11 (the version being clarified)
+def reconstruct_inputs(payload):
+    ...
+    for key, value in raw_inputs.items():
+        if isinstance(value, dict) and "backend" in value and "path" in value:
+            ref = StorageReference(...)
+            type_chain = value.get("metadata", {}).get("type_chain", ["DataObject"])
+            cls = TypeRegistry.resolve(type_chain) or DataObject     # ← computed
+            sig = TypeSignature(type_chain=type_chain)
+            result[key] = ViewProxy(storage_ref=ref, dtype_info=sig) # ← cls discarded
+        else:
+            result[key] = value
+    return result
+```
+
+D11's "Alternatives considered" then explicitly rejects "deep type reconstruction" with the rationale:
+
+> Rejected because it would make `reconstruct_inputs` responsible for invoking each subclass's `__init__` with the right arguments, which we cannot generically do (different subclasses have different required metadata). The middle ground is: scan the registry (D11), map `type_chain` to a concrete class for signature matching, but still return a `ViewProxy`.
+
+That rationale was correct **before** D5 unified the constructor surface. With D5 in effect, every `DataObject` subclass takes the same core fields (`framework: FrameworkMeta`, `meta: BaseModel`, `user: dict`, `storage_ref: StorageReference | None`) plus a small, base-class-specific set of geometry fields (e.g. `axes`, `shape`, `dtype`, `chunk_shape` for `Array`). Subclasses no longer have wildly divergent `__init__` signatures, so the rejection reason no longer applies.
+
+Meanwhile, every other ADR-027 decision and every example in `docs/guides/block-sdk.md` (rewritten in PR #258) assumes block authors receive a real typed instance. The Cellpose example is representative:
+
+```python
+def process_item(self, item: FluorImage, config, state):
+    if item.meta.pixel_size < Q(0.2, "um"):                  # ← item.meta
+        ...
+    new = item.with_meta(pixel_size=Q(0.216, "um"))           # ← with_meta()
+    img_2d = item.to_memory()
+    masks, _, _, _ = state.eval(img_2d, ...)
+    return Image(axes=item.axes, shape=masks.shape, dtype=masks.dtype, meta=item.meta)
+```
+
+`ViewProxy` has none of `meta`, `with_meta`, or `Image`-typed isinstance compatibility. It was designed in ADR-007 as a thin lazy accessor with `slice / to_memory / iter_chunks / shape` only. If the worker really returned `ViewProxy`, every block in Phase 10 would have to:
+
+1. Inspect `item.dtype_info.type_chain` instead of using `isinstance`.
+2. Read metadata via a side channel (the `storage_ref.metadata` dict), bypassing all Pydantic validation.
+3. Lose the `with_meta` immutable update path entirely.
+
+This effectively cancels D5 and D7 inside the worker, which is the only place they matter.
+
+The contradiction was not noticed during ADR-027 authoring because D5, D7, and D11 were drafted as independent table rows rather than as a single integrated contract. This Addendum integrates them.
+
+### Discussion points and resolution
+
+| # | Topic | Options discussed | Final decision |
+|---|---|---|---|
+| 1 | What should `worker.reconstruct_inputs` return for each input? | (A) `ViewProxy` (current ADR-027 D11). (B) Typed `DataObject` instance with `storage_ref` set but payload not yet read. (C) A new `LazyDataObject` mix-in: typed instance that masquerades as `FluorImage` but defers payload load through proxy semantics. | **Decision: (B).** D5 unified the constructor surface, removing the original rationale for rejecting (B). (B) makes the in-worker block API identical to the externally-tested API: `item.meta.pixel_size`, `item.with_meta(...)`, `item.iter_over("z")`, `isinstance(item, FluorImage)` all behave the same. Lazy loading is preserved because a `FluorImage(storage_ref=ref, ...)` with `storage_ref` set does not read its payload until `to_memory()` / `view()` / `sel()` / `iter_over()` is called — the lazy contract from ADR-007 is satisfied at the method level, not at the wrapper-class level. (A) cancels D5/D7 inside the worker, as documented in the Context section. (C) introduces a third concept (LazyDataObject) without solving any problem that (B) does not already solve. |
+| 2 | Where lives the per-base-class knowledge of "how to reconstruct from a metadata sidecar"? | (A) A big `if cls is Array: ... elif cls is DataFrame: ...` chain inside `worker.py`. (B) A classmethod hook `_reconstruct_extra_kwargs(metadata: dict) -> dict` declared on each base class; worker.py invokes it generically. (C) Pydantic full reflection over class fields at runtime. | **Decision: (B).** (A) puts plugin-specific knowledge in the engine, violating CLAUDE.md §7.3 ("No mixing core contracts with plugin logic"). (C) is too magical and breaks for fields the framework deliberately keeps non-Pydantic, such as `Array.axes` (a list[str] that has class-level validation logic) and the geometry tuples. (B) is a small, explicit, well-documented contract: each base class declares what it needs to round-trip, the worker calls the hook generically. Plugin subclasses inherit the hook from their base class and almost never need to override it (the only exception is composite types whose slots have plugin-specific structure, which have their own slot reconstruction story). |
+| 3 | What constraints does a subclass's `Meta` Pydantic model have to satisfy to be reconstructable across the subprocess boundary? | (A) Any `pydantic.BaseModel` works; we hope for the best. (B) Frozen, no `PrivateAttr`, all fields must round-trip through `model_dump_json` / `model_validate_json`. | **Decision: (B).** The framework round-trips `Meta` through JSON every time a block runs, because the engine and worker live in different processes. PrivateAttr fields, fields holding live file handles, and fields with arbitrary types that lack a serializer all break this round-trip silently or noisily. Documenting the constraint as part of the `Meta` contract prevents Phase 11+ plugin authors from hitting confusing reconstruction errors. The framework provides `PhysicalQuantity`, `ChannelInfo`, and a small set of other primitives that all comply; plugin authors compose their `Meta` from these and from primitive Python types (str/int/float/bool/datetime/list/dict). |
+| 4 | How does `PhysicalQuantity` (ADR-027 D6) integrate with Pydantic so that `pixel_size: PhysicalQuantity` works without per-field boilerplate? | (A) Pydantic v2 `__get_pydantic_core_schema__` registered on the dataclass — fully transparent to plugin authors. (B) Per-field `field_serializer` / `field_validator` that each plugin author writes. | **Decision: (A).** Plugin authors writing `pixel_size: PhysicalQuantity` should not need to know anything about Pydantic internals. The integration cost is paid once inside `scieasy.core.units` (when ADR-027 D6 is implemented) and is invisible to downstream code. The serialised JSON form is `{"value": 0.108, "unit": "um"}`, which is what plugin authors see if they ever inspect the wire format. |
+| 5 | What is the role of `ViewProxy` after this Addendum? | (A) Delete entirely, fold its methods into `Array`. (B) Keep `ViewProxy` as the return type of `Array.view()` for blocks that genuinely need explicit chunk-by-chunk reading without materialising the whole array. (C) Make `ViewProxy` strictly internal to backends. | **Decision: (B).** ViewProxy is still useful for blocks that read 100 GB Zarr stores chunk-by-chunk, where the block author wants explicit control over which chunks are touched. Examples: a streaming statistics block that computes per-chunk means, an ROI extraction block that reads only the requested spatial region. After this Addendum, `ViewProxy` is **demoted from "engine-injected input type"** to **"opt-in helper accessed via `item.view()`"**. The default block experience is `item.to_memory()` / `item.sel(...)` / `item.iter_over(...)`. Blocks that need ViewProxy explicitly call `item.view()`. |
+
+### Decision
+
+#### D11′. `worker.reconstruct_inputs` returns typed DataObject instances
+
+Replace the D11 pseudocode with the following. The function dispatches three cases — `Collection`, single `DataObject`, scalar pass-through — and delegates per-item reconstruction to a private helper:
+
+```python
+# scieasy/engine/runners/worker.py
+
+def reconstruct_inputs(payload: dict[str, Any]) -> dict[str, Any]:
+    """Reconstruct typed DataObject inputs from the JSON wire payload.
+
+    ADR-027 D11 + Addendum 1: Returns typed instances (e.g. FluorImage),
+    not ViewProxy. Lazy loading is preserved at the method level: the
+    returned instance has storage_ref set but does not read payload data
+    until to_memory() / view() / sel() / iter_over() is called.
+    """
+    from scieasy.core.types.collection import Collection
+    from scieasy.core.types.registry import TypeRegistry
+    from scieasy.core.types.base import DataObject
+
+    raw_inputs = payload.get("inputs", {})
+    result: dict[str, Any] = {}
+
+    for key, value in raw_inputs.items():
+        if isinstance(value, dict) and value.get("_collection"):
+            # Collection of typed items
+            items = [_reconstruct_one(item) for item in value["items"]]
+            item_type_name = value.get("item_type", "DataObject")
+            item_type = TypeRegistry.resolve([item_type_name]) or DataObject
+            result[key] = Collection(items, item_type=item_type)
+        elif isinstance(value, dict) and "backend" in value and "path" in value:
+            # Single typed DataObject
+            result[key] = _reconstruct_one(value)
+        else:
+            # Scalar / pass-through (config-derived inputs that aren't DataObjects)
+            result[key] = value
+
+    return result
+
+
+def _reconstruct_one(payload_item: dict) -> "DataObject":
+    """Reconstruct one typed DataObject instance from a serialised payload item.
+
+    The serialised form is the same JSON dict that worker.serialise_outputs
+    produces, namely:
+        {
+            "backend": "zarr",
+            "path":    "/path/to/store",
+            "format":  "...",
+            "metadata": {
+                "type_chain":  ["DataObject", "Array", "Image", "FluorImage"],
+                "framework":   { ...FrameworkMeta fields... },
+                "meta":        { ...Meta-model fields, JSON-serialised... },
+                "user":        { ...free-form dict... },
+                # base-class extras (e.g. axes/shape/dtype/chunk_shape for Array)
+                "axes":        ["t", "z", "c", "y", "x"],
+                "shape":       [10, 30, 4, 512, 512],
+                "dtype":       "uint16",
+                "chunk_shape": [1, 1, 1, 512, 512],
+            },
+        }
+    """
+    from scieasy.core.types.registry import TypeRegistry
+    from scieasy.core.types.base import DataObject
+    from scieasy.core.storage.ref import StorageReference
+    from scieasy.core.meta import FrameworkMeta
+
+    ref = StorageReference(
+        backend=payload_item["backend"],
+        path=payload_item["path"],
+        format=payload_item.get("format"),
+        metadata=payload_item.get("metadata", {}),
+    )
+    md = payload_item.get("metadata", {})
+
+    # 1. Resolve the most specific class registered for this type chain.
+    type_chain = md.get("type_chain", ["DataObject"])
+    cls = TypeRegistry.resolve(type_chain) or DataObject
+
+    # 2. Reconstruct the three metadata slots.
+    framework = FrameworkMeta.model_validate(md.get("framework", {}))
+
+    meta_cls = getattr(cls, "Meta", None)
+    if meta_cls is not None:
+        meta = meta_cls.model_validate(md.get("meta", {}))
+    else:
+        meta = None
+
+    user = dict(md.get("user", {}) or {})
+
+    # 3. Ask the base class which extra kwargs it wants from the metadata.
+    if hasattr(cls, "_reconstruct_extra_kwargs"):
+        extra_kwargs = cls._reconstruct_extra_kwargs(md)
+    else:
+        extra_kwargs = {}
+
+    # 4. Construct the typed instance. storage_ref is set but payload not read.
+    return cls(
+        storage_ref=ref,
+        framework=framework,
+        meta=meta,
+        user=user,
+        **extra_kwargs,
+    )
+```
+
+#### D11′ companion. `_reconstruct_extra_kwargs` classmethod hook
+
+Each of the six core base classes implements a `classmethod _reconstruct_extra_kwargs(metadata: dict) -> dict` that returns the keyword arguments that the class's `__init__` needs **beyond** the four core fields (`storage_ref`, `framework`, `meta`, `user`). The hook is called by `_reconstruct_one`. Plugin subclasses inherit the hook from their base class and almost never need to override it.
+
+```python
+# scieasy/core/types/base.py
+class DataObject:
+    @classmethod
+    def _reconstruct_extra_kwargs(cls, metadata: dict) -> dict:
+        """Return base-class-specific kwargs to pass to __init__ during
+        worker subprocess reconstruction. Default: no extra kwargs."""
+        return {}
+
+
+# scieasy/core/types/array.py
+class Array(DataObject):
+    @classmethod
+    def _reconstruct_extra_kwargs(cls, metadata: dict) -> dict:
+        return {
+            "axes":        list(metadata.get("axes", [])),
+            "shape":       tuple(metadata["shape"]) if metadata.get("shape") else None,
+            "dtype":       metadata.get("dtype"),
+            "chunk_shape": tuple(metadata["chunk_shape"]) if metadata.get("chunk_shape") else None,
+        }
+
+
+# scieasy/core/types/series.py
+class Series(DataObject):
+    @classmethod
+    def _reconstruct_extra_kwargs(cls, metadata: dict) -> dict:
+        return {
+            "index_name": metadata.get("index_name"),
+            "value_name": metadata.get("value_name"),
+            "length":     metadata.get("length"),
+        }
+
+
+# scieasy/core/types/dataframe.py
+class DataFrame(DataObject):
+    @classmethod
+    def _reconstruct_extra_kwargs(cls, metadata: dict) -> dict:
+        return {
+            "columns":   list(metadata.get("columns", [])),
+            "row_count": metadata.get("row_count"),
+            "schema":    dict(metadata.get("schema", {})),
+        }
+
+
+# scieasy/core/types/text.py
+class Text(DataObject):
+    @classmethod
+    def _reconstruct_extra_kwargs(cls, metadata: dict) -> dict:
+        return {
+            "format":   metadata.get("format", "plain"),
+            "encoding": metadata.get("encoding", "utf-8"),
+        }
+
+
+# scieasy/core/types/artifact.py
+class Artifact(DataObject):
+    @classmethod
+    def _reconstruct_extra_kwargs(cls, metadata: dict) -> dict:
+        return {
+            "mime_type":   metadata.get("mime_type"),
+            "description": metadata.get("description", ""),
+        }
+
+
+# scieasy/core/types/composite.py
+class CompositeData(DataObject):
+    @classmethod
+    def _reconstruct_extra_kwargs(cls, metadata: dict) -> dict:
+        """Composite types reconstruct nested slots recursively.
+
+        The serialised form of a composite item carries a "slots" dict
+        whose values are themselves single-DataObject payload items
+        (with backend/path/metadata). We delegate to _reconstruct_one
+        to rebuild each slot.
+        """
+        slot_payloads = metadata.get("slots", {}) or {}
+        slots = {
+            slot_name: _reconstruct_one(slot_payload)
+            for slot_name, slot_payload in slot_payloads.items()
+        }
+        return {"slots": slots}
+```
+
+Plugin subclasses that add fields beyond their base class can override the hook and call `super()._reconstruct_extra_kwargs(metadata)` to pick up the parent class's extras:
+
+```python
+# Hypothetical plugin subclass that adds a wavenumber_axis numeric field
+# (not a Meta field — it is geometry-like, so it lives outside Meta)
+class HyperspectralImage(Image):
+    @classmethod
+    def _reconstruct_extra_kwargs(cls, metadata: dict) -> dict:
+        kwargs = super()._reconstruct_extra_kwargs(metadata)
+        kwargs["wavenumber_axis"] = list(metadata.get("wavenumber_axis", []))
+        return kwargs
+```
+
+In practice, almost all plugin types put their domain fields inside `Meta` (which round-trips automatically via Pydantic) and never need to override this hook. The override path exists for unusual cases.
+
+#### D11′ companion. Symmetric `serialise_outputs` change
+
+`worker.serialise_outputs` must be updated symmetrically so that the wire format `_reconstruct_one` reads is the wire format `serialise_outputs` writes. The output side already produces a metadata sidecar; this Addendum specifies its exact contents:
+
+```python
+# scieasy/engine/runners/worker.py
+
+def serialise_outputs(outputs: dict[str, Any], output_dir: str) -> dict[str, Any]:
+    """Serialise typed DataObject outputs to the JSON wire format.
+
+    For each output value:
+      - If Collection: serialise each item via _serialise_one,
+        emit {"_collection": True, "item_type": ..., "items": [...]}
+      - If DataObject:  serialise via _serialise_one
+      - Else:           pass through scalar / list / dict
+    """
+    from scieasy.blocks.base.block import Block
+    from scieasy.core.types.base import DataObject
+    from scieasy.core.types.collection import Collection
+
+    result: dict[str, Any] = {}
+    for key, value in outputs.items():
+        if isinstance(value, Collection):
+            item_payloads = [_serialise_one(Block._auto_flush(item)) for item in value]
+            result[key] = {
+                "_collection": True,
+                "item_type":   value.item_type.__name__ if value.item_type else "DataObject",
+                "items":       item_payloads,
+            }
+        elif isinstance(value, DataObject):
+            result[key] = _serialise_one(Block._auto_flush(value))
+        elif isinstance(value, (str, int, float, bool, type(None), list, dict)):
+            result[key] = value
+        else:
+            result[key] = str(value)
+    return result
+
+
+def _serialise_one(obj: "DataObject") -> dict:
+    """Serialise one typed DataObject to a wire-format payload item.
+
+    The metadata sidecar carries everything _reconstruct_one needs:
+    type_chain (for class lookup), framework/meta/user (for metadata),
+    and base-class extras (for __init__ kwargs).
+    """
+    if obj.storage_ref is None:
+        # Should never happen — Block._auto_flush is called before us.
+        raise RuntimeError(f"Cannot serialise {type(obj).__name__} without storage_ref")
+
+    md: dict[str, Any] = {}
+
+    # type_chain — used by TypeRegistry.resolve in the receiving worker
+    md["type_chain"] = obj.dtype_info.type_chain
+
+    # framework slot
+    md["framework"] = obj.framework.model_dump(mode="json")
+
+    # meta slot (Pydantic round-trip via JSON mode)
+    if obj.meta is not None:
+        md["meta"] = obj.meta.model_dump(mode="json")
+
+    # user slot (free dict — already JSON-serialisable per ADR-017)
+    md["user"] = dict(obj.user or {})
+
+    # base-class extras: ask the class which fields it wants persisted.
+    if hasattr(type(obj), "_serialise_extra_metadata"):
+        md.update(type(obj)._serialise_extra_metadata(obj))
+
+    ref = obj.storage_ref
+    return {
+        "backend":  ref.backend,
+        "path":     ref.path,
+        "format":   ref.format,
+        "metadata": md,
+    }
+```
+
+`_serialise_extra_metadata` is the symmetric counterpart of `_reconstruct_extra_kwargs`. Each base class implements both:
+
+```python
+class Array(DataObject):
+    @classmethod
+    def _serialise_extra_metadata(cls, obj: "Array") -> dict:
+        return {
+            "axes":        list(obj.axes),
+            "shape":       list(obj.shape) if obj.shape is not None else None,
+            "dtype":       str(obj.dtype) if obj.dtype is not None else None,
+            "chunk_shape": list(obj.chunk_shape) if obj.chunk_shape is not None else None,
+        }
+```
+
+The other five base classes implement their own `_serialise_extra_metadata` that mirrors their `_reconstruct_extra_kwargs`. The implementation ticket will write all six pairs.
+
+#### `Meta` Pydantic constraints
+
+Plugin subclasses declaring a `Meta` Pydantic model must obey:
+
+1. **Inherit from `pydantic.BaseModel`**, not from `dataclass` or any other base.
+2. **No `PrivateAttr`**. Private state cannot round-trip through JSON.
+3. **All fields must be JSON-round-trippable** via `model_dump(mode="json")` and `model_validate`. Acceptable types are: primitive Python (`str`, `int`, `float`, `bool`, `None`), lists and dicts of acceptable types, `datetime`, other Pydantic `BaseModel` whose fields are themselves acceptable, `PhysicalQuantity` (which provides Pydantic v2 integration via `__get_pydantic_core_schema__` — see next subsection), and Pydantic-supplied custom types like `EmailStr`, `HttpUrl`, etc.
+4. **Recommended `model_config = ConfigDict(frozen=True)`** so `with_meta(...)` immutability is enforced statically rather than relying on convention. The framework does not strictly require `frozen=True`, but `with_meta` only makes semantic sense if the existing `Meta` is treated as immutable.
+
+The framework enforces (1) and (3) at registration time: when a plugin's `get_types()` callable returns a class with a non-conforming `Meta`, `TypeRegistry` rejects the registration with a clear error message pointing at the offending field. This prevents Phase 11+ plugin authors from discovering serialisation failures only at runtime.
+
+Validation logic lives in `TypeRegistry.register` and is called once per class at scan time, so the cost is paid at startup, not per dispatch.
+
+#### `PhysicalQuantity` Pydantic integration
+
+ADR-027 D6 specified `PhysicalQuantity` as a frozen dataclass. To make `pixel_size: PhysicalQuantity` work inside a `Meta` BaseModel without per-field boilerplate, the `scieasy.core.units` module attaches a Pydantic v2 core schema to the dataclass:
+
+```python
+# scieasy/core/units.py (extends ADR-027 D6's specification)
+
+from __future__ import annotations
+from dataclasses import dataclass
+from typing import Any
+from pydantic_core import core_schema
+from pydantic import GetCoreSchemaHandler
+
+@dataclass(frozen=True)
+class PhysicalQuantity:
+    value: float
+    unit: str
+
+    # ... existing methods (to, __lt__, __eq__) per ADR-027 D6 ...
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source_type: Any, handler: GetCoreSchemaHandler,
+    ) -> core_schema.CoreSchema:
+        """Pydantic v2 integration: PhysicalQuantity round-trips as
+        {"value": float, "unit": str}.
+
+        Plugin authors writing `pixel_size: PhysicalQuantity` get JSON
+        serialisation, JSON validation, and OpenAPI schema generation
+        automatically. No field_serializer / field_validator boilerplate
+        required.
+        """
+        def _validate(v: Any) -> "PhysicalQuantity":
+            if isinstance(v, PhysicalQuantity):
+                return v
+            if isinstance(v, dict) and "value" in v and "unit" in v:
+                return cls(value=float(v["value"]), unit=str(v["unit"]))
+            raise ValueError(
+                f"PhysicalQuantity expects {{value, unit}} dict or PhysicalQuantity, got {type(v).__name__}"
+            )
+
+        return core_schema.no_info_plain_validator_function(
+            _validate,
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                lambda obj: {"value": obj.value, "unit": obj.unit},
+                return_schema=core_schema.dict_schema(),
+            ),
+        )
+```
+
+Plugin authors do not see any of this. They write:
+
+```python
+class FluorImage(Image):
+    class Meta(Image.Meta):
+        pixel_size: PhysicalQuantity
+        exposure_ms: dict[str, float] | None = None
+```
+
+and the framework handles JSON round-trip transparently. When this `Meta` instance is serialised via `model_dump(mode="json")`, `pixel_size` becomes `{"value": 0.108, "unit": "um"}`. When `model_validate` reads it back in the receiving worker, it becomes a `PhysicalQuantity(0.108, "um")` instance again.
+
+The implementation ticket for ADR-027 D6 must include this Pydantic integration, the corresponding test (`tests/core/test_units.py::test_physical_quantity_pydantic_round_trip`), and a smoke test that round-trips a full `FluorImage.Meta` containing several `PhysicalQuantity` fields through `model_dump_json` / `model_validate_json`.
+
+#### `ViewProxy` role after this Addendum
+
+`ViewProxy` is **not removed** by this Addendum. It is **demoted** from "the type the engine injects into block inputs" to "an opt-in helper accessed via `Array.view()` for blocks that need explicit chunk-level reading". Concretely:
+
+- `Array.view()` continues to return `ViewProxy(storage_ref, dtype_info)`. The signature and behaviour of ViewProxy itself are unchanged.
+- `Array.to_memory()`, `Array.sel()`, `Array.iter_over()`, and `Array.shape` are now methods on the `Array` instance directly (per ADR-027 D4), without needing to detour through ViewProxy.
+- Blocks that read 100 GB Zarr stores chunk-by-chunk continue to call `item.view().slice(...)` or `item.view().iter_chunks(...)`. This is the same code they would have written before this Addendum; the only thing that changes is the **default** path is now `item.to_memory()` / `item.sel(...)` rather than `item.view().to_memory()` / `item.view().slice(...)`.
+- `worker.reconstruct_inputs` no longer constructs `ViewProxy` instances at all. The `ViewProxy` import is removed from `worker.py`.
+
+This demotion is consistent with ADR-007 (lazy loading): laziness is now expressed at the **method level** on the typed instance (`to_memory` / `sel` / `iter_over` defer I/O until called) rather than at the **wrapper-class level**. Both achieve the same memory behaviour; the typed-instance approach gives block authors a richer API with no extra cost.
+
+### Alternatives considered
+
+- **Option A: keep ViewProxy as the worker return type and patch around it.** Requires giving `ViewProxy` a `meta` attribute, a `with_meta` method, an `iter_over` / `sel` proxy that round-trips through the underlying type, and isinstance compatibility with plugin classes. Each of these is feasible individually; together they reconstruct most of `DataObject` on the `ViewProxy` side. At that point ViewProxy *is* a DataObject in all but name, and the simpler thing is to use the actual class. Rejected.
+- **Option C: introduce `LazyDataObject` mix-in.** A new class that inherits from both `DataObject` and ViewProxy, providing typed-class identity AND proxy semantics. The mix-in could in principle solve the same problem as Option B, but introduces a third concept (alongside ViewProxy and the typed classes) that plugin authors must learn. There is no behaviour LazyDataObject would provide that a plain typed instance with a set `storage_ref` does not already provide. Rejected as unnecessary complexity.
+- **Have the engine keep using ViewProxy and run a "type upgrade" pass before invoking the block's `run()`.** This is a variant of Option B that defers reconstruction by one step. It does not change the contract or the implementation cost meaningfully — the upgrade pass would do exactly what `_reconstruct_one` does in Option B. Rejected as a wash.
+- **Rewrite D5 to make `DataObject.meta` optional / lazy on ViewProxy.** Reverses the wrong decision. D5 is the right design; D11's pseudocode is the wrong design. Rejected.
+- **Defer the resolution to the implementation phase.** Tempting but dangerous: the contradiction is large enough that the implementation ticket would have to either re-litigate this decision or pick one of the bad options under time pressure. Resolving it now in an Addendum keeps the implementation ticket focused on writing code rather than re-arguing architecture.
+
+### Consequences
+
+- **`worker.py` becomes the canonical reference site for typed DataObject reconstruction.** Both `_reconstruct_one` and `_serialise_one` live there and dispatch to base-class hooks. The worker file grows by ~80 lines (the two helpers) but loses the discarded `cls` line and the `ViewProxy` import.
+- **Six new pairs of classmethods on the base classes.** Each of `DataObject`, `Array`, `Series`, `DataFrame`, `Text`, `Artifact`, `CompositeData` gains `_reconstruct_extra_kwargs` and `_serialise_extra_metadata`. Total: 12 small classmethods, ~5 lines each. The hook contract is documented in the developer SDK guide as "rarely overridden by plugin authors; framework default is sufficient for almost all subtypes".
+- **Plugin `Meta` classes have an explicit constraint set** (frozen, no PrivateAttr, JSON-round-trippable). The constraint is enforced at registration time by `TypeRegistry`, with a clear error message pointing at the offending field. This is a small cost paid once per class at startup, not per dispatch.
+- **`PhysicalQuantity` integration with Pydantic is no longer hand-waved.** ADR-027 D6's implementation ticket will include the `__get_pydantic_core_schema__` method and a round-trip test. Plugin authors get transparent JSON serialisation for `pixel_size: PhysicalQuantity` without writing any boilerplate.
+- **`ViewProxy` is demoted but not removed.** Existing code that calls `item.view().to_memory()` continues to work. New blocks should prefer `item.to_memory()` directly. The block-sdk.md guide will note (in a future PR — not in this Addendum's scope) that `view()` is the escape hatch for explicit chunk reading; the default path is direct method calls on the typed instance.
+- **Tests that asserted `inputs["x"]` is a `ViewProxy` will fail.** I expect ~5–10 such assertions across `tests/`, mostly in early `test_proxy.py` and `test_block_base.py` tests written before D5 was specified. The implementation ticket for D11 must update these to assert `isinstance(inputs["x"], FluorImage)` (or `Array`, depending on the test's domain) instead.
+- **No change to the wire format on the engine→worker direction.** The serialised payload already carries a `metadata` dict; this Addendum specifies its exact contents but does not introduce a new transport mechanism. Existing checkpoints continue to load (with a small forward-compat note: `framework`/`meta`/`user` defaults are filled in when loading older checkpoints whose metadata was a flat dict).
+- **No change to `D5/D7/D9` decisions.** The metadata stratification, the `setup`/`teardown` hooks, the L2 fan-out pattern — all unchanged. This Addendum touches only the worker reconstruction layer.
+- **No change to the `EventBus`, `BlockState`, `Collection`, or `ProcessRegistry` contracts.** This is a worker-internal clarification.
+
+### Detailed impact scope
+
+#### Rewritten files (in the eventual implementation ticket; not in this PR)
+
+| File | Current state | New state | Detailed changes |
+|---|---|---|---|
+| `src/scieasy/engine/runners/worker.py` | `reconstruct_inputs` returns `ViewProxy`. `serialise_outputs` writes a metadata sidecar but does not split it into framework/meta/user. | `reconstruct_inputs` dispatches to `_reconstruct_one` per item, returns typed `DataObject` instances. `serialise_outputs` dispatches to `_serialise_one`, which writes `type_chain` + `framework` + `meta` + `user` + base-class extras into the metadata sidecar. | **Add** `_reconstruct_one(payload_item)` (~40 lines). **Add** `_serialise_one(obj)` (~30 lines). **Change** `reconstruct_inputs` to call `_reconstruct_one` instead of constructing `ViewProxy` (current ~30 lines → ~25 lines). **Change** `serialise_outputs` to call `_serialise_one` instead of inline serialisation (current ~50 lines → ~35 lines). **Remove** the `ViewProxy` import (no longer needed in worker.py). **Add** `TypeRegistry.scan()` call at top of `main()` per ADR-027 D11 (this part is unchanged from D11). |
+| `src/scieasy/core/types/base.py` | `DataObject` has framework/meta/user slots per ADR-027 D5. | Adds `_reconstruct_extra_kwargs(metadata)` and `_serialise_extra_metadata(obj)` classmethods, both returning `{}` by default. | **Add** two classmethods, each ~3 lines (default empty implementation + docstring). |
+| `src/scieasy/core/types/array.py` | `Array` per ADR-027 D1 with instance-level `axes`. | Adds `_reconstruct_extra_kwargs` and `_serialise_extra_metadata` covering `axes`, `shape`, `dtype`, `chunk_shape`. | **Add** two classmethods, ~10 lines each. |
+| `src/scieasy/core/types/series.py` | `Series` base class. | Adds two classmethods covering `index_name`, `value_name`, `length`. | **Add** two classmethods, ~6 lines each. |
+| `src/scieasy/core/types/dataframe.py` | `DataFrame` base class. | Adds two classmethods covering `columns`, `row_count`, `schema`. | **Add** two classmethods, ~6 lines each. |
+| `src/scieasy/core/types/text.py` | `Text` base class. | Adds two classmethods covering `format`, `encoding`. | **Add** two classmethods, ~5 lines each. |
+| `src/scieasy/core/types/artifact.py` | `Artifact` base class. | Adds two classmethods covering `mime_type`, `description`. | **Add** two classmethods, ~5 lines each. |
+| `src/scieasy/core/types/composite.py` | `CompositeData` per ADR-027 D2. | Adds two classmethods covering `slots` — recursively delegates to `_reconstruct_one` / `_serialise_one` for each slot. | **Add** two classmethods, ~10 lines each. The recursive delegation needs an import of `worker._reconstruct_one`, which is acceptable because composite reconstruction is intrinsically tied to the worker reconstruction protocol. Alternative: move the helpers into a new module `scieasy.core.types.serialization` to avoid `core` importing `engine.runners`. The implementation ticket will pick the cleaner of the two import directions. |
+| `src/scieasy/core/types/registry.py` | `TypeRegistry.register` and `TypeRegistry.resolve` per ADR-027 D11. | Adds validation in `register`: if the registered class declares a `Meta` attribute, check that it is a `BaseModel`, has no `PrivateAttr` fields, and that all fields round-trip through `model_dump(mode="json")` / `model_validate`. Reject with a clear error if not. | **Add** `_validate_meta_class(cls)` (~25 lines). **Call** from `register()`. The validation cost is paid once per class at registration; not per dispatch. |
+| `src/scieasy/core/units.py` | `PhysicalQuantity` per ADR-027 D6. | Adds `__get_pydantic_core_schema__` for transparent Pydantic v2 integration. | **Add** the classmethod (~25 lines including the imported `core_schema` helpers). |
+
+#### Tests
+
+| Test file | Coverage |
+|---|---|
+| `tests/engine/test_worker_type_reconstruction.py` (new) | `_reconstruct_one` round-trip for each base class with synthetic `StorageReference`. Verifies returned instance is the correct subclass, `meta` is the correct Pydantic model, `framework` fields populated, `user` dict preserved. |
+| `tests/engine/test_worker_serialise_outputs.py` (new or extended) | `_serialise_one` produces the wire format expected by `_reconstruct_one`. Round-trip test: serialise → reconstruct → assert deep equality. |
+| `tests/core/test_stratified_metadata.py` (already in ADR-027) | Add a test that round-trips a `FluorImage.Meta` with a `PhysicalQuantity` field through `model_dump_json` / `model_validate_json`. |
+| `tests/core/test_units.py` (already in ADR-027) | Add `test_physical_quantity_pydantic_round_trip`: assert that `BaseModel(pixel_size=Q(0.108, "um"))` serialises to `{"pixel_size": {"value": 0.108, "unit": "um"}}` and back. |
+| `tests/core/test_type_registry.py` (existing or new) | Add `test_register_rejects_meta_with_private_attr`, `test_register_rejects_meta_with_arbitrary_field`, `test_register_accepts_well_formed_meta`. |
+| `tests/blocks/test_block_base.py` (existing) | **Audit** for any test that asserts `isinstance(inputs["x"], ViewProxy)`. Update to assert the typed class (`Array` or a plugin type if available). |
+| `tests/core/test_proxy.py` (existing) | **Audit** for the same. ViewProxy itself is unchanged, so tests that exercise `ViewProxy.slice` / `ViewProxy.to_memory` directly still pass; only tests that asserted "the input the worker delivers is a ViewProxy" need to change. |
+
+#### Documentation impact
+
+| Document | Required changes |
+|---|---|
+| `docs/architecture/ARCHITECTURE.md` §5.1 (Block base class) | **No change**. The §5.1 prose updated in PR #258 already says "the worker subprocess must be able to reconstruct the typed input via TypeRegistry.scan()" and does not commit to a specific return type. |
+| `docs/architecture/ARCHITECTURE.md` §6.1 (DAG scheduler) | **No change**. The scheduler does not interact with worker input reconstruction. |
+| `docs/architecture/ARCHITECTURE.md` §4.1 (Base type hierarchy) | **No change**. The §4.1 rewrite in PR #258 already shows block authors using `item.meta.pixel_size` and `item.with_meta(...)` directly, which this Addendum makes accurate. |
+| `docs/guides/block-sdk.md` | **No change**. All examples in the guide already show typed-instance access. This Addendum makes those examples accurate without any edit. |
+| `docs/adr/ADR.md` | This Addendum. |
+| `CHANGELOG.md` | **Add** entry under `[Unreleased]` → `### Added` referencing this Addendum and #259. |
+
+#### Out of scope
+
+- **Any source code changes.** This Addendum is documentation only. The implementation lands under the Phase 10 ADR-027 D11 implementation ticket (to be opened) and references this Addendum.
+- **ARCHITECTURE.md / PROJECT_TREE.md / block-sdk.md updates.** Those documents already match the post-Addendum contract because they were written assuming typed-instance access. Verified by re-reading PR #258 content during the change-plan phase of this issue.
+- **Any change to the `BlockState`, `EventBus`, cancellation, or scheduler contracts.** ADR-018, ADR-018 Addendum 1, ADR-019, ADR-020, and ADR-027 D1–D10 stand unchanged.
+- **Changing the wire format JSON keys.** The engine→worker payload structure is unchanged. This Addendum specifies the **contents** of the metadata sidecar precisely, but does not rename any top-level keys (`backend`, `path`, `format`, `metadata`, `_collection`, `items`, `item_type` all remain).
+- **Changing `Collection` semantics.** Collection of typed items continues to work as ADR-020 specified. The only change is that the items inside a reconstructed `Collection` are now typed instances rather than `ViewProxy`.
+- **Reopening D11's main "discussion table" row.** That row commits to `TypeRegistry.scan()` in the worker, which this Addendum keeps unchanged. Only the Decision-section pseudocode and the corresponding "Alternatives considered" entry are superseded.
