@@ -164,6 +164,8 @@ _SYSTEM_PROMPT = (
     "SciEasy blocks follow these architectural contracts:\n"
     "- ADR-017: All blocks execute in isolated subprocesses. Do NOT include\n"
     "  self.transition() calls -- state transitions are managed by the engine.\n"
+    "  (Exception: AppBlock may use self.transition(BlockState.PAUSED) for\n"
+    "  manual review steps.)\n"
     "- ADR-020: Inter-block data transport uses Collection. The run() method\n"
     "  signature must be:\n"
     "    def run(self, inputs: dict[str, Collection], config: BlockConfig)"

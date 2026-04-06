@@ -65,16 +65,18 @@ def _make_mock_result(
     return result
 
 
-@patch("scieasy.api.routes.ai.generate_block", side_effect=ImportError("No anthropic"))
-def test_generate_block_returns_503_when_ai_unavailable(mock_gen: MagicMock, client: TestClient) -> None:
-    """Endpoint returns 503 when AI optional dependencies are missing."""
-    # We need to patch the import inside the endpoint function.
-    # The endpoint does a lazy import: from scieasy.ai.generation.block_generator import generate_block
-    # We patch the entire route-level import to raise ImportError.
-    with patch(
-        "scieasy.api.routes.ai.generate_block",
-        side_effect=ImportError("No module named 'anthropic'"),
-    ):
+def test_generate_block_returns_503_when_ai_unavailable(client: TestClient) -> None:
+    """Endpoint returns 503 when AI optional dependencies are missing.
+
+    The endpoint performs a lazy import inside the function body:
+        from scieasy.ai.generation.block_generator import generate_block as ai_generate_block
+
+    To simulate missing AI dependencies, we set the target module to None
+    in sys.modules, which causes ``from ... import ...`` to raise ImportError.
+    """
+    import sys
+
+    with patch.dict(sys.modules, {"scieasy.ai.generation.block_generator": None}):
         resp = client.post(
             "/api/ai/generate-block",
             json={"description": "make a block"},
