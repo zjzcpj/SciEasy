@@ -39,6 +39,15 @@ async def browse_directory() -> dict:
     return {"path": path}
 
 
+@router.post("/browse-files")
+async def browse_files() -> dict:
+    """Open a native file picker dialog with multi-select and return the selected paths."""
+    import asyncio
+
+    paths = await asyncio.get_event_loop().run_in_executor(None, _pick_files)
+    return {"paths": paths}
+
+
 @router.get("/{project_id:path}", response_model=ProjectResponse)
 async def get_project(project_id: str, runtime: RuntimeDep) -> ProjectResponse:
     """Retrieve and open a project by identifier or filesystem path."""
@@ -88,3 +97,19 @@ def _pick_directory() -> str | None:
         return folder if folder else None
     except Exception:
         return None
+
+
+def _pick_files() -> list[str]:
+    """Show a native file selection dialog with multi-select using tkinter."""
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        files = filedialog.askopenfilenames(title="Select files")
+        root.destroy()
+        return list(files) if files else []
+    except Exception:
+        return []

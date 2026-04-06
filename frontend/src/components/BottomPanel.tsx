@@ -36,9 +36,16 @@ function ConfigPanel({
 }) {
   const params = ((selectedNode?.config.params as Record<string, unknown> | undefined) ?? {}) as Record<string, unknown>;
   const properties = schema?.config_schema.properties ?? {};
-  const ordered = Object.entries(properties).sort(([, left], [, right]) => {
-    return Number(left.ui_priority ?? 99) - Number(right.ui_priority ?? 99);
-  });
+  const ordered = Object.entries(properties)
+    .filter(([key]) => {
+      // For io_block, hide "direction" — it is already determined by whether
+      // the user dragged a Load Block or Save Block from the palette.
+      if (selectedNode?.block_type === "io_block" && key === "direction") return false;
+      return true;
+    })
+    .sort(([, left], [, right]) => {
+      return Number(left.ui_priority ?? 99) - Number(right.ui_priority ?? 99);
+    });
 
   if (!selectedNode || !schema) {
     return <div className="text-sm text-stone-500">Select a node to edit its JSON-schema-driven configuration.</div>;

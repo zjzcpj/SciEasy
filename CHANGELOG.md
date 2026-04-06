@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#206] Browse button supports file multi-select for Load blocks, folder select for Save blocks (@claude, 2026-04-06, branch: fix/issue-206-207-208/io-block-ux)
+- [#207] Remove unused Format Override field from IO block config schema (@claude, 2026-04-06, branch: fix/issue-206-207-208/io-block-ux)
+- [#208] Hide direction field in bottom Config panel for IO blocks to match canvas display (@claude, 2026-04-06, branch: fix/issue-206-207-208/io-block-ux)
 - [#203] Handle asyncio.CancelledError in WebSocket handler for clean server shutdown (@claude, 2026-04-05, branch: fix/issue-203/ws-shutdown-hang, session: 20260405-212520-fix-websocket-shutdown-hang-by-handling)
 - [#195] Guard panel resize persistence — minimum size threshold in onLayoutChanged + hydration validation in Zustand store (@claude, 2026-04-05, branch: fix/issue-195/panel-resize-persist, session: 20260405-205531-fix-panel-resize-broken-onlayoutchanged)
 - [#194] Improve project dialog UX — remove useless "Optional note" field, add Browse button for native directory selection (@claude, 2026-04-05, branch: fix/issue-194/project-dialog-browse, session: 20260405-205530-fix-project-dialog-ux-remove-useless-fie)
