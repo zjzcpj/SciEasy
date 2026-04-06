@@ -4,11 +4,7 @@ from __future__ import annotations
 
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.registry import BlockRegistry, BlockSpec
-
-# TODO(T-008): T-006 removed core Image; shim preserves collection
-# until the real Image → Array migration lands.
 from scieasy.core.types.array import Array
-from scieasy.core.types.array import Array as Image
 from scieasy.core.types.series import Series
 from scieasy.workflow.definition import EdgeDef, NodeDef, WorkflowDefinition
 from scieasy.workflow.validator import validate_workflow
@@ -197,10 +193,10 @@ class TestValidatorTypeCompat:
     """Check 5: port type matching when registry is provided."""
 
     def test_type_mismatch_with_registry(self) -> None:
-        """Image output -> Series input should report a type error."""
+        """Array output -> Series input should report a type error."""
         spec_a = _make_spec(
             "producer",
-            output_ports=[OutputPort(name="out", accepted_types=[Image])],
+            output_ports=[OutputPort(name="out", accepted_types=[Array])],
         )
         spec_b = _make_spec(
             "consumer",
@@ -219,10 +215,19 @@ class TestValidatorTypeCompat:
         assert any("A:out" in e and "B:in" in e for e in errors)
 
     def test_compatible_types_valid(self) -> None:
-        """Image (subclass of Array) output -> Array input should be valid."""
+        """Array subclass output -> Array input should be valid.
+
+        Uses a locally-defined Array subclass to exercise the
+        subclass-is-compatible path without depending on the
+        scieasy-blocks-imaging plugin's Image type.
+        """
+
+        class _ArraySub(Array):
+            """Local Array subclass for the subclass-compat test."""
+
         spec_a = _make_spec(
             "producer",
-            output_ports=[OutputPort(name="out", accepted_types=[Image])],
+            output_ports=[OutputPort(name="out", accepted_types=[_ArraySub])],
         )
         spec_b = _make_spec(
             "consumer",

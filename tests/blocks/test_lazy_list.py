@@ -7,10 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from scieasy.blocks.code.lazy_list import _ITEM_COUNT_WARNING_THRESHOLD, LazyList
-
-# TODO(T-008): T-006 removed core Image; shim preserves collection
-# until the real Image → Array migration lands.
-from scieasy.core.types.array import Array as Image
+from scieasy.core.types.array import Array
 from scieasy.core.types.base import DataObject
 from scieasy.core.types.collection import Collection
 
@@ -268,7 +265,7 @@ class TestCodeBlockRepackOutputs:
         from scieasy.blocks.code.code_block import CodeBlock
 
         block = CodeBlock()
-        obj = Image(shape=(10, 10), ndim=2, dtype="uint8")
+        obj = Array(axes=["y", "x"], shape=(10, 10), dtype="uint8")
         result = block._repack_outputs({"result": obj})
         assert isinstance(result["result"], Collection)
         assert len(result["result"]) == 1
@@ -279,7 +276,7 @@ class TestCodeBlockRepackOutputs:
         from scieasy.blocks.code.code_block import CodeBlock
 
         block = CodeBlock()
-        objs = [Image(shape=(i, i), ndim=2, dtype="uint8") for i in range(1, 4)]
+        objs = [Array(axes=["y", "x"], shape=(i, i), dtype="uint8") for i in range(1, 4)]
         result = block._repack_outputs({"result": objs})
         assert isinstance(result["result"], Collection)
         assert len(result["result"]) == 3
@@ -305,7 +302,7 @@ class TestCodeBlockRepackOutputs:
         from scieasy.blocks.code.code_block import CodeBlock
 
         block = CodeBlock()
-        obj = Image(shape=(10, 10), ndim=2, dtype="uint8")
+        obj = Array(axes=["y", "x"], shape=(10, 10), dtype="uint8")
         result = block._repack_outputs({"result": obj, "status": "ok"})
         assert isinstance(result["result"], Collection)
         assert result["status"] == "ok"

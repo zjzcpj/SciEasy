@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from scieasy.blocks.base.state import BlockState
@@ -9,17 +11,36 @@ from scieasy.blocks.process.builtins.filter_collection import FilterCollection
 from scieasy.blocks.process.builtins.merge_collection import MergeCollection
 from scieasy.blocks.process.builtins.slice_collection import SliceCollection
 from scieasy.blocks.process.builtins.split_collection import SplitCollection
-
-# TODO(T-008): T-006 removed core Image; shim preserves collection
-# until the real Image → Array migration lands.
-from scieasy.core.types.array import Array as Image
+from scieasy.core.types.array import Array
 from scieasy.core.types.collection import Collection
 from scieasy.core.types.dataframe import DataFrame
 
+# ---------------------------------------------------------------------------
+# Local test fixture.
+#
+# ADR-027 D2: core no longer ships ``Image``; this test uses a tiny
+# Array subclass as a stand-in so Collection[Image] still has a distinct
+# item_type to check against the block contracts.
+# ---------------------------------------------------------------------------
+
+
+class Image(Array):
+    """Local 2D Array test fixture."""
+
+    def __init__(
+        self,
+        *,
+        shape: tuple[int, ...] | None = None,
+        ndim: int | None = None,
+        dtype: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(axes=["y", "x"], shape=shape, dtype=dtype, **kwargs)
+
 
 def _make_images(n: int) -> list[Image]:
-    """Create *n* Image objects with distinct shapes and metadata."""
-    return [Image(shape=(i, i), ndim=2, dtype="uint8", metadata={"index": i}) for i in range(1, n + 1)]
+    """Create *n* Image objects with distinct shapes and user metadata."""
+    return [Image(shape=(i, i), ndim=2, dtype="uint8", user={"index": i}) for i in range(1, n + 1)]
 
 
 # ---------------------------------------------------------------------------
@@ -122,7 +143,7 @@ class TestFilterCollection:
         filtered = result["output"]
         assert isinstance(filtered, Collection)
         assert len(filtered) == 1
-        assert filtered[0].metadata["index"] == 2
+        assert filtered[0].user["index"] == 2
         assert filtered.item_type is Image
 
     def test_filter_empty_result(self) -> None:
@@ -172,8 +193,8 @@ class TestSliceCollection:
         sliced = result["output"]
         assert isinstance(sliced, Collection)
         assert len(sliced) == 2
-        assert sliced[0].metadata["index"] == 1
-        assert sliced[1].metadata["index"] == 2
+        assert sliced[0].user["index"] == 1
+        assert sliced[1].user["index"] == 2
         assert sliced.item_type is Image
 
     def test_slice_default_full_range(self) -> None:
