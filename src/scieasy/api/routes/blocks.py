@@ -35,31 +35,7 @@ def _port_response(port: Any, *, direction: str) -> BlockPortResponse:
 
 
 def _config_schema_for_block(spec: Any) -> dict[str, Any]:
-    name = spec.name.lower()
-    if spec.category == "io":
-        return {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "title": "Path", "ui_priority": 1},
-                "direction": {
-                    "type": "string",
-                    "enum": ["input", "output"],
-                    "default": "input",
-                    "ui_priority": 2,
-                },
-                "format": {"type": "string", "title": "Format", "ui_priority": 3},
-            },
-            "required": ["path"],
-        }
-    if spec.type_name == "process_block" or "process block" in name:
-        return {
-            "type": "object",
-            "properties": {
-                "sleep_seconds": {"type": "number", "default": 0, "ui_priority": 1},
-                "label": {"type": "string", "default": "", "ui_priority": 2},
-            },
-        }
-    return {"type": "object", "properties": {}}
+    return spec.config_schema or {"type": "object", "properties": {}}
 
 
 def _summary(spec: Any) -> BlockSummary:

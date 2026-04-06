@@ -43,6 +43,21 @@ class IOBlock(Block):
             description="Loaded data (input mode)",
         ),
     ]
+    config_schema: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "title": "File/Directory Path", "ui_priority": 1},
+            "direction": {
+                "type": "string",
+                "enum": ["input", "output"],
+                "default": "input",
+                "title": "Direction",
+                "ui_priority": 2,
+            },
+            "format": {"type": "string", "title": "Format Override", "ui_priority": 3},
+        },
+        "required": ["path"],
+    }
 
     def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, Collection]:
         """Execute the IO operation (read or write)."""
