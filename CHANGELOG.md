@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- [#237] Fix canvas annotation code review issues — MiniMap crash guard, DAG edge KeyError guard, random position offset (@claude, 2026-04-06, branch: fix/issue-237/code-review-fixes)
+
 ### Added
 
 - [#233] Parameter optimization -- LLM-powered param suggestions with schema validation (@claude, 2026-04-05, branch: feat/issue-233/param-optimizer, session: 20260405-235030-feat-233-parameter-optimization-backend)

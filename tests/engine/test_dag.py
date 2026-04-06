@@ -148,6 +148,33 @@ class TestBuildDag:
 
         assert order == ["A", "B"]
 
+    def test_build_dag_edges_referencing_skipped_nodes_are_silently_dropped(self) -> None:
+        """Edges from/to _annotation or _group nodes must not cause KeyError."""
+        wf = _wf(
+            nodes=[
+                ("A", "proc"),
+                ("B", "proc"),
+                ("note1", "_annotation"),
+                ("grp1", "_group"),
+            ],
+            edges=[
+                ("A:out", "B:in"),
+                ("A:out", "note1:in"),  # edge TO a skipped node
+                ("note1:out", "B:in2"),  # edge FROM a skipped node
+                ("grp1:out", "A:in"),  # edge FROM a skipped group node
+            ],
+        )
+        dag = build_dag(wf)
+
+        # Only the A->B edge should survive
+        assert set(dag.nodes.keys()) == {"A", "B"}
+        assert dag.adjacency["A"] == ["B"]
+        assert dag.reverse_adjacency["B"] == ["A"]
+        assert len(dag.edges) == 1
+        # Topological sort should still work
+        order = topological_sort(dag)
+        assert order == ["A", "B"]
+
     def test_build_dag_no_duplicate_adjacency(self) -> None:
         """Multiple edges between same nodes don't create duplicate adjacency entries."""
         wf = _wf(

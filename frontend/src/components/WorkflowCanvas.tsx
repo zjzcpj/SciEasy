@@ -278,7 +278,10 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
           <MiniMap
             pannable
             zoomable
-            nodeColor={(node) => resolveTypeColor((node.data as BlockNodeData).outputPorts[0]?.accepted_types ?? [])}
+            nodeColor={(node) => {
+              const data = node.data as BlockNodeData | undefined;
+              return resolveTypeColor(data?.outputPorts?.[0]?.accepted_types ?? []);
+            }}
           />
         )}
         <Controls />
