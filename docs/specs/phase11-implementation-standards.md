@@ -3071,3 +3071,271 @@ Sprint E. All Track 4 tickets land in ``packages/scieasy-blocks-lcms/``.
   the path; otherwise unmarked.
 
 ---
+
+## 10. Summary table
+
+One row per ticket. ``Diff`` column uses XS / S / M / L / XL.
+``Sprint`` column uses A0 / A1 / A2 / A3 / A4 / A5 / B / C0 / C1 /
+C2 / C3 / D0 / D1 / D2 / E0 / E1 / E2 / E3 per the dependency graph
+in §4. ``Coupling`` column: Standalone (S) / Bundled (B) / Sequential
+(Seq).
+
+| Ticket       | Title                                            | Track | Sprint | Diff | Deps                          | Coupling |
+|--------------|--------------------------------------------------|-------|--------|------|-------------------------------|----------|
+| T-TRK-001    | Delete process/contrib/                          | 1     | A0     | XS   | none                          | S        |
+| T-TRK-002    | Delete process/builtins/register.py              | 1     | A0     | XS   | none                          | S        |
+| T-TRK-003    | Move transform.py → tests/fixtures/noop_block    | 1     | A0     | S    | none                          | S        |
+| T-TRK-004    | Delete adapters + rewrite io_block.py as ABC     | 1     | A1     | M-L  | T-TRK-001..003                | B        |
+| T-TRK-005    | (reserved — bundled into T-TRK-004)              | 1     | —      | —    | —                             | —        |
+| T-TRK-006    | Block ABC dynamic-port hooks + framework migration | 1   | A2     | M    | T-TRK-004                     | B        |
+| T-TRK-007    | LoadData + 6 _load_* private functions           | 1     | A3     | M    | T-TRK-006                     | S        |
+| T-TRK-008    | SaveData + 6 _save_* private functions           | 1     | A3     | M    | T-TRK-006                     | S        |
+| T-TRK-009    | Frontend BlockNode.tsx + computeEffectivePorts   | 1     | A4     | M    | T-TRK-007, T-TRK-008          | S        |
+| T-TRK-010    | ARCHITECTURE/PROJECT_TREE/block-sdk docs         | 1     | A5     | M    | T-TRK-009                     | S        |
+| T-TRK-011    | CLAUDE.md §2.5 + ARCHITECTURE.md ManualReview    | 1     | A0     | S    | none                          | S        |
+| T-TRK-012    | FilterCollection metadata query                  | 1     | B      | M    | T-TRK-002                     | S        |
+| T-TRK-013    | CodeBlock R runner audit                         | 1     | B      | S    | none                          | S        |
+| T-TRK-014    | CodeBlock Python runner audit                    | 1     | B      | S    | T-TRK-003                     | S        |
+| T-TRK-015    | AppBlock + Fiji functional audit                 | 1     | B      | M    | T-TRK-003                     | S        |
+| T-IMG-001    | Types module (Image/Mask/Label/Transform)        | 2     | C0     | M    | T-TRK-006                     | S        |
+| T-IMG-002    | LoadImage                                        | 2     | C1     | L    | T-IMG-001, T-TRK-004          | S        |
+| T-IMG-003    | SaveImage                                        | 2     | C1     | M    | T-IMG-001, T-TRK-004          | S        |
+| T-IMG-004    | Denoise                                          | 2     | C1     | M    | T-IMG-001                     | S        |
+| T-IMG-005    | BackgroundSubtract                               | 2     | C1     | M    | T-IMG-001                     | S        |
+| T-IMG-006    | Normalize                                        | 2     | C1     | M    | T-IMG-001                     | S        |
+| T-IMG-007    | FlatFieldCorrect                                 | 2     | C1     | M    | T-IMG-001                     | S        |
+| T-IMG-008    | Geometry bundle (Rotate/Flip/Crop/Pad/Resize)    | 2     | C1     | L    | T-IMG-001                     | B        |
+| T-IMG-009    | ConvertDType                                     | 2     | C1     | S    | T-IMG-001                     | S        |
+| T-IMG-010    | AxisSplit / AxisMerge                            | 2     | C1     | M    | T-IMG-001                     | B        |
+| T-IMG-011    | Deconvolve placeholder                           | 2     | C1     | XS   | T-IMG-001                     | S (placeholder) |
+| T-IMG-012    | MorphologyOp                                     | 2     | C1     | M    | T-IMG-001                     | S        |
+| T-IMG-013    | EdgeDetect                                       | 2     | C1     | M    | T-IMG-001                     | S        |
+| T-IMG-014    | RidgeFilter                                      | 2     | C1     | M    | T-IMG-001                     | S        |
+| T-IMG-015    | Sharpen                                          | 2     | C1     | S    | T-IMG-001                     | S        |
+| T-IMG-016    | FFTFilter                                        | 2     | C1     | M    | T-IMG-001                     | S        |
+| T-IMG-017    | Threshold                                        | 2     | C1     | M    | T-IMG-001                     | S        |
+| T-IMG-018    | Watershed                                        | 2     | C1     | M    | T-IMG-001                     | S        |
+| T-IMG-019    | CellposeSegment (FLAGSHIP)                       | 2     | C2     | L    | T-IMG-001/004, T-TRK-015      | S        |
+| T-IMG-020    | BlobDetect                                       | 2     | C1     | M    | T-IMG-001                     | S        |
+| T-IMG-021    | ConnectedComponents                              | 2     | C1     | S    | T-IMG-001                     | S        |
+| T-IMG-022    | Cleanup bundle (RemoveSmall/Border/Fill/Expand)  | 2     | C1     | M    | T-IMG-001                     | B        |
+| T-IMG-023    | TrackObjects placeholder                         | 2     | C2     | XS   | T-IMG-001                     | S (placeholder) |
+| T-IMG-024    | RegionProps                                      | 2     | C2     | L    | T-IMG-001                     | S        |
+| T-IMG-025    | PairwiseDistance                                 | 2     | C2     | M    | T-IMG-001                     | S        |
+| T-IMG-026    | Colocalization                                   | 2     | C2     | M    | T-IMG-001                     | S        |
+| T-IMG-027    | ComputeRegistration                              | 2     | C2     | M    | T-IMG-001                     | S        |
+| T-IMG-028    | ApplyTransform                                   | 2     | C2     | S    | T-IMG-001                     | S        |
+| T-IMG-029    | RegisterSeries                                   | 2     | C2     | M    | T-IMG-001                     | S        |
+| T-IMG-030    | AxisProjection / SelectSlice                     | 2     | C2     | M    | T-IMG-001                     | B        |
+| T-IMG-031    | Math scalar bundle                               | 2     | C2     | S    | T-IMG-001                     | B        |
+| T-IMG-032    | ImageCalculator (2-port-fixed in 0.1.0)          | 2     | C2     | M    | T-IMG-001, T-TRK-012          | S        |
+| T-IMG-033    | Visualization bundle                             | 2     | C2     | L    | T-IMG-001                     | B        |
+| T-IMG-034    | FijiBlock                                        | 2     | C2     | M    | T-IMG-001, T-TRK-015          | S        |
+| T-IMG-035    | NapariBlock                                      | 2     | C2     | M    | T-IMG-001, T-TRK-015          | S        |
+| T-IMG-036    | CellProfilerBlock                                | 2     | C2     | M    | T-IMG-001, T-TRK-015          | S        |
+| T-IMG-037    | QuPathBlock                                      | 2     | C2     | M    | T-IMG-001, T-TRK-015          | S        |
+| T-IMG-038    | Plugin packaging                                 | 2     | C3     | M    | T-IMG-001..037                | S        |
+| T-SRS-000    | Package skeleton + entry points                  | 3     | D0     | S    | T-IMG-038                     | S        |
+| T-SRS-001    | SRSImage type + Meta model                       | 3     | D0     | M    | T-SRS-000, T-IMG-001          | S        |
+| T-SRS-002    | SRSCalibrate                                     | 3     | D1     | M    | T-SRS-001                     | S        |
+| T-SRS-003    | SRSBaseline                                      | 3     | D1     | M    | T-SRS-001                     | S        |
+| T-SRS-004    | SRSDenoise                                       | 3     | D1     | M    | T-SRS-001                     | S        |
+| T-SRS-005    | SRSNormalize                                     | 3     | D1     | M    | T-SRS-001                     | S        |
+| T-SRS-006    | SRSVCA                                           | 3     | D1     | M    | T-SRS-001                     | S        |
+| T-SRS-007    | SRSUnmix                                         | 3     | D1     | M    | T-SRS-001                     | S        |
+| T-SRS-008    | SRSPCA                                           | 3     | D1     | M    | T-SRS-001                     | S        |
+| T-SRS-009    | SRSICA                                           | 3     | D1     | M    | T-SRS-001                     | S        |
+| T-SRS-010    | SRSKMeansCluster                                 | 3     | D1     | M    | T-SRS-001                     | S        |
+| T-SRS-011    | ExtractSpectrum                                  | 3     | D1     | M    | T-SRS-001                     | S        |
+| T-SRS-012    | BandRatio                                        | 3     | D1     | S    | T-SRS-001                     | S        |
+| T-SRS-013    | Plugin entry-point wiring + smoke test           | 3     | D2     | S    | T-SRS-000..012                | S        |
+| T-SRS-014    | E2E integration test (cross-plugin)              | 3     | D2     | M    | T-SRS-013, T-IMG-038          | S        |
+| T-LCMS-001   | Plugin scaffold                                  | 4     | E0     | S    | T-TRK-013, T-TRK-014          | S        |
+| T-LCMS-002   | Types module                                     | 4     | E0     | M    | T-LCMS-001                    | S        |
+| T-LCMS-003   | LoadMSRawFiles                                   | 4     | E1     | M    | T-LCMS-002, T-TRK-004         | S        |
+| T-LCMS-004   | LoadPeakTable                                    | 4     | E1     | M    | T-LCMS-002                    | S        |
+| T-LCMS-005   | LoadMIDTable                                     | 4     | E1     | M    | T-LCMS-002                    | S        |
+| T-LCMS-006   | LoadSampleMetadata + SaveTable                   | 4     | E1     | M    | T-LCMS-002                    | B        |
+| T-LCMS-007   | ElMAVENBlock + AccuCorR                          | 4     | E1     | L    | T-LCMS-002, T-TRK-013, T-TRK-015 | B    |
+| T-LCMS-008   | Calculate13CEnrichment                           | 4     | E2     | M    | T-LCMS-002                    | S        |
+| T-LCMS-009   | FractionalLabeling                               | 4     | E2     | S    | T-LCMS-002                    | S        |
+| T-LCMS-010   | CompareGroupMID                                  | 4     | E2     | M    | T-LCMS-002                    | S        |
+| T-LCMS-011   | FluxEstimate                                     | 4     | E2     | M    | T-LCMS-002                    | S        |
+| T-LCMS-012   | PoolSizeNormalize                                | 4     | E2     | S    | T-LCMS-002                    | S        |
+| T-LCMS-013   | MetaboliteMatrix                                 | 4     | E2     | M    | T-LCMS-002                    | S        |
+| T-LCMS-014   | MatrixPreprocess                                 | 4     | E2     | M    | T-LCMS-002                    | S        |
+| T-LCMS-015   | UnivariateStats                                  | 4     | E2     | M    | T-LCMS-002                    | S        |
+| T-LCMS-016   | MultivariateAnalysis                             | 4     | E2     | M    | T-LCMS-002                    | S        |
+| T-LCMS-017   | PathwayEnrichment                                | 4     | E2     | M    | T-LCMS-002, T-TRK-013         | S        |
+| T-LCMS-018   | ConsumptionSecretionAnalysis                     | 4     | E2     | M    | T-LCMS-002                    | S        |
+| T-LCMS-019   | GraphPadBlock                                    | 4     | E2     | M    | T-LCMS-002, T-TRK-015         | S        |
+| T-LCMS-020   | Entry-point registration + smoke test            | 4     | E3     | S    | T-LCMS-001..019               | S        |
+| T-LCMS-021   | Isotope tracing integration test                 | 4     | E3     | M    | T-LCMS-020                    | S        |
+
+**Total: 89 tickets** (one reserved-no-implement: T-TRK-005). 88
+implementation tickets across 4 tracks.
+
+---
+
+## 11. End-to-end test plan
+
+Two phases. The Python headless variant runs first; the Chrome GUI
+variant runs second after the imaging plugin's GUI registration is
+verified.
+
+### 11.1 Test images
+
+Per Phase 11 master plan §8 and Q6 (this document), the four test
+images live at::
+
+    C:\Users\jiazh\Desktop\workspace\Example\images\K562_L_2845 (uV).tif       (105 KB)
+    C:\Users\jiazh\Desktop\workspace\Example\images\K562_L_spectra (uV).tif    (2.0 MB)
+    C:\Users\jiazh\Desktop\workspace\Example\images\K562_UL_2845 (uV).tif      (105 KB)
+    C:\Users\jiazh\Desktop\workspace\Example\images\K562_UL_spectra (uV).tif   (2.0 MB)
+
+Filenames contain spaces and parentheses; tests import from
+``tests/fixtures/test_images.py`` (T-TRK-003) which centralises the
+escaped paths.
+
+The two ``_2845`` images are used for Cellpose segmentation; the two
+``_spectra`` images are used for spectrum extraction.
+
+### 11.2 Phase 1 — post-Sprint-C E2E (imaging only)
+
+**Trigger**: After T-IMG-038 merges to ``main``.
+
+**Workflow graph**::
+
+    LoadImage[segmentation]    LoadImage[spectra]
+      (K562_L_2845.tif           (K562_L_spectra.tif
+       K562_UL_2845.tif)           K562_UL_spectra.tif)
+       |                                |
+       v                                v
+     Denoise[Gaussian]          Denoise[Gaussian]
+       |                                |
+       v                                |
+     CellposeSegment                    |
+       |                                |
+       v                                |
+     Collection[Label]                  |
+       \______________                  |
+                      \                 |
+                       v                v
+                    ExtractSpectrum
+                         |
+                         v
+                    DataFrame (spectra)
+
+    SaveData (Collection[Label])  SaveData (DataFrame)
+
+**Note**: Phase 1 uses the imaging plugin's ``ExtractSpectrum`` *if
+it exists at this point* — but ``ExtractSpectrum`` is actually a
+**Track 3 (SRS) block** (T-SRS-011). Phase 1 must therefore either:
+(a) wait until T-SRS-011 also merges (which moves Phase 1 to
+post-Sprint-D), OR (b) use a Track 2 surrogate
+(``RegionProps`` with ``intensity_image=spectra``) to extract
+per-region intensity statistics. Phase 11 master plan §8 endorses
+**option (a)**: the canonical E2E test uses ``ExtractSpectrum``
+from the SRS plugin.
+
+Updated Phase 1 trigger: **after T-SRS-011 merges** (Sprint D
+Level D1, before T-SRS-013).
+
+**Python headless variant** (file:
+``tests/integration/test_phase11_e2e_imaging_srs.py``)::
+
+    import pytest
+    from tests.fixtures.test_images import (
+        SEGMENTATION_IMAGES, SPECTRA_IMAGES,
+    )
+
+    pytest.importorskip("scieasy_blocks_imaging")
+    pytest.importorskip("scieasy_blocks_srs")
+
+    from scieasy_blocks_imaging import LoadImage, Denoise, CellposeSegment
+    from scieasy_blocks_srs import ExtractSpectrum
+    from scieasy.blocks.io.savers import SaveData
+
+    @pytest.mark.requires_cellpose
+    def test_phase11_e2e_imaging_srs_pipeline(tmp_path):
+        # Build a workflow with the 8 blocks above and execute via
+        # workflow.execute(). Assert:
+        #   1. All blocks reach the DONE state.
+        #   2. Cellpose produces non-empty Label masks (>=1 object/image).
+        #   3. ExtractSpectrum returns a DataFrame with the expected columns.
+        #   4. Output files exist on disk at tmp_path.
+        ...
+
+**Success criteria** (verbatim from master plan §8):
+1. All blocks reach ``DONE`` state.
+2. Cellpose produces non-empty ``Label`` masks (at least 1 detected
+   object per image).
+3. ``ExtractSpectrum`` produces a DataFrame.
+4. Output files exist on disk at the configured paths.
+5. No exceptions propagate out of any block.
+
+**Failure handling**: If any block raises, file an issue titled
+``E2E BLOCKER: <block name> <error>``, label ``critical``, and
+spawn a fix agent. Re-run the test after the fix merges. Cellpose
+model auto-download on first run is acceptable; CPU slowness is
+acceptable per master plan §8.
+
+### 11.3 Phase 2 — post-Sprint-E E2E (full plugin set)
+
+**Trigger**: After T-LCMS-021 merges.
+
+**Adds to Phase 1**:
+- An LC-MS arm: ``LoadPeakTable`` → ``MetaboliteMatrix`` →
+  ``Calculate13CEnrichment`` → ``SaveTable``. Uses synthetic
+  AccuCor-format CSV fixtures (no real ElMAVEN run required).
+- Full ``pytest -x --no-cov`` across the entire monorepo
+  (root + 3 plugin packages) must pass.
+
+### 11.4 Chrome GUI E2E
+
+**Trigger**: After Phase 1 Python headless passes.
+
+**Tooling**: ``mcp__Claude_in_Chrome__*`` MCP tools per master plan
+§10. Chrome path is user-confirmed working.
+
+**Steps**:
+1. Start the FastAPI GUI server (``scieasy gui`` or
+   ``uvicorn scieasy.api.main:app``).
+2. ``mcp__Claude_in_Chrome__navigate`` to ``http://localhost:8000``
+   (or wherever the GUI is served).
+3. Drag each block from the palette to the canvas.
+4. Configure each block's params (set ``path`` to the test images,
+   set ``core_type`` on each ``LoadData`` to ``Image``, etc.).
+5. Connect the ports per the workflow graph in §11.2.
+6. Click "Run".
+7. Verify each block reaches the ``DONE`` visual state.
+8. Verify the saved files exist on disk at the configured paths.
+
+If any step fails, file an issue and spawn a fix agent. The Chrome
+GUI E2E is treated as a stretch goal — Phase 1 Python headless is
+the **must-pass** acceptance criterion for Sprint C completion.
+
+---
+
+## 12. References
+
+- Phase 11 master plan: ``C:\Users\jiazh\.claude\projects\C--Users-jiazh-Desktop-workspace\memory\phase11_master_plan.md``
+- ADR-028 (IOBlock refactor): ``docs/adr/ADR.md`` — search for
+  ``## ADR-028:``
+- ADR-028 Addendum 1 (dynamic ports + GUI): ``docs/adr/ADR.md`` —
+  search for ``## ADR-028 Addendum 1:``
+- ADR-029 (preliminary, variadic port count): ``docs/adr/ADR.md`` —
+  search for ``## ADR-029:``
+- Imaging spec: ``docs/specs/phase11-imaging-block-spec.md``
+- SRS spec: ``docs/specs/phase11-srs-block-spec.md``
+- LC-MS spec: ``docs/specs/phase11-lcms-block-spec.md``
+- Phase 10 standards (template basis): ``docs/specs/phase10-implementation-standards.md``
+- ``CLAUDE.md`` Appendix A (workflow gate), §6.7 (tests), §9.2
+  (no scope expansion)
+- Architecture: ``docs/architecture/ARCHITECTURE.md``,
+  ``docs/architecture/PROJECT_TREE.md``
+- Block SDK guide: ``docs/guides/block-sdk.md``
+
+---
+
+*End of Phase 11 implementation standards.*
