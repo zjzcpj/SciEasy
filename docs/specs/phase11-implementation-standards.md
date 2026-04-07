@@ -2099,3 +2099,496 @@ fixture).
 T-IMG-034 (FijiBlock needs a working AppBlock + Fiji audit).
 
 ---
+
+### 9.2 Track 2 — imaging plugin (compact reference format)
+
+Each entry below is a **pointer** to the corresponding ticket in
+``docs/specs/phase11-imaging-block-spec.md``. Implementation agents
+read the source spec for the full implementation details (file
+contents, code sketches, per-block algorithm choice, parameter
+validation rules). This standards doc carries only the cross-ticket
+metadata: dependency edges, sprint bucket, and coupling notes.
+
+**Sprint C** (parallel within levels). All Track 2 tickets land in
+``packages/scieasy-blocks-imaging/`` per the monorepo decision.
+
+---
+
+#### T-IMG-001 — Types module (Image / Mask / Label / Transform)
+
+- **Source**: ``docs/specs/phase11-imaging-block-spec.md`` §9 T-IMG-001
+- **Summary**: Define ``Image(Array)``, ``Mask(Image)``,
+  ``Label(CompositeData)``, ``Transform(Array)`` as the four imaging
+  type classes per master plan §2.4.
+- **Files**: ``packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/types.py``
+  + tests
+- **Dependencies**: T-TRK-006 (Block ABC migration)
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone. **First ticket in Sprint C** —
+  every other Track 2 ticket depends on it (transitively).
+
+---
+
+#### T-IMG-002 — LoadImage
+
+- **Source**: imaging spec §9 T-IMG-002
+- **Summary**: Unified image loader auto-detecting TIFF / OME-TIFF /
+  PNG / JPG / Zarr / CZI / ND2 / LIF / npy. Absorbs the deleted
+  ``tiff_adapter.py`` logic verbatim. Large images use lazy
+  storage_ref. Metadata auto-extracted to ``meta``.
+- **Files**: ``packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/io/load_image.py``
+  + tests
+- **Dependencies**: T-IMG-001, T-TRK-004
+- **Estimated diff size**: L
+- **Coupling notes**: Standalone. **CRITICAL: see §8 Q9 anti-drift
+  flag** — must NOT introduce a separate ``LoadArray`` /
+  ``LoadDataFrame`` class in core; the addendum supersedes the
+  six-loader structure.
+
+---
+
+#### T-IMG-003 — SaveImage
+
+- **Source**: imaging spec §9 T-IMG-003
+- **Summary**: Symmetric saver. Preserves the JSON-in-ImageDescription
+  metadata round-trip from the deleted ``tiff_adapter.py``.
+- **Files**: ``.../io/save_image.py`` + tests
+- **Dependencies**: T-IMG-001, T-TRK-004
+- **Estimated diff size**: M
+- **Coupling notes**: Parallel with T-IMG-002.
+
+---
+
+#### T-IMG-004 — Denoise
+
+- **Source**: imaging spec §9 T-IMG-004
+- **Summary**: Method param: gaussian / median / bilateral / nlmeans /
+  wavelet. The Gaussian path is the one used by the E2E test (§11).
+- **Files**: ``.../preprocess/denoise.py`` + tests
+- **Dependencies**: T-IMG-001
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone. Critical-path dependency for the
+  Sprint C E2E test.
+
+---
+
+#### T-IMG-005 — BackgroundSubtract
+
+- **Source**: imaging spec §9 T-IMG-005
+- **Summary**: Method param: rollingball / tophat / polynomial /
+  constant.
+- **Files**: ``.../preprocess/background_subtract.py`` + tests
+- **Dependencies**: T-IMG-001
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-IMG-006 — Normalize
+
+- **Source**: imaging spec §9 T-IMG-006
+- **Summary**: Method param: minmax / zscore / percentile /
+  histogram_match.
+- **Files**: ``.../preprocess/normalize.py`` + tests
+- **Dependencies**: T-IMG-001
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-IMG-007 — FlatFieldCorrect
+
+- **Source**: imaging spec §9 T-IMG-007
+- **Summary**: Reference image + optional dark frame.
+- **Files**: ``.../preprocess/flat_field_correct.py`` + tests
+- **Dependencies**: T-IMG-001
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-IMG-008 — Geometry bundle (Rotate / Flip / Crop / Pad / Resize)
+
+- **Source**: imaging spec §9 T-IMG-008
+- **Summary**: Five small geometry blocks bundled into one ticket
+  because they share a single test fixture and helper module.
+- **Files**: ``.../preprocess/geometry.py`` (one file with five
+  classes) + tests
+- **Dependencies**: T-IMG-001
+- **Estimated diff size**: L
+- **Coupling notes**: **Bundled** (5 blocks in one ticket). Per the
+  source spec, the spec author concluded that the five geometry
+  ops share so much fixture / parameter-validation infrastructure
+  that splitting them into five PRs would create more drift than
+  bundling.
+
+---
+
+#### T-IMG-009 — ConvertDType
+
+- **Source**: imaging spec §9 T-IMG-009
+- **Summary**: Type conversion with optional rescaling.
+- **Files**: ``.../preprocess/convert_dtype.py`` + tests
+- **Dependencies**: T-IMG-001
+- **Estimated diff size**: S
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-IMG-010 — AxisSplit / AxisMerge
+
+- **Source**: imaging spec §9 T-IMG-010
+- **Summary**: Generic axis splitting and merging (any axis, not
+  just channel).
+- **Files**: ``.../preprocess/axis_ops.py`` (two classes in one file)
+  + tests
+- **Dependencies**: T-IMG-001
+- **Estimated diff size**: M
+- **Coupling notes**: **Bundled** (2 blocks in one ticket — symmetric
+  pair).
+
+---
+
+#### T-IMG-011 — Deconvolve placeholder
+
+- **Source**: imaging spec §9 T-IMG-011
+- **Summary**: Class scaffold with ``raise NotImplementedError("Phase 12")``
+  body. Reserved namespace.
+- **Files**: ``.../preprocess/deconvolve.py`` + skeleton test
+- **Dependencies**: T-IMG-001
+- **Estimated diff size**: XS
+- **Coupling notes**: Standalone. **Placeholder** — implementation
+  deferred to Phase 12.
+
+---
+
+#### T-IMG-012 — MorphologyOp
+
+- **Source**: imaging spec §9 T-IMG-012
+- **Summary**: erode / dilate / open / close / tophat / bottomhat
+  via method param.
+- **Files**: ``.../morphology/morphology_op.py`` + tests
+- **Dependencies**: T-IMG-001
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-IMG-013 — EdgeDetect
+
+- **Source**: imaging spec §9 T-IMG-013
+- **Summary**: sobel / scharr / canny / prewitt via method param.
+- **Files**: ``.../morphology/edge_detect.py`` + tests
+- **Dependencies**: T-IMG-001
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-IMG-014 — RidgeFilter
+
+- **Source**: imaging spec §9 T-IMG-014
+- **Summary**: frangi / meijering / sato / hessian.
+- **Files**: ``.../morphology/ridge_filter.py`` + tests
+- **Dependencies**: T-IMG-001
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-IMG-015 — Sharpen
+
+- **Source**: imaging spec §9 T-IMG-015
+- **Summary**: Unsharp mask + parameterised sharpen kernel.
+- **Files**: ``.../morphology/sharpen.py`` + tests
+- **Dependencies**: T-IMG-001
+- **Estimated diff size**: S
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-IMG-016 — FFTFilter
+
+- **Source**: imaging spec §9 T-IMG-016
+- **Summary**: Frequency-domain filtering (lowpass / highpass /
+  bandpass).
+- **Files**: ``.../morphology/fft_filter.py`` + tests
+- **Dependencies**: T-IMG-001
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-IMG-017 — Threshold
+
+- **Source**: imaging spec §9 T-IMG-017
+- **Summary**: otsu / li / yen / isodata / mean / triangle /
+  adaptive_otsu / manual.
+- **Files**: ``.../segmentation/threshold.py`` + tests
+- **Dependencies**: T-IMG-001
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-IMG-018 — Watershed
+
+- **Source**: imaging spec §9 T-IMG-018
+- **Summary**: Marker-based or distance-based watershed segmentation.
+- **Files**: ``.../segmentation/watershed.py`` + tests
+- **Dependencies**: T-IMG-001
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-IMG-019 — CellposeSegment (FLAGSHIP)
+
+- **Source**: imaging spec §9 T-IMG-019
+- **Summary**: Cellpose-based segmentation. Uses
+  ``ProcessBlock.setup() / teardown()`` to load the cellpose model
+  ONCE per run, not per item — this is the **flagship use case for
+  the Phase 10 setup/teardown lifecycle hooks**.
+- **Files**: ``.../segmentation/cellpose_segment.py`` + tests
+- **Dependencies**: T-IMG-001, T-IMG-004 (Denoise upstream in E2E),
+  T-TRK-015 (AppBlock audit not strictly needed for Cellpose, but
+  the broader Sprint B audit must complete first to confirm the
+  workflow infrastructure is healthy)
+- **Estimated diff size**: L
+- **Coupling notes**: Standalone. **Critical-path for the E2E test.**
+  Test marker: ``@pytest.mark.requires_cellpose`` (per Q7).
+
+---
+
+#### T-IMG-020 — BlobDetect
+
+- **Source**: imaging spec §9 T-IMG-020
+- **Summary**: LoG / DoG / DoH blob detection → Label.
+- **Files**: ``.../segmentation/blob_detect.py`` + tests
+- **Dependencies**: T-IMG-001
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-IMG-021 — ConnectedComponents
+
+- **Source**: imaging spec §9 T-IMG-021
+- **Summary**: Connected-component labelling on a Mask → Label.
+- **Files**: ``.../segmentation/connected_components.py`` + tests
+- **Dependencies**: T-IMG-001
+- **Estimated diff size**: S
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-IMG-022 — Cleanup bundle (RemoveSmallObjects / RemoveBorderObjects / FillHoles / ExpandLabels / ShrinkLabels)
+
+- **Source**: imaging spec §9 T-IMG-022
+- **Summary**: Five small label-cleanup blocks bundled.
+- **Files**: ``.../segmentation/cleanup.py`` (one file with five
+  classes) + tests
+- **Dependencies**: T-IMG-001
+- **Estimated diff size**: M
+- **Coupling notes**: **Bundled** (5 blocks). Same rationale as
+  T-IMG-008.
+
+---
+
+#### T-IMG-023 — TrackObjects placeholder
+
+- **Source**: imaging spec §9 T-IMG-023
+- **Summary**: Class scaffold with Phase 12 placeholder.
+- **Files**: ``.../tracking/track_objects.py`` + skeleton test
+- **Dependencies**: T-IMG-001
+- **Estimated diff size**: XS
+- **Coupling notes**: **Placeholder** — Phase 12.
+
+---
+
+#### T-IMG-024 — RegionProps
+
+- **Source**: imaging spec §9 T-IMG-024
+- **Summary**: SINGLE block with multi-select ``properties`` param
+  (checkbox UI). Replaces the OptEasy multi-block approach.
+- **Files**: ``.../measurement/region_props.py`` + tests
+- **Dependencies**: T-IMG-001
+- **Estimated diff size**: L
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-IMG-025 — PairwiseDistance
+
+- **Source**: imaging spec §9 T-IMG-025
+- **Summary**: source_labels + target_labels → DataFrame of distances.
+  Use case: immune cell → cancer cell distance.
+- **Files**: ``.../measurement/pairwise_distance.py`` + tests
+- **Dependencies**: T-IMG-001
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-IMG-026 — Colocalization
+
+- **Source**: imaging spec §9 T-IMG-026
+- **Summary**: Pearson / Manders / Costes colocalization metrics.
+- **Files**: ``.../measurement/colocalization.py`` + tests
+- **Dependencies**: T-IMG-001
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-IMG-027 — ComputeRegistration
+
+- **Source**: imaging spec §9 T-IMG-027
+- **Summary**: moving + fixed → Transform.
+- **Files**: ``.../registration/compute_registration.py`` + tests
+- **Dependencies**: T-IMG-001
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-IMG-028 — ApplyTransform
+
+- **Source**: imaging spec §9 T-IMG-028
+- **Summary**: Apply a Transform to an Image.
+- **Files**: ``.../registration/apply_transform.py`` + tests
+- **Dependencies**: T-IMG-001
+- **Estimated diff size**: S
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-IMG-029 — RegisterSeries
+
+- **Source**: imaging spec §9 T-IMG-029
+- **Summary**: Time-series or z-stack registration.
+- **Files**: ``.../registration/register_series.py`` + tests
+- **Dependencies**: T-IMG-001
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-IMG-030 — AxisProjection / SelectSlice
+
+- **Source**: imaging spec §9 T-IMG-030
+- **Summary**: Two related projection blocks bundled. ``SelectSlice``
+  is the single replacement for the OptEasy SelectChannel /
+  CropTimeRange / etc. zoo.
+- **Files**: ``.../projection/projection.py`` (two classes) + tests
+- **Dependencies**: T-IMG-001
+- **Estimated diff size**: M
+- **Coupling notes**: **Bundled** (2 blocks).
+
+---
+
+#### T-IMG-031 — Math scalar bundle (AddScalar / SubtractScalar / MultiplyScalar / DivideScalar)
+
+- **Source**: imaging spec §9 T-IMG-031
+- **Summary**: Four trivially symmetric scalar arithmetic blocks
+  bundled.
+- **Files**: ``.../math/scalar_ops.py`` + tests
+- **Dependencies**: T-IMG-001
+- **Estimated diff size**: S
+- **Coupling notes**: **Bundled** (4 blocks).
+
+---
+
+#### T-IMG-032 — ImageCalculator
+
+- **Source**: imaging spec §9 T-IMG-032
+- **Summary**: Two-input calculator (A op B + AST-restricted user
+  expression on the two named inputs).
+- **Files**: ``.../math/image_calculator.py`` + tests
+- **Dependencies**: T-IMG-001, T-TRK-012 (the AST whitelist
+  evaluator from FilterCollection is reused here for expression
+  validation)
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone. **Per §8 Q11 — 2-port-fixed in
+  0.1.0**, NOT variadic. Variadic deferred to ADR-029.
+
+---
+
+#### T-IMG-033 — Visualization bundle (RenderPseudoColor / RenderOverlay / RenderMontage / RenderMovie / RenderHistogram)
+
+- **Source**: imaging spec §9 T-IMG-033
+- **Summary**: Five rendering blocks producing Artifact outputs.
+- **Files**: ``.../visualization/render.py`` (five classes) + tests
+- **Dependencies**: T-IMG-001
+- **Estimated diff size**: L
+- **Coupling notes**: **Bundled** (5 blocks).
+
+---
+
+#### T-IMG-034 — FijiBlock
+
+- **Source**: imaging spec §9 T-IMG-034
+- **Summary**: AppBlock subclass. ``app_command = "fiji"``.
+- **Files**: ``.../interactive/fiji_block.py`` + tests
+- **Dependencies**: T-IMG-001, **T-TRK-015 (AppBlock + Fiji audit
+  must merge first)**.
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone. Marker:
+  ``@pytest.mark.requires_fiji``.
+
+---
+
+#### T-IMG-035 — NapariBlock
+
+- **Source**: imaging spec §9 T-IMG-035
+- **Summary**: AppBlock subclass for Napari.
+- **Files**: ``.../interactive/napari_block.py`` + tests
+- **Dependencies**: T-IMG-001, T-TRK-015
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone. Marker:
+  ``@pytest.mark.requires_napari``.
+
+---
+
+#### T-IMG-036 — CellProfilerBlock
+
+- **Source**: imaging spec §9 T-IMG-036
+- **Summary**: AppBlock subclass for CellProfiler.
+- **Files**: ``.../interactive/cell_profiler_block.py`` + tests
+- **Dependencies**: T-IMG-001, T-TRK-015
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone. Marker:
+  ``@pytest.mark.requires_cellprofiler``.
+
+---
+
+#### T-IMG-037 — QuPathBlock
+
+- **Source**: imaging spec §9 T-IMG-037
+- **Summary**: AppBlock subclass for QuPath.
+- **Files**: ``.../interactive/qupath_block.py`` + tests
+- **Dependencies**: T-IMG-001, T-TRK-015
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone. Marker:
+  ``@pytest.mark.requires_qupath``.
+
+---
+
+#### T-IMG-038 — Plugin packaging
+
+- **Source**: imaging spec §9 T-IMG-038
+- **Summary**: ``pyproject.toml`` for the imaging package +
+  entry-point registration for every block class + plugin smoke
+  test that asserts every block is importable. Also adds the
+  ``packages/scieasy-blocks-imaging/tests`` path to the root
+  ``pyproject.toml`` ``testpaths`` list per Q12.
+- **Files**: ``packages/scieasy-blocks-imaging/pyproject.toml``,
+  ``packages/scieasy-blocks-imaging/tests/test_plugin_smoke.py``,
+  root ``pyproject.toml`` (testpaths only)
+- **Dependencies**: T-IMG-001 through T-IMG-037 ALL merged (the
+  smoke test must succeed for every block).
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone. **Last ticket in Sprint C** —
+  releases the imaging plugin at version 0.1.0.
+
+---
