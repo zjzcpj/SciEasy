@@ -45,6 +45,13 @@ class BlockSpec:
     source: str = ""
     type_name: str = ""
     package_name: str = ""
+    # ADR-028 Addendum 1 D3: IO direction for IO blocks ("input" | "output").
+    # Empty string means "not an IO block / no direction".
+    direction: str = ""
+    # ADR-028 Addendum 1 D3: enum-driven dynamic-port descriptor copied from
+    # the class-level ``Block.dynamic_ports`` ClassVar. Validated at scan
+    # time by :meth:`BlockRegistry._validate_dynamic_ports`.
+    dynamic_ports: dict[str, Any] | None = None
 
 
 class BlockRegistry:
@@ -78,6 +85,88 @@ class BlockRegistry:
         self._registry[spec.name] = spec
         if spec.type_name:
             self._aliases[spec.type_name] = spec.name
+
+    @staticmethod
+    def _validate_dynamic_ports(cls: type) -> None:
+        """Validate the shape of ``cls.dynamic_ports`` per ADR-028 Addendum 1.
+
+        Called at scan time so malformed declarations fail loudly at import.
+        Accepts ``None`` (the default) and any dict that matches::
+
+            {
+                "source_config_key": str,
+                "output_port_mapping": {
+                    "<port_name>": {
+                        "<enum_value>": ["<TypeName>", ...],
+                        ...
+                    },
+                    ...
+                },
+            }
+
+        Raises ``ValueError`` with the offending class name and field path
+        when the shape is wrong.
+        """
+        descriptor = getattr(cls, "dynamic_ports", None)
+        if descriptor is None:
+            return
+
+        cls_name = cls.__name__
+        if not isinstance(descriptor, dict):
+            raise ValueError(
+                f"{cls_name}.dynamic_ports must be a dict or None, got {type(descriptor).__name__}"
+            )
+
+        if "source_config_key" not in descriptor:
+            raise ValueError(
+                f"{cls_name}.dynamic_ports is missing required key 'source_config_key'"
+            )
+        source_key = descriptor["source_config_key"]
+        if not isinstance(source_key, str) or not source_key:
+            raise ValueError(
+                f"{cls_name}.dynamic_ports['source_config_key'] must be a non-empty string, "
+                f"got {type(source_key).__name__}"
+            )
+
+        if "output_port_mapping" not in descriptor:
+            raise ValueError(
+                f"{cls_name}.dynamic_ports is missing required key 'output_port_mapping'"
+            )
+        mapping = descriptor["output_port_mapping"]
+        if not isinstance(mapping, dict):
+            raise ValueError(
+                f"{cls_name}.dynamic_ports['output_port_mapping'] must be a dict, "
+                f"got {type(mapping).__name__}"
+            )
+
+        for port_name, enum_map in mapping.items():
+            if not isinstance(port_name, str) or not port_name:
+                raise ValueError(
+                    f"{cls_name}.dynamic_ports['output_port_mapping'] keys must be non-empty strings, "
+                    f"got {port_name!r}"
+                )
+            if not isinstance(enum_map, dict):
+                raise ValueError(
+                    f"{cls_name}.dynamic_ports['output_port_mapping'][{port_name!r}] must be a dict, "
+                    f"got {type(enum_map).__name__}"
+                )
+            for enum_value, type_names in enum_map.items():
+                if not isinstance(enum_value, str) or not enum_value:
+                    raise ValueError(
+                        f"{cls_name}.dynamic_ports['output_port_mapping'][{port_name!r}] keys must be "
+                        f"non-empty strings, got {enum_value!r}"
+                    )
+                if not isinstance(type_names, list):
+                    raise ValueError(
+                        f"{cls_name}.dynamic_ports['output_port_mapping'][{port_name!r}][{enum_value!r}] "
+                        f"must be a list, got {type(type_names).__name__}"
+                    )
+                for type_name in type_names:
+                    if not isinstance(type_name, str) or not type_name:
+                        raise ValueError(
+                            f"{cls_name}.dynamic_ports['output_port_mapping'][{port_name!r}][{enum_value!r}] "
+                            f"entries must be non-empty strings, got {type_name!r}"
+                        )
 
     def _scan_builtins(self) -> None:
         """Register built-in core blocks used by the API/frontend."""
@@ -325,7 +414,15 @@ class BlockRegistry:
 
 
 def _spec_from_class(cls: type, source: str = "") -> BlockSpec:
-    """Build a :class:`BlockSpec` from a Block subclass's class-level metadata."""
+    """Build a :class:`BlockSpec` from a Block subclass's class-level metadata.
+
+    ADR-028 Addendum 1 D3: validates ``dynamic_ports`` shape at scan time and
+    captures both ``direction`` (for IO blocks) and ``dynamic_ports`` (for
+    enum-driven dynamic-port blocks) onto the spec.
+    """
+    # Fail loudly at scan time on malformed dynamic-port descriptors.
+    BlockRegistry._validate_dynamic_ports(cls)
+
     return BlockSpec(
         name=getattr(cls, "name", cls.__name__),
         description=getattr(cls, "description", "") or (cls.__doc__ or "").split("\n")[0],
@@ -338,6 +435,8 @@ def _spec_from_class(cls: type, source: str = "") -> BlockSpec:
         config_schema=getattr(cls, "config_schema", {"type": "object", "properties": {}}),
         source=source,
         type_name=_type_name_for_class(cls),
+        direction=getattr(cls, "direction", "") or "",
+        dynamic_ports=getattr(cls, "dynamic_ports", None),
     )
 
 
