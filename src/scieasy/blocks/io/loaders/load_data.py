@@ -78,11 +78,11 @@ class LoadData(IOBlock):
         "source_config_key": "core_type",
         "output_port_mapping": {
             "data": {
-                "Array":         ["Array"],
-                "DataFrame":     ["DataFrame"],
-                "Series":        ["Series"],
-                "Text":          ["Text"],
-                "Artifact":      ["Artifact"],
+                "Array": ["Array"],
+                "DataFrame": ["DataFrame"],
+                "Series": ["Series"],
+                "Text": ["Text"],
+                "Artifact": ["Artifact"],
                 "CompositeData": ["CompositeData"],
             },
         },
@@ -217,7 +217,7 @@ def _load_array(config: BlockConfig) -> Array:
         import pickle
 
         with path.open("rb") as fh:
-            obj = pickle.load(fh)  # noqa: S301 -- gated by _check_pickle_allowed
+            obj = pickle.load(fh)
         if isinstance(obj, Array):
             return obj
         import numpy as np
@@ -259,7 +259,7 @@ def _load_array(config: BlockConfig) -> Array:
         result._data = arr  # type: ignore[attr-defined]
         return result
 
-    if suffix == ".zarr" or path.is_dir() and (path / ".zgroup").exists() or (path / ".zarray").exists():
+    if suffix == ".zarr" or (path.is_dir() and ((path / ".zgroup").exists() or (path / ".zarray").exists())):
         # Build a metadata-only Array with a StorageReference; chunked data
         # stays lazy and is materialised by ZarrBackend on access.
         from scieasy.core.storage.ref import StorageReference
@@ -311,9 +311,15 @@ def _load_array(config: BlockConfig) -> Array:
 def _load_dataframe(config: BlockConfig) -> DataFrame:
     """Load DataFrame from .csv / .tsv / .parquet / .json / .pkl / .pickle.
 
-    Uses pyarrow for columnar formats (CSV / Parquet) and pandas for the
-    less-structured options (JSON, pickle). Pickle is gated via
-    :func:`_check_pickle_allowed`.
+    Uses pyarrow for columnar formats (CSV / Parquet) and pyarrow's JSON
+    reader for record-oriented JSON. Pickle is gated via
+    :func:`_check_pickle_allowed` and uses :mod:`pickle` from the stdlib
+    rather than pulling in pandas (which is not a core dependency).
+
+    The constructed :class:`DataFrame` carries the underlying pyarrow
+    Table on the ``_arrow_table`` attribute (matching the deleted
+    csv_adapter / parquet_adapter convention) so downstream blocks can
+    materialise data without re-parsing the file.
     """
     path = _resolve_path(config)
     if not path.exists():
@@ -322,19 +328,15 @@ def _load_dataframe(config: BlockConfig) -> DataFrame:
     suffix = path.suffix.lower()
 
     if _check_pickle_allowed(path, config):
-        import pandas as pd
+        import pickle
 
-        pdf = pd.read_pickle(path)  # noqa: S301 -- gated by _check_pickle_allowed
-        if isinstance(pdf, pd.DataFrame):
-            df = DataFrame(
-                columns=list(pdf.columns),
-                row_count=int(pdf.shape[0]),
-            )
-            df._pandas = pdf  # type: ignore[attr-defined]
-            return df
+        with path.open("rb") as fh:
+            obj = pickle.load(fh)
+        if isinstance(obj, DataFrame):
+            return obj
         raise ValueError(
             f"LoadData(core_type='DataFrame'): pickle at {path} unpickled to "
-            f"{type(pdf).__name__}, expected pandas.DataFrame"
+            f"{type(obj).__name__}, expected scieasy.core.types.dataframe.DataFrame"
         )
 
     if suffix in {".csv", ".tsv"}:
@@ -362,19 +364,30 @@ def _load_dataframe(config: BlockConfig) -> DataFrame:
         return df
 
     if suffix == ".json":
-        import pandas as pd
+        # pyarrow.json expects newline-delimited JSON records. For the
+        # common "single JSON document containing a list of records" or
+        # "single JSON document containing a {column: [values]} dict"
+        # shapes we round-trip via the stdlib json module so we don't
+        # take a hard dependency on pandas.
+        import pyarrow as pa
 
-        # Try records orientation first, then columns. pandas raises
-        # ValueError for both if neither shape works.
-        try:
-            pdf = pd.read_json(path, orient="records")
-        except ValueError:
-            pdf = pd.read_json(path, orient="columns")
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(raw, list):
+            # records orientation
+            table = pa.Table.from_pylist(raw)
+        elif isinstance(raw, dict):
+            # columns orientation
+            table = pa.Table.from_pydict(raw)
+        else:
+            raise ValueError(
+                f"LoadData(core_type='DataFrame'): JSON at {path} must be a list of records "
+                f"or a dict of columns, got {type(raw).__name__}"
+            )
         df = DataFrame(
-            columns=list(pdf.columns),
-            row_count=int(pdf.shape[0]),
+            columns=list(table.column_names),
+            row_count=int(table.num_rows),
         )
-        df._pandas = pdf  # type: ignore[attr-defined]
+        df._arrow_table = table  # type: ignore[attr-defined]
         return df
 
     raise ValueError(
@@ -388,7 +401,8 @@ def _load_series(config: BlockConfig) -> Series:
 
     Delegates the heavy lifting to :func:`_load_dataframe` for tabular
     formats and then asserts a single column. Pickle is gated via
-    :func:`_check_pickle_allowed`.
+    :func:`_check_pickle_allowed` and uses :mod:`pickle` from the stdlib
+    rather than pulling in pandas.
     """
     path = _resolve_path(config)
     if not path.exists():
@@ -397,18 +411,15 @@ def _load_series(config: BlockConfig) -> Series:
     suffix = path.suffix.lower()
 
     if _check_pickle_allowed(path, config):
-        import pandas as pd
+        import pickle
 
-        obj = pd.read_pickle(path)  # noqa: S301 -- gated by _check_pickle_allowed
-        if isinstance(obj, pd.Series):
-            return Series(
-                index_name=str(obj.index.name) if obj.index.name is not None else None,
-                value_name=str(obj.name) if obj.name is not None else None,
-                length=int(obj.shape[0]),
-            )
+        with path.open("rb") as fh:
+            obj = pickle.load(fh)
+        if isinstance(obj, Series):
+            return obj
         raise ValueError(
             f"LoadData(core_type='Series'): pickle at {path} unpickled to "
-            f"{type(obj).__name__}, expected pandas.Series"
+            f"{type(obj).__name__}, expected scieasy.core.types.series.Series"
         )
 
     if suffix in {".csv", ".tsv", ".parquet", ".pq"}:
@@ -547,9 +558,7 @@ def _load_composite_data(config: BlockConfig) -> CompositeData:
         raise FileNotFoundError(f"LoadData: composite manifest not found: {path}")
 
     if path.suffix.lower() != ".json":
-        raise ValueError(
-            f"LoadData(core_type='CompositeData') requires a .json manifest, got {path.suffix!r} ({path})"
-        )
+        raise ValueError(f"LoadData(core_type='CompositeData') requires a .json manifest, got {path.suffix!r} ({path})")
 
     try:
         manifest = json.loads(path.read_text(encoding="utf-8"))
@@ -576,15 +585,12 @@ def _load_composite_data(config: BlockConfig) -> CompositeData:
     for slot_name, slot_decl in slots_decl.items():
         if not isinstance(slot_decl, dict):
             raise ValueError(
-                f"LoadData: composite manifest slot {slot_name!r} must be an object, "
-                f"got {type(slot_decl).__name__}"
+                f"LoadData: composite manifest slot {slot_name!r} must be an object, got {type(slot_decl).__name__}"
             )
         slot_type = slot_decl.get("core_type")
         slot_path_raw = slot_decl.get("path")
         if slot_type is None or slot_path_raw is None:
-            raise ValueError(
-                f"LoadData: composite manifest slot {slot_name!r} must have 'core_type' and 'path' keys"
-            )
+            raise ValueError(f"LoadData: composite manifest slot {slot_name!r} must have 'core_type' and 'path' keys")
         if slot_type not in inner_dispatch:
             raise ValueError(
                 f"LoadData: composite manifest slot {slot_name!r} has unsupported core_type {slot_type!r}. "
