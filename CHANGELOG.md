@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- [#265] T-002: ResourceManager.gpu_slots default changes from 0 to None, triggering best-effort auto-detect via torch.cuda.device_count() then nvidia-smi -L per ADR-027 D10. Existing GPU blocks become dispatchable on CUDA-enabled machines without explicit project-config override. ResourceRequest.max_internal_workers and effective_cpu property formally activated for ADR-027 D8 thread-policy context. (@claude, 2026-04-06, branch: feat/issue-265/T-002-resource-manager-gpu-autodetect, session: 20260406-171241-t-002-resourcemanager-gpu-auto-detect-pe)
 - [#257] Update ARCHITECTURE.md, PROJECT_TREE.md, and docs/guides/block-sdk.md to reflect ADR-018 Addendum 1 and ADR-027 — documentation only. §4.1 rewritten for 7-type core + plugin-provided domain subtypes and 6D instance-level axes; §4.5 documents iterate_over_axes utility; §5.1 adds setup/teardown hooks; §5.4 states core/plugin boundary; §6.1 documents scheduler concurrency model with asyncio.create_task + _active_tasks; §6.4 documents ResourceManager GPU auto-detect and ResourceRequest.max_internal_workers; Appendix A gains plugin prerequisite note. block-sdk.md gains new sections on setup/teardown, domain metadata conventions, L2 fan-out parallelism pattern, and thread policy; all core-Image imports in examples replaced with plugin-package imports (@claude, 2026-04-06, branch: docs/issue-257/phase10-arch-updates, session: 20260406-045449-phase-10-architecture-and-dev-guide-doc)
 
 ### Added
@@ -23,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#263] T-001: Scheduler concurrency fix per ADR-018 Addendum 1 — split `DAGScheduler._dispatch` into a synchronous prelude plus an async `_run_and_finalize` task body, add the `_active_tasks` registry, add `_dispatch_newly_ready` retry helper, add `_cancel_active_tasks_on_shutdown` cleanup, wrap `execute()`/`execute_from()` in `try/finally`, update `_check_completion` to also require `not _active_tasks`, branch `_on_cancel_block`/`_on_cancel_workflow` on ProcessHandle presence (terminate vs task.cancel()), and name dispatched tasks `dispatch:{block_id}`. Independent DAG branches now execute concurrently, restoring the behaviour ADR-018 §5 promised. Six new scheduler concurrency tests under `tests/engine/test_scheduler_concurrency.py`. (@claude, 2026-04-06, branch: feat/issue-263/T-001-scheduler-concurrency, session: 20260406-165314-t-001-scheduler-concurrency-fix-per-adr)
 - [#232] Fix frontend AI chat code review issues — AIGenerateBlockResponse type drift (add validation_report, category), ErrorBanner timer reset via useCallback, Enter-key send test (@claude, 2026-04-05, branch: feat/issue-232/frontend-ai-chat)
 
 ### Added
