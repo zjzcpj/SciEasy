@@ -154,8 +154,7 @@ class BlockRegistry:
         has_input = "input_port_mapping" in descriptor
         if not has_output and not has_input:
             raise ValueError(
-                f"{cls_name}.dynamic_ports is missing required key "
-                "'output_port_mapping' or 'input_port_mapping'"
+                f"{cls_name}.dynamic_ports is missing required key 'output_port_mapping' or 'input_port_mapping'"
             )
         if has_output and has_input:
             raise ValueError(
@@ -165,9 +164,7 @@ class BlockRegistry:
         mapping_key = "output_port_mapping" if has_output else "input_port_mapping"
         mapping = descriptor[mapping_key]
         if not isinstance(mapping, dict):
-            raise ValueError(
-                f"{cls_name}.dynamic_ports[{mapping_key!r}] must be a dict, got {type(mapping).__name__}"
-            )
+            raise ValueError(f"{cls_name}.dynamic_ports[{mapping_key!r}] must be a dict, got {type(mapping).__name__}")
 
         for port_name, enum_map in mapping.items():
             if not isinstance(port_name, str) or not port_name:

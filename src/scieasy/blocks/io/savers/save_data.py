@@ -120,7 +120,9 @@ class SaveData(IOBlock):
     direction: ClassVar[str] = "output"
     type_name: ClassVar[str] = "save_data"
     name: ClassVar[str] = "Save Data"
-    description: ClassVar[str] = "Save a core DataObject (Array / DataFrame / Series / Text / Artifact / CompositeData) to disk."
+    description: ClassVar[str] = (
+        "Save a core DataObject (Array / DataFrame / Series / Text / Artifact / CompositeData) to disk."
+    )
     category: ClassVar[str] = "io"
 
     # The ``data`` input port's accepted_types is a placeholder
@@ -205,10 +207,7 @@ class SaveData(IOBlock):
         """
         type_name = config.get("core_type", "DataFrame")
         if type_name not in _CORE_TYPE_MAP:
-            raise ValueError(
-                f"Unknown core_type {type_name!r}; expected one of "
-                f"{sorted(_CORE_TYPE_MAP.keys())}."
-            )
+            raise ValueError(f"Unknown core_type {type_name!r}; expected one of {sorted(_CORE_TYPE_MAP.keys())}.")
 
         # Unwrap a single-item Collection so the dispatch functions
         # always see a bare DataObject. Mixed-type Collections are
@@ -265,7 +264,8 @@ def _unwrap_for_save(
     if not isinstance(obj, target_cls):
         raise ValueError(
             f"SaveData(core_type={target_cls.__name__}) received an instance of "
-            f"{type(obj).__name__}; the input must be a {target_cls.__name__}."
+            f"{type(obj).__name__}; the input must be a {target_cls.__name__} "
+            "instance (or a single-item Collection thereof)."
         )
     return obj
 
@@ -310,14 +310,17 @@ def _save_array(obj: DataObject, config: BlockConfig) -> None:
             import zarr  # type: ignore[import-not-found]
         except ImportError as exc:  # pragma: no cover - exercised when zarr missing
             raise ValueError(
-                "Saving Array to .zarr requires the 'zarr' package; install it via "
-                "`pip install zarr`."
+                "Saving Array to .zarr requires the 'zarr' package; install it via `pip install zarr`."
             ) from exc
         import numpy as np
 
         arr = np.asarray(data)
         # Use the modern zarr.save API which writes a single array store.
-        zarr.save(str(path), arr)
+        # Zarr's stub for ``save`` declares the second argument as
+        # ``NDArrayLike``, which mypy does not recognise as a numpy
+        # ndarray supertype. The runtime contract accepts any array-like
+        # input; suppress the false positive.
+        zarr.save(str(path), arr)  # type: ignore[arg-type]
         return
 
     if suffix in (".parquet", ".pq"):
@@ -416,12 +419,10 @@ def _save_series(obj: DataObject, config: BlockConfig) -> None:
 
     raw = obj.get_in_memory_data()
     column_name = obj.value_name or "value"
-    if isinstance(raw, pa.Table):
-        table = raw
-    else:
-        # ``raw`` is whatever the underlying storage returns — most
-        # commonly a list / numpy array. ``pa.array`` handles both.
-        table = pa.table({column_name: pa.array(raw)})
+    # ``raw`` is whatever the underlying storage returns — most commonly
+    # a list, numpy array, or pyarrow Table. ``pa.array`` handles list /
+    # numpy; an existing Table is passed through verbatim.
+    table = raw if isinstance(raw, pa.Table) else pa.table({column_name: pa.array(raw)})
 
     if suffix == ".csv":
         import pyarrow.csv as pcsv
@@ -482,10 +483,7 @@ def _save_text(obj: DataObject, config: BlockConfig) -> None:
         ".json",
     }
     if suffix not in supported:
-        raise ValueError(
-            f"Unsupported Text file extension {suffix!r}. Supported: "
-            f"{sorted(supported)}."
-        )
+        raise ValueError(f"Unsupported Text file extension {suffix!r}. Supported: {sorted(supported)}.")
 
     if obj.content is None:
         raise ValueError("Cannot save Text with content=None; populate Text.content first.")
@@ -517,8 +515,7 @@ def _save_artifact(obj: DataObject, config: BlockConfig) -> None:
             path.write_bytes(data)
         else:
             raise ValueError(
-                f"Cannot save Artifact: get_in_memory_data() returned "
-                f"{type(data).__name__}, expected bytes or str."
+                f"Cannot save Artifact: get_in_memory_data() returned {type(data).__name__}, expected bytes or str."
             )
 
     sidecar = path.with_suffix(path.suffix + ".meta.json")
@@ -548,10 +545,7 @@ def _save_composite_data(obj: DataObject, config: BlockConfig) -> None:
     assert isinstance(obj, CompositeData), f"Expected CompositeData, got {type(obj).__name__}"
     path = _require_path(config)
     if path.suffix.lower() != ".json":
-        raise ValueError(
-            f"CompositeData manifest must use the .json extension, got "
-            f"{path.suffix!r}."
-        )
+        raise ValueError(f"CompositeData manifest must use the .json extension, got {path.suffix!r}.")
 
     slots_dir = path.parent / f"{path.stem}_slots"
     slots_dir.mkdir(parents=True, exist_ok=True)
