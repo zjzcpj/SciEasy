@@ -79,6 +79,32 @@ export interface TypeHierarchyEntry {
   ui_ring_color?: string | null;
 }
 
+/**
+ * Declarative dynamic-port descriptor for blocks whose port types depend on
+ * a config field selection (e.g. ``LoadData``'s ``core_type`` dropdown).
+ *
+ * Mirrors the backend ``Block.dynamic_ports`` ClassVar shape defined in
+ * ADR-028 Addendum 1 §D2'. The mapping is strictly two-level:
+ *
+ *     {port_name: {enum_value: [type_name, ...]}}
+ *
+ * The frontend consumes this descriptor via ``computeEffectivePorts()`` to
+ * resolve the per-instance ``accepted_types`` for each port without making a
+ * backend round-trip when the user changes the driving config field.
+ *
+ * Per ADR-028 Addendum 1 D4 / D8, this descriptor is delivered to the
+ * frontend on ``BlockSchemaResponse.dynamic_ports`` (set to ``null`` for
+ * static blocks).
+ */
+export interface DynamicPortsConfig {
+  /** Name of the config field whose value drives the port-type mapping. */
+  source_config_key: string;
+  /** Per-output-port enum-value to type-name list mapping. */
+  output_port_mapping?: Record<string, Record<string, string[]>>;
+  /** Per-input-port enum-value to type-name list mapping. */
+  input_port_mapping?: Record<string, Record<string, string[]>>;
+}
+
 export interface BlockSchemaResponse extends BlockSummary {
   config_schema: {
     type?: string;
@@ -86,6 +112,23 @@ export interface BlockSchemaResponse extends BlockSummary {
     required?: string[];
   };
   type_hierarchy: TypeHierarchyEntry[];
+  /**
+   * Enum-driven dynamic-port descriptor (ADR-028 Addendum 1 D4).
+   *
+   * ``null`` (or ``undefined``) for static blocks. Populated by the
+   * backend from ``cls.dynamic_ports`` at registry scan time. Consumed
+   * by ``computeEffectivePorts()`` in the frontend.
+   */
+  dynamic_ports?: DynamicPortsConfig | null;
+  /**
+   * IO direction (ADR-028 Addendum 1 D8). One of ``"input"`` or
+   * ``"output"`` for IO blocks; ``null`` (or ``undefined``) for
+   * non-IO blocks. Populated by the backend from ``cls.direction`` so
+   * the frontend can render IO-specific UI (e.g. file-vs-directory
+   * picker on the Browse button) without hardcoding
+   * ``blockType === "io_block"`` checks.
+   */
+  direction?: string | null;
 }
 
 export interface BlockListResponse {
