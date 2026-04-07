@@ -18,8 +18,6 @@ replacement test files (e.g. ``tests/core/test_units.py`` for T-003).
 
 from __future__ import annotations
 
-import pytest
-
 # ---------------------------------------------------------------------------
 # T-003 / ADR-027 D6 + Addendum 1 §4 — PhysicalQuantity
 #
