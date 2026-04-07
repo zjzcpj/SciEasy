@@ -2787,3 +2787,287 @@ Sprint D. All Track 3 tickets land in ``packages/scieasy-blocks-srs/``.
 - **Coupling notes**: Standalone. **Last ticket in Sprint D.**
 
 ---
+
+### 9.4 Track 4 — LC-MS plugin (compact reference format)
+
+Each entry below is a pointer to ``docs/specs/phase11-lcms-block-spec.md``.
+LC-MS depends on the R runner (T-TRK-013) for AccuCorR and on the
+Python runner (T-TRK-014) for some isotope tracing blocks.
+
+Sprint E. All Track 4 tickets land in ``packages/scieasy-blocks-lcms/``.
+
+---
+
+#### T-LCMS-001 — Plugin scaffold
+
+- **Source**: LC-MS spec §9 T-LCMS-001
+- **Summary**: ``packages/scieasy-blocks-lcms/`` directory tree,
+  ``pyproject.toml``, empty src/, conftest with marker registration
+  for ``requires_r`` / ``requires_elmaven`` / ``requires_graphpad``.
+- **Files**: ``pyproject.toml``, ``src/scieasy_blocks_lcms/__init__.py``,
+  ``tests/conftest.py``
+- **Dependencies**: T-TRK-013 + T-TRK-014 (CodeBlock audits must
+  merge before LC-MS depends on the runners).
+- **Estimated diff size**: S
+- **Coupling notes**: Standalone. **First ticket in Sprint E.**
+
+---
+
+#### T-LCMS-002 — Types module
+
+- **Source**: LC-MS spec §9 T-LCMS-002
+- **Summary**: ``MSRawFile(Artifact)``, ``PeakTable(DataFrame)``,
+  ``MIDTable(DataFrame)`` (long format per master plan §2.4),
+  ``SampleMetadata(DataFrame)``. **NO ``MSSpectrum``, NO ``MSRun``**
+  per master plan.
+- **Files**: ``src/scieasy_blocks_lcms/types.py`` + tests
+- **Dependencies**: T-LCMS-001
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-LCMS-003 — ``LoadMSRawFiles``
+
+- **Source**: LC-MS spec §9 T-LCMS-003
+- **Summary**: Batch loader → ``Collection[MSRawFile]``. Records
+  paths only (does not parse). Absorbs the deleted ``mzxml_adapter``
+  metadata extraction.
+- **Files**: ``.../io/load_ms_raw_files.py`` + tests
+- **Dependencies**: T-LCMS-002, T-TRK-004
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-LCMS-004 — ``LoadPeakTable``
+
+- **Source**: LC-MS spec §9 T-LCMS-004
+- **Summary**: CSV / TSV / XLSX auto-detect for ElMAVEN / MZmine /
+  XCMS column naming.
+- **Files**: ``.../io/load_peak_table.py`` + tests
+- **Dependencies**: T-LCMS-002
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-LCMS-005 — ``LoadMIDTable``
+
+- **Source**: LC-MS spec §9 T-LCMS-005
+- **Summary**: Auto-detect AccuCor output format (Compound / C13 /
+  H2 / sample_X columns).
+- **Files**: ``.../io/load_mid_table.py`` + tests
+- **Dependencies**: T-LCMS-002
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-LCMS-006 — ``LoadSampleMetadata`` + ``SaveTable``
+
+- **Source**: LC-MS spec §9 T-LCMS-006
+- **Summary**: Two small IO blocks bundled. ``SaveTable`` is the
+  generic table saver — used everywhere instead of a dedicated
+  ``SaveMIDTable`` per master plan §2.4.
+- **Files**: ``.../io/load_sample_metadata.py``,
+  ``.../io/save_table.py`` + tests
+- **Dependencies**: T-LCMS-002
+- **Estimated diff size**: M
+- **Coupling notes**: **Bundled** (2 IO blocks).
+
+---
+
+#### T-LCMS-007 — ``ElMAVENBlock`` + ``AccuCorR``
+
+- **Source**: LC-MS spec §9 T-LCMS-007
+- **Summary**: Two external-tool blocks bundled because they share
+  the conftest marker registration (``requires_elmaven``,
+  ``requires_r``) and both depend on T-TRK-013 (R audit) +
+  T-TRK-015 (AppBlock audit).
+- **Files**: ``.../external/elmaven_block.py``,
+  ``.../external/accucor_r.py``,
+  ``.../external/scripts/accucor.R`` (the R script body) + tests
+- **Dependencies**: T-LCMS-002, T-TRK-013, T-TRK-015
+- **Estimated diff size**: L
+- **Coupling notes**: **Bundled** (2 external-tool blocks). Markers:
+  ``requires_elmaven`` and ``requires_r``.
+
+---
+
+#### T-LCMS-008 — ``Calculate13CEnrichment``
+
+- **Source**: LC-MS spec §9 T-LCMS-008
+- **Summary**: Weighted average by M+n where n is 13C count →
+  DataFrame (compound × sample → enrichment fraction). NEW per user
+  request.
+- **Files**: ``.../isotope_tracing/calculate_13c_enrichment.py`` +
+  tests
+- **Dependencies**: T-LCMS-002
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-LCMS-009 — ``FractionalLabeling``
+
+- **Source**: LC-MS spec §9 T-LCMS-009
+- **Summary**: ``1 - M+0`` per compound × sample → DataFrame.
+- **Files**: ``.../isotope_tracing/fractional_labeling.py`` + tests
+- **Dependencies**: T-LCMS-002
+- **Estimated diff size**: S
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-LCMS-010 — ``CompareGroupMID``
+
+- **Source**: LC-MS spec §9 T-LCMS-010
+- **Summary**: Stats between groups (t-test / Wilcoxon per
+  isotopologue) → DataFrame.
+- **Files**: ``.../isotope_tracing/compare_group_mid.py`` + tests
+- **Dependencies**: T-LCMS-002
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-LCMS-011 — ``FluxEstimate``
+
+- **Source**: LC-MS spec §9 T-LCMS-011
+- **Summary**: Simple steady-state flux (labeling rate × pool size).
+  **NO full 13C-MFA** per master plan §2.4.
+- **Files**: ``.../isotope_tracing/flux_estimate.py`` + tests
+- **Dependencies**: T-LCMS-002
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-LCMS-012 — ``PoolSizeNormalize``
+
+- **Source**: LC-MS spec §9 T-LCMS-012
+- **Summary**: IS / TIC / median normalization.
+- **Files**: ``.../isotope_tracing/pool_size_normalize.py`` + tests
+- **Dependencies**: T-LCMS-002
+- **Estimated diff size**: S
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-LCMS-013 — ``MetaboliteMatrix``
+
+- **Source**: LC-MS spec §9 T-LCMS-013
+- **Summary**: PeakTable + SampleMetadata → wide matrix.
+- **Files**: ``.../analysis/metabolite_matrix.py`` + tests
+- **Dependencies**: T-LCMS-002
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-LCMS-014 — ``MatrixPreprocess``
+
+- **Source**: LC-MS spec §9 T-LCMS-014
+- **Summary**: Consolidated log / impute / scale (method param).
+- **Files**: ``.../analysis/matrix_preprocess.py`` + tests
+- **Dependencies**: T-LCMS-002
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-LCMS-015 — ``UnivariateStats``
+
+- **Source**: LC-MS spec §9 T-LCMS-015
+- **Summary**: t-test / ANOVA / Wilcoxon (method param).
+- **Files**: ``.../analysis/univariate_stats.py`` + tests
+- **Dependencies**: T-LCMS-002
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-LCMS-016 — ``MultivariateAnalysis``
+
+- **Source**: LC-MS spec §9 T-LCMS-016
+- **Summary**: PCA / PLSDA / OPLSDA (method param) → DataFrame +
+  Artifact plot.
+- **Files**: ``.../analysis/multivariate_analysis.py`` + tests
+- **Dependencies**: T-LCMS-002
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-LCMS-017 — ``PathwayEnrichment``
+
+- **Source**: LC-MS spec §9 T-LCMS-017
+- **Summary**: CodeBlock R wrapping MetaboAnalystR OR native
+  Python implementation.
+- **Files**: ``.../analysis/pathway_enrichment.py`` (and possibly
+  an R script in ``.../analysis/scripts/``) + tests
+- **Dependencies**: T-LCMS-002, T-TRK-013 (R runner audit)
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone. Marker: ``requires_r`` if using
+  the R path.
+
+---
+
+#### T-LCMS-018 — ``ConsumptionSecretionAnalysis``
+
+- **Source**: LC-MS spec §9 T-LCMS-018
+- **Summary**: Spent media vs fresh media Δ-concentration analysis,
+  with optional cell-count normalization for per-cell-per-hour flux.
+  NEW per user.
+- **Files**: ``.../analysis/consumption_secretion_analysis.py`` +
+  tests
+- **Dependencies**: T-LCMS-002
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-LCMS-019 — ``GraphPadBlock``
+
+- **Source**: LC-MS spec §9 T-LCMS-019
+- **Summary**: AppBlock subclass wrapping GraphPad Prism. Path TBD;
+  if path is unknown at implementation time, file an issue and
+  document the placeholder behaviour.
+- **Files**: ``.../external/graphpad_block.py`` + tests
+- **Dependencies**: T-LCMS-002, T-TRK-015
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone. Marker: ``requires_graphpad``.
+
+---
+
+#### T-LCMS-020 — Entry-point registration + plugin smoke test
+
+- **Source**: LC-MS spec §9 T-LCMS-020
+- **Summary**: Update ``pyproject.toml`` entry points for every
+  LC-MS block; add plugin smoke test; extend root
+  ``pyproject.toml`` ``testpaths``.
+- **Files**: ``packages/scieasy-blocks-lcms/pyproject.toml``,
+  ``.../tests/test_plugin_smoke.py``, root ``pyproject.toml``
+- **Dependencies**: T-LCMS-001 through T-LCMS-019 merged.
+- **Estimated diff size**: S
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-LCMS-021 — Isotope tracing integration test
+
+- **Source**: LC-MS spec §9 T-LCMS-021
+- **Summary**: End-to-end pipeline test: load PeakTable + MIDTable
+  + SampleMetadata → MetaboliteMatrix → MatrixPreprocess →
+  Calculate13CEnrichment → CompareGroupMID → SaveTable. Verifies
+  the full LC-MS happy path.
+- **Files**: ``packages/scieasy-blocks-lcms/tests/integration/
+  test_isotope_tracing_pipeline.py``
+- **Dependencies**: T-LCMS-020
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone. **Last ticket in Sprint E.**
+  Marker: ``requires_lcms`` if any external-tool dependency is on
+  the path; otherwise unmarked.
+
+---
