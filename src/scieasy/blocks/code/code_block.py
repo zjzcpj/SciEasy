@@ -34,21 +34,6 @@ class CodeBlock(Block):
     Note (ADR-020): InputDelivery enum removed. PROXY and CHUNKED delivery
         modes are superseded by ProcessBlock for framework-aware code.
         CodeBlock always delivers data as native in-memory objects.
-
-    TODO(ADR-029): CodeBlock is intended to support variadic input and
-    output ports — the user's script declares an arbitrary set of named
-    inputs and outputs (Python AST inference, R signature parsing, or
-    explicit per-instance port editor) instead of being constrained to
-    the current single ``data``-in / ``result``-out shape. ADR-029
-    (status: draft, scope pending discussion) reserves the namespace
-    and lists the open questions for how variadic ports are stored,
-    edited, validated, scheduled, and serialised through the worker
-    subprocess. Until ADR-029 is promoted from `draft, scope pending`
-    to `proposed`, CodeBlock keeps its single static input port and
-    single static output port and is constrained to 1-in / 1-out
-    workflows. No additional ports may be declared and no new methods
-    may be added to support variadic ports without an explicit ADR-029
-    decision; reviewers may cite ADR-029 to reject any such PR.
     """
 
     language: ClassVar[str] = "python"
