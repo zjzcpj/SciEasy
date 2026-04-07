@@ -49,6 +49,7 @@ scieasy = "scieasy.cli.main:app"
 
 [project.entry-points."scieasy.blocks"]
 io_block = "scieasy.blocks.io:IOBlock"
+save_data = "scieasy.blocks.io.savers.save_data:SaveData"
 process_merge = "scieasy.blocks.process.builtins.merge:MergeBlock"
 process_split = "scieasy.blocks.process.builtins.split:SplitBlock"
 code_block = "scieasy.blocks.code:CodeBlock"
