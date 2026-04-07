@@ -111,6 +111,15 @@ class BlockSchemaResponse(BlockSummary):
 
     config_schema: dict[str, Any] = Field(default_factory=dict)
     type_hierarchy: list[TypeHierarchyEntry] = Field(default_factory=list)
+    # ADR-028 Addendum 1 D4: enum-driven dynamic-port descriptor (frontend
+    # consumes this to recompute port ``accepted_types`` when the driving
+    # config field changes). ``None`` for static blocks.
+    dynamic_ports: dict[str, Any] | None = None
+    # ADR-028 Addendum 1 D7: IO direction ("input" / "output") so the
+    # frontend can render IO-specific UI (browse file vs directory) without
+    # hardcoding ``blockType === "io_block"`` checks. ``None`` for non-IO
+    # blocks.
+    direction: str | None = None
 
 
 class BlockConnectionValidation(BaseModel):
