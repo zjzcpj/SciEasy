@@ -1,4 +1,4 @@
-"""Tests for the six base-class reconstruction hooks (T-013).
+"""Tests for the six base-class reconstruction hooks (T-013 + T-014).
 
 Exercises the ``_reconstruct_extra_kwargs`` / ``_serialise_extra_metadata``
 classmethod pair that T-013 adds to :class:`DataObject`,
@@ -7,14 +7,17 @@ classmethod pair that T-013 adds to :class:`DataObject`,
 §2 ("D11' companion").
 
 The hooks are the contract that lets :func:`_reconstruct_one` /
-:func:`_serialise_one` (implemented in T-014) round-trip each base
-class's constructor-specific kwargs through the JSON wire format
-without a giant ``isinstance`` chain inside the worker subprocess.
+:func:`_serialise_one` round-trip each base class's constructor-
+specific kwargs through the JSON wire format without a giant
+``isinstance`` chain inside the worker subprocess.
 
-T-013 ships the :mod:`scieasy.core.types.serialization` module as a
-stub; its bodies raise :class:`NotImplementedError`. Tests for the
-composite hook therefore verify the stub-raises behaviour rather than
-round-trip — the real composite round-trip is a T-014 responsibility.
+T-013 shipped the :mod:`scieasy.core.types.serialization` module as a
+stub whose bodies raised :class:`NotImplementedError`; T-014 replaced
+those bodies with the full implementation. The composite-section
+tests in this file therefore exercise the real round-trip instead of
+the old stub-raises behaviour (T-014 deleted the
+``test_composite_*_raises_until_t014`` and
+``test_serialization_stub_*_raises`` tests).
 """
 
 from __future__ import annotations
@@ -358,64 +361,116 @@ def test_artifact_round_trip_none_path() -> None:
 
 
 # ---------------------------------------------------------------------------
-# CompositeData hooks (T-013: verify the lazy-import wiring reaches the stub)
+# CompositeData hooks — T-014 positive round-trip via the real
+# _reconstruct_one / _serialise_one helpers
 # ---------------------------------------------------------------------------
 
 
-def test_composite_reconstruct_raises_until_t014() -> None:
-    """Composite reconstruction delegates to the T-013 stub, which raises.
+def test_composite_reconstruct_delegates_to_serialization_helpers() -> None:
+    """Composite reconstruction recursively invokes :func:`_reconstruct_one`.
 
-    T-014 replaces the :func:`_reconstruct_one` stub body with the real
-    implementation. Until then, attempting to reconstruct a composite
-    with at least one slot should surface the ``NotImplementedError``
-    with a pointer back to T-014.
+    T-014 replaced the :mod:`scieasy.core.types.serialization` stub
+    bodies with the real implementation. The composite hook calls
+    ``_reconstruct_one`` once per slot, rebuilding each child as its
+    own typed :class:`DataObject` instance.
     """
-    metadata = {"slots": {"image": {"backend": "zarr", "path": "/tmp/x", "metadata": {}}}}
-    with pytest.raises(NotImplementedError, match="T-014"):
-        CompositeData._reconstruct_extra_kwargs(metadata)
+    # Single-slot metadata payload that is itself a valid wire-format
+    # payload item (the composite hook hands it straight to
+    # _reconstruct_one).
+    metadata = {
+        "slots": {
+            "image": {
+                "backend": None,
+                "path": None,
+                "format": None,
+                "metadata": {
+                    "type_chain": ["DataObject", "Array"],
+                    "framework": {},
+                    "meta": None,
+                    "user": {},
+                    "axes": ["y", "x"],
+                    "shape": [4, 4],
+                    "dtype": "uint8",
+                },
+            }
+        }
+    }
+    kwargs = CompositeData._reconstruct_extra_kwargs(metadata)
+
+    assert set(kwargs.keys()) == {"slots"}
+    assert set(kwargs["slots"].keys()) == {"image"}
+    assert isinstance(kwargs["slots"]["image"], Array)
+    assert kwargs["slots"]["image"].axes == ["y", "x"]
+    assert kwargs["slots"]["image"].shape == (4, 4)
 
 
-def test_composite_reconstruct_empty_slots_does_not_call_stub() -> None:
-    """No slots ⇒ no delegation ⇒ no NotImplementedError.
-
-    The hook only calls :func:`_reconstruct_one` per slot; an empty
-    ``slots`` dict short-circuits to ``{"slots": {}}`` without hitting
-    the stub. This lets T-013 ship without breaking plugin tests that
-    construct an empty composite.
-    """
-    kwargs = CompositeData._reconstruct_extra_kwargs({"slots": {}})
-    assert kwargs == {"slots": {}}
-
+def test_composite_reconstruct_empty_slots_short_circuits() -> None:
+    """No slots ⇒ no recursive calls ⇒ ``{"slots": {}}``."""
+    assert CompositeData._reconstruct_extra_kwargs({"slots": {}}) == {"slots": {}}
     # And a missing ``slots`` key also short-circuits.
-    kwargs2 = CompositeData._reconstruct_extra_kwargs({})
-    assert kwargs2 == {"slots": {}}
+    assert CompositeData._reconstruct_extra_kwargs({}) == {"slots": {}}
 
 
-def test_composite_serialise_raises_until_t014() -> None:
-    """Composite serialisation with at least one slot raises via the stub."""
+def test_composite_serialise_delegates_to_serialization_helpers() -> None:
+    """Composite serialisation recursively invokes :func:`_serialise_one`."""
     inner = Array(axes=["y", "x"], shape=(4, 4), dtype="uint8")
     composite = CompositeData(slots={"img": inner})
-    with pytest.raises(NotImplementedError, match="T-014"):
-        CompositeData._serialise_extra_metadata(composite)
+
+    md = CompositeData._serialise_extra_metadata(composite)
+    assert set(md.keys()) == {"slots"}
+    assert set(md["slots"].keys()) == {"img"}
+    inner_payload = md["slots"]["img"]
+    # Each slot payload is a full wire-format dict (the same shape
+    # _reconstruct_one can round-trip back).
+    assert "metadata" in inner_payload
+    assert inner_payload["metadata"]["type_chain"] == ["DataObject", "Array"]
+    assert inner_payload["metadata"]["axes"] == ["y", "x"]
+    assert inner_payload["metadata"]["shape"] == [4, 4]
 
 
-def test_composite_serialise_empty_slots_does_not_call_stub() -> None:
+def test_composite_serialise_empty_slots_does_not_call_helper() -> None:
     """An empty composite serialises to ``{"slots": {}}`` without delegation."""
     empty = CompositeData()
-    md = CompositeData._serialise_extra_metadata(empty)
-    assert md == {"slots": {}}
+    assert CompositeData._serialise_extra_metadata(empty) == {"slots": {}}
+
+
+def test_composite_hook_round_trip() -> None:
+    """Full composite round-trip via the classmethod hook pair.
+
+    T-014 acceptance criterion for CompositeData: the hook pair plus
+    the :func:`_reconstruct_one` / :func:`_serialise_one` helpers must
+    round-trip a composite with multiple slot types (Array + Series +
+    DataFrame) into an equivalent composite on the receiving side.
+    """
+    image = Array(axes=["y", "x"], shape=(8, 8), dtype="uint8")
+    trace = Series(index_name="time", value_name="voltage", length=100)
+    peaks = DataFrame(columns=["mz", "intensity"], row_count=50)
+    composite = CompositeData(slots={"image": image, "trace": trace, "peaks": peaks})
+
+    md = CompositeData._serialise_extra_metadata(composite)
+    kwargs = CompositeData._reconstruct_extra_kwargs(md)
+    rebuilt = CompositeData(**kwargs)
+
+    assert set(rebuilt.slot_names) == {"image", "trace", "peaks"}
+    assert isinstance(rebuilt.get("image"), Array)
+    assert rebuilt.get("image").axes == ["y", "x"]
+    assert rebuilt.get("image").shape == (8, 8)
+    assert isinstance(rebuilt.get("trace"), Series)
+    assert rebuilt.get("trace").length == 100
+    assert isinstance(rebuilt.get("peaks"), DataFrame)
+    assert rebuilt.get("peaks").row_count == 50
 
 
 # ---------------------------------------------------------------------------
-# serialization stub module
+# serialization module — public surface
 # ---------------------------------------------------------------------------
 
 
 def test_serialization_module_imports() -> None:
-    """The stub module must be importable and expose both helpers.
+    """The module must be importable and expose both helpers.
 
-    T-014 will replace the bodies but must keep the signatures. This
-    test locks the public surface.
+    The signatures were locked by T-013 and remain locked after T-014
+    replaced the stub bodies with the real implementation.
     """
     from scieasy.core.types import serialization
     from scieasy.core.types.serialization import _reconstruct_one, _serialise_one
@@ -426,20 +481,40 @@ def test_serialization_module_imports() -> None:
     assert hasattr(serialization, "_serialise_one")
 
 
-def test_serialization_stub_reconstruct_raises() -> None:
-    """The stub's ``_reconstruct_one`` must raise :class:`NotImplementedError`."""
+def test_serialization_reconstruct_round_trips_bare_dataobject() -> None:
+    """Positive smoke test for the real :func:`_reconstruct_one` body.
+
+    Replaces the T-013 ``test_serialization_stub_reconstruct_raises``.
+    """
     from scieasy.core.types.serialization import _reconstruct_one
 
-    with pytest.raises(NotImplementedError, match="T-014"):
-        _reconstruct_one({"backend": "zarr", "path": "/x", "metadata": {}})
+    obj = _reconstruct_one(
+        {
+            "backend": None,
+            "path": None,
+            "format": None,
+            "metadata": {
+                "type_chain": ["DataObject"],
+                "framework": {},
+                "meta": None,
+                "user": {},
+            },
+        }
+    )
+    assert type(obj) is DataObject
 
 
-def test_serialization_stub_serialise_raises() -> None:
-    """The stub's ``_serialise_one`` must raise :class:`NotImplementedError`."""
+def test_serialization_serialise_round_trips_bare_dataobject() -> None:
+    """Positive smoke test for the real :func:`_serialise_one` body.
+
+    Replaces the T-013 ``test_serialization_stub_serialise_raises``.
+    """
     from scieasy.core.types.serialization import _serialise_one
 
-    with pytest.raises(NotImplementedError, match="T-014"):
-        _serialise_one(DataObject())
+    payload = _serialise_one(DataObject())
+    assert payload["metadata"]["type_chain"] == ["DataObject"]
+    assert payload["metadata"]["meta"] is None
+    assert payload["metadata"]["user"] == {}
 
 
 # ---------------------------------------------------------------------------
