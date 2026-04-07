@@ -10,13 +10,40 @@ from scieasy.blocks.base.block import Block
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.base.state import BlockState
-
-# TODO(T-008): T-006 removed core Image; shim preserves collection until
-# the full Image → Array migration lands.
 from scieasy.core.types.array import Array
-from scieasy.core.types.array import Array as Image
 from scieasy.core.types.base import TypeSignature
 from scieasy.core.types.dataframe import DataFrame
+
+# ---------------------------------------------------------------------------
+# Local test fixture subclass.
+#
+# ADR-027 D2: the core ``Image`` class was removed in T-006; domain
+# specializations live in plugin packages. These tests need an Array
+# subclass that accepts the legacy ``shape=/ndim=/dtype=`` construction
+# shape, so we declare a minimal fixture subclass here. This mirrors the
+# pattern already used in ``tests/core/test_types.py``.
+# ---------------------------------------------------------------------------
+
+
+class Image(Array):
+    """Local 2D Array test fixture (not the plugin ``Image``).
+
+    Declares ``required_axes = {"y", "x"}`` so it exercises the
+    schema-enforcement code path while accepting the legacy
+    ``shape=/ndim=/dtype=`` kwargs used by the pre-T-006 tests.
+    """
+
+    required_axes: ClassVar[frozenset[str]] = frozenset({"y", "x"})
+
+    def __init__(
+        self,
+        *,
+        shape: tuple[int, ...] | None = None,
+        ndim: int | None = None,
+        dtype: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(axes=["y", "x"], shape=shape, dtype=dtype, **kwargs)
 
 
 class _DummyBlock(Block):
@@ -188,12 +215,12 @@ class TestBlockValidate:
 
     def test_validate_constraint_passes(self) -> None:
         block = _ConstrainedBlock()
-        arr = Array(shape=(5,), ndim=1, dtype="float64")
+        arr = Array(axes=["x"], shape=(5,), dtype="float64")
         assert block.validate({"data": arr}) is True
 
     def test_validate_constraint_fails(self) -> None:
         block = _ConstrainedBlock()
-        arr = Array(shape=None, ndim=1, dtype="float64")
+        arr = Array(axes=["x"], shape=None, dtype="float64")
         with pytest.raises(ValueError, match="constraint failed"):
             block.validate({"data": arr})
 
