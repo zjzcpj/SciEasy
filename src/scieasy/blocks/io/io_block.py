@@ -32,6 +32,17 @@ class IOBlock(Block):
     :meth:`run` dispatches based on the ``direction`` ClassVar.
     """
 
+    # ``name`` and ``description`` are preserved from the pre-T-TRK-004
+    # concrete IOBlock so that the existing ``BlockRegistry`` builtin
+    # registration (``registry._scan_builtins``) keeps surfacing the
+    # ``"IO Block"`` / ``"io_block"`` identity that integration tests,
+    # workflow YAMLs, and the API connection-validator depend on. The
+    # spec body at standards doc lines 914-976 omits these but does not
+    # forbid them; ADR-028 §D1 only mandates ``load`` / ``save``
+    # abstractness and the ``run()`` dispatch contract.
+    name: ClassVar[str] = "IO Block"
+    description: ClassVar[str] = "Abstract base for blocks that load or save data."
+
     direction: ClassVar[str] = "input"
     category: ClassVar[str] = "io"
 
@@ -82,4 +93,11 @@ class IOBlock(Block):
             if data is None:
                 raise ValueError("IOBlock(output) requires 'data' input")
             self.save(data, config)
-            return {"path": str(config.get("path"))}
+            # ADR-028 §D1 spec body intentionally returns a string-keyed
+            # path receipt rather than a Collection in the output
+            # direction. The pre-T-TRK-004 ``IOBlock`` had the same
+            # behaviour; mypy accepted it via ``dict[str, Any]`` typed
+            # helper methods. The spec body uses a literal dict here so
+            # the type-checker correctly observes the mismatch — suppress
+            # only this single dict entry.
+            return {"path": str(config.get("path"))}  # type: ignore[dict-item]

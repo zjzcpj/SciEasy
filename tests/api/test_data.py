@@ -58,13 +58,19 @@ def test_preview_supports_image_series_composite_and_artifact_types(
     image_path.write_bytes(b"fake-tiff")
 
     # T-TRK-004 / ADR-028 §D2: ``TIFFAdapter`` was deleted; the runtime
-    # preview path now reads via ``tifffile.imread`` directly. Patch
-    # that import in scieasy.api.runtime to return a fixed matrix
-    # instead of touching the real ``image.tiff`` payload.
-    fake_matrix = np.array([[0.0, 1.0], [2.0, 3.0]])
-    import tifffile
+    # preview path now reads via a deferred ``import tifffile`` inside
+    # ``ApiRuntime.preview_data``. The CI environment does not always
+    # have the real ``tifffile`` installed, so inject a stub module
+    # into ``sys.modules`` whose ``imread`` returns a fixed matrix.
+    # This mirrors the OLD test's monkeypatch on
+    # ``tiff_adapter.TIFFAdapter.read``.
+    import sys
+    import types
 
-    monkeypatch.setattr(tifffile, "imread", lambda path: fake_matrix)
+    fake_matrix = np.array([[0.0, 1.0], [2.0, 3.0]])
+    fake_tifffile = types.ModuleType("tifffile")
+    fake_tifffile.imread = lambda path: fake_matrix  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "tifffile", fake_tifffile)
     image_record = runtime.register_data_ref(
         StorageReference(backend="filesystem", path=str(image_path), format="tiff"),
         type_name=Array.__name__,

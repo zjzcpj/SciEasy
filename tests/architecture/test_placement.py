@@ -100,9 +100,7 @@ def test_no_format_adapter_subclasses_remain() -> None:
     # when no class declares ``FormatAdapter`` as a base.
     misplaced = _find_classes_referencing("FormatAdapter", SRC_ROOT / "blocks" / "io" / "adapters")
     violations = [f"  {fp.relative_to(SRC_ROOT)}: class {cls_name}" for fp, cls_name in misplaced]
-    assert not violations, (
-        "FormatAdapter subclasses found in core after T-TRK-004 deletion:\n" + "\n".join(violations)
-    )
+    assert not violations, "FormatAdapter subclasses found in core after T-TRK-004 deletion:\n" + "\n".join(violations)
 
 
 def test_runners_in_correct_directory() -> None:
