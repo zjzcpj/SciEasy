@@ -672,3 +672,1430 @@ when the plugin first becomes installable. The first plugin
 extend it.
 
 ---
+
+## 9. Per-ticket sections
+
+Each Track 1 ticket uses these 13 subsections:
+
+a. Ticket ID and name
+b. Source ADR / spec sections
+c. Files to be created
+d. Files to be modified
+e. Files to be deleted
+f. New tests
+g. Existing tests to update
+h. Implementation details
+i. Acceptance criteria
+j. Out of scope
+k. Dependencies on other tickets
+l. Estimated diff size (XS / S / M / L / XL)
+m. Coupling notes (Standalone / Bundled / Sequential)
+
+Tracks 2 / 3 / 4 use a compact reference format because the
+per-ticket implementation details live in the corresponding source
+spec. Each compact entry has: title + source spec pointer + summary +
+files + dependencies + estimated diff + coupling notes.
+
+### 9.1 Track 1 — core block cleanup and ADR-028 implementation
+
+---
+
+### T-TRK-001 — Delete ``process/contrib/`` stub directory
+
+**a. Ticket ID and name**: T-TRK-001 — Delete ``process/contrib/``
+stub directory and its four placeholder files.
+
+**b. Source ADR / spec sections**:
+- Phase 11 master plan §2.5 sub-1a (delete-stubs list).
+- ``CLAUDE.md`` §9.4 (incomplete skeletons may be intentionally
+  empty; this ticket explicitly removes a set that is *not*
+  intentional, per master plan).
+
+**c. Files to be created**: none.
+
+**d. Files to be modified**: none. (The directory is deleted in its
+entirety; no surrounding ``__init__.py`` references it.)
+
+**e. Files to be deleted**:
+- ``src/scieasy/blocks/process/contrib/cellpose_segment.py`` (1-line
+  stub)
+- ``src/scieasy/blocks/process/contrib/spectral_pca.py`` (1-line
+  stub)
+- ``src/scieasy/blocks/process/contrib/baseline_correction.py``
+  (1-line stub)
+- ``src/scieasy/blocks/process/contrib/__init__.py`` (1-line stub)
+- ``src/scieasy/blocks/process/contrib/`` directory itself
+
+**f. New tests**: none.
+
+**g. Existing tests to update**:
+- Grep ``tests/`` for any import of ``scieasy.blocks.process.contrib``;
+  remove or replace each. Expected hits: zero, because every file in
+  the directory is a 1-line stub. The grep is part of the acceptance
+  criteria; if it returns hits, escalate as a separate issue rather
+  than expanding scope.
+
+**h. Implementation details**:
+1. ``git rm -r src/scieasy/blocks/process/contrib/``
+2. ``git grep "scieasy.blocks.process.contrib"`` — must return 0 hits
+   in non-deleted files.
+3. ``git grep "from scieasy.blocks.process import contrib"`` — must
+   return 0 hits.
+4. Run ``pytest -x --no-cov tests/blocks/`` to confirm no test
+   imports from the deleted directory.
+
+**i. Acceptance criteria**:
+- The four files and the directory no longer exist.
+- ``git grep`` for the deleted module path returns 0 hits.
+- ``pytest -x --no-cov`` is green.
+- All universal AC items (§7) are satisfied.
+
+**j. Out of scope**:
+- Do **not** also delete ``process/builtins/register.py`` (separate
+  ticket T-TRK-002).
+- Do **not** also move ``transform.py`` (separate ticket T-TRK-003).
+- Do **not** add new ``contrib`` blocks "to fill the gap" — the
+  contrib pattern is being abandoned in favour of the plugin
+  package pattern.
+
+**k. Dependencies**: none. Independent of every other ticket.
+
+**l. Estimated diff size**: XS (5 file deletions, ~5 line removals
+total).
+
+**m. Coupling notes**: Standalone. Runs in parallel with T-TRK-002,
+T-TRK-003, T-TRK-011 in Sprint A Level A0.
+
+---
+
+### T-TRK-002 — Delete ``process/builtins/register.py``
+
+**a. Ticket ID and name**: T-TRK-002 — Delete the
+``process/builtins/register.py`` 1-line stub.
+
+**b. Source ADR / spec sections**:
+- Phase 11 master plan §2.5 sub-1a.
+
+**c. Files to be created**: none.
+
+**d. Files to be modified**:
+- ``src/scieasy/blocks/process/builtins/__init__.py`` — remove any
+  ``from .register import ...`` line if present.
+
+**e. Files to be deleted**:
+- ``src/scieasy/blocks/process/builtins/register.py`` (1-line stub)
+
+**f. New tests**: none.
+
+**g. Existing tests to update**: grep for
+``scieasy.blocks.process.builtins.register``; remove any test imports.
+
+**h. Implementation details**:
+1. Read ``register.py`` to confirm it is a 1-line stub (verify the
+   master plan claim before deleting).
+2. ``git rm src/scieasy/blocks/process/builtins/register.py``
+3. Edit ``__init__.py`` to remove any reference.
+4. ``git grep "blocks.process.builtins.register"`` — must be 0 hits.
+
+**i. Acceptance criteria**:
+- File deleted, ``__init__.py`` updated.
+- ``git grep`` returns 0 hits.
+- All universal AC items satisfied.
+
+**j. Out of scope**: do not touch ``transform.py`` (T-TRK-003) or
+``filter_collection.py`` (T-TRK-012).
+
+**k. Dependencies**: none. Independent.
+
+**l. Estimated diff size**: XS (1 file deletion, ~1 line removed in
+``__init__.py``).
+
+**m. Coupling notes**: Standalone. Sprint A Level A0 parallel.
+
+---
+
+### T-TRK-003 — Move ``transform.py`` → ``tests/fixtures/noop_block.py``
+
+**a. Ticket ID and name**: T-TRK-003 — Relocate the smoke-test
+``TransformBlock`` from ``src/scieasy/blocks/process/builtins/`` to
+``tests/fixtures/`` and rename to ``NoopBlock``.
+
+**b. Source ADR / spec sections**:
+- Phase 11 master plan §2.5 sub-1a (relocate ``transform.py``).
+- Master plan rationale: this block is **not a placeholder** — it is
+  the smoke-test fixture for CI, just miscategorised.
+
+**c. Files to be created**:
+- ``tests/fixtures/noop_block.py`` (new — body copied from old
+  ``transform.py``, class renamed ``TransformBlock`` →
+  ``NoopBlock``, ``type_name`` changed to ``"noop"``).
+- ``tests/fixtures/test_images.py`` (new — the E2E test image
+  constants per Q6 above). This file is owned by T-TRK-003 because
+  it is in the same ``tests/fixtures/`` directory and the move is
+  the natural place to introduce the fixtures package.
+
+**d. Files to be modified**:
+- ``src/scieasy/blocks/process/builtins/__init__.py`` — remove
+  ``TransformBlock`` import / re-export.
+- All test files that import ``TransformBlock`` from
+  ``scieasy.blocks.process.builtins.transform``: rewrite to
+  ``from tests.fixtures.noop_block import NoopBlock``.
+
+**e. Files to be deleted**:
+- ``src/scieasy/blocks/process/builtins/transform.py``
+
+**f. New tests**:
+- ``tests/fixtures/test_noop_block.py`` — minimal smoke test that
+  ``NoopBlock`` instantiates and ``run({...})`` returns the input
+  unchanged.
+
+**g. Existing tests to update**:
+- Every existing test that constructs ``TransformBlock(...)``: rename
+  to ``NoopBlock(...)`` and update the import line.
+- ``git grep "TransformBlock"`` — must hit only the new
+  ``NoopBlock`` definition and possibly historical CHANGELOG entries.
+
+**h. Implementation details**:
+1. Read the current ``transform.py`` body. Confirm it is a no-op
+   pass-through block (per master plan).
+2. Create ``tests/fixtures/__init__.py`` if it does not exist.
+3. Create ``tests/fixtures/noop_block.py`` with the relocated body,
+   renamed class, and new ``type_name = "noop"``.
+4. Create ``tests/fixtures/test_images.py`` per Q6.
+5. ``git rm src/scieasy/blocks/process/builtins/transform.py``
+6. Update ``__init__.py``.
+7. ``git grep "TransformBlock"`` and rewrite each hit.
+8. Run ``pytest -x --no-cov`` and confirm green.
+
+**i. Acceptance criteria**:
+- ``tests/fixtures/noop_block.py`` exists, defines ``NoopBlock``.
+- ``tests/fixtures/test_images.py`` exists with the four image
+  constants and the two derived lists.
+- Old ``transform.py`` deleted.
+- ``__init__.py`` no longer references ``TransformBlock``.
+- All ``TransformBlock`` references in tests are now ``NoopBlock``.
+- ``pytest -x --no-cov`` green.
+- All universal AC items satisfied.
+
+**j. Out of scope**:
+- Do not change any ``NoopBlock`` behaviour (it is a literal
+  pass-through; the test fixture relies on identity-out = identity-in).
+- Do not introduce new test fixtures beyond the two named files.
+
+**k. Dependencies**: none. Independent of T-TRK-001 / T-TRK-002 /
+T-TRK-011.
+
+**l. Estimated diff size**: S (~80 lines changed across ~5 test files).
+
+**m. Coupling notes**: Standalone. Sprint A Level A0 parallel.
+
+---
+
+### T-TRK-004 — Delete ``adapters/`` and rewrite ``io_block.py`` as ABC
+
+**a. Ticket ID and name**: T-TRK-004 — Delete the entire
+``src/scieasy/blocks/io/adapters/`` directory and
+``adapter_registry.py``, and rewrite ``src/scieasy/blocks/io/
+io_block.py`` as an abstract base class with ``load()`` / ``save()``
+abstract methods plus a default ``run()`` dispatch.
+
+**b. Source ADR / spec sections**:
+- ADR-028 §D1 (IOBlock becomes abstract base).
+- ADR-028 §D2 (delete adapters directory + adapter_registry).
+- ADR-028 §D4 (delete ``scieasy.adapters`` entry-point group).
+- Phase 11 master plan §2.1 + §2.5 sub-1b PR-A and PR-A-2 (this
+  ticket bundles the original PR-A + PR-A-2 because rewriting
+  ``io_block.py`` is unimplementable while ``adapter_registry.py``
+  still imports from the deleted ``adapters/`` package).
+
+**c. Files to be created**: none.
+
+**d. Files to be modified**:
+- ``src/scieasy/blocks/io/io_block.py`` — full rewrite. After this
+  ticket, the body is approximately::
+
+      """IOBlock — abstract base for plugin-owned data ingress and egress."""
+
+      from __future__ import annotations
+      from abc import abstractmethod
+      from pathlib import Path
+      from typing import Any, ClassVar
+
+      from scieasy.blocks.base.block import Block
+      from scieasy.blocks.base.config import BlockConfig
+      from scieasy.blocks.base.ports import InputPort, OutputPort
+      from scieasy.core.types.base import DataObject
+      from scieasy.core.types.collection import Collection
+
+
+      class IOBlock(Block):
+          """Abstract base for blocks that load or save data.
+
+          Subclasses must override ``load()`` (for direction='input')
+          or ``save()`` (for direction='output'). The default ``run()``
+          dispatches based on ``direction``.
+          """
+
+          direction: ClassVar[str] = "input"
+          category: ClassVar[str] = "io"
+
+          input_ports: ClassVar[list[InputPort]] = [
+              InputPort(name="data", accepted_types=[DataObject], required=False),
+          ]
+          output_ports: ClassVar[list[OutputPort]] = [
+              OutputPort(name="data", accepted_types=[DataObject]),
+          ]
+          config_schema: ClassVar[dict[str, Any]] = {
+              "type": "object",
+              "properties": {"path": {"type": "string", "ui_priority": 1}},
+              "required": ["path"],
+          }
+
+          @abstractmethod
+          def load(self, config: BlockConfig) -> DataObject | Collection:
+              """Load and return a single DataObject or Collection."""
+              ...
+
+          @abstractmethod
+          def save(self, obj: DataObject | Collection, config: BlockConfig) -> None:
+              """Persist *obj* to the configured path."""
+              ...
+
+          def run(self, inputs, config):
+              if self.direction == "input":
+                  result = self.load(config)
+                  if not isinstance(result, Collection):
+                      result = Collection(items=[result], item_type=type(result))
+                  return {"data": result}
+              else:
+                  data = inputs.get("data")
+                  if data is None:
+                      raise ValueError("IOBlock(output) requires 'data' input")
+                  self.save(data, config)
+                  return {"path": str(config.get("path"))}
+
+- ``pyproject.toml`` — remove the ``[project.entry-points."scieasy.adapters"]``
+  table entirely (ADR-028 §D4 supersedes ADR-025 §6).
+
+**e. Files to be deleted**:
+- ``src/scieasy/blocks/io/adapters/__init__.py``
+- ``src/scieasy/blocks/io/adapters/base.py``
+- ``src/scieasy/blocks/io/adapters/csv_adapter.py``
+- ``src/scieasy/blocks/io/adapters/parquet_adapter.py``
+- ``src/scieasy/blocks/io/adapters/zarr_adapter.py``
+- ``src/scieasy/blocks/io/adapters/generic_adapter.py``
+- ``src/scieasy/blocks/io/adapters/tiff_adapter.py``
+- ``src/scieasy/blocks/io/adapters/mzxml_adapter.py``
+- ``src/scieasy/blocks/io/adapters/h5ad_adapter.py``
+- ``src/scieasy/blocks/io/adapters/fcs_adapter.py``
+- ``src/scieasy/blocks/io/adapters/`` directory itself
+- ``src/scieasy/blocks/io/adapter_registry.py``
+- Any ``tests/blocks/io/test_*_adapter.py`` files. (Grep first; the
+  expected count is 4-8 files.)
+
+**f. New tests**:
+- ``tests/blocks/io/test_io_block_abc.py`` — verifies that
+  ``IOBlock()`` cannot be instantiated directly (TypeError because
+  ``load`` and ``save`` are abstract); a minimal in-memory subclass
+  satisfies the contract.
+
+**g. Existing tests to update**:
+- Any test that imports from ``scieasy.blocks.io.adapters.*`` must be
+  deleted or rewritten. Grep before deleting.
+- Any test that constructs ``IOBlock(direction=...)`` directly will
+  need to use a minimal ``InMemoryIOBlock`` test fixture instead.
+  Add the fixture to ``tests/blocks/io/conftest.py``.
+
+**h. Implementation details**:
+1. ``git rm -r src/scieasy/blocks/io/adapters/``
+2. ``git rm src/scieasy/blocks/io/adapter_registry.py``
+3. Rewrite ``io_block.py`` per the body above.
+4. Edit ``pyproject.toml`` to remove the ``scieasy.adapters``
+   entry-point table.
+5. Grep for ``from scieasy.blocks.io.adapter_registry`` and
+   ``from scieasy.blocks.io.adapters`` — every hit must be deleted
+   or refactored to the new pattern.
+6. Run ``pytest -x --no-cov``. Expect failures only in tests that
+   imported the deleted adapter modules; delete or rewrite those
+   tests as part of this PR.
+7. Run ``python -m importlinter --config pyproject.toml``. The
+   ``Core must not depend on blocks/engine/api/ai/workflow``
+   contract is unaffected by this ticket but verify it remains green.
+
+**i. Acceptance criteria**:
+- ``src/scieasy/blocks/io/adapters/`` and
+  ``src/scieasy/blocks/io/adapter_registry.py`` no longer exist.
+- ``IOBlock`` cannot be instantiated directly (the new test asserts
+  ``TypeError``).
+- ``pyproject.toml`` no longer has any ``scieasy.adapters``
+  entry-point group.
+- ``pytest -x --no-cov`` green.
+- ``ruff check`` clean.
+- ``mypy`` clean.
+- ``importlinter`` clean.
+- All universal AC items satisfied.
+
+**j. Out of scope**:
+- Do **not** add ``LoadData`` or ``SaveData`` here — those are
+  T-TRK-007 and T-TRK-008.
+- Do **not** add ``Block.get_effective_input_ports()`` here — that
+  is T-TRK-006.
+- Do **not** touch ``frontend/`` here — that is T-TRK-009.
+- Do **not** touch ``ARCHITECTURE.md`` here — that is T-TRK-010.
+
+**k. Dependencies**: T-TRK-001 / T-TRK-002 / T-TRK-003 ideally
+merged first (clean repo state), but technically T-TRK-004 only
+**hard-depends** on the absence of any test that imports from the
+deleted adapter modules (which is unrelated to T-TRK-001..003). For
+schedule simplicity treat T-TRK-004 as Sprint A Level A1, after
+Level A0 is fully merged.
+
+**l. Estimated diff size**: M-L (~12 file deletions + 1 large
+rewrite + ~5 test files updated).
+
+**m. Coupling notes**: **Bundled**. The original master plan §4.3
+listed PR-A (delete adapters) and PR-A-2 (rewrite io_block.py) as
+two stacked PRs. They are bundled into T-TRK-004 because rewriting
+``io_block.py`` is unimplementable while ``adapter_registry.py``
+still exists (the current ``IOBlock.run`` imports from
+``adapter_registry`` at line 63). Deleting the adapter layer and
+rewriting the consumer must happen atomically.
+
+---
+
+### T-TRK-005 — (intentionally absent — bundled into T-TRK-004)
+
+T-TRK-005 was reserved during early decomposition for "rewrite
+``io_block.py`` as ABC", but per the coupling rule in §8 Q3 it has
+been **bundled into T-TRK-004**. The ticket ID is reserved (no
+re-use) so that ticket numbering remains stable across this document
+and future references in PR descriptions and CHANGELOG entries. No
+agent picks up T-TRK-005.
+
+---
+
+### T-TRK-006 — Block ABC dynamic-port hooks + framework migration
+
+**a. Ticket ID and name**: T-TRK-006 — Add
+``get_effective_input_ports()`` / ``get_effective_output_ports()`` /
+``dynamic_ports`` ClassVar to ``Block`` ABC, extend ``BlockSpec`` and
+``BlockSchemaResponse`` with the new fields, and migrate every
+framework callsite that reads ``input_ports`` / ``output_ports`` to
+use the new effective-ports methods.
+
+**b. Source ADR / spec sections**:
+- ADR-028 Addendum 1 §C ("Decision: dynamic port override mechanism")
+  decisions D1 through D7.
+- ADR-028 Addendum 1 §D ("Framework read-path migration").
+- Phase 11 master plan §4.3 (PR-B-1, PR-B-2, PR-B-3 — bundled per Q3).
+
+**c. Files to be created**: none. (Tests added below.)
+
+**d. Files to be modified**:
+- ``src/scieasy/blocks/base/block.py`` — add::
+
+      input_ports: ClassVar[list[InputPort]] = []
+      output_ports: ClassVar[list[OutputPort]] = []
+      dynamic_ports: ClassVar[dict[str, Any] | None] = None
+
+      def get_effective_input_ports(self) -> list[InputPort]:
+          """Return effective input ports for this instance.
+          Default: return type(self).input_ports. Dynamic blocks override."""
+          return list(type(self).input_ports)
+
+      def get_effective_output_ports(self) -> list[OutputPort]:
+          return list(type(self).output_ports)
+
+  And update ``Block.validate(...)`` to read
+  ``self.get_effective_input_ports()`` instead of ``self.input_ports``
+  directly. The existing ``port_map = {p.name: p for p in self.input_ports}``
+  becomes ``port_map = {p.name: p for p in self.get_effective_input_ports()}``.
+
+- ``src/scieasy/blocks/process/process_block.py`` (or wherever
+  ``ProcessBlock.run`` lives) — when inferring output Collection
+  ``item_type``, read ``self.get_effective_output_ports()`` instead
+  of the ClassVar.
+
+- ``src/scieasy/workflow/validator.py`` — when validating connection
+  compatibility, construct a temporary block instance from the
+  workflow node's config and call
+  ``block.get_effective_input_ports()`` /
+  ``get_effective_output_ports()`` to get per-instance ports for
+  type checking.
+
+- ``src/scieasy/blocks/registry.py`` — extend ``BlockSpec`` dataclass::
+
+      direction: str = ""
+      dynamic_ports: dict[str, Any] | None = None
+
+  And in ``BlockRegistry._build_spec`` (or equivalent), populate
+  these from the class::
+
+      direction=getattr(cls, "direction", ""),
+      dynamic_ports=getattr(cls, "dynamic_ports", None),
+
+  Add ``BlockRegistry._validate_dynamic_ports(cls)`` that validates
+  the ``dynamic_ports`` dict shape at scan time and raises a
+  descriptive error if malformed (missing ``source_config_key``,
+  ``output_port_mapping`` not a dict, enum-value lists not lists of
+  strings, etc.).
+
+- ``src/scieasy/api/schemas.py`` — extend ``BlockSchemaResponse``::
+
+      class BlockSchemaResponse(BlockSummary):
+          config_schema: dict[str, Any] = Field(default_factory=dict)
+          type_hierarchy: list[TypeHierarchyEntry] = Field(default_factory=list)
+          dynamic_ports: dict[str, Any] | None = None  # ADR-028 Addendum 1 D4
+          direction: str | None = None                 # ADR-028 Addendum 1 D8
+
+- ``src/scieasy/api/routes/blocks.py`` — in ``_summary()`` and
+  ``_schema_response()`` (or whatever the response builders are
+  called), populate the new fields from the BlockSpec.
+
+**e. Files to be deleted**: none.
+
+**f. New tests**:
+- ``tests/blocks/base/test_dynamic_ports.py`` — covers:
+  - ``get_effective_input_ports()`` default returns the ClassVar.
+  - ``get_effective_output_ports()`` default returns the ClassVar.
+  - A subclass that overrides ``get_effective_output_ports`` returns
+    the override.
+  - ``BlockSpec.dynamic_ports`` is populated from the class.
+  - ``BlockRegistry._validate_dynamic_ports`` raises on malformed
+    dict (missing ``source_config_key``, etc.).
+  - ``BlockSchemaResponse(dynamic_ports={...}, direction="input")``
+    serialises correctly via Pydantic.
+- ``tests/workflow/test_validator_dynamic_ports.py`` — covers:
+  - A dynamic block in a workflow validates correctly when its
+    config drives the effective output type.
+  - Connection validation rejects an incompatible type via the
+    effective ports.
+
+**g. Existing tests to update**:
+- Any test that asserts on ``BlockSchemaResponse`` shape: extend the
+  expected dict to include the new optional fields.
+- Any test that asserts on ``BlockSpec`` shape: extend similarly.
+
+**h. Implementation details**:
+
+This is the load-bearing structural change for ADR-028 Addendum 1.
+The implementation is small (each diff is single-digit lines) but
+spans many files; the audit risk is *missing* a callsite, not the
+size of any individual change.
+
+**Required audit before submitting the PR**: grep the codebase for
+every read of ``.input_ports`` and ``.output_ports`` on ``self`` and
+on block instances::
+
+    git grep -n "self\.input_ports" src/
+    git grep -n "self\.output_ports" src/
+    git grep -n "\.input_ports" src/scieasy/workflow/
+    git grep -n "\.output_ports" src/scieasy/workflow/
+    git grep -n "\.input_ports" src/scieasy/api/
+    git grep -n "\.output_ports" src/scieasy/api/
+
+For each hit, decide: keep the ClassVar read (because it's a class
+introspection from registry scan) or migrate to the effective-ports
+method (because it's an instance read at runtime). Migrate in the
+same PR; do not split.
+
+The two pure introspection sites that *should not change* are:
+- ``BlockRegistry._build_spec`` reads the class-level ClassVar to
+  populate ``BlockSpec``. This is correct (the spec is class-level
+  metadata, not instance-level).
+- ``BlockSummary._build_for_palette`` reads the class-level ClassVar
+  for the palette display. Also correct.
+
+Every other read is a runtime read on an instance and must migrate.
+
+**i. Acceptance criteria**:
+- ``Block`` has the three new attributes / two new methods.
+- Every runtime read of ``input_ports`` / ``output_ports`` on a
+  block instance has migrated.
+- ``BlockSpec`` has the two new fields.
+- ``BlockSchemaResponse`` has the two new fields.
+- ``BlockRegistry._validate_dynamic_ports`` rejects malformed dicts.
+- All new tests pass.
+- No existing tests regress.
+- All universal AC items satisfied.
+
+**j. Out of scope**:
+- Do **not** add ``LoadData`` here — that is T-TRK-007.
+- Do **not** add ``SaveData`` here — that is T-TRK-008.
+- Do **not** touch ``frontend/`` here — that is T-TRK-009.
+- Do **not** add variadic-port-count support — that is ADR-029 and
+  is hard-frozen.
+
+**k. Dependencies**: T-TRK-004 (the ABC must exist before the
+dynamic-port hooks attach to it).
+
+**l. Estimated diff size**: M (~6 source files modified, 2 new test
+files, ~250 lines).
+
+**m. Coupling notes**: **Bundled** (PR-B-1 + PR-B-2). Per §8 Q3,
+splitting these into separate PRs would leave the codebase in a
+broken intermediate state. PR-B-3 (LoadData) is split off as
+T-TRK-007 because LoadData depends on but does not couple to the
+ABC migration.
+
+---
+
+### T-TRK-007 — ``LoadData`` class + 6 private ``_load_*`` functions
+
+**a. Ticket ID and name**: T-TRK-007 — Implement
+``src/scieasy/blocks/io/loaders/load_data.py`` containing the
+``LoadData`` class plus six private module-level dispatch functions.
+
+**b. Source ADR / spec sections**:
+- ADR-028 §D3 (originally six loader classes, **superseded** by
+  Addendum 1 §C9 with ``LoadData`` + private functions).
+- ADR-028 Addendum 1 §C5 (hardcoded ``_CORE_TYPE_MAP``).
+- ADR-028 Addendum 1 §C9 (private functions, not helper classes).
+- Phase 11 master plan §2.2 (``LoadData`` reference body).
+
+**c. Files to be created**:
+- ``src/scieasy/blocks/io/loaders/__init__.py`` — re-exports
+  ``LoadData``.
+- ``src/scieasy/blocks/io/loaders/load_data.py`` — contains the
+  ``LoadData`` class and the six ``_load_*`` private functions.
+
+**d. Files to be modified**:
+- ``src/scieasy/blocks/io/__init__.py`` — re-export ``LoadData``.
+- ``pyproject.toml`` — register ``LoadData`` under
+  ``[project.entry-points."scieasy.blocks"]`` so it appears in the
+  block palette.
+
+**e. Files to be deleted**: none.
+
+**f. New tests**:
+- ``tests/blocks/io/test_load_data.py`` — covers:
+  - ``LoadData`` instantiates with each of the six ``core_type``
+    enum values.
+  - ``get_effective_output_ports()`` returns the correct
+    ``OutputPort.accepted_types`` for each enum value.
+  - End-to-end load round-trip for each of the six core types via
+    a tmp_path fixture (CSV → DataFrame, JSON → DataFrame,
+    npy → Array, txt → Text, ``.bin`` → Artifact, JSON-bundle
+    → CompositeData).
+  - ``allow_pickle=False`` rejects ``.pkl`` / ``.pickle`` paths
+    with a clear ValueError.
+  - ``allow_pickle=True`` reads pickle files (with explicit
+    security warning logged at WARNING level).
+
+**g. Existing tests to update**: none directly. Some end-to-end
+workflow tests may use ``IOBlock(format="csv")`` style invocations
+that no longer work; rewrite to ``LoadData(config={"core_type":
+"DataFrame", "path": ...})``.
+
+**h. Implementation details**:
+
+Implementation skeleton (canonical body — implementation agent
+follows this exactly)::
+
+    """LoadData — dynamic-port core IO loader (ADR-028 Addendum 1)."""
+
+    from __future__ import annotations
+    from pathlib import Path
+    from typing import Any, ClassVar
+
+    from scieasy.blocks.base.config import BlockConfig
+    from scieasy.blocks.base.ports import OutputPort
+    from scieasy.blocks.io.io_block import IOBlock
+    from scieasy.core.types.array import Array
+    from scieasy.core.types.artifact import Artifact
+    from scieasy.core.types.base import DataObject
+    from scieasy.core.types.composite import CompositeData
+    from scieasy.core.types.dataframe import DataFrame
+    from scieasy.core.types.series import Series
+    from scieasy.core.types.text import Text
+
+
+    _CORE_TYPE_MAP: dict[str, type[DataObject]] = {
+        "Array": Array,
+        "DataFrame": DataFrame,
+        "Series": Series,
+        "Text": Text,
+        "Artifact": Artifact,
+        "CompositeData": CompositeData,
+    }
+
+
+    class LoadData(IOBlock):
+        direction = "input"
+        type_name = "load_data"
+        name = "Load Data"
+        category = "io"
+
+        output_ports: ClassVar[list[OutputPort]] = [
+            OutputPort(name="data", accepted_types=[DataObject]),
+        ]
+
+        dynamic_ports: ClassVar[dict[str, Any] | None] = {
+            "source_config_key": "core_type",
+            "output_port_mapping": {
+                "data": {
+                    "Array":         ["Array"],
+                    "DataFrame":     ["DataFrame"],
+                    "Series":        ["Series"],
+                    "Text":          ["Text"],
+                    "Artifact":      ["Artifact"],
+                    "CompositeData": ["CompositeData"],
+                },
+            },
+        }
+
+        config_schema: ClassVar[dict[str, Any]] = {
+            "type": "object",
+            "properties": {
+                "core_type": {
+                    "type": "string",
+                    "enum": list(_CORE_TYPE_MAP.keys()),
+                    "default": "DataFrame",
+                    "ui_priority": 0,
+                },
+                "path": {"type": "string", "ui_priority": 1},
+                "allow_pickle": {
+                    "type": "boolean",
+                    "default": False,
+                    "ui_priority": 2,
+                },
+            },
+            "required": ["core_type", "path"],
+        }
+
+        def get_effective_output_ports(self) -> list[OutputPort]:
+            type_name = self.config.get("core_type", "DataFrame")
+            cls = _CORE_TYPE_MAP.get(type_name, DataFrame)
+            return [OutputPort(name="data", accepted_types=[cls])]
+
+        def load(self, config: BlockConfig) -> DataObject:
+            type_name = config.get("core_type", "DataFrame")
+            dispatch = {
+                "Array": _load_array,
+                "DataFrame": _load_dataframe,
+                "Series": _load_series,
+                "Text": _load_text,
+                "Artifact": _load_artifact,
+                "CompositeData": _load_composite_data,
+            }
+            if type_name not in dispatch:
+                raise ValueError(f"Unknown core_type: {type_name}")
+            return dispatch[type_name](config)
+
+        def save(self, obj, config):
+            raise NotImplementedError("LoadData is input-only; use SaveData")
+
+
+    # Module-level private dispatch functions (NOT helper classes per Addendum 1).
+
+    def _load_array(config: BlockConfig) -> Array:
+        """Load Array from .npy / .npz / .zarr / .parquet (single column)."""
+        ...
+
+    def _load_dataframe(config: BlockConfig) -> DataFrame:
+        """Load DataFrame from .csv / .tsv / .parquet / .json / .pkl."""
+        ...
+
+    def _load_series(config: BlockConfig) -> Series:
+        """Load Series from .csv / .tsv / .parquet (single column) / .pkl."""
+        ...
+
+    def _load_text(config: BlockConfig) -> Text:
+        """Load Text from .txt / .md / .html / .xml / .log / .yaml / .toml."""
+        ...
+
+    def _load_artifact(config: BlockConfig) -> Artifact:
+        """Load opaque Artifact from any file (raw bytes + metadata)."""
+        ...
+
+    def _load_composite_data(config: BlockConfig) -> CompositeData:
+        """Load CompositeData from a JSON manifest pointing at sidecar files."""
+        ...
+
+The six private functions absorb the logic from the deleted
+``csv_adapter.py``, ``parquet_adapter.py``, ``zarr_adapter.py``, and
+``generic_adapter.py``. ``allow_pickle`` gating happens inside
+``_load_dataframe`` / ``_load_series`` / ``_load_array`` whenever the
+file extension is ``.pkl`` or ``.pickle``.
+
+**i. Acceptance criteria**:
+- ``LoadData`` is importable from ``scieasy.blocks.io``.
+- ``LoadData`` is registered in ``pyproject.toml`` entry-points.
+- ``get_effective_output_ports()`` returns the correct
+  ``OutputPort`` for every enum value.
+- All six dispatch functions are implemented and tested.
+- ``allow_pickle`` opt-in behaviour is correct (raises by default,
+  loads when set).
+- ``ruff`` / ``mypy`` clean.
+- All universal AC items satisfied.
+
+**j. Out of scope**:
+- Do **not** add ``SaveData`` — that is T-TRK-008.
+- Do **not** add format-specific tests for plugin types
+  (TIFF, mzML, h5ad, fcs) — those formats live in plugin packages.
+- Do **not** add a "convenience" 7th type beyond the six core types.
+
+**k. Dependencies**: T-TRK-006 (Block ABC dynamic-port hooks must
+exist before ``LoadData`` can override ``get_effective_output_ports``).
+
+**l. Estimated diff size**: M (~400 lines: ~150 LoadData + ~150
+dispatch helpers + ~100 tests).
+
+**m. Coupling notes**: Stacked on T-TRK-006. Runs in parallel with
+T-TRK-008 (SaveData).
+
+---
+
+### T-TRK-008 — ``SaveData`` class + 6 private ``_save_*`` functions
+
+**a. Ticket ID and name**: T-TRK-008 — Implement
+``src/scieasy/blocks/io/savers/save_data.py`` containing the
+``SaveData`` class plus six private module-level dispatch functions.
+
+**b. Source ADR / spec sections**:
+- ADR-028 §D3 (originally six saver classes, **superseded** by
+  Addendum 1 §C9).
+- ADR-028 Addendum 1 §C5 + §C9.
+
+**c. Files to be created**:
+- ``src/scieasy/blocks/io/savers/__init__.py``
+- ``src/scieasy/blocks/io/savers/save_data.py``
+
+**d. Files to be modified**:
+- ``src/scieasy/blocks/io/__init__.py`` — re-export ``SaveData``.
+- ``pyproject.toml`` — register ``SaveData`` entry-point.
+
+**e. Files to be deleted**: none.
+
+**f. New tests**:
+- ``tests/blocks/io/test_save_data.py`` — symmetric with
+  ``test_load_data.py``: round-trip each of the six core types
+  through SaveData → LoadData and assert equality.
+
+**g. Existing tests to update**: none directly.
+
+**h. Implementation details**:
+
+The ``SaveData`` class mirrors ``LoadData`` but takes input on the
+``data`` input port instead of producing output, and uses
+``get_effective_input_ports()`` (not output) to update the accepted
+type from the ``core_type`` enum::
+
+    class SaveData(IOBlock):
+        direction = "output"
+        type_name = "save_data"
+        name = "Save Data"
+        category = "io"
+
+        input_ports: ClassVar[list[InputPort]] = [
+            InputPort(name="data", accepted_types=[DataObject], required=True),
+        ]
+        output_ports: ClassVar[list[OutputPort]] = []
+
+        dynamic_ports: ClassVar[dict[str, Any] | None] = {
+            "source_config_key": "core_type",
+            "input_port_mapping": {
+                "data": {
+                    "Array":         ["Array"],
+                    "DataFrame":     ["DataFrame"],
+                    ...
+                },
+            },
+        }
+
+        # config_schema mirrors LoadData; load() raises NotImplementedError.
+
+        def get_effective_input_ports(self) -> list[InputPort]:
+            type_name = self.config.get("core_type", "DataFrame")
+            cls = _CORE_TYPE_MAP.get(type_name, DataFrame)
+            return [InputPort(name="data", accepted_types=[cls], required=True)]
+
+        def save(self, obj, config):
+            type_name = config.get("core_type", "DataFrame")
+            dispatch = {"Array": _save_array, "DataFrame": _save_dataframe, ...}
+            return dispatch[type_name](obj, config)
+
+The six ``_save_*`` private functions absorb write logic from the
+deleted ``csv_adapter`` / ``parquet_adapter`` / ``zarr_adapter`` /
+``generic_adapter``.
+
+The ``dynamic_ports`` schema for SaveData uses an
+``input_port_mapping`` key (mirror of the ``output_port_mapping``
+key in LoadData). The frontend ``computeEffectivePorts`` helper
+in T-TRK-009 must handle both keys.
+
+**i. Acceptance criteria**:
+- Symmetric with T-TRK-007.
+- Round-trip equality for each of the six core types via
+  SaveData → LoadData → assert.
+- All universal AC items satisfied.
+
+**j. Out of scope**:
+- Do not handle Collection-of-mixed-types in a single SaveData call.
+  Collection of one type is fine; mixed-type Collections raise.
+- Do not add a generic "save anything" path that bypasses the
+  ``core_type`` dispatch.
+
+**k. Dependencies**: T-TRK-006 (Block ABC migration).
+
+**l. Estimated diff size**: M (~400 lines).
+
+**m. Coupling notes**: Stacked on T-TRK-006, parallel with T-TRK-007.
+
+---
+
+### T-TRK-009 — Frontend ``BlockNode.tsx`` fixes + ``computeEffectivePorts``
+
+**a. Ticket ID and name**: T-TRK-009 — Fix the three hardcoded
+``blockType === "io_block"`` checks in ``BlockNode.tsx``, add a
+``computeEffectivePorts()`` helper that consumes ``data.schema?.dynamic_ports``,
+and update ``frontend/src/types/api.ts`` with the two new
+``BlockSchemaResponse`` fields.
+
+**b. Source ADR / spec sections**:
+- ADR-028 Addendum 1 §B (the three GUI breakages enumerated).
+- ADR-028 Addendum 1 §C8 (Browse button uses ``data.schema?.direction``).
+- ADR-028 Addendum 1 §C11 (``data.category === "io"`` discriminator).
+- Phase 11 master plan §2.2 ("Frontend changes" subsection).
+
+**c. Files to be created**:
+- ``frontend/src/utils/computeEffectivePorts.ts`` — pure-function
+  helper that takes ``(dynamicPorts, configValue)`` and returns the
+  effective ``InputPort[]`` / ``OutputPort[]`` lists.
+
+**d. Files to be modified**:
+- ``frontend/src/components/nodes/BlockNode.tsx`` — three changes:
+  1. Browse button: replace ``blockType === "io_block" && key === "path"``
+     with ``data.category === "io" && key === "path"``.
+  2. Hidden ``direction`` field: replace ``blockType === "io_block"``
+     filter with ``data.category === "io"``.
+  3. Browse file-vs-directory: replace ``data.config?.direction``
+     with ``data.schema?.direction``.
+  4. (Bonus, in scope) call ``computeEffectivePorts(data.schema?.dynamic_ports,
+     data.config?.[data.schema?.dynamic_ports?.source_config_key])``
+     when rendering the input/output port handles, so port colours
+     update live as the user changes the dropdown.
+
+- ``frontend/src/types/api.ts`` — extend ``BlockSchemaResponse`` to
+  include ``dynamic_ports?: DynamicPortsConfig | null`` and
+  ``direction?: string | null``. Define the ``DynamicPortsConfig``
+  interface to match the backend dict shape.
+
+**e. Files to be deleted**: none.
+
+**f. New tests**:
+- ``frontend/src/utils/__tests__/computeEffectivePorts.test.ts`` —
+  vitest unit tests covering:
+  - Static block (``dynamicPorts === null``) returns the original
+    ports unchanged.
+  - LoadData with ``core_type="Array"`` returns
+    ``[OutputPort{accepted_types: ["Array"]}]``.
+  - SaveData with ``core_type="DataFrame"`` returns
+    ``[InputPort{accepted_types: ["DataFrame"]}]``.
+  - Unknown enum value falls back gracefully (returns the
+    placeholder ClassVar ports, does not throw).
+
+**g. Existing tests to update**:
+- ``frontend/src/components/nodes/__tests__/BlockNode.test.tsx`` —
+  add cases for ``data.category === "io"`` and remove cases that
+  asserted on the old ``blockType === "io_block"`` paths.
+
+**h. Implementation details**:
+
+The exact line edits in ``BlockNode.tsx`` are spelled out in
+ADR-028 Addendum 1 §B (lines 179, 241-243, 247-249 of the current
+file). Implementation agent reads the addendum for the line
+numbers and the surrounding context.
+
+``computeEffectivePorts`` signature::
+
+    interface DynamicPortsConfig {
+      source_config_key: string;
+      output_port_mapping?: Record<string, Record<string, string[]>>;
+      input_port_mapping?: Record<string, Record<string, string[]>>;
+    }
+
+    export function computeEffectivePorts(
+      dynamicPorts: DynamicPortsConfig | null | undefined,
+      configValue: string | undefined,
+      basePorts: PortDef[],
+      kind: "input" | "output",
+    ): PortDef[] {
+      if (!dynamicPorts || !configValue) return basePorts;
+      const mapping = kind === "input"
+        ? dynamicPorts.input_port_mapping
+        : dynamicPorts.output_port_mapping;
+      if (!mapping) return basePorts;
+      return basePorts.map(p => {
+        const portRules = mapping[p.name];
+        if (!portRules) return p;
+        const acceptedTypes = portRules[configValue];
+        if (!acceptedTypes) return p;
+        return { ...p, accepted_types: acceptedTypes };
+      });
+    }
+
+**i. Acceptance criteria**:
+- All three hardcoded ``"io_block"`` strings are gone from
+  ``BlockNode.tsx`` (verify with ``grep "io_block" frontend/src/``).
+- ``computeEffectivePorts`` exists and is tested.
+- ``BlockSchemaResponse`` TypeScript type includes the two new
+  fields.
+- ``npm test`` (vitest) green.
+- ``npm run typecheck`` green.
+- ``npm run lint`` green.
+- All universal AC items satisfied.
+
+**j. Out of scope**:
+- Do not refactor any other React component.
+- Do not add new pages or routes.
+- Do not change styling beyond what is needed to render the new
+  port colours.
+- Do not add a backend round-trip on config change (Addendum 1
+  explicitly defers that to ADR-029).
+
+**k. Dependencies**: T-TRK-006 (the backend must populate the new
+``BlockSchemaResponse`` fields before the frontend can consume them);
+T-TRK-007 + T-TRK-008 (so there is at least one dynamic block in the
+palette to drive the manual smoke test).
+
+**l. Estimated diff size**: M (~250 lines: ~80 BlockNode + ~80
+computeEffectivePorts + ~60 types/api.ts + ~30 tests).
+
+**m. Coupling notes**: Stacked on T-TRK-007 + T-TRK-008. The frontend
+PR is the last code-bearing PR in the Sprint A sub-1b stack; T-TRK-010
+is doc-only after this.
+
+---
+
+### T-TRK-010 — ``ARCHITECTURE.md`` + ``PROJECT_TREE.md`` + ``block-sdk.md`` updates
+
+**a. Ticket ID and name**: T-TRK-010 — Update the architecture docs
+to reflect ADR-028 + Addendum 1.
+
+**b. Source ADR / spec sections**:
+- ADR-028 §F (Documentation impact).
+- Phase 11 master plan §2.5 sub-1b PR-D (originally PR-F).
+
+**c. Files to be created**: none.
+
+**d. Files to be modified**:
+- ``docs/architecture/ARCHITECTURE.md`` — §4.2 (block category
+  hierarchy: IOBlock is now an abstract base; concrete loaders
+  ship in core (LoadData / SaveData) and plugin packages) and §5.1
+  (extension points: remove the ``scieasy.adapters`` entry-point
+  group reference; mention the dynamic-port override mechanism).
+- ``docs/architecture/PROJECT_TREE.md`` — remove the
+  ``src/scieasy/blocks/io/adapters/`` subtree from the tree
+  diagram; add the ``src/scieasy/blocks/io/loaders/`` and
+  ``src/scieasy/blocks/io/savers/`` subtrees.
+- ``docs/guides/block-sdk.md`` — add a section "Writing a dynamic-port
+  block" with a worked example based on ``LoadData``; add a
+  pointer to ADR-028 Addendum 1 from the IO subsection.
+- ``docs/adr/ADR.md`` — add a "Superseded by ADR-028 §D4" stamp on
+  ADR-025 §6 (the ``scieasy.adapters`` entry-point group section).
+
+**e. Files to be deleted**: none.
+
+**f. New tests**: none. (Doc-only PR, but optional ``markdownlint``
+check.)
+
+**g. Existing tests to update**: none.
+
+**h. Implementation details**:
+1. Read each of the four target files.
+2. Identify the exact paragraphs that mention ``IOBlock`` /
+   ``adapters`` / ``adapter_registry`` / ``scieasy.adapters``.
+3. Rewrite each paragraph to reflect the post-ADR-028 architecture.
+4. Add the dynamic-port worked example to ``block-sdk.md``.
+5. Verify links to ADR-028 and Addendum 1 are correct.
+
+**i. Acceptance criteria**:
+- No reference to ``scieasy.blocks.io.adapters`` survives in any
+  of the four files.
+- No reference to ``scieasy.adapters`` entry-point survives.
+- The dynamic-port worked example is present and matches the
+  T-TRK-007 ``LoadData`` body.
+- ADR-025 §6 has a "Superseded" stamp.
+- All universal AC items satisfied.
+
+**j. Out of scope**:
+- Do not rewrite ARCHITECTURE.md beyond §4.2 + §5.1.
+- Do not introduce new ARCHITECTURE.md sections.
+- Do not edit any other ADR section.
+
+**k. Dependencies**: T-TRK-009 (last code-bearing PR in the Sprint A
+sub-1b stack — this docs PR rebases on top so it sees the final
+file paths).
+
+**l. Estimated diff size**: M (~200 lines of doc edits).
+
+**m. Coupling notes**: Stacked on T-TRK-009. Last ticket in the
+Sprint A sub-1b stacked cascade.
+
+---
+
+### T-TRK-011 — ``CLAUDE.md`` §2.5 + ``ARCHITECTURE.md`` ManualReview clarification
+
+**a. Ticket ID and name**: T-TRK-011 — Update ``CLAUDE.md`` §2.5
+("Manual steps are first-class") to reference ``AppBlock`` (Fiji
+window) instead of the deprecated ``ManualReviewBlock``, remove
+``ManualReviewBlock`` from the ARCHITECTURE.md "Strategy C built-in
+blocks" list, and add an example to ``block-sdk.md`` showing how
+to write a manual review step using ``AppBlock``.
+
+**b. Source ADR / spec sections**:
+- Phase 11 master plan §2.5 sub-1c.
+
+**c. Files to be created**: none.
+
+**d. Files to be modified**:
+- ``CLAUDE.md`` — §2.5 example: change ``ManualReviewBlock(...)`` to
+  ``AppBlock(app_command="fiji", ...)`` (or whatever the canonical
+  invocation is).
+- ``docs/architecture/ARCHITECTURE.md`` — "Strategy C built-in
+  blocks" list: remove the ``ManualReviewBlock`` line, add a one-line
+  pointer to ``AppBlock`` for the manual-review use case.
+- ``docs/guides/block-sdk.md`` — new subsection "Writing a manual
+  review step using AppBlock to open Fiji" with a code example.
+
+**e. Files to be deleted**: none. (``ManualReviewBlock`` does not
+currently exist as a class — it was a documentation artefact only.
+If a stub class is found during implementation, file a follow-up
+issue rather than deleting it inline.)
+
+**f. New tests**: none.
+
+**g. Existing tests to update**: none.
+
+**h. Implementation details**:
+1. Read CLAUDE.md §2.5 to confirm the current ``ManualReviewBlock``
+   reference.
+2. Rewrite the example with the canonical ``AppBlock`` invocation
+   (refer to existing AppBlock test code for the right kwargs).
+3. Read ARCHITECTURE.md "Strategy C" subsection.
+4. Remove the ManualReviewBlock line, add the AppBlock pointer.
+5. Add the new ``block-sdk.md`` subsection.
+
+**i. Acceptance criteria**:
+- ``git grep ManualReviewBlock`` returns 0 hits in CLAUDE.md and
+  ARCHITECTURE.md.
+- ``block-sdk.md`` has the new manual-review-via-AppBlock subsection.
+- All universal AC items satisfied.
+
+**j. Out of scope**:
+- Do not implement a new ManualReviewBlock class. The whole point
+  of this ticket is that ManualReviewBlock is being abandoned in
+  favour of the AppBlock pattern.
+- Do not touch any source code under ``src/scieasy/blocks/``.
+
+**k. Dependencies**: none. Independent of every other ticket.
+
+**l. Estimated diff size**: S (~80 lines of doc edits).
+
+**m. Coupling notes**: Standalone. Sprint A Level A0 parallel.
+
+---
+
+### T-TRK-012 — ``FilterCollection`` metadata query
+
+**a. Ticket ID and name**: T-TRK-012 — Extend
+``src/scieasy/blocks/process/builtins/filter_collection.py`` to
+accept an ``expression: str`` config param parsed via an AST
+whitelist (NOT ``eval()``).
+
+**b. Source ADR / spec sections**:
+- Phase 11 master plan §2.5 sub-1d.
+
+**c. Files to be created**:
+- ``src/scieasy/blocks/process/builtins/expression_evaluator.py``
+  — the AST whitelist evaluator (a small new module that the
+  ``FilterCollection`` block depends on).
+
+**d. Files to be modified**:
+- ``src/scieasy/blocks/process/builtins/filter_collection.py`` —
+  add the ``expression`` config field and the runtime evaluator
+  call.
+
+**e. Files to be deleted**: none.
+
+**f. New tests**:
+- ``tests/blocks/process/builtins/test_filter_collection_expression.py``
+  — covers:
+  - Filtering by ``meta.framework.created_at`` comparison.
+  - Filtering by ``user.tag in [...]``.
+  - Filtering by ``index < 5``.
+  - Rejection of forbidden constructs: ``__import__``, function
+    calls (except whitelisted ``len``), subscript ranges, exec.
+  - Empty result Collection passes through cleanly.
+- ``tests/blocks/process/builtins/test_expression_evaluator.py`` —
+  unit tests for the AST whitelist evaluator independently of the
+  ``FilterCollection`` block.
+
+**g. Existing tests to update**: any existing FilterCollection test
+that asserted on the pre-expression behaviour.
+
+**h. Implementation details**:
+
+**Allowed AST nodes**:
+``Module``, ``Expression``, ``Compare``, ``BoolOp``, ``UnaryOp``,
+``Constant``, ``Name``, ``Attribute``, ``Subscript`` (with literal
+key only), ``In``, ``NotIn``, ``And``, ``Or``, ``Not``, ``Eq``,
+``NotEq``, ``Lt``, ``LtE``, ``Gt``, ``GtE``.
+
+**Allowed names** (evaluation scope):
+``item`` (DataObject), ``index`` (int), ``meta`` (alias for
+``item.meta``), ``framework`` (alias for ``item.framework``),
+``user`` (alias for ``item.user``), and the whitelisted call
+``len``.
+
+**Forbidden**:
+``Call`` (except ``len(...)``), ``Import``, ``ImportFrom``,
+``Lambda``, ``FunctionDef``, ``ClassDef``, ``Global``, ``Nonlocal``,
+dunder attribute access (any name starting with ``__``).
+
+The evaluator walks the AST once at parse time to validate; if any
+forbidden node is found, raises ``ValueError("Expression contains
+forbidden construct: <node>")`` at workflow validation time (NOT
+at runtime, so users see the error immediately).
+
+At runtime, the evaluator walks the AST again with the per-item
+scope dict and returns ``True`` / ``False``.
+
+**i. Acceptance criteria**:
+- ``FilterCollection`` accepts an ``expression`` config field.
+- The evaluator validates the expression at parse time and rejects
+  forbidden constructs with a clear error.
+- Six positive test cases pass.
+- Six rejection test cases all raise ``ValueError``.
+- ``mypy`` clean.
+- All universal AC items satisfied.
+
+**j. Out of scope**:
+- Do not add a "trusted mode" that bypasses the whitelist.
+- Do not introduce any new keyword to the language (no
+  ``filter where ...`` DSL — pure Python expression syntax only).
+- Do not move ``FilterCollection`` to a plugin package. It stays in
+  core because the imaging plugin depends on it.
+
+**k. Dependencies**: T-TRK-002 (``register.py`` deletion is in the
+same ``builtins`` directory; merging T-TRK-002 first prevents stray
+import-removal merge conflicts).
+
+**l. Estimated diff size**: M (~300 lines: ~150 evaluator + ~80
+FilterCollection + ~150 tests).
+
+**m. Coupling notes**: Sprint B parallel. Independent of sub-1e /
+sub-1f / sub-1g.
+
+---
+
+### T-TRK-013 — CodeBlock R runner audit
+
+**a. Ticket ID and name**: T-TRK-013 — Write an integration test
+that runs a real R script via ``CodeBlock(language="r")``, passes
+a DataFrame in, gets a DataFrame out. If the R runner does not
+work end-to-end, file an issue and request a fix.
+
+**b. Source ADR / spec sections**:
+- Phase 11 master plan §2.5 sub-1e.
+
+**c. Files to be created**:
+- ``tests/blocks/code/test_codeblock_r_integration.py``
+- (Optionally) ``tests/blocks/code/fixtures/sample_pipeline.R`` if
+  the R script body is non-trivial.
+
+**d. Files to be modified**:
+- ``pyproject.toml`` — register ``requires_r`` marker per Q7+Q8.
+
+**e. Files to be deleted**: none.
+
+**f. New tests**:
+- ``test_codeblock_r_dataframe_roundtrip`` — guarded by
+  ``@pytest.mark.requires_r``. Loads a small DataFrame in Python,
+  passes it through a CodeBlock running an R script that filters
+  rows, asserts the returned DataFrame matches the expected.
+- ``test_codeblock_r_error_propagates`` — R script raises an error;
+  test asserts the CodeBlock surfaces it as a Python exception
+  with the R error message preserved.
+
+**g. Existing tests to update**: none.
+
+**h. Implementation details**:
+
+The R script is a few lines::
+
+    # script.R
+    df <- read.csv(args$input_path)
+    filtered <- df[df$value > 5, ]
+    write.csv(filtered, args$output_path, row.names = FALSE)
+
+The CodeBlock invocation::
+
+    block = CodeBlock(language="r", script=open("sample_pipeline.R").read())
+    result = block.run(inputs={"data": df}, config=...)
+
+If anything in the runner is broken (R not found, args not passed,
+output not parsed), the test must produce a clear failure message
+and an issue must be filed via ``gh issue create`` (separately —
+not as part of this PR).
+
+**i. Acceptance criteria**:
+- Both new tests exist.
+- Both tests are marker-protected and skip cleanly when R is not
+  installed.
+- If R is installed locally, both tests pass.
+- ``requires_r`` marker is registered.
+- All universal AC items satisfied.
+
+**j. Out of scope**:
+- Do not add R installation scripts.
+- Do not add a CI workflow to install R (that is a follow-up).
+- Do not modify any source under ``src/scieasy/blocks/code/``
+  unless a verified bug requires it. If a bug is found, file a
+  separate issue and reference it in this PR; the fix is a
+  separate PR.
+
+**k. Dependencies**: T-TRK-014 not strictly required (different
+language) but the two CodeBlock audits are commonly merged together.
+
+**l. Estimated diff size**: S (~150 lines).
+
+**m. Coupling notes**: Sprint B parallel. Sequential dependency for
+T-LCMS-007 (AccuCorR depends on a working R runner).
+
+---
+
+### T-TRK-014 — CodeBlock Python runner audit
+
+**a. Ticket ID and name**: T-TRK-014 — Write an integration test
+that runs a realistic user pipeline (e.g., a scikit-image workflow
+on a test image) via ``CodeBlock(language="python")`` and verifies
+that Collection auto-unpack/repack works correctly on a list of
+DataObjects.
+
+**b. Source ADR / spec sections**:
+- Phase 11 master plan §2.5 sub-1f.
+
+**c. Files to be created**:
+- ``tests/blocks/code/test_codeblock_python_integration.py``
+
+**d. Files to be modified**: none unless a bug is found.
+
+**e. Files to be deleted**: none.
+
+**f. New tests**:
+- ``test_codeblock_python_skimage_workflow`` — uses the test
+  images from ``tests/fixtures/test_images.py`` (added by T-TRK-003);
+  runs a Python CodeBlock that loads, gaussian-filters, and
+  thresholds the image; asserts the output Collection has the
+  expected length and the expected per-item type.
+- ``test_codeblock_python_collection_unpack`` — passes a Collection
+  of three DataFrame items; the script processes each; the result
+  is a Collection of three processed DataFrames.
+
+**g. Existing tests to update**: none.
+
+**h. Implementation details**: same shape as T-TRK-013. If
+auto-unpack/repack has a bug, file an issue separately.
+
+**i. Acceptance criteria**:
+- Both tests exist and pass on a fresh clone with default Python
+  dependencies.
+- All universal AC items satisfied.
+
+**j. Out of scope**: same as T-TRK-013 — do not modify
+``src/scieasy/blocks/code/`` unless a verified bug requires it.
+
+**k. Dependencies**: T-TRK-003 (test image fixtures must exist).
+
+**l. Estimated diff size**: S (~150 lines).
+
+**m. Coupling notes**: Sprint B parallel.
+
+---
+
+### T-TRK-015 — AppBlock functional audit
+
+**a. Ticket ID and name**: T-TRK-015 — Write an integration test
+that launches Fiji via AppBlock, optionally drives it with a
+Fiji macro for automation, and collects output. Verify FileWatcher
+stability, ProcessHandle cleanup on exit, and exchange directory
+cleanup.
+
+**b. Source ADR / spec sections**:
+- Phase 11 master plan §2.5 sub-1g.
+- Existing AppBlock tests in ``tests/blocks/app/`` (read for the
+  right invocation pattern).
+
+**c. Files to be created**:
+- ``tests/blocks/app/test_appblock_fiji_integration.py``
+- ``tests/blocks/app/fixtures/headless_macro.ijm`` — a small Fiji
+  macro that opens a test image, applies a Gaussian blur, saves
+  result to a known path.
+
+**d. Files to be modified**:
+- ``packages/scieasy-blocks-imaging/pyproject.toml`` (or root
+  ``pyproject.toml`` if no plugin scaffold yet at this point) —
+  register the ``requires_fiji`` marker per Q7. Note: this ticket
+  runs **before** T-IMG-038 plugin packaging, so the marker
+  registration may go in root ``pyproject.toml`` and migrate to
+  the plugin's ``pyproject.toml`` in T-IMG-038.
+
+**e. Files to be deleted**: none.
+
+**f. New tests**:
+- ``test_appblock_fiji_launch_and_macro`` — guarded by
+  ``@pytest.mark.requires_fiji``. Launches Fiji with the headless
+  macro, waits for the output file, asserts it exists and is the
+  expected size.
+- ``test_appblock_fiji_filewatcher_cleanup`` — confirms the
+  FileWatcher thread terminates cleanly after the AppBlock exits.
+- ``test_appblock_fiji_process_cleanup`` — confirms the Fiji
+  process is reaped (no zombie process) after the block completes.
+- ``test_appblock_exchange_dir_cleanup`` — confirms the temporary
+  exchange directory is removed after the block exits successfully.
+
+**g. Existing tests to update**: none.
+
+**h. Implementation details**:
+
+Fiji executable path: ``C:\Program Files\Fiji\fiji-windows-x64.exe``
+(per master plan §10).
+
+The Fiji macro invocation::
+
+    block = FijiBlock(
+        config={
+            "macro_path": "tests/blocks/app/fixtures/headless_macro.ijm",
+            "input_image_path": str(K562_L_2845_TIF),
+            "output_image_path": str(tmp_path / "blurred.tif"),
+        }
+    )
+
+If FileWatcher / ProcessHandle / exchange-dir cleanup is broken,
+file an issue. Do not fix in this PR — it is an audit, not a fix.
+
+**i. Acceptance criteria**:
+- Four tests exist and skip cleanly when Fiji is not installed.
+- ``requires_fiji`` marker is registered.
+- If Fiji is installed locally, all four tests pass.
+- All universal AC items satisfied.
+
+**j. Out of scope**:
+- Do not implement ``FijiBlock`` if it does not exist yet — this
+  ticket only audits the existing AppBlock + Fiji invocation
+  pattern. If ``FijiBlock`` does not exist, defer the test bodies
+  to T-IMG-034 and only register the marker here.
+- Do not modify ``AppBlock`` source unless a verified bug requires
+  it; file a separate issue.
+
+**k. Dependencies**: T-TRK-003 (test image constants).
+
+**l. Estimated diff size**: M (~250 lines including the .ijm macro
+fixture).
+
+**m. Coupling notes**: Sprint B parallel. Sequential dependency for
+T-IMG-034 (FijiBlock needs a working AppBlock + Fiji audit).
+
+---
