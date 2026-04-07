@@ -10,7 +10,7 @@ from pytest import MonkeyPatch
 
 from scieasy.api.runtime import ApiRuntime
 from scieasy.core.storage.ref import StorageReference
-from scieasy.core.types.array import Image
+from scieasy.core.types.array import Array
 from scieasy.core.types.composite import CompositeData
 from scieasy.core.types.series import Series
 
@@ -66,7 +66,7 @@ def test_preview_supports_image_series_composite_and_artifact_types(
     monkeypatch.setattr(tiff_adapter.TIFFAdapter, "read", lambda self, path: FakeImage())
     image_record = runtime.register_data_ref(
         StorageReference(backend="filesystem", path=str(image_path), format="tiff"),
-        type_name=Image.__name__,
+        type_name=Array.__name__,
     )
     image_preview = client.get(f"/api/data/{image_record.id}/preview")
     assert image_preview.status_code == 200

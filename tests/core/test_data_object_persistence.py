@@ -14,7 +14,7 @@ class TestArrayGetInMemoryData:
     """Array.get_in_memory_data — returns numpy array from _data."""
 
     def test_array_get_in_memory_data(self) -> None:
-        arr = Array(shape=(3, 3), ndim=2, dtype="float64")
+        arr = Array(axes=["y", "x"], shape=(3, 3), dtype="float64")
         arr._data = np.ones((3, 3))
         result = arr.get_in_memory_data()
         assert isinstance(result, np.ndarray)
@@ -45,7 +45,7 @@ class TestSaveArrayToZarr:
     def test_save_array_to_zarr(self, tmp_path: object) -> None:
         import zarr
 
-        arr = Array(shape=(4, 4), ndim=2, dtype="float32")
+        arr = Array(axes=["y", "x"], shape=(4, 4), dtype="float32")
         arr._data = np.arange(16, dtype="float32").reshape(4, 4)
 
         target = (tmp_path / "test.zarr").as_posix()
@@ -67,7 +67,7 @@ class TestSaveIdempotency:
     """DataObject.save — subsequent calls are no-ops."""
 
     def test_save_is_idempotent(self, tmp_path: object) -> None:
-        arr = Array(shape=(2, 2), ndim=2, dtype="float64")
+        arr = Array(axes=["y", "x"], shape=(2, 2), dtype="float64")
         arr._data = np.ones((2, 2))
 
         target = (tmp_path / "idem.zarr").as_posix()

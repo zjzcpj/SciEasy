@@ -40,12 +40,21 @@ class TypeSignature:
 
     Attributes:
         type_chain: Ordered list of type names from most general to most specific,
-            e.g. ``["DataObject", "Array", "Image"]``.
+            e.g. ``["DataObject", "Array", "FluorImage"]``.
         slot_schema: Optional mapping of slot names to type names (for composites).
+        required_axes: Optional frozenset of axis names that Array subclasses
+            require at the instance level. ``None`` for non-Array types or
+            for Array itself (which has an empty ``required_axes`` ClassVar).
+            Populated by :meth:`from_type` from the class's
+            ``required_axes`` ClassVar when it is non-empty. Added per
+            ADR-027 D1 so that port ``port_accepts_signature`` checks can
+            enforce "incoming instance must have at least required_axes of
+            target port type".
     """
 
     type_chain: list[str]
     slot_schema: dict[str, str] | None = field(default=None)
+    required_axes: frozenset[str] | None = field(default=None)
 
     def matches(self, other: TypeSignature) -> bool:
         """Return ``True`` if *other* is compatible with this signature.
@@ -76,6 +85,11 @@ class TypeSignature:
         This walks the MRO up to (but not including) ``object`` and records
         the class names, filtered to only include ``DataObject`` and its
         subclasses.
+
+        If ``data_type`` is an ``Array`` subclass with a non-empty
+        ``required_axes`` ClassVar, the frozenset is captured on the
+        resulting signature (ADR-027 D1). ``Array`` itself has an empty
+        ``required_axes`` and therefore produces ``required_axes=None``.
         """
         chain: list[str] = []
         for klass in reversed(data_type.__mro__):
@@ -89,7 +103,17 @@ class TypeSignature:
         if hasattr(data_type, "expected_slots") and data_type.expected_slots:
             slot_schema = {name: t.__name__ for name, t in data_type.expected_slots.items()}
 
-        return cls(type_chain=chain, slot_schema=slot_schema)
+        # ADR-027 D1: capture required_axes for Array subclasses so port
+        # checks can enforce "incoming instance must have at least
+        # required_axes of target port type". Only populated when the
+        # ClassVar is non-empty; Array itself has an empty frozenset and
+        # so maps to None here.
+        required_axes: frozenset[str] | None = None
+        raw_required = getattr(data_type, "required_axes", None)
+        if isinstance(raw_required, frozenset) and len(raw_required) > 0:
+            required_axes = raw_required
+
+        return cls(type_chain=chain, slot_schema=slot_schema, required_axes=required_axes)
 
 
 class DataObject:

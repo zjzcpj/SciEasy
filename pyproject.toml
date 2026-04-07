@@ -67,10 +67,13 @@ mzxml = "scieasy.blocks.io.adapters.mzxml_adapter:MzXMLAdapter"
 h5ad = "scieasy.blocks.io.adapters.h5ad_adapter:H5ADAdapter"
 parquet = "scieasy.blocks.io.adapters.parquet_adapter:ParquetAdapter"
 
+# T-008 / ADR-027 D2: the previous entry-points here pointed at
+# core ``Image``, ``Spectrum``, and ``PeakTable`` classes that were
+# removed in T-006 and T-007. The classes now live in plugin
+# packages (``scieasy-blocks-imaging``, ``scieasy-blocks-spectral``)
+# which declare their own ``scieasy.types`` entry-points. The core
+# repository contributes no built-in domain types via this group.
 [project.entry-points."scieasy.types"]
-image = "scieasy.core.types.array:Image"
-spectrum = "scieasy.core.types.series:Spectrum"
-peak_table = "scieasy.core.types.dataframe:PeakTable"
 
 [project.entry-points."scieasy.runners"]
 python = "scieasy.blocks.code.runners.python_runner:PythonRunner"
@@ -126,6 +129,9 @@ addopts = "-ra -q --cov=scieasy --cov-report=term-missing --cov-fail-under=85"
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+markers = [
+    "requires_imaging: marks tests that need scieasy-blocks-imaging installed (deselect with '-m \"not requires_imaging\"')",
+]
 
 [tool.importlinter]
 root_packages = ["scieasy"]

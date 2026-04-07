@@ -1,14 +1,37 @@
-"""Tests for CompositeData slot access and nested composites (Phase 3.1)."""
+"""Tests for CompositeData slot access and nested composites (Phase 3.1).
+
+T-006 (ADR-027 D2) removed ``Image`` from core. The one test that uses
+it (test_set_subtype_accepted) now uses a local shim subclass. Full
+migration is T-008.
+"""
 
 from __future__ import annotations
 
+from typing import Any, ClassVar
+
 import pytest
 
-from scieasy.core.types.array import Array, Image
+from scieasy.core.types.array import Array
 from scieasy.core.types.artifact import Artifact
 from scieasy.core.types.base import DataObject
 from scieasy.core.types.composite import AnnData, CompositeData, SpatialData
 from scieasy.core.types.dataframe import DataFrame
+
+
+class Image(Array):
+    """T-006 shim — plugin migration tracked by T-008."""
+
+    required_axes: ClassVar[frozenset[str]] = frozenset({"y", "x"})
+
+    def __init__(
+        self,
+        *,
+        shape: tuple[int, ...] | None = None,
+        ndim: int | None = None,
+        dtype: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(axes=["y", "x"], shape=shape, dtype=dtype, **kwargs)
 
 
 class TestCompositeDataSlotAccess:
@@ -60,7 +83,7 @@ class TestAnnDataSlots:
 
     def test_set_valid_slot(self) -> None:
         ad = AnnData()
-        x = Array(shape=(100, 50), dtype="float64")
+        x = Array(axes=["y", "x"], shape=(100, 50), dtype="float64")
         obs = DataFrame(columns=["cell_type"], row_count=100)
         ad.set("X", x)
         ad.set("obs", obs)
@@ -111,13 +134,13 @@ class TestNestedComposites:
 
     def test_nested_access(self) -> None:
         ad = AnnData()
-        x = Array(shape=(100, 50), dtype="float64")
+        x = Array(axes=["y", "x"], shape=(100, 50), dtype="float64")
         obs = DataFrame(columns=["cell_type"], row_count=100)
         ad.set("X", x)
         ad.set("obs", obs)
 
         sd = SpatialData()
-        images = Array(shape=(1024, 1024, 3))
+        images = Array(axes=["y", "x", "c"], shape=(1024, 1024, 3))
         points = DataFrame(columns=["x", "y", "z"])
         sd.set("images", images)
         sd.set("points", points)
@@ -147,7 +170,7 @@ class TestCompositeInitValidation:
             AnnData(slots={"X": wrong})
 
     def test_init_with_valid_slots_succeeds(self) -> None:
-        x = Array(shape=(10, 5), dtype="float64")
+        x = Array(axes=["y", "x"], shape=(10, 5), dtype="float64")
         obs = DataFrame(columns=["cell"], row_count=10)
         ad = AnnData(slots={"X": x, "obs": obs})
         assert ad.get("X") is x

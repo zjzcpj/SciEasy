@@ -69,8 +69,17 @@ class TypeRegistry:
         return isinstance(obj, cls)
 
     def scan_builtins(self) -> None:
-        """Register all built-in DataObject subclasses shipped with SciEasy."""
-        from scieasy.core.types.array import Array, FluorImage, Image, MSImage, SRSImage
+        """Register all built-in DataObject subclasses shipped with SciEasy.
+
+        Per ADR-027 D2 and T-006, the Array-family domain subtypes
+        (``Image``, ``FluorImage``, ``MSImage``, ``SRSImage``) no longer
+        live in core — they have moved to the ``scieasy-blocks-imaging``
+        plugin. The registry therefore no longer auto-registers them.
+        They are re-registered via the ``scieasy.types`` entry-point
+        mechanism when the plugin is installed (see
+        :meth:`_scan_entrypoint_types`).
+        """
+        from scieasy.core.types.array import Array
         from scieasy.core.types.artifact import Artifact
         from scieasy.core.types.base import DataObject
         from scieasy.core.types.composite import AnnData, CompositeData, SpatialData
@@ -81,10 +90,6 @@ class TypeRegistry:
         builtins: list[type] = [
             DataObject,
             Array,
-            Image,
-            MSImage,
-            SRSImage,
-            FluorImage,
             Series,
             Spectrum,
             RamanSpectrum,

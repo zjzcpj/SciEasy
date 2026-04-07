@@ -1,9 +1,18 @@
-"""DataObject type hierarchy — re-exports all base and domain types."""
+"""DataObject type hierarchy — re-exports all base types.
+
+Per ADR-027 D2, ``scieasy.core.types`` contains ONLY the base types.
+Domain subtypes (``Image``, ``FluorImage``, ``MSImage``, ``SRSImage``,
+``Spectrum``, ``RamanSpectrum``, etc.) live in plugin packages
+(``scieasy-blocks-imaging``, ``scieasy-blocks-spectral``,
+``scieasy-blocks-msi``, ...). T-006 deleted the Array-family subclasses;
+T-007 will audit the remaining five base-class modules for stray
+domain subtypes.
+"""
 
 from __future__ import annotations
 
 from scieasy.core.storage.ref import StorageReference
-from scieasy.core.types.array import Array, FluorImage, Image, MSImage, SRSImage
+from scieasy.core.types.array import Array
 from scieasy.core.types.artifact import Artifact
 from scieasy.core.types.base import DataObject, TypeSignature
 from scieasy.core.types.collection import Collection
@@ -21,14 +30,10 @@ __all__ = [
     "CompositeData",
     "DataFrame",
     "DataObject",
-    "FluorImage",
-    "Image",
-    "MSImage",
     "MassSpectrum",
     "MetabPeakTable",
     "PeakTable",
     "RamanSpectrum",
-    "SRSImage",
     "Series",
     "SpatialData",
     "Spectrum",

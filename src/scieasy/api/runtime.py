@@ -20,7 +20,7 @@ import yaml
 from scieasy.blocks.io.adapter_registry import AdapterRegistry
 from scieasy.blocks.registry import BlockRegistry
 from scieasy.core.storage.ref import StorageReference
-from scieasy.core.types.array import Array, Image
+from scieasy.core.types.array import Array
 from scieasy.core.types.artifact import Artifact
 from scieasy.core.types.composite import CompositeData
 from scieasy.core.types.dataframe import DataFrame
@@ -60,8 +60,12 @@ def _infer_type_name_from_ref(ref: StorageReference) -> str:
         return DataFrame.__name__
     if fmt in {"txt", "json", "yaml", "yml", "md"}:
         return Text.__name__
+    # T-006 / ADR-027 D2: ``Image`` lives in the imaging plugin, not
+    # core. Imaging payloads are modelled as generic ``Array`` with
+    # ``axes=["y", "x"]`` here; the frontend preview hook still handles
+    # the "image" kind via the TIFF/PNG data-URI path below.
     if fmt in {"png", "jpg", "jpeg", "tif", "tiff"}:
-        return Image.__name__
+        return Array.__name__
     if fmt == "zarr":
         return Array.__name__
     return Artifact.__name__
@@ -569,7 +573,7 @@ class ApiRuntime:
                 "language": suffix.lstrip(".") or "text",
             }
 
-        if record.type_name in {Array.__name__, Image.__name__} or suffix in {".tif", ".tiff"}:
+        if record.type_name == Array.__name__ or suffix in {".tif", ".tiff"}:
             try:
                 from scieasy.blocks.io.adapters.tiff_adapter import TIFFAdapter
 
