@@ -3610,6 +3610,20 @@ The package author writes a custom save/load hook or a thin wrapper block that p
 
 #### 6. Adapter registration via entry-points
 
+> **Status (2026-04-08): SUPERSEDED by ADR-028 §D4.** The `scieasy.adapters`
+> entry-point group described in this section has been removed. Concrete IO is
+> now provided by `IOBlock` ABC subclasses (`LoadData`, `SaveData`, plus
+> plugin-owned loaders like `LoadImage` and `LoadMSRawFile`) registered under
+> the existing `scieasy.blocks` entry-point group. The `FormatAdapter` protocol,
+> the per-extension adapter registry, and the `get_adapters()` callable have
+> all been deleted; the logic that previously lived in
+> `src/scieasy/blocks/io/adapters/{csv,parquet,zarr,generic}_adapter.py` was
+> absorbed into module-level private `_load_*` / `_save_*` functions inside
+> `LoadData` and `SaveData` (ADR-028 Addendum 1 §C9). Plugin-owned IO blocks
+> use the dynamic-port mechanism (ADR-028 Addendum 1 §C5) when one class needs
+> to expose different effective output types based on user config. The text
+> below is preserved verbatim for historical context — do not implement it.
+
 Custom adapters handle domain-specific file formats:
 
 ```python
