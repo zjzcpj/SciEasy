@@ -55,6 +55,29 @@ class Block(ABC):
     input_ports: ClassVar[list[InputPort]] = []
     output_ports: ClassVar[list[OutputPort]] = []
 
+    # ADR-028 Addendum 1 D1: declarative dynamic-port override mechanism.
+    # When non-None, must be a dict of the shape::
+    #
+    #     {
+    #         "source_config_key": str,                          # config field whose value drives the override
+    #         "output_port_mapping": {                          # port name -> enum value -> list of accepted type names
+    #             "<port_name>": {
+    #                 "<enum_value>": ["<TypeName>", ...],
+    #                 ...
+    #             },
+    #             ...
+    #         },
+    #     }
+    #
+    # The shape is validated at registry scan time by
+    # ``BlockRegistry._validate_dynamic_ports`` so malformed declarations fail
+    # loudly at import time. Dynamic blocks (e.g. ``LoadData`` / ``SaveData``)
+    # additionally override :meth:`get_effective_input_ports` /
+    # :meth:`get_effective_output_ports` to compute their per-instance ports
+    # from ``self.config``. The ClassVar itself is the static descriptor that
+    # the API and frontend consume to render the dynamic-port UI.
+    dynamic_ports: ClassVar[dict[str, Any] | None] = None
+
     execution_mode: ClassVar[ExecutionMode] = ExecutionMode.AUTO
     # ADR-020: batch_mode and on_batch_error REMOVED — Collection iteration is block-internal.
     # ADR-019: grace period for SIGTERM before SIGKILL on cancellation.
@@ -76,6 +99,34 @@ class Block(ABC):
             raise RuntimeError(f"Invalid state transition: {self.state.value} -> {target.value}")
         self.state = target
 
+    # -- ADR-028 Addendum 1 D2: effective-ports hooks --------------------------
+
+    def get_effective_input_ports(self) -> list[InputPort]:
+        """Return effective input ports for this instance.
+
+        Default implementation returns a copy of the class-level
+        ``input_ports`` ClassVar. Dynamic blocks (e.g. ``LoadData`` /
+        ``SaveData``) override this method to return instance-specific ports
+        computed from ``self.config``.
+
+        Framework callsites that need per-instance port information (e.g.
+        :meth:`Block.validate`, ``ProcessBlock.run``,
+        ``workflow/validator.py``) MUST go through this method instead of
+        reading the ClassVar directly.
+        """
+        return list(type(self).input_ports)
+
+    def get_effective_output_ports(self) -> list[OutputPort]:
+        """Return effective output ports for this instance.
+
+        Default implementation returns a copy of the class-level
+        ``output_ports`` ClassVar. Dynamic blocks override this method to
+        return instance-specific ports computed from ``self.config``.
+
+        See :meth:`get_effective_input_ports` for the framework rationale.
+        """
+        return list(type(self).output_ports)
+
     # -- hooks -----------------------------------------------------------------
 
     def validate(self, inputs: dict[str, Any]) -> bool:
@@ -89,10 +140,13 @@ class Block(ABC):
         Returns ``True`` when all inputs satisfy their constraints.
         Raises ``ValueError`` on the first failed check.
         """
-        port_map = {p.name: p for p in self.input_ports}
+        # ADR-028 Addendum 1 D5: read effective ports so dynamic blocks
+        # validate against their per-instance port set.
+        effective_input_ports = self.get_effective_input_ports()
+        port_map = {p.name: p for p in effective_input_ports}
 
         # Check required ports are present.
-        for port in self.input_ports:
+        for port in effective_input_ports:
             if port.required and port.name not in inputs and port.default is None:
                 raise ValueError(f"Required input port '{port.name}' is missing.")
 
