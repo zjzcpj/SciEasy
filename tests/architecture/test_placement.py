@@ -125,3 +125,22 @@ def test_no_py_files_outside_known_packages() -> None:
         if top_package not in known_packages:
             stray.append(str(relative))
     assert not stray, f"Found .py files outside known packages: {stray}"
+
+
+def test_process_contrib_directory_removed() -> None:
+    """``blocks/process/contrib/`` must not exist (T-TRK-001).
+
+    Phase 11 abandons the ``contrib`` pattern in favour of the plugin
+    package pattern. The four 1-line stub modules and their parent
+    directory were deleted by T-TRK-001 (Phase 11 master plan §2.5
+    sub-1a). The real ``CellposeSegment`` implementation lives in
+    ``packages/scieasy-blocks-imaging/`` per T-IMG-019. This regression
+    test prevents the directory from being silently re-introduced.
+    """
+    contrib_dir = SRC_ROOT / "blocks" / "process" / "contrib"
+    assert not contrib_dir.exists(), (
+        f"{contrib_dir.relative_to(SRC_ROOT)} must not exist — the contrib "
+        "pattern was deleted in T-TRK-001 (Phase 11). Add new process "
+        "blocks to scieasy/blocks/process/builtins/ or to a plugin "
+        "package under packages/scieasy-blocks-*/."
+    )
