@@ -24,7 +24,6 @@ from scieasy.core.types.series import Series
 from scieasy.workflow.definition import EdgeDef, NodeDef, WorkflowDefinition
 from scieasy.workflow.validator import validate_workflow
 
-
 # ---------------------------------------------------------------------------
 # Test fixture blocks (module-level so the registry can import them)
 # ---------------------------------------------------------------------------

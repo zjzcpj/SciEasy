@@ -21,7 +21,6 @@ from typing import Any, ClassVar
 import pytest
 
 from scieasy.api.schemas import BlockSchemaResponse
-from scieasy.blocks.base.block import Block
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.process.process_block import ProcessBlock
@@ -29,7 +28,6 @@ from scieasy.blocks.registry import BlockRegistry, _spec_from_class
 from scieasy.core.types.array import Array
 from scieasy.core.types.base import DataObject
 from scieasy.core.types.dataframe import DataFrame
-
 
 # ---------------------------------------------------------------------------
 # Effective-ports defaults and overrides
@@ -227,7 +225,7 @@ class TestValidateDynamicPorts:
             def process_item(self, item: Any, config: BlockConfig, state: Any = None) -> Any:
                 return item
 
-        with pytest.raises(ValueError, match="source_config_key.*non-empty string"):
+        with pytest.raises(ValueError, match=r"source_config_key.*non-empty string"):
             BlockRegistry._validate_dynamic_ports(_BadBlock)
 
     def test_raises_when_output_port_mapping_missing(self) -> None:
@@ -254,7 +252,7 @@ class TestValidateDynamicPorts:
             def process_item(self, item: Any, config: BlockConfig, state: Any = None) -> Any:
                 return item
 
-        with pytest.raises(ValueError, match="output_port_mapping.*must be a dict"):
+        with pytest.raises(ValueError, match=r"output_port_mapping.*must be a dict"):
             BlockRegistry._validate_dynamic_ports(_BadBlock)
 
     def test_raises_when_enum_value_list_is_not_list(self) -> None:

@@ -113,14 +113,10 @@ class BlockRegistry:
 
         cls_name = cls.__name__
         if not isinstance(descriptor, dict):
-            raise ValueError(
-                f"{cls_name}.dynamic_ports must be a dict or None, got {type(descriptor).__name__}"
-            )
+            raise ValueError(f"{cls_name}.dynamic_ports must be a dict or None, got {type(descriptor).__name__}")
 
         if "source_config_key" not in descriptor:
-            raise ValueError(
-                f"{cls_name}.dynamic_ports is missing required key 'source_config_key'"
-            )
+            raise ValueError(f"{cls_name}.dynamic_ports is missing required key 'source_config_key'")
         source_key = descriptor["source_config_key"]
         if not isinstance(source_key, str) or not source_key:
             raise ValueError(
@@ -129,21 +125,17 @@ class BlockRegistry:
             )
 
         if "output_port_mapping" not in descriptor:
-            raise ValueError(
-                f"{cls_name}.dynamic_ports is missing required key 'output_port_mapping'"
-            )
+            raise ValueError(f"{cls_name}.dynamic_ports is missing required key 'output_port_mapping'")
         mapping = descriptor["output_port_mapping"]
         if not isinstance(mapping, dict):
             raise ValueError(
-                f"{cls_name}.dynamic_ports['output_port_mapping'] must be a dict, "
-                f"got {type(mapping).__name__}"
+                f"{cls_name}.dynamic_ports['output_port_mapping'] must be a dict, got {type(mapping).__name__}"
             )
 
         for port_name, enum_map in mapping.items():
             if not isinstance(port_name, str) or not port_name:
                 raise ValueError(
-                    f"{cls_name}.dynamic_ports['output_port_mapping'] keys must be non-empty strings, "
-                    f"got {port_name!r}"
+                    f"{cls_name}.dynamic_ports['output_port_mapping'] keys must be non-empty strings, got {port_name!r}"
                 )
             if not isinstance(enum_map, dict):
                 raise ValueError(
