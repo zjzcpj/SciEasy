@@ -2592,3 +2592,198 @@ metadata: dependency edges, sprint bucket, and coupling notes.
   releases the imaging plugin at version 0.1.0.
 
 ---
+
+### 9.3 Track 3 — SRS plugin (compact reference format)
+
+Each entry below is a pointer to ``docs/specs/phase11-srs-block-spec.md``.
+SRS depends on the imaging plugin: ``SRSImage`` extends ``Image``.
+Cross-plugin imports follow Q5 (``pytest.importorskip``).
+
+Sprint D. All Track 3 tickets land in ``packages/scieasy-blocks-srs/``.
+
+---
+
+#### T-SRS-000 — Package skeleton + entry points
+
+- **Source**: SRS spec §9 T-SRS-000
+- **Summary**: ``packages/scieasy-blocks-srs/`` directory tree,
+  ``pyproject.toml``, empty ``src/``, empty ``tests/conftest.py``
+  with the ``imaging_types`` fixture per Q5.
+- **Files**: ``pyproject.toml``, ``src/scieasy_blocks_srs/__init__.py``,
+  ``tests/conftest.py``
+- **Dependencies**: T-IMG-038 (imaging plugin must be installable
+  before SRS can declare a runtime dependency on it).
+- **Estimated diff size**: S
+- **Coupling notes**: Standalone. **First ticket in Sprint D.**
+
+---
+
+#### T-SRS-001 — ``SRSImage`` type + Meta model
+
+- **Source**: SRS spec §9 T-SRS-001
+- **Summary**: ``SRSImage(Image)`` with ``required_axes={"y","x","lambda"}``
+  and the SRS-specific ``Meta`` Pydantic model (wavenumbers,
+  laser_power, integration_time, digitizer_*, pump/stokes wavelength).
+  **NO ``RamanSpectrum``** — spectra are DataFrames per master plan
+  §2.4.
+- **Files**: ``src/scieasy_blocks_srs/types.py`` + tests
+- **Dependencies**: T-SRS-000, T-IMG-001
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-SRS-002 — ``SRSCalibrate``
+
+- **Source**: SRS spec §9 T-SRS-002
+- **Summary**: Digitizer inversion + ``Image → SRSImage`` type
+  conversion. **The entry point of the SRS pipeline** — converts
+  the imaging-plugin output to the SRS type.
+- **Files**: ``src/scieasy_blocks_srs/preprocess/srs_calibrate.py``
+  + tests
+- **Dependencies**: T-SRS-001
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-SRS-003 — ``SRSBaseline``
+
+- **Source**: SRS spec §9 T-SRS-003
+- **Summary**: Method param: polynomial / rubber_band /
+  rolling_ball_spectral. **NO ALS** per master plan §2.4.
+- **Files**: ``.../preprocess/srs_baseline.py`` + tests
+- **Dependencies**: T-SRS-001
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-SRS-004 — ``SRSDenoise``
+
+- **Source**: SRS spec §9 T-SRS-004
+- **Summary**: Method param: wavelet / PCA_denoise / SVD_truncation /
+  BM4D.
+- **Files**: ``.../preprocess/srs_denoise.py`` + tests
+- **Dependencies**: T-SRS-001
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-SRS-005 — ``SRSNormalize``
+
+- **Source**: SRS spec §9 T-SRS-005
+- **Summary**: SNV / MSC / vector / area / peak_area normalization.
+- **Files**: ``.../preprocess/srs_normalize.py`` + tests
+- **Dependencies**: T-SRS-001
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-SRS-006 — ``SRSVCA``
+
+- **Source**: SRS spec §9 T-SRS-006
+- **Summary**: Vertex Component Analysis for endmember extraction.
+- **Files**: ``.../component_analysis/srs_vca.py`` + tests
+- **Dependencies**: T-SRS-001
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-SRS-007 — ``SRSUnmix``
+
+- **Source**: SRS spec §9 T-SRS-007
+- **Summary**: NNLS unmixing with reference spectra.
+- **Files**: ``.../component_analysis/srs_unmix.py`` + tests
+- **Dependencies**: T-SRS-001
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-SRS-008 — ``SRSPCA``
+
+- **Source**: SRS spec §9 T-SRS-008
+- **Summary**: Principal Component Analysis on spectral axis.
+- **Files**: ``.../component_analysis/srs_pca.py`` + tests
+- **Dependencies**: T-SRS-001
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-SRS-009 — ``SRSICA``
+
+- **Source**: SRS spec §9 T-SRS-009
+- **Summary**: Independent Component Analysis on spectral axis.
+- **Files**: ``.../component_analysis/srs_ica.py`` + tests
+- **Dependencies**: T-SRS-001
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-SRS-010 — ``SRSKMeansCluster``
+
+- **Source**: SRS spec §9 T-SRS-010
+- **Summary**: K-means clustering of pixels by spectrum → Label.
+- **Files**: ``.../component_analysis/srs_kmeans.py`` + tests
+- **Dependencies**: T-SRS-001
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-SRS-011 — ``ExtractSpectrum``
+
+- **Source**: SRS spec §9 T-SRS-011
+- **Summary**: ROI / Label / Mask + SRSImage → DataFrame of spectra.
+  **Critical-path block for the E2E test (§11)**.
+- **Files**: ``.../spectral_extraction/extract_spectrum.py`` + tests
+- **Dependencies**: T-SRS-001
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-SRS-012 — ``BandRatio``
+
+- **Source**: SRS spec §9 T-SRS-012
+- **Summary**: Two-band intensity ratio → Image.
+- **Files**: ``.../spectral_extraction/band_ratio.py`` + tests
+- **Dependencies**: T-SRS-001
+- **Estimated diff size**: S
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-SRS-013 — Plugin entry-point wiring + smoke test
+
+- **Source**: SRS spec §9 T-SRS-013
+- **Summary**: Update ``pyproject.toml`` entry points for all SRS
+  blocks; add plugin smoke test; extend root ``pyproject.toml``
+  ``testpaths`` to include ``packages/scieasy-blocks-srs/tests``.
+- **Files**: ``packages/scieasy-blocks-srs/pyproject.toml``,
+  ``.../tests/test_plugin_smoke.py``, root ``pyproject.toml``
+- **Dependencies**: T-SRS-000 through T-SRS-012 merged.
+- **Estimated diff size**: S
+- **Coupling notes**: Standalone.
+
+---
+
+#### T-SRS-014 — E2E integration test (cross-plugin)
+
+- **Source**: SRS spec §9 T-SRS-014
+- **Summary**: Integration test that exercises imaging + SRS together.
+  Uses the ``imaging_types`` fixture from Q5. Marker:
+  ``@pytest.mark.requires_imaging``.
+- **Files**: ``packages/scieasy-blocks-srs/tests/integration/
+  test_imaging_srs_pipeline.py``
+- **Dependencies**: T-SRS-013, T-IMG-038
+- **Estimated diff size**: M
+- **Coupling notes**: Standalone. **Last ticket in Sprint D.**
+
+---
