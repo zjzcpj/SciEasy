@@ -17,7 +17,6 @@ from uuid import uuid4
 import pyarrow.parquet as pq
 import yaml
 
-from scieasy.blocks.io.adapter_registry import AdapterRegistry
 from scieasy.blocks.registry import BlockRegistry
 from scieasy.core.storage.ref import StorageReference
 from scieasy.core.types.array import Array
@@ -450,17 +449,17 @@ class ApiRuntime:
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(content)
 
-        registry = AdapterRegistry()
-        registry.register_defaults()
-        extension = destination.suffix or ".bin"
-        try:
-            adapter_class = registry.get_for_extension(extension)
-        except KeyError:
-            from scieasy.blocks.io.adapters.generic_adapter import GenericAdapter
-
-            adapter_class = GenericAdapter
-        adapter = adapter_class()
-        ref = adapter.create_reference(destination)
+        # T-TRK-004 / ADR-028 §D2: the legacy ``AdapterRegistry`` /
+        # ``adapter.create_reference()`` dispatch was removed. Build the
+        # ``StorageReference`` directly from the destination path; the
+        # format is the file extension without the leading dot, falling
+        # back to the bytes-stream sentinel for unknown payloads.
+        extension = destination.suffix.lower().lstrip(".") or "bin"
+        ref = StorageReference(
+            backend="filesystem",
+            path=str(destination),
+            format=extension,
+        )
         record = self.register_data_ref(ref)
         return {
             "ref": record.id,
@@ -574,24 +573,26 @@ class ApiRuntime:
             }
 
         if record.type_name == Array.__name__ or suffix in {".tif", ".tiff"}:
+            # T-TRK-004 / ADR-028 §D2: ``TIFFAdapter`` is gone. Read the
+            # tiff directly via the ``tifffile`` package, which was the
+            # adapter's only dependency. The imaging plugin's
+            # ``LoadImage`` block will own this code path post-Phase 11
+            # (T-IMG-002).
             try:
-                from scieasy.blocks.io.adapters.tiff_adapter import TIFFAdapter
+                import tifffile
 
-                image = TIFFAdapter().read(path)
-                data = getattr(image, "_data", None)
-                if data is not None:
-                    matrix = data
-                    while getattr(matrix, "ndim", 0) > 2:
-                        matrix = matrix[0]
-                    height = min(int(matrix.shape[0]), 64)
-                    width = min(int(matrix.shape[1]), 64)
-                    thumbnail = matrix[:height, :width].tolist()
-                    return {
-                        "kind": "image",
-                        "shape": list(matrix.shape),
-                        "thumbnail": thumbnail,
-                        "src": _image_data_uri_from_matrix(thumbnail),
-                    }
+                matrix = tifffile.imread(str(path))
+                while getattr(matrix, "ndim", 0) > 2:
+                    matrix = matrix[0]
+                height = min(int(matrix.shape[0]), 64)
+                width = min(int(matrix.shape[1]), 64)
+                thumbnail = matrix[:height, :width].tolist()
+                return {
+                    "kind": "image",
+                    "shape": list(matrix.shape),
+                    "thumbnail": thumbnail,
+                    "src": _image_data_uri_from_matrix(thumbnail),
+                }
             except Exception:
                 logger.debug("Failed to read TIFF preview for %s", ref.path, exc_info=True)
             return {
