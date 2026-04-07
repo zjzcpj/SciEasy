@@ -39,6 +39,12 @@ def _config_schema_for_block(spec: Any) -> dict[str, Any]:
 
 
 def _summary(spec: Any) -> BlockSummary:
+    # TODO(agent-b, stage-10.1): populate ``source`` and ``package_name`` from
+    # ``spec``. After the BlockSpec.source value rename lands (tier1 -> custom,
+    # entry_point -> package), pass ``source=spec.source`` and
+    # ``package_name=spec.package_name`` below. Agent A left the call
+    # unchanged to preserve existing behavior.
+    # See docs/design/stage-10-1-palette.md §3.1.4 and §3.2.4.
     return BlockSummary(
         name=spec.name,
         type_name=spec.type_name,

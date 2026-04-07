@@ -91,6 +91,13 @@ class BlockSummary(BaseModel):
     version: str = "0.1.0"
     input_ports: list[BlockPortResponse] = Field(default_factory=list)
     output_ports: list[BlockPortResponse] = Field(default_factory=list)
+    # Stage 10.1 Part 1: palette grouping metadata. Agent A declares the
+    # fields with safe defaults; Agent B populates them from BlockSpec in
+    # ``_summary()`` after the ``source`` value rename lands. Empty strings
+    # are semantically equivalent to "unknown / not yet populated".
+    # See docs/design/stage-10-1-palette.md §3.1.3.
+    source: str = ""
+    package_name: str = ""
 
 
 class BlockListResponse(BaseModel):

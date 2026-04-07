@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -52,3 +53,31 @@ def test_validate_connection_endpoint_uses_registry_type_information(client: Tes
     assert incompatible.status_code == 200
     assert incompatible.json()["compatible"] is False
     assert incompatible.json()["reason"]
+
+
+# ----------------------------------------------------------------------------
+# Stage 10.1 Part 2 — skipped test stubs authored by Agent A.
+#
+# Agent B will remove the skip markers and implement these in Part 2.
+# See docs/design/stage-10-1-palette.md §4.1 for the test plan.
+# ----------------------------------------------------------------------------
+
+
+@pytest.mark.skip(reason="Agent B implements in Stage 10.1 Part 2")
+def test_list_blocks_includes_source_and_package_name(client: TestClient) -> None:
+    """GET /api/blocks/ response items contain ``source`` and ``package_name``.
+
+    After Agent B populates the fields in ``_summary``, every block in the
+    palette listing must expose these two keys (even if ``package_name`` is
+    an empty string for builtins).
+    """
+
+
+@pytest.mark.skip(reason="Agent B implements in Stage 10.1 Part 2")
+def test_list_blocks_source_values_enumerated(client: TestClient) -> None:
+    """Every block reports ``source`` in {"builtin", "package", "custom"}.
+
+    After the source value rename, no block should report ``"tier1"`` or
+    ``"entry_point"``. The valid domain is the three-value enum documented
+    in docs/design/stage-10-1-palette.md §3.2.3.
+    """
