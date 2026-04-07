@@ -334,3 +334,52 @@ class Array(DataObject):
         if self._storage_ref is None and hasattr(self, "_data") and getattr(self, "_data", None) is not None:
             return self._data  # type: ignore[attr-defined]
         return super().to_memory()
+
+    # -- worker subprocess reconstruction hooks (ADR-027 Addendum 1 §2) -----
+
+    @classmethod
+    def _reconstruct_extra_kwargs(cls, metadata: dict[str, Any]) -> dict[str, Any]:
+        """Return ``Array``-specific kwargs for worker reconstruction.
+
+        Extracts ``axes`` / ``shape`` / ``dtype`` / ``chunk_shape`` from
+        the wire-format metadata sidecar. Shape-like fields are
+        converted back into tuples (they round-trip through JSON as
+        lists). ``shape`` and ``chunk_shape`` may be absent or ``None``
+        for metadata-only instances.
+
+        See ADR-027 Addendum 1 §2 ("D11' companion") for the full
+        contract.
+        """
+        shape_raw = metadata.get("shape")
+        chunk_shape_raw = metadata.get("chunk_shape")
+        return {
+            "axes": list(metadata.get("axes", [])),
+            "shape": tuple(shape_raw) if shape_raw is not None else None,
+            "dtype": metadata.get("dtype"),
+            "chunk_shape": tuple(chunk_shape_raw) if chunk_shape_raw is not None else None,
+        }
+
+    @classmethod
+    def _serialise_extra_metadata(cls, obj: DataObject) -> dict[str, Any]:
+        """Return ``Array``-specific fields for the metadata sidecar.
+
+        Symmetric counterpart of :meth:`_reconstruct_extra_kwargs`.
+        Tuples are converted to lists so the payload is JSON-clean;
+        ``dtype`` is stringified because numpy dtypes are not natively
+        JSON-serialisable.
+
+        The parameter is typed as :class:`DataObject` (not :class:`Array`)
+        to respect the Liskov substitution principle with the base
+        classmethod. T-014's worker calls
+        ``type(obj)._serialise_extra_metadata(obj)`` polymorphically, so
+        the override must accept any ``DataObject`` the worker hands in;
+        at runtime the caller will only ever pass an instance of
+        ``cls`` (or a subclass).
+        """
+        assert isinstance(obj, Array), f"Expected Array, got {type(obj).__name__}"
+        return {
+            "axes": list(obj.axes),
+            "shape": list(obj.shape) if obj.shape is not None else None,
+            "dtype": str(obj.dtype) if obj.dtype is not None else None,
+            "chunk_shape": list(obj.chunk_shape) if obj.chunk_shape is not None else None,
+        }

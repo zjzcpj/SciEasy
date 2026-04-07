@@ -86,3 +86,44 @@ class Text(DataObject):
             user=dict(self._user),
             storage_ref=self._storage_ref,
         )
+
+    # -- worker subprocess reconstruction hooks (ADR-027 Addendum 1 §2) -----
+
+    @classmethod
+    def _reconstruct_extra_kwargs(cls, metadata: dict[str, Any]) -> dict[str, Any]:
+        """Return ``Text``-specific kwargs for worker reconstruction.
+
+        Extracts ``content`` / ``format`` / ``encoding`` from the
+        wire-format metadata sidecar. ``format`` defaults to ``"plain"``
+        and ``encoding`` to ``"utf-8"`` to mirror the constructor's
+        defaults. ``content`` is optional; metadata-only ``Text``
+        instances (content lives in the storage backend) round-trip
+        with ``content=None``.
+
+        See ADR-027 Addendum 1 §2 ("D11' companion") for the full
+        contract.
+        """
+        return {
+            "content": metadata.get("content"),
+            "format": metadata.get("format", "plain"),
+            "encoding": metadata.get("encoding", "utf-8"),
+        }
+
+    @classmethod
+    def _serialise_extra_metadata(cls, obj: DataObject) -> dict[str, Any]:
+        """Return ``Text``-specific fields for the metadata sidecar.
+
+        Symmetric counterpart of :meth:`_reconstruct_extra_kwargs`. All
+        three fields are already JSON-primitive (``str | None``) and
+        need no conversion.
+
+        The parameter is typed as :class:`DataObject` to respect the
+        Liskov substitution principle with the base classmethod; at
+        runtime the caller only ever passes an instance of ``cls``.
+        """
+        assert isinstance(obj, Text), f"Expected Text, got {type(obj).__name__}"
+        return {
+            "content": obj.content,
+            "format": obj.format,
+            "encoding": obj.encoding,
+        }

@@ -82,3 +82,43 @@ class DataFrame(DataObject):
             user=dict(self._user),
             storage_ref=self._storage_ref,
         )
+
+    # -- worker subprocess reconstruction hooks (ADR-027 Addendum 1 §2) -----
+
+    @classmethod
+    def _reconstruct_extra_kwargs(cls, metadata: dict[str, Any]) -> dict[str, Any]:
+        """Return ``DataFrame``-specific kwargs for worker reconstruction.
+
+        Extracts ``columns`` / ``row_count`` / ``schema`` from the
+        wire-format metadata sidecar. ``columns`` defaults to an empty
+        list and ``schema`` to an empty dict when absent, which
+        :class:`DataFrame.__init__` accepts.
+
+        See ADR-027 Addendum 1 §2 ("D11' companion") for the full
+        contract.
+        """
+        return {
+            "columns": list(metadata.get("columns", [])),
+            "row_count": metadata.get("row_count"),
+            "schema": dict(metadata.get("schema", {}) or {}),
+        }
+
+    @classmethod
+    def _serialise_extra_metadata(cls, obj: DataObject) -> dict[str, Any]:
+        """Return ``DataFrame``-specific fields for the metadata sidecar.
+
+        Symmetric counterpart of :meth:`_reconstruct_extra_kwargs`.
+        ``columns`` is copied to a new list and ``schema`` to a new
+        dict so the returned payload is independent of the source
+        instance.
+
+        The parameter is typed as :class:`DataObject` to respect the
+        Liskov substitution principle with the base classmethod; at
+        runtime the caller only ever passes an instance of ``cls``.
+        """
+        assert isinstance(obj, DataFrame), f"Expected DataFrame, got {type(obj).__name__}"
+        return {
+            "columns": list(obj.columns) if obj.columns is not None else [],
+            "row_count": obj.row_count,
+            "schema": dict(obj.schema) if obj.schema is not None else {},
+        }

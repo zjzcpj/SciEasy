@@ -379,3 +379,64 @@ class DataObject:
         result_ref = backend.write(data, ref)
         self._storage_ref = result_ref
         return result_ref
+
+    # -- worker subprocess reconstruction hooks (ADR-027 Addendum 1 §2) -----
+
+    @classmethod
+    def _reconstruct_extra_kwargs(cls, metadata: dict[str, Any]) -> dict[str, Any]:
+        """Return base-class-specific kwargs for worker reconstruction.
+
+        Called by :func:`scieasy.core.types.serialization._reconstruct_one`
+        (full implementation in T-014) to extract the keyword arguments
+        that ``cls.__init__`` needs **beyond** the four standard
+        :class:`DataObject` slots (``storage_ref``, ``framework``,
+        ``meta``, ``user``).
+
+        Base-class default: no extra kwargs. Plain ``DataObject``
+        instances round-trip through the four standard slots alone.
+
+        Each concrete base class (``Array``, ``Series``, ``DataFrame``,
+        ``Text``, ``Artifact``, ``CompositeData``) overrides this hook
+        to extract its constructor-required fields from the wire-format
+        metadata sidecar. Plugin subclasses inherit their base class's
+        hook and almost never need to override; the rare override pattern
+        is to call ``super()._reconstruct_extra_kwargs(metadata)`` and
+        extend the returned dict with additional fields. See ADR-027
+        Addendum 1 §2 ("D11' companion") for the full contract.
+
+        Args:
+            metadata: The ``metadata`` dict from the wire-format payload
+                item (produced by :meth:`_serialise_extra_metadata`).
+
+        Returns:
+            A dict of kwargs to splat into ``cls(**kwargs)``.
+        """
+        return {}
+
+    @classmethod
+    def _serialise_extra_metadata(cls, obj: DataObject) -> dict[str, Any]:
+        """Return base-class-specific fields for the metadata sidecar.
+
+        Symmetric counterpart of :meth:`_reconstruct_extra_kwargs`.
+        Called by :func:`scieasy.core.types.serialization._serialise_one`
+        (full implementation in T-014) to compute the fields that need
+        to live in the wire-format metadata sidecar **beyond** the four
+        standard slots that :func:`_serialise_one` always writes
+        (``type_chain``, ``framework``, ``meta``, ``user``).
+
+        Base-class default: no extras. Plain ``DataObject`` instances
+        serialise through the four standard slots alone.
+
+        Each concrete base class overrides this hook to emit its
+        constructor-specific fields in a JSON-serialisable form
+        (e.g. tuples become lists, :class:`pathlib.Path` becomes
+        :class:`str`). See ADR-027 Addendum 1 §2 for the full contract.
+
+        Args:
+            obj: The :class:`DataObject` instance to serialise.
+
+        Returns:
+            A JSON-serialisable dict that will be merged into the
+            wire-format metadata sidecar by :func:`_serialise_one`.
+        """
+        return {}
