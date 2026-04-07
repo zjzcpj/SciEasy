@@ -1228,7 +1228,7 @@ Block Palette:
 ├── Core                         ← built-in (scieasy main package)
 │   ├── code_block
 │   ├── io_block
-│   └── manual_review
+│   └── app_block                ← also covers manual review (see note below)
 ├── SRS Imaging                  ← PackageInfo.name
 │   ├── io                       ← BlockMetadata.category
 │   │   └── SRS Reader
@@ -1240,6 +1240,8 @@ Block Palette:
 └── Genomics                     ← another pip package
     └── ...
 ```
+
+For manual review, use `AppBlock` (see `docs/guides/block-sdk.md` §3.4.1) to open Fiji, Napari, or any GUI tool as part of the workflow. There is no dedicated manual-review block class — `AppBlock` already implements the `IDLE → READY → RUNNING → PAUSED → RUNNING → DONE` lifecycle that human-in-the-loop steps require.
 
 The `category` field is a free-form string set by the block author in `BlockMetadata`. No fixed taxonomy — authors define categories that make sense for their domain. The `BlockSpec` dataclass gains a `package_name: str` field to support this grouping.
 
