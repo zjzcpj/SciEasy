@@ -5920,3 +5920,594 @@ The following details are deliberately left for the implementation PR(s) to reso
 - **Depends on**: ADR-009 (registry stores specs) — `BlockRegistry` is the surviving registry for IO blocks. ADR-027 (Phase 10 core type system) — the seven base types this ADR provides loaders for. ADR-027 Addendum 1 §1 (typed reconstruction) — the downstream path for any loaded DataObject.
 - **Does not affect**: ADR-017 (subprocess isolation), ADR-018 + Addendum 1 (scheduler), ADR-019 (ProcessHandle), ADR-020 + Addenda (Collection transport), ADR-021 (collection operations), ADR-022 (memory monitoring). These operate at the runtime layer which is orthogonal to how IO blocks are structured.
 - **Enables**: Phase 11 Track 2 (`scieasy-blocks-imaging`), Track 3 (`scieasy-blocks-srs`), Track 4 (`scieasy-blocks-lcms`). All three plugin packages ship their primary user-facing blocks via the `IOBlock` ABC path specified here. The three plugin specs (`docs/specs/phase11-imaging-block-spec.md`, `phase11-srs-block-spec.md`, `phase11-lcms-block-spec.md`) will reference this ADR as their IO contract source of truth.
+
+## ADR-028 Addendum 1: Dynamic port override mechanism and GUI consequences
+
+**Status**: proposed
+**Date**: 2026-04-07
+
+### Purpose
+
+ADR-028 (merged in PR #294) refactored `IOBlock` into an abstract base class and deleted the central adapter registry. Three cross-cutting concerns surfaced during the Phase 11 design review that ADR-028 itself did not cover:
+
+1. **GUI hardcoding breakage** — `frontend/src/components/nodes/BlockNode.tsx` contains three hardcoded `blockType === "io_block"` special cases that break after ADR-028 because there is no longer a single `io_block` type_name.
+2. **Dynamic port type for core IO** — During design review, the user chose a single-palette-entry design for core IO: one `Load Data` block with a dropdown to select the output type from the six core DataObject base types, rather than six separate loader classes in the palette.
+3. **ADR-028 §D3 override** — The six concrete core loader/saver pairs specified in ADR-028 §D3 are replaced with two dynamic blocks (`LoadData`, `SaveData`) that dispatch internally via private module-level functions.
+
+This Addendum resolves all three concerns in a single coherent document by introducing a minimal dynamic-port override mechanism on the `Block` ABC, locking the GUI changes required to consume it, and explicitly overriding ADR-028 §D3 for core IO. The mechanism is deliberately constrained to **enum-only declarative mapping** — it does not attempt to support variadic port count (user adds/removes ports via the GUI), which remains out of scope for this Addendum and is tracked in ADR-029 (preliminary, scope pending).
+
+This Addendum **does not** modify any of the other ADR-028 decisions (D1, D2, D4-D14 stand unchanged) and does **not** touch any of the doc-phase scope boundaries ADR-028 set for ARCHITECTURE.md / block-sdk.md / PROJECT_TREE.md updates. Those updates remain scheduled for the Sprint A sub-1b PR-D follow-up. This Addendum does supersede ADR-028 §D3 ("Seven core loader/saver pairs") and documents that supersession explicitly.
+
+### Context
+
+#### Concern 1: GUI hardcoding breakage
+
+`frontend/src/components/nodes/BlockNode.tsx` has three hardcoded checks against the string `"io_block"` that were added to handle the pre-ADR-028 generic `IOBlock` class. After ADR-028, `io_block` is no longer a concrete class in the palette — it is an abstract base with concrete subclasses like `LoadArray`, `LoadDataFrame`, and plugin-provided `LoadImage`. The three hardcoded hits break or produce surprising behaviour:
+
+1. **`BlockNode.tsx:179`** — `const showBrowse = blockType === "io_block" && key === "path";` — renders a "Browse" button next to the `path` config field only when the block's type_name is exactly `"io_block"`. After ADR-028, `type_name` for core loaders will be `"load_array"`, `"load_dataframe"`, `"load_data"`, etc., so the browse button disappears entirely from every IO block. Plugin-provided `LoadImage` (`type_name = "load_image"`) also loses the browse button.
+
+2. **`BlockNode.tsx:241-243`** — the inline config field filter hides the `direction` property specifically on `io_block` nodes. After ADR-028, `direction` is no longer a user-editable config field (it is a ClassVar `"input"` or `"output"` on the subclass). The hide logic must be generalised or else every loader/saver block will render a direction dropdown that has no effect.
+
+3. **`BlockNode.tsx:247-249`** — computes `ioDirection = data.blockType === "io_block" ? data.config?.direction : undefined` and passes it to the `InlineConfigField` so the Browse button knows whether to open a file picker (load) or directory picker (save). After ADR-028, `data.config?.direction` does not exist because direction is a ClassVar, not a runtime config value. The Browse button would always default to file picker, breaking save blocks.
+
+None of these checks can be left in place. All three must be generalised to rely on the `category === "io"` discriminator (which Stage 10.1 already added to `BlockSchemaResponse`) plus a new `direction` field on the schema payload that is populated from the backend ClassVar at scan time.
+
+#### Concern 2: Dynamic port type for core IO
+
+ADR-028 §D3 specified six concrete core loader classes (`LoadArray`, `LoadDataFrame`, `LoadSeries`, `LoadText`, `LoadArtifact`, `LoadCompositeData`) and six corresponding savers. This would produce twelve distinct palette entries for "core IO" alone, before plugin packages contribute their own loader blocks.
+
+During design review the user observed that twelve palette items for core IO is visually dense and asked for a consolidated design: **one `Load Data` palette entry and one `Save Data` palette entry**, each with an internal "Data type" dropdown that picks which of the six base types the block produces. The output port's `accepted_types` must update when the dropdown selection changes, and the port's colour (inherited via `resolveTypeColor()` from the type hierarchy) must update to reflect the new type.
+
+This is the first case in SciEasy where a block's ports depend on its instance configuration. The existing `Block.input_ports` and `Block.output_ports` are `ClassVar[list[...]]` — their values are frozen at class definition time and cannot change per-instance. To deliver the `Load Data` UX, the framework needs an override point for per-instance port resolution.
+
+Two dimensions of dynamism exist in the Phase 11 block surface:
+
+| Dimension | Static | Dynamic | Example |
+|---|---|---|---|
+| Port **type** | Fixed at class level | Chosen at instance level | `LoadData` picks type from dropdown |
+| Port **count** | Fixed at class level | User adds/removes | `AIBlock` variadic inputs/outputs |
+
+These two dimensions have the same underlying mechanism ("effective ports are computed per instance") but very different GUI requirements. The type dimension needs only a dropdown and an enum→type mapping. The count dimension needs "add port" / "remove port" UI controls and a richer per-port editor.
+
+**This Addendum addresses the type dimension only.** The count dimension (AI variadic, CodeBlock variadic) is deferred to ADR-029, which will be a preliminary draft that records the problem without making decisions.
+
+#### Concern 3: ADR-028 §D3 override
+
+The original ADR-028 §D3 lists six concrete core loader/saver pairs as separate classes:
+
+```
+LoadArray / SaveArray
+LoadDataFrame / SaveDataFrame
+LoadSeries / SaveSeries
+LoadText / SaveText
+LoadArtifact / SaveArtifact
+LoadCompositeData / SaveCompositeData
+```
+
+This Addendum replaces that with:
+
+```
+LoadData / SaveData  (two dynamic blocks)
+  |
+  +-- dispatches internally to private module-level functions:
+      _load_array(config), _load_dataframe(config), _load_series(config),
+      _load_text(config), _load_artifact(config), _load_composite_data(config)
+      and the symmetric _save_* set
+```
+
+The six-pair structure disappears from the palette. The six internal format-handling functions still exist — they are where the adapter merge logic from ADR-028 §D2 lands — but they are private to the `load_data.py` / `save_data.py` modules and never appear as palette blocks or as importable classes.
+
+**Why private functions and not helper classes** (Q-B from the design conversation): the six dispatch functions are called exactly once each per `load()` invocation, do not need state, do not need a common interface other than `(BlockConfig) -> DataObject`, and do not benefit from polymorphism (the dispatch is an `if-elif` chain on a config string). A helper class per function would add class-definition boilerplate, MRO lookups, and instance construction cost for no benefit. The user explicitly chose private functions; this Addendum locks that decision.
+
+**Plugin IO blocks are unaffected.** `LoadImage` in `scieasy-blocks-imaging` remains a single concrete class with static `output_ports = [OutputPort(accepted_types=[Image])]`. Plugin authors who want to ship typed loaders continue to do so via the standard Phase 10 pattern. The dynamic mechanism is available to them via `get_effective_*_ports()` overrides if they want it, but plugin IO blocks for single-type formats (TIFF → Image, mzML → MSRawFile) stay static and get automatic port colouring from `resolveTypeColor()`'s type-hierarchy walk.
+
+### Discussion points and resolution
+
+| # | Topic | Options discussed | Final decision |
+|---|---|---|---|
+| 1 | Should dynamic ports be a new `DynamicBlock` base class, a mixin, or methods on `Block`? | (A) New `DynamicBlock(Block)` sibling base class alongside `ProcessBlock` / `CodeBlock` / `IOBlock` / `AppBlock` / `AIBlock`. (B) `DynamicPortsMixin` mixin for multiple inheritance. (C) Two default-implementation methods on `Block` itself that subclasses override when needed. | **Decision: (C).** Dynamic ports are orthogonal to execution model. A new base class would create Cartesian product problems (`DynamicIOBlock`, `DynamicAIBlock`, `DynamicCodeBlock`, ...). A mixin adds multiple-inheritance complexity. Two default methods on `Block` — `get_effective_input_ports(self)` and `get_effective_output_ports(self)` — add zero surface area for static blocks (default returns the ClassVar) and a clean override point for dynamic blocks. This mirrors Phase 10's "no `SpatialBlock` base class, use `iterate_over_axes` function" decision (ADR-027 D5). |
+| 2 | How should the declarative mapping between a config field and port types be expressed? | (A) Enum-only mapping: `{source_config_key: str, output_port_mapping: dict[port_name, dict[enum_value, list[type_name]]]}`. (B) Mini-DSL with expressions: `"output_types": "[Array] if config.core_type == 'Array' else [DataFrame]"`. (C) Python lambda closures. | **Decision: (A).** Enum-only. The user explicitly restricted the mechanism to this simple case (Q-A). A mini-DSL invites parsing, security, and user-confusion problems for a benefit no one has asked for. Lambda closures cannot round-trip through JSON for frontend consumption. Dynamic blocks whose port rules are more complex than enum dispatch simply override `get_effective_*_ports(self)` in Python and skip the declarative mapping entirely — the frontend falls back to reading `output_ports` (the ClassVar placeholder) for palette display and calls the backend to recompute when config changes. The current Addendum does not implement that backend-round-trip path; it is explicitly deferred to ADR-029. |
+| 3 | Where does `dynamic_ports` live on the block class? | (A) `ClassVar[dict[str, Any]] = {}` on `Block`. (B) A separate `PortPolicy` dataclass attached via `dynamic_ports: ClassVar[PortPolicy | None] = None`. (C) A decorator `@dynamic_ports(...)`. | **Decision: (A).** A `ClassVar[dict[str, Any] \| None] = None` on `Block`. Simplest possible form. Validation that the dict has the expected shape happens once at registry scan time via `BlockRegistry._validate_dynamic_ports(cls)`. A `PortPolicy` dataclass is overkill for the two-level nested dict structure the mechanism needs. A decorator adds magic for no benefit. |
+| 4 | How does the frontend learn about `dynamic_ports`? | (A) Add a `dynamic_ports` field to `BlockSchemaResponse`. (B) Inline the mapping into `config_schema` as a custom `ui_widget` property. (C) Separate API endpoint `/api/blocks/<id>/dynamic_ports`. | **Decision: (A).** Add a `dynamic_ports: dict \| None = None` field to `BlockSchemaResponse` (Pydantic model in `src/scieasy/api/schemas.py`). The frontend reads the field once when the user drops the block onto the canvas and then recomputes ports locally whenever the driving config field changes. No API round-trip per change. |
+| 5 | How does the backend compute `get_effective_output_ports()` for `LoadData`? | (A) Hardcode a `_CORE_TYPE_MAP` dict inside `load_data.py` mapping enum strings to classes. (B) Look up via `TypeRegistry.resolve`. (C) Use `importlib.import_module`. | **Decision: (A).** Hardcode the six core type mappings in a module-level `_CORE_TYPE_MAP: dict[str, type[DataObject]]` at the top of `load_data.py`. The six core types are stable Phase 10 contract, not user-extensible. Using `TypeRegistry.resolve` adds a registry dependency for no benefit; `importlib` adds runtime overhead. The hardcoded map is 6 lines and self-documenting. |
+| 6 | Where does the framework read the effective ports? | (A) Every call site that currently reads `self.input_ports` / `self.output_ports` changes to `self.get_effective_*_ports()`. (B) Only the hot paths change. (C) Introduce a property setter that caches on change. | **Decision: (A).** Audit every read of `.input_ports` / `.output_ports` in the framework and update each one. Static blocks pay zero cost (default implementation returns the ClassVar list). Caching adds complexity for a mechanism that runs at most once per block instance per workflow execution. The audit is small: `Block.validate`, `ProcessBlock.run`, `workflow/validator.py`, `api/routes/blocks.py` plus a few peripheral call sites. |
+| 7 | How does `workflow/validator.py` handle a dynamic block's port check? | (A) Use the class-level ClassVar (may be wrong for dynamic blocks). (B) Use `get_effective_*_ports()` on a temporary instance constructed with the workflow node's config. (C) Skip port validation for dynamic blocks. | **Decision: (B).** The workflow validator constructs a temporary `Block` instance from the workflow node's config (which it already has because it is validating a specific workflow), then calls `block.get_effective_input_ports()` / `get_effective_output_ports()` to get the effective port lists for that specific node. Static blocks still produce the same ClassVar values; dynamic blocks produce per-instance values that reflect the user's selection. |
+| 8 | How does the GUI `Browse` button learn whether to open a file picker or directory picker? | (A) Read `data.config?.direction` (current, broken after ADR-028). (B) Read `data.schema?.direction` (new field, populated from the block class's `direction` ClassVar). (C) Infer from `type_name.startsWith("load_")` vs `"save_"`. | **Decision: (B).** Add a `direction: str \| None = None` field to `BlockSchemaResponse` that is populated from `cls.direction` at API response construction time. The frontend reads `data.schema?.direction` and branches accordingly. Option (C) is brittle because plugin authors might name their blocks anything. Option (A) is broken after ADR-028 because `direction` is no longer a runtime config value. |
+| 9 | What happens to the six concrete loader/saver classes originally specified in ADR-028 §D3? | (A) Keep them as private classes, used internally by `LoadData` / `SaveData` via composition. (B) Replace with private module-level functions. (C) Keep six classes but hide from the palette via a `palette_hidden: ClassVar[bool] = True` flag. | **Decision: (B).** Private module-level functions `_load_array(config) -> Array`, `_load_dataframe(config) -> DataFrame`, etc. inside `load_data.py`. Symmetric `_save_*(obj, config)` functions inside `save_data.py`. No separate classes. The user explicitly chose this (Q-B). ADR-028 §D3 is superseded on this point. |
+| 10 | Are plugin IO blocks required to use the dynamic mechanism? | (A) Required — plugins must use `dynamic_ports` if their loader produces more than one type. (B) Optional — plugins can be static (one class per type) or dynamic (one class with a dropdown) at the author's discretion. | **Decision: (B).** Plugin IO blocks are free to be static or dynamic. Most plugin loaders target a single file format that produces a single type (TIFF → Image, mzML → MSRawFile) and should stay static. The dynamic mechanism is available when it adds value. Static plugin blocks automatically inherit the correct port colour from the type hierarchy via `resolveTypeColor()`, so no frontend work is needed per plugin. |
+| 11 | How does the Browse button generalise from `blockType === "io_block"` to a property-based discriminator? | (A) Use `data.category === "io"`. (B) Use `data.schema?.direction != null`. (C) Use a new `config_schema.properties.path.ui_widget = "path_picker"` annotation. | **Decision: (A) + per-field override**. Primary rule: any block with `data.category === "io"` that has a `path` config field gets a Browse button on that field. This covers core `LoadData` / `SaveData` and all plugin IO blocks that follow the standard `category = "io"` convention. A rare block that wants a path field without the Browse button can omit the `path` field name (rename to `file_location` etc.), but this is a degenerate case. Option (C) is a more explicit but more verbose opt-in; not needed for Phase 11. |
+| 12 | Does the worker subprocess (`_reconstruct_one` / `_serialise_one`) need changes to handle dynamic blocks? | (A) Yes — add `dynamic_ports` to the wire format. (B) No — the worker receives the already-resolved effective ports from the engine. | **Decision: (B).** Dynamic port resolution happens in the engine (which has the block instance and its config). The worker subprocess receives already-resolved data with concrete types. When the worker reconstructs a `DataObject` via `_reconstruct_one`, the type comes from `metadata.type_chain`, not from any port-level information. The worker neither knows nor cares whether the block is dynamic. ADR-027 Addendum 1 §1 (worker reconstruction contract) is unaffected. |
+| 13 | Is the variadic port count (AI variadic, CodeBlock variadic) in scope? | (A) Yes — design the full mechanism that handles both type and count dimensions. (B) No — defer to a separate ADR. | **Decision: (B).** Variadic port count requires frontend "add port" / "remove port" controls, per-instance port configuration storage, and a significantly more complex backend mechanism (the port list is variable length, each port has its own name and type). That work is large enough to warrant its own ADR. ADR-029 (preliminary) reserves the namespace and lists the open questions. This Addendum does not constrain ADR-029's design — it only provides the `get_effective_*_ports()` override mechanism that ADR-029 will build on. |
+
+### Decision
+
+The decisions from the discussion table are codified below as D1' through D9' (with prime marks to distinguish from ADR-028's D1-D14). Each decision has a one-paragraph summary, a code-shape sketch where appropriate, and a line-by-line impact reference in the "Detailed impact scope" section.
+
+#### D1'. `get_effective_input_ports` / `get_effective_output_ports` override points on `Block` (covers #1, #6)
+
+The `Block` ABC in `src/scieasy/blocks/base/block.py` gains two new methods with default implementations that return the class-level `input_ports` / `output_ports` ClassVar lists. Dynamic-port blocks override these methods to compute per-instance port lists from `self.config`.
+
+```python
+class Block(ABC):
+    # ... existing ClassVars ...
+    input_ports: ClassVar[list[InputPort]] = []
+    output_ports: ClassVar[list[OutputPort]] = []
+
+    # New Addendum 1 override points.
+    def get_effective_input_ports(self) -> list[InputPort]:
+        """Return the effective input ports for this block instance.
+
+        ADR-028 Addendum 1 D1': default implementation returns
+        ``type(self).input_ports``. Dynamic-port blocks (e.g. ``LoadData``)
+        override this method to read ``self.config`` and compute a
+        per-instance port list.
+
+        The framework's port-check, scheduler, and workflow-validator
+        read-paths use this method rather than reading the ClassVar
+        directly, so static blocks pay zero cost while dynamic blocks
+        get the override point they need.
+        """
+        return list(type(self).input_ports)
+
+    def get_effective_output_ports(self) -> list[OutputPort]:
+        """Return the effective output ports for this block instance.
+
+        See :meth:`get_effective_input_ports` for the override contract.
+        """
+        return list(type(self).output_ports)
+```
+
+The defaults return a **copy** of the ClassVar list (via `list(...)`) rather than the list itself so that callers cannot mutate the class state by appending to the returned list. This matches the defensive-copy pattern used by Phase 10's `DataObject.user` property.
+
+Static blocks pay one `type(self).input_ports` lookup and one `list(...)` copy per call. Dynamic blocks pay whatever they choose inside their override. Neither cost is on the hot path (port lookups happen at validation/dispatch time, not per-item).
+
+#### D2'. `dynamic_ports` declarative ClassVar on `Block` (covers #2, #3)
+
+`Block` gains a new ClassVar:
+
+```python
+class Block(ABC):
+    # ... existing ClassVars ...
+    dynamic_ports: ClassVar[dict[str, Any] | None] = None
+```
+
+The shape of the dict (when non-None) is strictly fixed to the enum-mapping form:
+
+```python
+dynamic_ports = {
+    "source_config_key": "core_type",   # which config field drives the mapping
+    "output_port_mapping": {            # per-port mapping
+        "data": {                       # port name
+            "Array":         ["Array"],         # enum value -> list of type names
+            "DataFrame":     ["DataFrame"],
+            "Series":        ["Series"],
+            "Text":          ["Text"],
+            "Artifact":      ["Artifact"],
+            "CompositeData": ["CompositeData"],
+        },
+    },
+    # optionally, "input_port_mapping" with the same shape for input ports
+}
+```
+
+The enum values in the mapping must be the exact string values declared in `config_schema.properties[source_config_key].enum`. Type names in the value list must be strings that are resolvable via `TypeRegistry.resolve([type_name])` — core type names (`"Array"`, `"DataFrame"`, etc.) for core blocks, plugin type names (`"Image"`, `"FluorImage"`) for plugin blocks.
+
+**Validation at registration time**: `BlockRegistry.register()` (or `_build_spec()`) calls a new helper `_validate_dynamic_ports(cls)` that checks:
+1. If `cls.dynamic_ports is None`, return immediately (static block).
+2. Otherwise, `cls.dynamic_ports` must be a dict with keys `source_config_key: str` and `output_port_mapping: dict[str, dict[str, list[str]]]` (input_port_mapping is optional, same shape).
+3. `source_config_key` must exist as a property in `cls.config_schema["properties"]`.
+4. The enum values in the mapping must match `cls.config_schema["properties"][source_config_key]["enum"]` exactly (set equality).
+5. Every port name in the mapping must exist in `cls.output_ports` (or `cls.input_ports`) — the ClassVar list is the placeholder for the palette preview.
+6. Every type name in the mapping's value lists must be importable (`TypeRegistry.resolve` returns non-None). Non-importable type names are logged as a warning at registration time but do not fail registration.
+
+Validation failures raise `ValueError` at registration time with a clear message pointing at the offending block class and field.
+
+#### D3'. `BlockSpec` and `BlockSchemaResponse` changes (covers #4, #8)
+
+`BlockSpec` (the dataclass stored in `BlockRegistry`) gains a field:
+
+```python
+# src/scieasy/blocks/registry.py
+@dataclass
+class BlockSpec:
+    # ... existing fields ...
+    dynamic_ports: dict[str, Any] | None = None
+    direction: str | None = None          # from cls.direction for IOBlock subclasses
+```
+
+The `direction` field on `BlockSpec` is populated at scan time via `getattr(cls, "direction", None)`. Non-IOBlock classes have no `direction` ClassVar and this field stays `None`.
+
+`BlockSchemaResponse` (Pydantic model in `src/scieasy/api/schemas.py`) gains the same two fields:
+
+```python
+# src/scieasy/api/schemas.py
+class BlockSchemaResponse(BlockSummary):
+    """Detailed schema payload for a single block type."""
+    config_schema: dict[str, Any] = Field(default_factory=dict)
+    type_hierarchy: list[TypeHierarchyEntry] = Field(default_factory=list)
+    # New Addendum 1 fields
+    dynamic_ports: dict[str, Any] | None = None
+    direction: str | None = None
+```
+
+`_schema_response()` (in `src/scieasy/api/routes/blocks.py`) and `_summary()` are updated to populate both fields from `BlockSpec`.
+
+The frontend TypeScript types in `frontend/src/types/api.ts` are updated to match:
+
+```typescript
+export interface BlockSchemaResponse extends BlockSummary {
+  config_schema: Record<string, unknown>;
+  type_hierarchy: TypeHierarchyEntry[];
+  dynamic_ports?: DynamicPortsMapping;
+  direction?: "input" | "output";
+}
+
+export interface DynamicPortsMapping {
+  source_config_key: string;
+  output_port_mapping?: Record<string, Record<string, string[]>>;
+  input_port_mapping?: Record<string, Record<string, string[]>>;
+}
+```
+
+#### D4'. Framework read-path migration (covers #6, #7)
+
+Every call site that currently reads `.input_ports` or `.output_ports` on a block instance changes to call `get_effective_*_ports()`. The audit:
+
+| File | Before | After |
+|---|---|---|
+| `src/scieasy/blocks/base/block.py:92` | `port_map = {p.name: p for p in self.input_ports}` | `port_map = {p.name: p for p in self.get_effective_input_ports()}` |
+| `src/scieasy/blocks/base/block.py:95` | `for port in self.input_ports:` | `for port in self.get_effective_input_ports():` |
+| `src/scieasy/blocks/process/process_block.py:160` | `output_name = self.output_ports[0].name if self.output_ports else "output"` | `ports = self.get_effective_output_ports(); output_name = ports[0].name if ports else "output"` |
+| `src/scieasy/blocks/process/process_block.py:165` | (same pattern) | (same pattern) |
+| `src/scieasy/workflow/validator.py:190` | `for port in spec.input_ports:` (reads class spec) | For dynamic blocks: construct a temporary instance from the workflow node's config and call `block.get_effective_input_ports()`. For static blocks: fall through to the class-level list. See the validator implementation sketch below. |
+| `src/scieasy/api/routes/blocks.py:54-55` | `input_ports=[_port_response(port, ...) for port in spec.input_ports]` | For static blocks: unchanged (reads class spec for palette preview). For dynamic blocks: palette preview shows the placeholder ports from the ClassVar, and the frontend recomputes per-instance ports from `dynamic_ports`. |
+
+**Workflow validator sketch** (for `workflow/validator.py`):
+
+```python
+def _get_effective_ports(node: WorkflowNode, spec: BlockSpec) -> tuple[list[InputPort], list[OutputPort]]:
+    """Return the effective input/output ports for a workflow node.
+
+    Static blocks: return the BlockSpec's class-level lists.
+    Dynamic blocks: construct a temporary Block instance from the node's
+    config and call get_effective_*_ports().
+    """
+    if spec.dynamic_ports is None:
+        return (spec.input_ports, spec.output_ports)
+
+    # Dynamic block - instantiate from the node's config and ask the instance
+    block_cls = BlockRegistry.load_class(spec.name)
+    instance = block_cls(config=node.config or {})
+    return (
+        instance.get_effective_input_ports(),
+        instance.get_effective_output_ports(),
+    )
+```
+
+The validator's type-compatibility check for a workflow edge uses `_get_effective_ports(source_node, source_spec)` for the source side and `_get_effective_ports(target_node, target_spec)` for the target side. Static blocks produce the same ClassVar lists they produce today; dynamic blocks produce per-instance lists that reflect the node's configured state.
+
+`BlockRegistry.register()` (or equivalent scan-time entry point) calls `_validate_dynamic_ports(cls)` per D2' so malformed `dynamic_ports` declarations fail loudly at startup rather than at workflow validation time.
+
+#### D5'. LoadData and SaveData concrete design (covers #5, #9)
+
+ADR-028 §D3's six loader classes become two concrete classes (`LoadData` and `SaveData`) plus twelve private module-level functions. The file layout:
+
+```
+src/scieasy/blocks/io/
+|-- __init__.py            (re-exports IOBlock, LoadData, SaveData)
+|-- io_block.py            (IOBlock ABC - per ADR-028 D1)
+|-- loaders/
+|   |-- __init__.py        (re-exports LoadData)
+|   `-- load_data.py       (LoadData class + six private _load_* functions)
+`-- savers/
+    |-- __init__.py        (re-exports SaveData)
+    `-- save_data.py       (SaveData class + six private _save_* functions)
+```
+
+`LoadData` exact shape is locked in the Sprint A sub-1b PR-B implementation ticket (summary: `type_name = "load_data"`, `category = "io"`, `direction = "input"`, a placeholder `output_ports = [OutputPort(name="data", accepted_types=[DataObject])]` for the palette preview, a `dynamic_ports` ClassVar with `source_config_key = "core_type"` and an `output_port_mapping` for the "data" port covering all six core type enum values, a `config_schema` declaring `core_type` enum + `path` + `allow_pickle` + `separator` + `encoding` properties, a `get_effective_output_ports()` override that reads `self.config["core_type"]` and returns a single `OutputPort` with `accepted_types=[_CORE_TYPE_MAP[type_name]]`, and a `load()` implementation that dispatches through six private functions `_load_array`/`_load_dataframe`/`_load_series`/`_load_text`/`_load_artifact`/`_load_composite_data`).
+
+The six private functions absorb the format-handling logic from the deleted bundled adapters per ADR-028 §D2 and §D5:
+
+- `_load_array(config)` — absorbs `zarr_adapter.py`, handles `.zarr` / `.npy` / `.npz` with metadata sidecar JSON.
+- `_load_dataframe(config)` — absorbs `parquet_adapter.py` and `csv_adapter.py`, handles `.parquet` / `.pq` / `.csv` / `.tsv` / `.txt` / `.pkl` / `.pickle`. Pickle requires `allow_pickle=True`.
+- `_load_series(config)` — absorbs the single-column Parquet/CSV path, enforces single-column, supports `.pkl` / `.pickle`.
+- `_load_text(config)` — filesystem read, UTF-8 default, honours `encoding` config.
+- `_load_artifact(config)` — absorbs `generic_adapter.py`, opaque byte copy, sets `mime_type` from extension.
+- `_load_composite_data(config)` — reads a directory containing `manifest.json` and recurses into `_reconstruct_one` per slot.
+
+`SaveData` has the symmetric structure in `src/scieasy/blocks/io/savers/save_data.py` with:
+- `direction: ClassVar[str] = "output"`
+- `type_name: ClassVar[str] = "save_data"`
+- `input_ports` placeholder instead of output_ports placeholder
+- `dynamic_ports` maps to `input_port_mapping` instead of `output_port_mapping`
+- `save(obj, config)` method that dispatches to private `_save_array`, `_save_dataframe`, etc.
+- `get_effective_input_ports()` override mirroring `LoadData.get_effective_output_ports()`
+
+The private save functions are symmetric counterparts of the load functions and absorb the save-path logic from the same deleted adapters.
+
+**Key clarification**: The six private `_load_*` / `_save_*` functions are the **only** place the format-handling logic from the deleted bundled adapters lives in core. They are not exported, not tested via import, and do not appear in the palette. ADR-028 §D3's "Seven core loader/saver pairs" (actually six pairs, because `DataObject` has no loader) is superseded — those classes do not exist in Phase 11 core.
+
+**All implementation details for these six functions (format probing, metadata sidecar handling, pickle opt-in enforcement, compound extension detection for `.composite/` directories) are locked in ADR-028 §D3 and §D5 — this Addendum does not repeat them, it only changes where the logic lives (private functions in two modules, not methods on six classes).**
+
+#### D6'. GUI hardcoding removal and Browse button generalisation (covers #1, #11)
+
+`frontend/src/components/nodes/BlockNode.tsx` changes:
+
+**Change 1** (around line 179): Browse button shows on any block with `category === "io"` that has a `path` config field, not just blocks with `blockType === "io_block"`.
+
+```typescript
+// Before
+const showBrowse = blockType === "io_block" && key === "path";
+
+// After (D6' / D11)
+const showBrowse = data.category === "io" && key === "path";
+```
+
+**Change 2** (around lines 241-243): The hidden-direction filter generalises from `blockType === "io_block"` to `category === "io"`.
+
+```typescript
+// Before
+const configProps = getTopConfigProperties(data.schema?.config_schema).filter(
+  (prop) => !(data.blockType === "io_block" && prop.key === "direction"),
+);
+
+// After
+const configProps = getTopConfigProperties(data.schema?.config_schema).filter(
+  (prop) => !(data.category === "io" && prop.key === "direction"),
+);
+```
+
+Note that after ADR-028, `direction` is no longer a runtime config field — it is a ClassVar on the block class. Therefore this filter is largely defensive (there should be no `direction` key in `config_schema.properties` for any post-ADR-028 IO block) but is kept as a safety net in case a plugin author accidentally adds a direction property.
+
+**Change 3** (around lines 247-249): `ioDirection` reads from `data.schema?.direction` (new field from D3') instead of `data.config?.direction`.
+
+```typescript
+// Before
+const ioDirection = data.blockType === "io_block"
+  ? (data.config?.direction as string | undefined) ?? "input"
+  : undefined;
+
+// After (D6' / D8)
+const ioDirection = data.category === "io"
+  ? (data.schema?.direction as "input" | "output" | undefined) ?? "input"
+  : undefined;
+```
+
+#### D7'. Frontend dynamic port recomputation (covers #2, #4)
+
+When `BlockNode.tsx` renders a node whose schema has a non-null `dynamic_ports` field, the component watches the driving config field and recomputes the effective port list client-side whenever the user changes the selection.
+
+Implementation sketch (pseudocode):
+
+```typescript
+function computeEffectivePorts(
+  basePorts: BlockPortResponse[],
+  dynamicMapping: DynamicPortsMapping | undefined,
+  currentConfig: Record<string, unknown>,
+): BlockPortResponse[] {
+  if (!dynamicMapping || !dynamicMapping.output_port_mapping) {
+    return basePorts;
+  }
+  const driverValue = currentConfig[dynamicMapping.source_config_key];
+  if (typeof driverValue !== "string") {
+    return basePorts;
+  }
+  return basePorts.map((port) => {
+    const portMapping = dynamicMapping.output_port_mapping?.[port.name];
+    if (!portMapping || !portMapping[driverValue]) {
+      return port;
+    }
+    return {
+      ...port,
+      accepted_types: portMapping[driverValue],
+    };
+  });
+}
+
+// In BlockNode.tsx:
+const effectiveOutputPorts = computeEffectivePorts(
+  data.outputPorts,
+  data.schema?.dynamic_ports,
+  data.config ?? {},
+);
+// Use effectiveOutputPorts in the port-rendering loop instead of data.outputPorts.
+```
+
+Port colour updates automatically because `resolveTypeColor(effectivePorts[i].accepted_types, typeHierarchy)` is called with the freshly computed `accepted_types` list every render.
+
+The palette preview (BlockPalette.tsx) does **not** use the dynamic recomputation — it shows the static `output_ports` / `input_ports` ClassVar placeholders (which is why `LoadData.output_ports` ships with a `DataObject`-typed placeholder that renders as light grey in the palette).
+
+#### D8'. Plugin IO blocks remain static (documented non-change)
+
+Plugin-provided IO blocks like `LoadImage` in `scieasy-blocks-imaging` continue to declare static `output_ports` ClassVars. They do not need to use the dynamic mechanism. Example (from the future Phase 11 imaging plugin spec):
+
+```python
+# scieasy_blocks_imaging/io/load_image.py
+
+class LoadImage(IOBlock):
+    direction: ClassVar[str] = "input"
+    type_name: ClassVar[str] = "load_image"
+    name: ClassVar[str] = "Load Image"
+    category: ClassVar[str] = "io"
+    # Static output_ports - LoadImage always produces Image (or subclass).
+    output_ports: ClassVar[list[OutputPort]] = [
+        OutputPort(name="data", accepted_types=[Image], description="Loaded image"),
+    ]
+    # No dynamic_ports ClassVar - the default (None) means "static block".
+    # ...
+```
+
+Port colour for `LoadImage` flows automatically via `resolveTypeColor(["Image"], typeHierarchy)` → walks the hierarchy → finds `Image → Array → blue`. No frontend work per plugin. The dynamic mechanism is opt-in.
+
+#### D9'. ADR-028 §D3 supersession (covers #9)
+
+This Addendum explicitly supersedes ADR-028 §D3 ("Seven core loader/saver pairs"). The original D3 listed:
+
+```
+LoadArray / SaveArray
+LoadDataFrame / SaveDataFrame
+LoadSeries / SaveSeries
+LoadText / SaveText
+LoadArtifact / SaveArtifact
+LoadCompositeData / SaveCompositeData
+```
+
+as six distinct concrete classes shipped under `src/scieasy/blocks/io/loaders/` and `src/scieasy/blocks/io/savers/`. Per Addendum 1 D5' and D9' (this decision), those six pairs are replaced with:
+
+```
+LoadData (single class) + six private module-level _load_* functions
+SaveData (single class) + six private module-level _save_* functions
+```
+
+living in `src/scieasy/blocks/io/loaders/load_data.py` and `src/scieasy/blocks/io/savers/save_data.py` respectively. The six private functions carry all the format-handling logic absorbed from the deleted bundled adapters per ADR-028 §D2 and §D5.
+
+The ADR-028 §"Detailed impact scope" / "Files to create" table's rows for `loaders/array.py`, `loaders/dataframe.py`, `loaders/series.py`, `loaders/text.py`, `loaders/artifact.py`, `loaders/composite.py` (and the symmetric `savers/` rows) are **superseded** by this Addendum. The actual files created in the Sprint A sub-1b implementation PRs are only `loaders/load_data.py` and `savers/save_data.py`.
+
+The ADR-028 §D3 table of "Supported extensions" per base type is **unchanged** — the same format set applies, just dispatched through the private functions instead of separate classes.
+
+### Alternatives considered
+
+**Alternative I — Don't introduce a dynamic port mechanism; keep six separate classes.** Under this alternative, ADR-028 §D3 stands as-is. The palette gets six `Load*` entries plus six `Save*` entries for core IO alone.
+
+*Rejected because*:
+- The user explicitly chose the consolidated single-palette-entry design.
+- Twelve core IO palette entries is visually dense and makes the "Core > io" category crowded before plugin packages contribute their own loaders.
+- The dynamic mechanism introduced by this Addendum is small (two methods, one ClassVar, one API field, one frontend helper). The cost of introducing it is lower than the cost of twelve palette entries.
+
+**Alternative II — Hide the six loader classes from the palette via a `palette_hidden: bool` flag and add a meta-palette-entry that dispatches at drag time.** Under this alternative, the six classes exist but don't appear in the palette. A single "Load Data" palette item is a special kind of palette entry that, when dragged, spawns the concrete block class selected via the dropdown.
+
+*Rejected because*:
+- This requires a new "meta-palette-entry" concept distinct from blocks, which no other palette item uses. The frontend palette model becomes more complex.
+- The spawned block class is fixed once the user selects the type, so changing the type requires deleting and re-creating the node. This is worse UX than a node whose type updates live.
+- Hiding six classes from the palette but keeping them as importable classes creates a "visible from code, hidden from GUI" split that confuses documentation.
+
+**Alternative III — Use a Pydantic discriminated union for the config and let FastAPI dispatch.** Under this alternative, `LoadData.config_schema` is a Pydantic discriminated union on `core_type`, and FastAPI returns the correct sub-schema in the API response.
+
+*Rejected because*:
+- The GUI problem is not schema dispatch — it is port type dispatch. The port types are not a Pydantic concept; they are `list[type[DataObject]]`. A discriminated union on the config does not tell the frontend what the port colour should be.
+- Adding Pydantic discriminated-union machinery to a problem that a three-field ClassVar solves is complexity for no benefit.
+
+**Alternative IV — Implement the full variadic port count mechanism in the same Addendum.** Under this alternative, Addendum 1 covers both the type dimension (LoadData) and the count dimension (AI variadic), landing both together.
+
+*Rejected because*:
+- The count dimension is significantly more complex and unlocks a much larger design space (GUI controls for add/remove port, per-port editor, constraint handling, scheduler routing, worker subprocess reconstruction).
+- Bundling the two dimensions would balloon this Addendum to multi-thousand-line scope and delay the core IO refactor.
+- ADR-029 is the right home for the count dimension because it deserves its own design conversation, not a sub-section of an Addendum.
+
+### Consequences
+
+**Non-breaking changes** (Addendum 1 is additive for static blocks):
+
+- `Block.get_effective_input_ports()` and `get_effective_output_ports()` have default implementations that return the existing ClassVar lists. Static blocks get the new methods for free with zero behaviour change.
+- `Block.dynamic_ports` defaults to `None`. Static blocks do not need to set it.
+- `BlockSpec.dynamic_ports` defaults to `None`. `BlockSchemaResponse.dynamic_ports` defaults to `None`. Frontend checks `?? undefined` and falls back to static port rendering.
+- `BlockSpec.direction` defaults to `None`. Non-IO blocks do not have a `direction` ClassVar and this field stays `None` in their spec.
+- All existing tests of static blocks should continue to pass without modification.
+
+**Breaking changes** (only affect ADR-028's implementation PRs, which are still pending):
+
+- ADR-028 §D3's six concrete loader/saver pairs are replaced by two dynamic blocks. The Sprint A sub-1b PR-B implementation creates `LoadData` (not `LoadArray`, `LoadDataFrame`, etc.). The Sprint A sub-1b PR-C implementation creates `SaveData` (not the six individual savers).
+- The ADR-028 "Files to create" table rows for `loaders/array.py`, `loaders/dataframe.py`, `loaders/series.py`, `loaders/text.py`, `loaders/artifact.py`, `loaders/composite.py` are deleted. Only `loaders/load_data.py` and `savers/save_data.py` are created.
+- The Sprint A sub-1b PR-B/PR-C implementation agents must read this Addendum, not just ADR-028, to know the correct file layout.
+
+**Frontend consequences**:
+
+- `BlockNode.tsx` no longer has three hardcoded `blockType === "io_block"` checks. The generalised `category === "io"` discriminator works for any IO block, plugin-provided or core.
+- The Browse button appears on any IO block's `path` config field (both core and plugin). Save blocks open a directory picker; load blocks open a file picker.
+- The `direction` field is hidden from the inline config fields on any IO block (defensive, since it's no longer a runtime config value).
+- Dynamic blocks (like `LoadData`) recompute their port colours live when the user changes the driving config field.
+- Static plugin IO blocks (like `LoadImage`) get port colours via the existing `resolveTypeColor()` type-hierarchy walk — no per-plugin frontend work.
+
+**Developer experience consequences**:
+
+- Plugin authors writing simple single-type loaders (e.g. `LoadImage`, `LoadMSRawFile`) write no frontend code and declare no dynamic mechanism. They get the same consolidated UX as core `LoadData` automatically via the generic renderer.
+- Plugin authors who want dynamic typed loaders declare a `dynamic_ports` ClassVar on their subclass. The declarative form is enum-only; more complex rules require a Python override of `get_effective_*_ports()`.
+- The `get_effective_*_ports()` mechanism generalises to future use cases beyond IO (e.g., a plugin block that produces different types based on a "mode" config). The mechanism is available to any `Block` subclass, not just `IOBlock`.
+
+**Known risks and mitigations**:
+
+| Risk | Mitigation |
+|---|---|
+| Dynamic port recomputation client-side gets out of sync with backend state | The recomputation is purely deterministic given `dynamic_ports` mapping + current config. Backend re-derives the same port list via `get_effective_*_ports()` when it runs the block. Unit tests verify the two implementations agree for every enum value. |
+| Plugin authors write malformed `dynamic_ports` ClassVars | Scan-time validation in `BlockRegistry._validate_dynamic_ports(cls)` catches malformed mappings before the block reaches the registry. Failures raise `ValueError` with the offending class name and field. |
+| Workflow validator accidentally uses stale cached port lists | Workflow validator always instantiates a fresh `Block` from the node's config to call `get_effective_*_ports()`. No caching between workflow nodes. |
+| `LoadData` dispatch function raises `NotImplementedError` for a valid core type | The six private dispatch functions are implementation placeholders until Sprint A sub-1b PR-B lands. The dispatch in `LoadData.load()` validates the core_type against `_CORE_TYPE_MAP` before calling the function, so unknown types raise a clear `ValueError` with the supported list. |
+| Frontend recomputation fires on every keystroke for text fields that happen to have a mapping | `dynamic_ports.source_config_key` targets an enum field (dropdown), not a text field. Validation at registration time enforces this by checking that the driving config property has an `enum` list. |
+| Existing static `IOBlock` tests break because the IOBlock ABC is already abstract | ADR-028 PR-A already made `IOBlock` abstract. This Addendum does not change that. Existing tests that instantiated a bare `IOBlock` were migrated to concrete loaders by PR-A. This Addendum inherits that migration. |
+| Plugin tests break because the plugin's IOBlock subclass does not override `get_effective_*_ports()` | Default implementation returns the ClassVar. Plugin blocks with static `output_ports` and no `dynamic_ports` work without any additional method override. The mechanism is strictly additive for plugin authors. |
+
+### Detailed impact scope
+
+Implementation of Addendum 1 is **not** part of this ADR PR. The impact scope below describes what the Sprint A sub-1b implementation PR(s) must do.
+
+#### Files to modify (backend, Phase 11 implementation PR)
+
+| File | Changes |
+|---|---|
+| `src/scieasy/blocks/base/block.py` | **Add** `dynamic_ports: ClassVar[dict[str, Any] \| None] = None` ClassVar (around line 64). **Add** `get_effective_input_ports(self)` and `get_effective_output_ports(self)` methods with default implementations (after `input_ports` / `output_ports` declarations). **Update** `Block.validate()` (lines 92, 95) to use `self.get_effective_input_ports()` instead of `self.input_ports` directly. |
+| `src/scieasy/blocks/process/process_block.py` | **Update** lines 160, 165 to read `self.get_effective_output_ports()` instead of `self.output_ports` directly. |
+| `src/scieasy/blocks/io/io_block.py` | **Add** `direction: ClassVar[str] = "input"` at the class-body level (moved from subclass responsibility — it stays ClassVar but the IOBlock base class declares it so all subclasses inherit a default). |
+| `src/scieasy/blocks/registry.py` | **Add** `dynamic_ports: dict[str, Any] \| None = None` and `direction: str \| None = None` fields to `BlockSpec` dataclass. **Add** `_validate_dynamic_ports(cls)` helper method on `BlockRegistry` that runs at registration time. **Update** `_build_spec(cls)` (or equivalent) to populate `dynamic_ports` and `direction` from the class attributes. |
+| `src/scieasy/workflow/validator.py` | **Add** `_get_effective_ports(node, spec)` helper that constructs a temporary block instance for dynamic blocks. **Update** the edge type-compatibility check to use `_get_effective_ports()` instead of reading `spec.input_ports` / `spec.output_ports` directly. |
+| `src/scieasy/api/schemas.py` | **Add** `dynamic_ports: dict[str, Any] \| None = None` and `direction: str \| None = None` fields to `BlockSchemaResponse` Pydantic model. |
+| `src/scieasy/api/routes/blocks.py` | **Update** `_summary()` / `_schema_response()` to populate the two new fields from `BlockSpec`. |
+
+#### Files to create (backend)
+
+| File | Contents |
+|---|---|
+| `src/scieasy/blocks/io/loaders/__init__.py` | Re-export `LoadData` |
+| `src/scieasy/blocks/io/loaders/load_data.py` | `LoadData` class + six private `_load_*` dispatch functions. Full implementation per D5'. |
+| `src/scieasy/blocks/io/savers/__init__.py` | Re-export `SaveData` |
+| `src/scieasy/blocks/io/savers/save_data.py` | `SaveData` class + six private `_save_*` dispatch functions. Symmetric counterpart of `load_data.py`. |
+
+#### Files to modify (frontend)
+
+| File | Changes |
+|---|---|
+| `frontend/src/components/nodes/BlockNode.tsx` | **Change 1** (line 179): `blockType === "io_block"` → `data.category === "io"` (Browse button). **Change 2** (line 241-243): same substitution (hide direction field). **Change 3** (line 247-249): `data.config?.direction` → `data.schema?.direction`. **Add** `computeEffectivePorts()` helper function that reads `data.schema?.dynamic_ports` and recomputes port types from current config. **Use** `effectiveOutputPorts` / `effectiveInputPorts` in the port rendering loops. |
+| `frontend/src/types/api.ts` | **Add** `DynamicPortsMapping` interface. **Add** `dynamic_ports?: DynamicPortsMapping` and `direction?: "input" \| "output"` fields to `BlockSchemaResponse` interface. |
+
+#### Files to create (tests)
+
+| File | Contents |
+|---|---|
+| `tests/blocks/test_dynamic_ports_mechanism.py` | Tests for the generic mechanism: `Block.get_effective_*_ports()` default behaviour, ClassVar fallback, override semantics, defensive copy, `BlockRegistry._validate_dynamic_ports()` happy path + malformed cases. |
+| `tests/blocks/test_load_data.py` | Tests for `LoadData`: palette placeholder ports, `get_effective_output_ports()` for each core_type enum value, unknown core_type raises ValueError, private `_load_*` functions raise NotImplementedError (placeholder marker for Sprint A sub-1b PR-B). |
+| `tests/blocks/test_save_data.py` | Symmetric tests for `SaveData`. |
+| `tests/api/test_block_schema_dynamic_ports.py` | Integration tests: `BlockSchemaResponse` includes `dynamic_ports` for `LoadData`, `direction` populated for `LoadData`/`SaveData`, static blocks produce `dynamic_ports=None` and `direction=None`. |
+| `tests/integration/test_dynamic_ports_workflow.py` | End-to-end: construct a workflow with a `LoadData` node, change core_type config, verify workflow validator sees the correct effective ports. |
+
+#### Files NOT affected (explicitly)
+
+- `src/scieasy/core/types/*` — Phase 10 type hierarchy unchanged.
+- `src/scieasy/core/types/registry.py` — TypeRegistry.resolve unchanged.
+- `src/scieasy/core/types/serialization.py` — `_reconstruct_one` / `_serialise_one` unchanged (per Discussion #12).
+- `src/scieasy/engine/runners/worker.py` — worker subprocess unchanged.
+- `src/scieasy/engine/scheduler.py` — scheduler unchanged.
+- `src/scieasy/blocks/code/*` — CodeBlock unchanged by this Addendum (variadic CodeBlock is ADR-029 scope).
+- `src/scieasy/blocks/app/*` — AppBlock unchanged.
+- `src/scieasy/blocks/ai/*` — AIBlock unchanged (variadic AIBlock is ADR-029 scope).
+- `docs/architecture/ARCHITECTURE.md` — tracked by Sprint A sub-1b PR-D.
+- `docs/architecture/PROJECT_TREE.md` — tracked by Sprint A sub-1b PR-D.
+- `docs/guides/block-sdk.md` — tracked by Sprint A sub-1b PR-D.
+
+### Open questions deferred to implementation
+
+The following details are deliberately left for the implementation PR(s) to resolve. The implementation author picks the simplest option consistent with this Addendum's decisions.
+
+1. **Defensive copy behaviour on `get_effective_*_ports()` default**: return `list(type(self).input_ports)` (shallow copy) or return the ClassVar directly? **Decision: shallow copy.** Prevents accidental mutation of class state. Implementation author follows this.
+2. **Validator's temporary-instance construction**: does it use `block_cls(config=node.config)` or does it need a dedicated factory method? **Decision: direct constructor call** using the same `config=...` kwarg that runtime uses. No factory method needed.
+3. **Frontend recomputation debouncing**: should the recomputation be throttled to avoid running on every dropdown re-render? **Decision: no debouncing**. The recomputation is pure, cheap, and the driving field is an enum dropdown that changes at most a few times per minute.
+4. **Dispatching `load()` on a `LoadData` instance with an unknown `core_type`**: raise `ValueError` or fall back to `DataObject`? **Decision: raise `ValueError`** with a clear message listing the supported core types. Falling back to `DataObject` would mask typos silently.
+5. **Should `BlockNode.tsx` display a warning badge when `dynamic_ports` is present but `source_config_key` resolves to an unknown value?** **Decision: no badge for now**. The current implementation falls back to the ClassVar placeholder ports. If this becomes confusing in practice, add a warning badge in a follow-up.
+6. **Should `_CORE_TYPE_MAP` be exported from `load_data.py` for plugin authors who want to reuse it?** **Decision: no**. The map is private to the core IO module. Plugin authors who need the same mapping import the six core types directly and build their own map.
+
+### Relationship to other ADRs
+
+- **Builds on**: ADR-028 (IOBlock architectural refactor) — this Addendum is the first consumer of the dynamic-port mechanism and the first implementation of the new `IOBlock` ABC in core.
+- **Supersedes**: ADR-028 §D3 "Seven core loader/saver pairs" — replaced by `LoadData` + `SaveData` + twelve private dispatch functions. The ADR-028 "Files to create" table rows for the six loader/saver class pairs are deleted.
+- **Defers to**: ADR-029 (preliminary) — AI variadic port count, CodeBlock variadic port count, per-instance port editor UI. Addendum 1 provides the `get_effective_*_ports()` override mechanism that ADR-029 will build on, but makes no decisions about the count dimension.
+- **Depends on**: Phase 10 core type system (ADR-027) — the six base types `LoadData` / `SaveData` dispatch over. ADR-027 Addendum 1 §1 (typed reconstruction) — not changed, worker subprocess continues to round-trip typed instances regardless of whether the producing block is dynamic or static.
+- **Does not affect**: ADR-017 (subprocess isolation), ADR-018 + Addendum 1 (scheduler), ADR-019 (ProcessHandle), ADR-020 + Addenda (Collection transport), ADR-021 (collection operations), ADR-022 (memory monitoring), ADR-023-026 (frontend / distribution / SDK), ADR-024 (CLI). All orthogonal to the dynamic-port mechanism.
+- **Enables**: Phase 11 Track 1 sub-1b PR-B/PR-C implementation agents have unambiguous instructions for `LoadData` / `SaveData` file layout. Phase 11 Track 2 imaging plugin's `LoadImage` block gets port colouring for free via the existing type-hierarchy walk. Phase 11 Track 3 SRS plugin's `SRSImage` port colouring via the same path. Phase 11 Track 4 LC-MS plugin's `LoadMSRawFile` port colouring via the same path.
