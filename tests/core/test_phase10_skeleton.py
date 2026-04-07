@@ -18,24 +18,15 @@ replacement test files (e.g. ``tests/core/test_units.py`` for T-003).
 
 from __future__ import annotations
 
-import pytest
-
 # ---------------------------------------------------------------------------
-# T-003 / ADR-027 D6 + Addendum 1 §4 — PhysicalQuantity skeleton
+# T-003 / ADR-027 D6 + Addendum 1 §4 — PhysicalQuantity
+#
+# The PhysicalQuantity skeleton smoke tests that previously lived here
+# were removed when T-003 landed its real implementation. See
+# ``tests/core/test_units.py`` for the replacement test suite.
+# ``test_all_skeletons_co_importable`` below still imports
+# ``PhysicalQuantity`` so the cross-skeleton check remains meaningful.
 # ---------------------------------------------------------------------------
-
-
-def test_physical_quantity_module_importable() -> None:
-    from scieasy.core.units import PhysicalQuantity
-
-    assert PhysicalQuantity is not None
-
-
-def test_physical_quantity_construction_raises_not_implemented() -> None:
-    from scieasy.core.units import PhysicalQuantity
-
-    with pytest.raises(NotImplementedError, match="T-003"):
-        PhysicalQuantity(value=1.0, unit="m")
 
 
 # ---------------------------------------------------------------------------
