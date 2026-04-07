@@ -122,22 +122,25 @@ scieasy/                               # ← repo root
 │       │   │
 │       │   ├── io/                     # IOBlock — data ingress / egress
 │       │   │   ├── __init__.py
-│       │   │   ├── io_block.py         # IOBlock: direction="input"|"output", format dispatch
-│       │   │   │                       #   Lazy Collection construction: creates StorageReference
-│       │   │   │                       #   per file, no eager data read (ADR-020 Addendum 2)
-│       │   │   ├── adapters/           # Pluggable format adapters
+│       │   │   ├── io_block.py         # IOBlock: abstract base class with abstract
+│       │   │   │                       #   load()/save() methods + default run() dispatch
+│       │   │   │                       #   on subclass `direction` ClassVar (ADR-028 §D2).
+│       │   │   │                       #   The old format-adapter registry pattern is gone;
+│       │   │   │                       #   concrete IO blocks subclass IOBlock directly.
+│       │   │   ├── loaders/            # Concrete input-only IOBlock subclasses
 │       │   │   │   ├── __init__.py
-│       │   │   │   ├── base.py         # FormatAdapter protocol (read → DataObject, write → file)
-│       │   │   │   │                   #   + create_reference(path) for lazy loading (ADR-020 Addendum 2)
-│       │   │   │   ├── csv_adapter.py
-│       │   │   │   ├── tiff_adapter.py
-│       │   │   │   ├── zarr_adapter.py
-│       │   │   │   ├── parquet_adapter.py
-│       │   │   │   ├── mzxml_adapter.py
-│       │   │   │   ├── h5ad_adapter.py     # AnnData .h5ad ↔ CompositeData
-│       │   │   │   ├── fcs_adapter.py      # Flow cytometry .fcs
-│       │   │   │   └── generic_adapter.py  # Fallback: binary → Artifact
-│       │   │   └── adapter_registry.py # Maps file extensions → adapter classes
+│       │   │   │   └── load_data.py    # LoadData: dynamic-port loader covering all six core
+│       │   │   │                       #   DataObject types (Array, DataFrame, Series, Text,
+│       │   │   │                       #   Artifact, CompositeData). Declares dynamic_ports
+│       │   │   │                       #   ClassVar (ADR-028 Addendum 1 §C5) and overrides
+│       │   │   │                       #   get_effective_output_ports() to narrow accepted_types
+│       │   │   │                       #   per the core_type config enum. load() dispatches to
+│       │   │   │                       #   six private module-level _load_* functions per §C9
+│       │   │   │                       #   (no helper classes). Pickle is opt-in via allow_pickle.
+│       │   │   └── savers/             # Concrete output-only IOBlock subclasses
+│       │   │       ├── __init__.py
+│       │   │       └── save_data.py    # SaveData: mirror of LoadData, six private _save_* funcs
+│       │   │                           #   dispatched from save() per ADR-028 Addendum 1 §C9.
 │       │   │
 │       │   ├── process/                # ProcessBlock — data transformation
 │       │   │   ├── __init__.py
@@ -543,7 +546,7 @@ scieasy/                               # ← repo root
 │   │   └── examples/
 │   │       ├── simple-transform.md   # Single block, process_item() pattern
 │   │       ├── collection-processing.md  # Multi-item, map_items()/parallel_map()
-│   │       ├── custom-io-adapter.md  # FormatAdapter for domain-specific formats
+│   │       ├── custom-io-block.md    # IOBlock subclass for domain-specific formats (ADR-028)
 │   │       └── multi-block-package.md # Full package with categories, types, tests
 │   │
 │   ├── adr/
@@ -617,31 +620,27 @@ scieasy/                               # ← repo root
 [project.scripts]
 scieasy = "scieasy.cli.main:app"
 
-# --- Entry-point groups (ADR-025 callable protocol) ---
+# --- Entry-point groups (ADR-025 callable protocol, amended by ADR-028 §D4) ---
 # Each entry-point value is a callable (function or class).
 # The registry invokes the callable at scan time.
 # For scieasy.blocks: callable returns (PackageInfo, list[type[Block]])
-#   or plain list[type[Block]] for backward compat.
+#   or plain list[type[Block]] for backward compat. Concrete IOBlock
+#   subclasses (LoadData, SaveData, plus plugin loaders like LoadImage)
+#   register through this group too — there is no longer a separate
+#   `scieasy.adapters` group (ADR-028 §D4 supersedes ADR-025 §6).
 # For scieasy.types: callable returns list[type[DataObject]].
-# For scieasy.adapters: callable returns list[type[FormatAdapter]].
 
 [project.entry-points."scieasy.blocks"]
 # Built-in blocks (these are direct class references — core package
 # does not use the callable protocol for its own blocks)
-io_block = "scieasy.blocks.io:IOBlock"
+load_data = "scieasy.blocks.io.loaders.load_data:LoadData"
+save_data = "scieasy.blocks.io.savers.save_data:SaveData"
 process_merge = "scieasy.blocks.process.builtins.merge:MergeBlock"
 process_split = "scieasy.blocks.process.builtins.split:SplitBlock"
 code_block = "scieasy.blocks.code:CodeBlock"
 app_block = "scieasy.blocks.app:AppBlock"
 ai_block = "scieasy.blocks.ai:AIBlock"
 subworkflow_block = "scieasy.blocks.subworkflow:SubWorkflowBlock"
-
-[project.entry-points."scieasy.adapters"]
-csv = "scieasy.blocks.io.adapters.csv_adapter:CSVAdapter"
-tiff = "scieasy.blocks.io.adapters.tiff_adapter:TIFFAdapter"
-mzxml = "scieasy.blocks.io.adapters.mzxml_adapter:MzXMLAdapter"
-h5ad = "scieasy.blocks.io.adapters.h5ad_adapter:H5ADAdapter"
-parquet = "scieasy.blocks.io.adapters.parquet_adapter:ParquetAdapter"
 
 [project.entry-points."scieasy.types"]
 # Built-in domain types (base types are always available, no entry_point needed)
@@ -655,18 +654,19 @@ r = "scieasy.blocks.code.runners.r_runner:RRunner"
 julia = "scieasy.blocks.code.runners.julia_runner:JuliaRunner"
 ```
 
-## Example external package entry_points (ADR-025)
+## Example external package entry_points (ADR-025, amended by ADR-028 §D4)
 
 ```toml
 # In scieasy-blocks-srs/pyproject.toml:
 [project.entry-points."scieasy.blocks"]
 srs = "scieasy_blocks_srs:get_blocks"          # → (PackageInfo, [Block, ...])
+                                               # The returned list includes any
+                                               # plugin-owned IOBlock subclasses
+                                               # (e.g. LoadSRSImage / SaveSRSImage)
+                                               # alongside ProcessBlocks etc.
 
 [project.entry-points."scieasy.types"]
 srs = "scieasy_blocks_srs.types:get_types"     # → [SRSImage]
-
-[project.entry-points."scieasy.adapters"]
-srs = "scieasy_blocks_srs.io:get_adapters"     # → [SRSTiffAdapter]
 ```
 
 ## File count summary
@@ -674,7 +674,7 @@ srs = "scieasy_blocks_srs.io:get_adapters"     # → [SRSTiffAdapter]
 | Directory | Python files | Purpose |
 |---|---|---|
 | `core/` | 15 | Data types, Collection transport, storage, proxy, lineage |
-| `blocks/` | 30 | All block categories, adapters, runners, registry, lazy_list (process_mgr.py deleted per ADR-019, lazy_list.py added per ADR-020) |
+| `blocks/` | 30 | All block categories, IO loaders/savers (ADR-028), code runners, registry, lazy_list (process_mgr.py deleted per ADR-019, lazy_list.py added per ADR-020, io/adapters/ + adapter_registry.py deleted per ADR-028 §D2/§D4) |
 | `engine/` | 10 | Scheduler, resources, checkpoint, events, runners (worker, process_handle, process_monitor, platform) |
 | `ai/` | 6 | Generation, synthesis, optimization |
 | `api/` | 10 | FastAPI routes, WebSocket, SSE, SPA fallback (ADR-024) |
