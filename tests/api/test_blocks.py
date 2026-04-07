@@ -12,7 +12,11 @@ def test_list_blocks_and_schema_alias_endpoints(client: TestClient) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert "blocks" in payload
-    assert any(block["type_name"] == "process_block" for block in payload["blocks"])
+    # T-TRK-003: TransformBlock was relocated to tests/fixtures/noop_block.py
+    # as NoopBlock with type_name="noop". The conftest hook re-registers it
+    # under the legacy "process_block" alias for backward compatibility, but
+    # the canonical type_name reported by the palette endpoint is now "noop".
+    assert any(block["type_name"] == "noop" for block in payload["blocks"])
 
     schema = client.get("/api/blocks/process_block/schema")
     assert schema.status_code == 200
