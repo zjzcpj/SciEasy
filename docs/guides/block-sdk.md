@@ -531,6 +531,105 @@ class FijiBlock(AppBlock):
     watch_timeout: ClassVar[int] = 600  # 10 minutes
 ```
 
+#### 3.4.1 Writing a manual review step using AppBlock to open Fiji
+
+SciEasy treats human review as a first-class workflow step (see
+`CLAUDE.md` §2.5). There is **no dedicated manual-review block class** —
+the same `AppBlock` machinery that bridges automated GUI tools also
+covers the human-in-the-loop case. The trick is that the user *is* the
+external process: the block writes inputs to an exchange directory,
+launches the GUI, then sits in `PAUSED` until the user saves a result
+file matching `output_patterns`.
+
+The lifecycle is identical to any other `AppBlock`:
+
+1. **PREPARE** — `FileExchangeBridge.prepare()` writes input
+   `DataObject`s to `exchange_dir/inputs/` in the app's native format.
+2. **LAUNCH** — the configured `app_command` starts the GUI tool with
+   the input directory as an argument.
+3. **PAUSED** — the engine transitions to `PAUSED`. The frontend shows
+   "Waiting for manual review…". The user opens the file, edits or
+   annotates, and saves into `exchange_dir/outputs/`.
+4. **WATCH** — `FileWatcher` polls `exchange_dir/outputs/` for files
+   matching `output_patterns` (with `stability_period` so partial writes
+   are not picked up).
+5. **RESUME** — once outputs appear, the bridge collects them, wraps
+   them as `Artifact` instances inside a `Collection`, and the block
+   transitions to `DONE`.
+
+A minimal manual-review block that opens Fiji for cell annotation:
+
+```python
+"""manual_fiji_review.py — pause the workflow for human annotation in Fiji."""
+
+from typing import ClassVar
+
+from scieasy.blocks.app.app_block import AppBlock
+from scieasy.blocks.base.ports import InputPort, OutputPort
+from scieasy.blocks.base.state import ExecutionMode
+from scieasy.core.types.artifact import Artifact
+from scieasy.core.types.base import DataObject
+
+
+class ManualFijiReview(AppBlock):
+    """Open an Image in Fiji and wait for the user to save an annotated copy."""
+
+    name: ClassVar[str] = "Manual Fiji Review"
+    description: ClassVar[str] = (
+        "Pauses the workflow, opens the input image in Fiji, "
+        "and resumes once the user saves an annotated TIFF."
+    )
+    version: ClassVar[str] = "0.1.0"
+
+    # Canonical AppBlock ClassVars (see scieasy.blocks.app.app_block.AppBlock).
+    app_command: ClassVar[str] = "fiji"
+    execution_mode: ClassVar[ExecutionMode] = ExecutionMode.EXTERNAL
+    output_patterns: ClassVar[list[str]] = ["*_reviewed.tif", "*_reviewed.tiff"]
+    watch_timeout: ClassVar[int] = 1800  # 30 minutes — humans take coffee breaks
+
+    input_ports: ClassVar[list[InputPort]] = [
+        InputPort(
+            name="image",
+            accepted_types=[DataObject],
+            required=True,
+            description="Image to review in Fiji",
+        ),
+    ]
+    output_ports: ClassVar[list[OutputPort]] = [
+        OutputPort(
+            name="reviewed",
+            accepted_types=[Artifact],
+            description="Annotated image saved by the user",
+        ),
+    ]
+
+    # No run() override needed — AppBlock.run() handles the
+    # PREPARE → LAUNCH → PAUSED → WATCH → RESUME lifecycle for us.
+```
+
+A few notes on tuning this for real manual-review use:
+
+- **`watch_timeout`** should be generous (minutes to hours). Manual
+  review is slow; a 5-minute timeout will fail every real workflow.
+- **`output_patterns`** must be specific enough to ignore Fiji's
+  scratch files (`*.tmp`, `Thumbs.db`, etc.). Prefer a suffix
+  convention such as `*_reviewed.tif` so the user's intent to "submit"
+  is explicit.
+- **`done_marker`** (passed via `BlockConfig`) is supported when the
+  pattern alone is ambiguous: the user creates an empty `.done` file
+  to signal "I am finished", and the watcher only collects outputs
+  once the marker exists.
+- **Cancellation**: if the user closes Fiji without saving any output
+  matching `output_patterns`, `AppBlock.run()` catches
+  `ProcessExitedWithoutOutputError` and transitions to `CANCELLED`
+  rather than hanging forever.
+
+The real-world implementation lives in the imaging plugin under
+ticket **T-IMG-034 (`FijiBlock`)** in
+`docs/specs/phase11-implementation-standards.md` — that block adds
+ROI/overlay handling and a configurable Fiji macro launch path on top
+of the same `AppBlock` foundation shown here.
+
 ### 3.5 AIBlock
 
 **Purpose**: LLM-driven data processing with prompt templates. This block type
