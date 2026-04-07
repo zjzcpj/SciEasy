@@ -1,7 +1,16 @@
-"""Extended tests for DataObject — storage_ref, to_memory, type attributes."""
+"""Extended tests for DataObject — storage_ref, to_memory, type attributes.
+
+T-005 (ADR-027 D5): The legacy single-dict ``metadata`` API has been
+replaced with the three-slot ``framework`` / ``meta`` / ``user`` model.
+The validation tests below now exercise the ``user`` slot directly.
+A small ``TestMetadataDeprecationShim`` class remains to guard the
+backward-compat path; the comprehensive shim tests live in
+``tests/core/test_stratified_metadata.py``.
+"""
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -17,47 +26,85 @@ from scieasy.core.types.series import Series
 from scieasy.core.types.text import Text
 
 
-class TestMetadataValidation:
-    """ADR-017: metadata must be JSON-serializable for subprocess transport."""
+class TestUserSlotValidation:
+    """ADR-017: the ``user`` slot must be JSON-serialisable.
+
+    Migrated from the pre-T-005 ``TestMetadataValidation`` suite. The
+    free-form metadata dict is now ``user``; ``framework`` and ``meta``
+    are typed Pydantic models that handle their own serialisation.
+    """
 
     def test_valid_json_primitives(self) -> None:
-        obj = DataObject(metadata={"str": "hello", "int": 42, "float": 3.14, "bool": True, "none": None})
-        assert obj.metadata["str"] == "hello"
+        obj = DataObject(user={"str": "hello", "int": 42, "float": 3.14, "bool": True, "none": None})
+        assert obj.user["str"] == "hello"
 
     def test_valid_nested_structures(self) -> None:
-        obj = DataObject(metadata={"list": [1, 2, 3], "nested": {"a": {"b": [1]}}})
-        assert obj.metadata["list"] == [1, 2, 3]
+        obj = DataObject(user={"list": [1, 2, 3], "nested": {"a": {"b": [1]}}})
+        assert obj.user["list"] == [1, 2, 3]
 
-    def test_empty_metadata_passes(self) -> None:
-        obj = DataObject(metadata={})
-        assert obj.metadata == {}
+    def test_empty_user_passes(self) -> None:
+        obj = DataObject(user={})
+        assert obj.user == {}
 
-    def test_none_metadata_defaults_to_empty(self) -> None:
-        obj = DataObject(metadata=None)
-        assert obj.metadata == {}
+    def test_none_user_defaults_to_empty(self) -> None:
+        obj = DataObject(user=None)
+        assert obj.user == {}
 
-    def test_no_metadata_arg(self) -> None:
+    def test_no_user_arg(self) -> None:
         obj = DataObject()
-        assert obj.metadata == {}
+        assert obj.user == {}
 
     def test_set_raises(self) -> None:
-        with pytest.raises(TypeError, match="JSON-serializable"):
-            DataObject(metadata={"bad": {1, 2, 3}})
+        with pytest.raises(TypeError, match="JSON-serialisable"):
+            DataObject(user={"bad": {1, 2, 3}})
 
     def test_lambda_raises(self) -> None:
-        with pytest.raises(TypeError, match="JSON-serializable"):
-            DataObject(metadata={"fn": lambda x: x})
+        with pytest.raises(TypeError, match="JSON-serialisable"):
+            DataObject(user={"fn": lambda x: x})
 
     def test_custom_object_raises(self) -> None:
         class Custom:
             pass
 
-        with pytest.raises(TypeError, match="JSON-serializable"):
-            DataObject(metadata={"obj": Custom()})
+        with pytest.raises(TypeError, match="JSON-serialisable"):
+            DataObject(user={"obj": Custom()})
 
     def test_bytes_raises(self) -> None:
-        with pytest.raises(TypeError, match="JSON-serializable"):
-            DataObject(metadata={"data": b"\x00\x01"})
+        with pytest.raises(TypeError, match="JSON-serialisable"):
+            DataObject(user={"data": b"\x00\x01"})
+
+
+class TestMetadataDeprecationShim:
+    """Regression guard for the Phase 10 backward-compat shim.
+
+    The legacy ``DataObject(metadata=...)`` constructor kwarg and the
+    ``DataObject.metadata`` property both still work and emit
+    DeprecationWarning. They are removed in Phase 11.
+
+    Comprehensive shim coverage lives in
+    ``tests/core/test_stratified_metadata.py``; this class exists so a
+    breaking change to the shim trips a test in this file as well.
+    """
+
+    def test_legacy_metadata_kwarg_still_works(self) -> None:
+        with pytest.warns(DeprecationWarning):
+            obj = DataObject(metadata={"legacy": True})
+        assert obj.user == {"legacy": True}
+
+    def test_legacy_metadata_property_still_works(self) -> None:
+        obj = DataObject(user={"key": "val"})
+        with pytest.warns(DeprecationWarning):
+            value = obj.metadata
+        assert value == {"key": "val"}
+
+    def test_legacy_metadata_validation_still_runs(self) -> None:
+        # The shim routes ``metadata=`` into ``user``, so the same JSON
+        # validation applies. (Two warnings are expected here: the
+        # deprecation warning, then the TypeError from validation.)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            with pytest.raises(TypeError, match="JSON-serialisable"):
+                DataObject(metadata={"bad": {1, 2, 3}})
 
 
 class TestDataObjectStorageRef:
