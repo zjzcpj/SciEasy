@@ -63,7 +63,9 @@ class TestResourceSnapshot:
 
 class TestResourceManagerInit:
     def test_default_construction(self):
-        rm = ResourceManager()
+        # ADR-027 D10: gpu_slots=None triggers auto-detect; pass 0 explicitly
+        # so this test exercises only the non-GPU defaults.
+        rm = ResourceManager(gpu_slots=0)
         assert rm.gpu_slots == 0
         assert rm.max_cpu_workers == 4
         assert rm.memory_high_watermark == 0.80
@@ -88,24 +90,24 @@ class TestResourceManagerInit:
 class TestCanDispatchCPU:
     @patch("psutil.virtual_memory", return_value=_mock_vm(50.0))
     def test_cpu_under_limit(self, _mock):
-        rm = ResourceManager(cpu_workers=4)
+        rm = ResourceManager(gpu_slots=0, cpu_workers=4)
         assert rm.can_dispatch(ResourceRequest(cpu_cores=2))
 
     @patch("psutil.virtual_memory", return_value=_mock_vm(50.0))
     def test_cpu_at_limit(self, _mock):
-        rm = ResourceManager(cpu_workers=2)
+        rm = ResourceManager(gpu_slots=0, cpu_workers=2)
         rm._cpu_in_use = 2
         assert not rm.can_dispatch(ResourceRequest(cpu_cores=1))
 
     @patch("psutil.virtual_memory", return_value=_mock_vm(50.0))
     def test_cpu_exact_fit(self, _mock):
-        rm = ResourceManager(cpu_workers=4)
+        rm = ResourceManager(gpu_slots=0, cpu_workers=4)
         rm._cpu_in_use = 3
         assert rm.can_dispatch(ResourceRequest(cpu_cores=1))
 
     @patch("psutil.virtual_memory", return_value=_mock_vm(50.0))
     def test_cpu_overflow(self, _mock):
-        rm = ResourceManager(cpu_workers=4)
+        rm = ResourceManager(gpu_slots=0, cpu_workers=4)
         rm._cpu_in_use = 3
         assert not rm.can_dispatch(ResourceRequest(cpu_cores=2))
 
@@ -141,29 +143,29 @@ class TestCanDispatchGPU:
 
 class TestCanDispatchMemory:
     def test_below_watermark(self):
-        rm = ResourceManager(memory_high_watermark=0.80)
+        rm = ResourceManager(gpu_slots=0, memory_high_watermark=0.80)
         with patch("psutil.virtual_memory", return_value=_mock_vm(50.0)):
             assert rm.can_dispatch(ResourceRequest())
 
     def test_above_high_watermark(self):
-        rm = ResourceManager(memory_high_watermark=0.80)
+        rm = ResourceManager(gpu_slots=0, memory_high_watermark=0.80)
         with patch("psutil.virtual_memory", return_value=_mock_vm(85.0)):
             assert not rm.can_dispatch(ResourceRequest())
 
     def test_at_high_watermark_boundary(self):
         """Exactly at watermark should still dispatch (> not >=)."""
-        rm = ResourceManager(memory_high_watermark=0.80)
+        rm = ResourceManager(gpu_slots=0, memory_high_watermark=0.80)
         with patch("psutil.virtual_memory", return_value=_mock_vm(80.0)):
             assert rm.can_dispatch(ResourceRequest())
 
     def test_above_critical(self):
-        rm = ResourceManager(memory_critical=0.95)
+        rm = ResourceManager(gpu_slots=0, memory_critical=0.95)
         with patch("psutil.virtual_memory", return_value=_mock_vm(96.0)):
             assert not rm.can_dispatch(ResourceRequest())
 
     def test_at_critical_boundary(self):
         """At exactly critical should block (>= check)."""
-        rm = ResourceManager(memory_critical=0.95)
+        rm = ResourceManager(gpu_slots=0, memory_critical=0.95)
         with patch("psutil.virtual_memory", return_value=_mock_vm(95.0)):
             assert not rm.can_dispatch(ResourceRequest())
 
@@ -176,7 +178,7 @@ class TestCanDispatchMemory:
 class TestAcquireRelease:
     @patch("psutil.virtual_memory", return_value=_mock_vm(50.0))
     def test_acquire_cpu(self, _mock):
-        rm = ResourceManager(cpu_workers=4)
+        rm = ResourceManager(gpu_slots=0, cpu_workers=4)
         result = _run(rm.acquire(ResourceRequest(cpu_cores=2), block_id="b1"))
         assert result is True
         assert rm._cpu_in_use == 2
@@ -191,7 +193,7 @@ class TestAcquireRelease:
 
     @patch("psutil.virtual_memory", return_value=_mock_vm(50.0))
     def test_acquire_fails_when_full(self, _mock):
-        rm = ResourceManager(cpu_workers=2)
+        rm = ResourceManager(gpu_slots=0, cpu_workers=2)
         rm._cpu_in_use = 2
         result = _run(rm.acquire(ResourceRequest(cpu_cores=1), block_id="x"))
         assert result is False
@@ -199,7 +201,7 @@ class TestAcquireRelease:
 
     @patch("psutil.virtual_memory", return_value=_mock_vm(50.0))
     def test_release_cpu(self, _mock):
-        rm = ResourceManager(cpu_workers=4)
+        rm = ResourceManager(gpu_slots=0, cpu_workers=4)
         req = ResourceRequest(cpu_cores=2)
         _run(rm.acquire(req, block_id="b1"))
         rm.release(req, block_id="b1")
@@ -223,7 +225,7 @@ class TestAcquireRelease:
     @patch("psutil.virtual_memory", return_value=_mock_vm(50.0))
     def test_acquire_without_block_id(self, _mock):
         """Acquire without block_id should still work but not track allocation."""
-        rm = ResourceManager(cpu_workers=4)
+        rm = ResourceManager(gpu_slots=0, cpu_workers=4)
         result = _run(rm.acquire(ResourceRequest(cpu_cores=1)))
         assert result is True
         assert rm._cpu_in_use == 1
@@ -249,7 +251,7 @@ class TestAvailableProperty:
 
     @patch("psutil.virtual_memory", return_value=_mock_vm(0.0))
     def test_snapshot_zero_memory(self, _mock):
-        rm = ResourceManager()
+        rm = ResourceManager(gpu_slots=0)
         snap = rm.available
         assert snap.system_memory_percent == 0.0
 
@@ -288,7 +290,7 @@ class TestEventBusAutoRelease:
         from scieasy.engine.events import BLOCK_ERROR, EngineEvent, EventBus
 
         bus = EventBus()
-        rm = ResourceManager(cpu_workers=4, event_bus=bus)
+        rm = ResourceManager(gpu_slots=0, cpu_workers=4, event_bus=bus)
 
         req = ResourceRequest(cpu_cores=3)
         _run(rm.acquire(req, block_id="block-err"))
@@ -305,7 +307,7 @@ class TestEventBusAutoRelease:
         from scieasy.engine.events import BLOCK_CANCELLED, EngineEvent, EventBus
 
         bus = EventBus()
-        rm = ResourceManager(cpu_workers=4, event_bus=bus)
+        rm = ResourceManager(gpu_slots=0, cpu_workers=4, event_bus=bus)
 
         req = ResourceRequest(cpu_cores=1)
         _run(rm.acquire(req, block_id="block-cancel"))
@@ -321,7 +323,7 @@ class TestEventBusAutoRelease:
         from scieasy.engine.events import PROCESS_EXITED, EngineEvent, EventBus
 
         bus = EventBus()
-        rm = ResourceManager(cpu_workers=4, event_bus=bus)
+        rm = ResourceManager(gpu_slots=0, cpu_workers=4, event_bus=bus)
 
         req = ResourceRequest(cpu_cores=2)
         _run(rm.acquire(req, block_id="block-proc"))
@@ -337,7 +339,7 @@ class TestEventBusAutoRelease:
         from scieasy.engine.events import BLOCK_DONE, EngineEvent, EventBus
 
         bus = EventBus()
-        rm = ResourceManager(cpu_workers=4, event_bus=bus)
+        rm = ResourceManager(gpu_slots=0, cpu_workers=4, event_bus=bus)
 
         req = ResourceRequest(cpu_cores=1)
         _run(rm.acquire(req, block_id="known"))
@@ -352,7 +354,7 @@ class TestEventBusAutoRelease:
 
     def test_no_event_bus_no_subscriptions(self):
         """ResourceManager without event_bus should work fine."""
-        rm = ResourceManager(cpu_workers=4)
+        rm = ResourceManager(gpu_slots=0, cpu_workers=4)
         assert rm._allocations == {}
         # No error, just no auto-release capability
 
@@ -377,7 +379,7 @@ class TestMaxInternalWorkers:
     @patch("psutil.virtual_memory", return_value=_mock_vm(50.0))
     def test_can_dispatch_respects_effective_cpu(self, _mock):
         """can_dispatch blocks when effective CPU exceeds pool."""
-        mgr = ResourceManager(cpu_workers=4)
+        mgr = ResourceManager(gpu_slots=0, cpu_workers=4)
         # 1 core * 8 workers = 8 effective, exceeds 4-core pool
         req = ResourceRequest(cpu_cores=1, max_internal_workers=8)
         assert not mgr.can_dispatch(req)
@@ -385,7 +387,7 @@ class TestMaxInternalWorkers:
     @patch("psutil.virtual_memory", return_value=_mock_vm(50.0))
     def test_acquire_uses_effective_cpu(self, _mock):
         """acquire() reserves effective_cpu worth of cores."""
-        mgr = ResourceManager(cpu_workers=10)
+        mgr = ResourceManager(gpu_slots=0, cpu_workers=10)
         req = ResourceRequest(cpu_cores=1, max_internal_workers=4)
         result = _run(mgr.acquire(req, block_id="b1"))
         assert result is True
@@ -393,7 +395,7 @@ class TestMaxInternalWorkers:
 
     def test_release_uses_effective_cpu(self):
         """release() frees effective_cpu worth of cores."""
-        mgr = ResourceManager(cpu_workers=10)
+        mgr = ResourceManager(gpu_slots=0, cpu_workers=10)
         mgr._cpu_in_use = 8
         req = ResourceRequest(cpu_cores=2, max_internal_workers=4)
         mgr.release(req, block_id="b1")
@@ -402,6 +404,6 @@ class TestMaxInternalWorkers:
     @patch("psutil.virtual_memory", return_value=_mock_vm(50.0))
     def test_backward_compatible_default(self, _mock):
         """Existing code using ResourceRequest(cpu_cores=N) still works."""
-        mgr = ResourceManager(cpu_workers=4)
+        mgr = ResourceManager(gpu_slots=0, cpu_workers=4)
         req = ResourceRequest(cpu_cores=2)
         assert mgr.can_dispatch(req)  # 2 effective < 4 pool

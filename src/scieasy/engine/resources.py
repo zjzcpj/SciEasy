@@ -4,12 +4,63 @@ ADR-022: OS-level memory monitoring via psutil replaces estimated_memory_gb.
 Reactive dispatch gating instead of predictive static estimates.
 
 ADR-018: Auto-release on terminal block states via EventBus subscription.
+
+ADR-027 D10: ``ResourceManager`` auto-detects physical GPU count when
+``gpu_slots`` is ``None`` (the new default). The probe tries
+``torch.cuda.device_count()`` first, then ``nvidia-smi -L``, then returns 0.
+Explicit integer values are respected unchanged. When auto-detect returns 0
+but a block declares ``requires_gpu=True``, a single WARNING is emitted from
+``can_dispatch`` pointing the user at the project-config override.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+
+def _auto_detect_gpu_slots() -> int:
+    """Best-effort GPU count detection. Tries torch, then nvidia-smi, then 0.
+
+    ADR-027 D10: returns physical GPU count, not VRAM-aware slot calculation.
+    Users with large models on small cards should override via project config.
+
+    Probe order:
+
+    1. ``torch.cuda.is_available()`` + ``torch.cuda.device_count()`` (fast,
+       no subprocess). Skipped silently if torch is not installed.
+    2. ``nvidia-smi -L`` parsed for lines starting with ``"GPU "``. Skipped
+       silently if ``nvidia-smi`` is missing, times out, or returns non-zero.
+    3. Returns ``0``.
+    """
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            return int(torch.cuda.device_count())
+    except ImportError:
+        pass
+    except Exception:  # pragma: no cover - defensive: torch present but broken
+        pass
+
+    try:
+        import subprocess
+
+        result = subprocess.run(
+            ["nvidia-smi", "-L"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        if result.returncode == 0:
+            return sum(1 for line in result.stdout.splitlines() if line.startswith("GPU "))
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        pass
+
+    return 0
 
 
 @dataclass
@@ -25,11 +76,27 @@ class ResourceRequest:
     gpu_memory_gb: float = 0.0
     cpu_cores: int = 1
     max_internal_workers: int = 1
+    """Number of internal worker threads/processes the block spawns.
+
+    ADR-027 D8 (thread policy): the field is formally activated by D8.
+    The scheduler treats ``cpu_cores * max_internal_workers`` as the block's
+    total CPU footprint via :pyattr:`effective_cpu`, so a block that fans out
+    to ``max_internal_workers`` library threads (e.g. ``torch`` DataParallel,
+    MKL/OpenBLAS-multiplied numpy ops) is throttled correctly against the
+    ``cpu_workers`` pool. Defaults to ``1`` (no internal parallelism).
+    """
     # ADR-022: estimated_memory_gb REMOVED
 
     @property
     def effective_cpu(self) -> int:
-        """Total CPU footprint: declared cores times internal parallelism."""
+        """Total CPU footprint: declared cores times internal parallelism.
+
+        ADR-027 D8 (thread policy context): ``effective_cpu`` is the value
+        the scheduler uses for dispatch gating, acquisition, and release.
+        Block authors should set ``max_internal_workers`` to the number of
+        threads/processes their library will spawn so the global CPU pool is
+        not over-subscribed.
+        """
         return self.cpu_cores * self.max_internal_workers
 
 
@@ -63,16 +130,27 @@ class ResourceManager:
 
     EventBus integration (ADR-018): automatic resource release on terminal
     block states via _on_block_terminal callback.
+
+    ADR-027 D10: ``gpu_slots`` defaults to ``None``, which triggers
+    :func:`_auto_detect_gpu_slots`. Explicit integer values (including ``0``)
+    are respected unchanged and bypass auto-detection.
     """
 
     def __init__(
         self,
-        gpu_slots: int = 0,
+        gpu_slots: int | None = None,
         cpu_workers: int = 4,
         memory_high_watermark: float = 0.80,
         memory_critical: float = 0.95,
         event_bus: Any | None = None,
     ) -> None:
+        # ADR-027 D10: None triggers auto-detect; explicit ints (including 0)
+        # are respected unchanged.
+        if gpu_slots is None:
+            self._gpu_slots_auto_detected: bool = True
+            gpu_slots = _auto_detect_gpu_slots()
+        else:
+            self._gpu_slots_auto_detected = False
         self.gpu_slots = gpu_slots
         self.max_cpu_workers = cpu_workers
         self.memory_high_watermark = memory_high_watermark
@@ -80,6 +158,9 @@ class ResourceManager:
         self._gpu_in_use: int = 0
         self._cpu_in_use: int = 0
         self._allocations: dict[str, ResourceRequest] = {}
+        # ADR-027 D10: one-shot guard so the "no GPU but block requires it"
+        # warning fires exactly once per ResourceManager instance.
+        self._gpu_warning_emitted: bool = False
 
         if event_bus is not None:
             from scieasy.engine.events import (
@@ -102,11 +183,27 @@ class ResourceManager:
         - Requested CPU cores would exceed the pool
         - System memory percent >= memory_critical (always blocked)
         - System memory percent > memory_high_watermark (paused)
+
+        ADR-027 D10: when ``request.requires_gpu`` and ``self.gpu_slots == 0``,
+        a single WARNING is logged (per ResourceManager instance) explaining
+        that the user can override via project config. The warning fires
+        regardless of whether ``gpu_slots == 0`` came from auto-detect or an
+        explicit override, because in both cases the GPU dispatch path is
+        effectively dead.
         """
         import psutil
 
         # GPU check
         if request.requires_gpu and self._gpu_in_use >= self.gpu_slots:
+            # ADR-027 D10: emit a single WARNING when no GPU is configured
+            # but a block declares requires_gpu=True.
+            if self.gpu_slots == 0 and not self._gpu_warning_emitted:
+                self._gpu_warning_emitted = True
+                logger.warning(
+                    "No GPU detected (auto-detect returned 0 slots), but a "
+                    "block declares requires_gpu=True. Set gpu_slots "
+                    "explicitly in your project config to enable GPU dispatch."
+                )
             return False
         # CPU check
         if self._cpu_in_use + request.effective_cpu > self.max_cpu_workers:

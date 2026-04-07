@@ -73,25 +73,32 @@ The system is organised into six horizontal layers, from bottom to top. Each lay
 
 ### 4.1 Base type hierarchy
 
-All data flowing between blocks is wrapped in a `DataObject` subclass. The framework provides six base types; users extend them for domain-specific needs.
+All data flowing between blocks is wrapped in a `DataObject` subclass. **The core ships exactly seven types** (ADR-027 D2): the abstract `DataObject` root plus six primitives. **Domain subtypes — `Image`, `Spectrum`, `PeakTable`, `AnnData`, and everything similar — do not live in core.** They are provided by plugin packages via the `scieasy.types` entry-point group (ADR-025) and registered at startup (main process) and at worker subprocess startup (ADR-027 D11).
 
 ```mermaid
 classDiagram
     class DataObject {
-        +metadata: dict
+        +framework: FrameworkMeta
+        +meta: BaseModel
+        +user: dict
         +dtype_info: TypeSignature
         +storage_ref: StorageReference
         +view() ViewProxy
         +to_memory() Any
+        +with_meta(**changes) Self
         +save(path) None
     }
 
     class Array {
-        +ndim: int
+        +axes: list~str~
         +shape: tuple
         +dtype: numpy.dtype
         +chunk_shape: tuple
-        +axes: list~str~ | None
+        +required_axes: ClassVar frozenset
+        +allowed_axes: ClassVar frozenset
+        +canonical_order: ClassVar tuple
+        +sel(**kwargs) Array
+        +iter_over(axis) Iterator
     }
 
     class Series {
@@ -131,27 +138,40 @@ classDiagram
     DataObject <|-- Text
     DataObject <|-- Artifact
     DataObject <|-- CompositeData
-
-    Array <|-- Image
-    Array <|-- MSImage
-
-    Series <|-- Spectrum
-
-    DataFrame <|-- PeakTable
-
-    CompositeData <|-- AnnData
-    CompositeData <|-- SpatialData
-
-    Image <|-- FluorImage
-    Image <|-- SRSImage
-
-    Spectrum <|-- RamanSpectrum
-    Spectrum <|-- MassSpectrum
-
-    PeakTable <|-- MetabPeakTable
 ```
 
-**Why `CompositeData` exists**: Many real-world scientific data structures are inherently multi-modal containers rather than single-type objects. AnnData bundles a matrix (`.X` → Array), observation metadata (`.obs` → DataFrame), variable metadata (`.var` → DataFrame), and unstructured annotations (`.uns` → dict). SpatialData (Squidpy) combines images, coordinate tables, and region annotations. Forcing these into single-parent inheritance (e.g. AnnData as a DataFrame) loses critical structural semantics.
+The diagram above is the **complete** core type surface. There are no `Image`, `MSImage`, `Spectrum`, `PeakTable`, `AnnData`, or `SpatialData` classes in core. These are plugin-provided extensions.
+
+**Plugin-provided extension inset (illustrative, not in core)**: the `scieasy-blocks-imaging` package registers its own hierarchy rooted at `Array`, visible to the core `TypeRegistry` after entry-point scan:
+
+```mermaid
+classDiagram
+    class Array {
+        <<core>>
+    }
+    class Image {
+        <<plugin: scieasy-blocks-imaging>>
+        +meta: Image.Meta
+    }
+    class FluorImage {
+        <<plugin: scieasy-blocks-imaging>>
+    }
+    class HyperspectralImage {
+        <<plugin: scieasy-blocks-imaging>>
+    }
+    class SRSImage {
+        <<plugin: scieasy-blocks-imaging>>
+    }
+
+    Array <|-- Image
+    Image <|-- FluorImage
+    Image <|-- HyperspectralImage
+    Image <|-- SRSImage
+```
+
+Other plugin packages (`scieasy-blocks-spectral`, `scieasy-blocks-msi`, `scieasy-blocks-singlecell`, `scieasy-blocks-spatial-omics`) follow the same pattern — each subclasses one of the six core primitives and registers via `scieasy.types` entry points. The core diagram never grows as new modalities are added.
+
+**Why `CompositeData` exists**: Many real-world scientific data structures are inherently multi-modal containers rather than single-type objects. AnnData (single-cell, provided by `scieasy-blocks-singlecell`) bundles a matrix (`.X` → Array), observation metadata (`.obs` → DataFrame), variable metadata (`.var` → DataFrame), and unstructured annotations (`.uns` → Artifact). SpatialData (provided by `scieasy-blocks-spatial-omics`) combines images, coordinate tables, and region annotations. Forcing these into single-parent inheritance (e.g. AnnData as a DataFrame) loses critical structural semantics.
 
 `CompositeData` models these as a named collection of heterogeneous `DataObject` slots:
 
@@ -180,9 +200,15 @@ class CompositeData(DataObject):
         return list(self._slots.keys())
 ```
 
-Domain-specific subclasses declare their expected slot structure:
+Plugin-provided composite subclasses declare their expected slot structure. For example (in `scieasy-blocks-singlecell`):
 
 ```python
+# scieasy_blocks_singlecell/types/anndata.py
+from scieasy.core.types.composite import CompositeData
+from scieasy.core.types.array import Array
+from scieasy.core.types.dataframe import DataFrame
+from scieasy.core.types.artifact import Artifact
+
 class AnnData(CompositeData):
     """Single-cell data: expression matrix + cell/gene metadata."""
     expected_slots = {
@@ -192,6 +218,7 @@ class AnnData(CompositeData):
         "uns": Artifact,      # unstructured annotations
     }
 
+# scieasy_blocks_spatial_omics/types/spatialdata.py
 class SpatialData(CompositeData):
     """Spatial omics data: images + coordinates + annotations."""
     expected_slots = {
@@ -202,29 +229,115 @@ class SpatialData(CompositeData):
     }
 ```
 
-**Named axes on `Array`**: The `axes` field gives each dimension a semantic name, making dimension alignment explicit rather than positional. The base `Array` type leaves `axes = None` (unknown); domain subtypes declare their axis convention:
+Neither class lives in the core package.
+
+**Named axes on `Array` — instance-level with class-level schema (ADR-027 D1)**: Each `Array` instance carries its own `axes: list[str]`. Subclasses declare three ClassVar constraints:
+
+- `required_axes: frozenset[str]` — axes every instance of this class must have
+- `allowed_axes: frozenset[str] | None` — axes this class accepts; `None` means any
+- `canonical_order: tuple[str, ...]` — preferred ordering for reorder operations
+
+The base `Array` class leaves all three empty/None (accepts anything). Subclasses tighten as needed. The 6D axis alphabet for scientific imaging is:
+
+| Axis | Meaning | Notes |
+|---|---|---|
+| `t` | time (frames, timestamps) | |
+| `z` | depth / focal plane | |
+| `c` | discrete channel (DAPI, GFP, brightfield) | unordered labels, not values |
+| `lambda` | continuous spectral dimension | ordered numeric values in nm, cm⁻¹, or m/z |
+| `y` | vertical spatial | |
+| `x` | horizontal spatial | |
+
+`c` and `lambda` are deliberately distinct — `c` is a discrete label set, `lambda` is a continuous physical quantity. Blocks can require one or the other via constraint helpers (`has_axes("y","x","c")` vs `has_axes("y","x","lambda")`). The two may coexist in a single instance for rare multichannel + hyperspectral setups. The canonical order follows OME convention with spectral inserted between channel and spatial.
+
+`Array` instances are constructed with an explicit `axes` argument:
+
+```python
+# Built-in 2D image (in plugin package, not core)
+img_2d = Image(axes=["y", "x"], shape=(512, 512), dtype=np.uint16)
+
+# 5D fluorescence stack: 10 time points, 30 z-planes, 4 channels, 512×512
+img_5d = FluorImage(
+    axes=["t", "z", "c", "y", "x"],
+    shape=(10, 30, 4, 512, 512),
+    dtype=np.uint16,
+)
+
+# 6D hyperspectral time-course: time × depth × 128 wavelengths × spatial
+img_6d = HyperspectralImage(
+    axes=["t", "z", "lambda", "y", "x"],
+    shape=(10, 30, 128, 512, 512),
+    dtype=np.float32,
+)
+```
+
+Plugin-provided subclasses declare their schema at class level. For example (in `scieasy-blocks-imaging`):
 
 ```python
 class Image(Array):
-    axes = ["y", "x"]                  # 2D, or ["y", "x", "channel"] for multi-channel
-
-class MSImage(Array):
-    axes = ["y", "x", "mz"]           # mass spectrometry imaging: spatial + m/z
-
-class SRSImage(Array):
-    axes = ["y", "x", "wavenumber"]   # SRS: spatial + spectral
+    required_axes   = frozenset({"y", "x"})
+    allowed_axes    = frozenset({"t", "z", "c", "lambda", "y", "x"})
+    canonical_order = ("t", "z", "c", "lambda", "y", "x")
 
 class FluorImage(Image):
-    axes = ["y", "x", "channel"]      # IF: spatial + fluorescence channel
+    required_axes = frozenset({"y", "x", "c"})   # channel mandatory
+
+class HyperspectralImage(Image):
+    required_axes = frozenset({"y", "x", "lambda"})
+
+class SRSImage(Image):
+    required_axes = frozenset({"y", "x", "lambda"})
+    # same as HyperspectralImage structurally; distinct for domain semantics
+
+# (MSImage moves to scieasy-blocks-msi in a separate plugin.)
 ```
 
-Named axes serve three purposes: (1) port constraints can require specific axes instead of just ndim checks; (2) the broadcast utility (section 4.5) uses axis names to align low-dimensional data against high-dimensional data; (3) visualisation blocks can auto-assign axes to plot dimensions without config.
+Axis validation runs in the `Array.__init__` via `_validate_axes()`: the instance's `axes` must be a superset of `required_axes` and (if specified) a subset of `allowed_axes`, and must not contain duplicates. Instances can be reordered to `canonical_order` via a helper method on `Array`.
 
-**Key fields on `DataObject`**:
+`TypeSignature.from_type(cls)` (ADR-027 D1) additionally records `required_axes` so port compatibility checks enforce "incoming instance must have at least the target port type's required axes".
 
-- `metadata`: free-form dictionary for provenance info (source instrument, acquisition parameters, timestamps, user annotations).
-- `dtype_info`: a `TypeSignature` object used by the port system for connection validation. Encodes the class hierarchy so that an `SRSImage` matches any port accepting `Image` or `Array`. For `CompositeData`, the signature additionally encodes the slot structure so that ports can require specific named slots of specific types.
-- `storage_ref`: a `StorageReference` pointing to the backing store (Zarr path, Parquet file, plain file path). For `CompositeData`, this is a directory containing one storage ref per slot. The object itself is lightweight — typically a few KB regardless of the underlying data size.
+Named axes serve four purposes: (1) port constraints can require specific axes instead of just ndim checks (see `scieasy.utils.constraints.has_axes`); (2) `Array.iter_over(axis)` and `Array.sel(**kwargs)` let blocks slice along named axes without manual positional indexing; (3) `scieasy.utils.axis_iter.iterate_over_axes(source, operates_on, func)` lets blocks process high-dim Arrays one slice at a time (section 4.5); (4) visualisation blocks can auto-assign axes to plot dimensions without config.
+
+**Key fields on `DataObject` — stratified metadata (ADR-027 D5)**:
+
+Every `DataObject` has three metadata slots:
+
+- `framework: FrameworkMeta` — immutable framework-managed fields (created_at, object_id, source origin description, optional lineage_id, optional derived_from parent object_id). Block authors do not mutate this; the framework manages it.
+- `meta: BaseModel` — **typed Pydantic BaseModel** declared per subtype. For example, `FluorImage.Meta` may declare `pixel_size: PhysicalQuantity`, `channels: list[ChannelInfo]`, `objective: str | None`, `acquisition_date: datetime | None`. The base `DataObject.meta` type is an empty `BaseModel`; subtypes override with their own typed model.
+- `user: dict[str, Any]` — free-form dict escape hatch. Framework never interprets these fields; they round-trip as JSON through the Pydantic serialiser.
+- `dtype_info: TypeSignature` — used by the port system for connection validation. Encodes the class MRO chain so that a `FluorImage` matches any port accepting `Image`, `Array`, or `DataObject`. For `CompositeData`, the signature additionally encodes the slot structure so ports can require specific named slots of specific types. For `Array` subtypes, it also encodes `required_axes`.
+- `storage_ref: StorageReference | None` — pointer to the backing store (Zarr path, Parquet file, plain file path). For `CompositeData`, this is a directory containing one storage ref per slot. The object itself is lightweight — typically a few KB regardless of the underlying data size.
+
+Block authors read metadata via `img.meta.pixel_size` (typed attribute access with IDE autocompletion) and update it with the immutable helper `img.with_meta(pixel_size=new_value)`, which returns a new instance. Example:
+
+```python
+from scieasy.core.units import PhysicalQuantity as Q
+
+img = FluorImage(
+    axes=["z", "c", "y", "x"],
+    shape=(30, 4, 512, 512),
+    dtype=np.uint16,
+    meta=FluorImage.Meta(
+        pixel_size=Q(0.108, "um"),
+        channels=[
+            ChannelInfo(name="DAPI", excitation_nm=405, emission_nm=460),
+            ChannelInfo(name="GFP",  excitation_nm=488, emission_nm=525),
+            ...
+        ],
+        objective="Plan Apo 60× 1.40 NA",
+    ),
+)
+
+# Read (typed, autocomplete-friendly)
+if img.meta.pixel_size < Q(0.2, "um"):
+    # super-resolution path
+    ...
+
+# Write (immutable update)
+resampled = img.with_meta(pixel_size=Q(0.216, "um"))
+```
+
+The free-dict `DataObject.metadata` property remains as a backward-compatibility shim returning `self.user` with a `DeprecationWarning`; it is removed after Phase 11.
 
 ### 4.2 Storage backends
 
@@ -295,11 +408,68 @@ Records are stored in a local SQLite database within the project workspace. They
 
 Lineage records are written for **all terminal states**, not just successful completions. A cancelled block produces a record with `termination: "cancelled"` and `output_hashes: []`. A skipped block produces a record with `termination: "skipped"` and `termination_detail` pointing to the upstream block that caused the skip. This ensures the provenance graph is complete — every block execution attempt is traceable, including failures and cancellations.
 
-### 4.5 Broadcast utility
+### 4.5 Axis-iteration and broadcast utilities
 
-Multi-modal workflows frequently need to apply a lower-dimensional object to a higher-dimensional one along named axes — for example, applying a 2D cell mask `(y, x)` to every channel of a 3D MSI dataset `(y, x, mz)`, or applying a baseline correction curve to each spectrum in a batch.
+Two sibling utilities live in `scieasy.utils` for working with named-axis Arrays. They cover different but related concerns:
 
-The framework provides an explicit broadcast helper in `scieasy.utils.broadcast`. This is **not** automatic broadcasting at the type system or port level — the block author decides when and how to use it. The rationale: shape alignment does not guarantee semantic alignment (e.g. an IF image and an MSI image must be spatially registered before broadcasting makes sense), so the framework provides the mechanism while the block encodes the domain logic.
+- **`scieasy.utils.axis_iter.iterate_over_axes(source, operates_on, func)`** (ADR-027 D3) — iterate a single Array over all its extra (non-`operates_on`) axes, applying `func` to each slice and stacking results back. This is the common case for 5D/6D imaging blocks: "I know how to process `(y, x)`, please loop over everything else".
+- **`scieasy.utils.broadcast.broadcast_apply(source, target, func, over_axes)`** — project a lower-dimensional object onto a higher-dimensional one along named axes. This is the cross-modal case: "apply a 2D cell mask `(y, x)` to every channel of a 3D MSI dataset `(y, x, mz)`", or "apply a baseline curve to each spectrum in a batch".
+
+Neither utility is automatic broadcasting at the type system or port level — block authors decide when and how to use them. Shape alignment does not guarantee semantic alignment (e.g. an IF image and an MSI image must be spatially registered before broadcasting makes sense), so the framework provides the mechanisms and the block encodes the domain logic.
+
+#### 4.5.1 `iterate_over_axes` — the 80% case (ADR-027 D3)
+
+```python
+# scieasy/utils/axis_iter.py
+
+def iterate_over_axes(
+    source: Array,
+    operates_on: set[str],
+    func: Callable[[np.ndarray, dict[str, int]], np.ndarray],
+) -> Array:
+    """Iterate func over all axes in source NOT in operates_on.
+
+    For each combination of the non-operates_on axes, func receives:
+      - slice_data: numpy array containing only the operates_on dimensions
+      - slice_coord: dict mapping extra-axis name to current integer index
+
+    Results are stacked back into a new instance of source's concrete class
+    with axes, shape, and metadata (framework/meta/user) preserved per
+    ADR-027 D5 inheritance rules.
+
+    Raises BroadcastError if slice outputs have inconsistent shapes or if
+    operates_on is not a subset of source.axes.
+    """
+    ...
+```
+
+Memory: O(one slice + one output slice) regardless of the number of extra-axis combinations. Serial by design — block-internal parallelism is not the framework's business per ADR-027 D8 and D13.
+
+**Typical usage** (in a plugin-provided imaging block):
+
+```python
+from scieasy.utils.axis_iter import iterate_over_axes
+from scieasy.utils.constraints import has_axes
+from scieasy_blocks_imaging.types import Image
+
+class GaussianDenoise(ProcessBlock):
+    input_ports  = [InputPort(name="image", accepted_types=[Image],
+                              constraint=has_axes("y", "x"))]
+    output_ports = [OutputPort(name="denoised", accepted_types=[Image])]
+
+    def process_item(self, item: Image, config, state=None) -> Image:
+        from scipy.ndimage import gaussian_filter
+        sigma = config.get("sigma", 1.0)
+
+        def _denoise(slice_2d, coord):
+            return gaussian_filter(slice_2d, sigma=sigma)
+
+        return iterate_over_axes(item, operates_on={"y", "x"}, func=_denoise)
+```
+
+A 5D `(t, z, c, y, x)` input is handled correctly with zero additional code: `iterate_over_axes` iterates `t × z × c` and feeds each 2D slice to `_denoise`. Block authors never write manual index-tuple arithmetic. ADR-027 D5 governs metadata inheritance: the output preserves `axes`, `meta` (by reference, since Pydantic models are frozen), `user` (shallow copy), and gets a new `framework` with `derived_from=item.framework.object_id`.
+
+#### 4.5.2 `broadcast_apply` — the cross-modal case
 
 ```python
 # scieasy/utils/broadcast.py
@@ -333,9 +503,13 @@ def broadcast_apply(
     return results
 ```
 
-**Usage in a block:**
+**Usage in a block** (plugin-provided, cross-modal MSI analysis):
 
 ```python
+from scieasy_blocks_imaging.types import Image
+from scieasy_blocks_msi.types import MSImage
+from scieasy.core.types.dataframe import DataFrame
+
 class ApplyMaskToMSI(ProcessBlock):
     name = "Apply mask to MSI"
     input_ports = [
@@ -358,7 +532,7 @@ class ApplyMaskToMSI(ProcessBlock):
         return {"cell_spectra": stack_to_dataframe(per_channel, msi.mz_axis)}
 ```
 
-The broadcast utility is axis-name-aware (not position-based), integrates with `ViewProxy` for chunked iteration on large datasets, and raises clear errors when axes don't align. Blocks are never required to use it — it is a convenience for a common pattern.
+Both utilities are axis-name-aware (not position-based), integrate with `ViewProxy` for chunked iteration on large datasets, and raise clear errors when axes don't align. Neither is required — they are conveniences for common patterns. Blocks that need finer control write manual loops over `Array.iter_over(axis)` or `Array.sel(**kwargs)` directly (both added by ADR-027 D4 with Level 1 laziness and metadata preservation).
 
 ---
 
@@ -488,7 +662,61 @@ SKIPPED   → { IDLE }
 - **Crash isolation**: a segfault, OOM, or memory leak in a block only kills its subprocess.
 - **Hang protection**: a deadlocked block does not freeze the engine.
 
-Block authors do not need to change their code. The framework handles serialisation of `StorageReference` and reconstruction of `ViewProxy` transparently in the subprocess worker. Cross-process overhead is limited to process startup (~50–200ms) + reference serialisation (~KB), not data copying — the underlying data stays in storage (Zarr/Parquet/filesystem).
+Block authors do not need to change their code. The framework handles serialisation of `StorageReference` and reconstruction of `ViewProxy` transparently in the subprocess worker. Cross-process overhead is limited to process startup (~50–200ms) + reference serialisation (~KB), not data copying — the underlying data stays in storage (Zarr/Parquet/filesystem). Since ADR-027 D11, the worker subprocess additionally calls `TypeRegistry.scan()` at startup so plugin-provided domain types (e.g. `Image`, `FluorImage`) can be resolved from the incoming `type_chain` metadata.
+
+**ProcessBlock lifecycle hooks — `setup` and `teardown` (ADR-027 D7)**: `ProcessBlock` extends the `Block` base with two optional hooks around the per-run iteration:
+
+```python
+class ProcessBlock(Block):
+    def setup(self, config: BlockConfig) -> Any:
+        """Called once per run() before iterating the input Collection.
+        Return value is passed to process_item() as `state`.
+        Default: returns None.
+        Use for: loading ML models, opening DB connections, compiling
+        regexes — anything expensive that should be amortised across items."""
+        return None
+
+    def teardown(self, state: Any) -> None:
+        """Called once per run() in a finally block, even on error.
+        Default: no-op.
+        Use for: releasing resources (close files, free GPU memory)."""
+        pass
+
+    def process_item(
+        self,
+        item: DataObject,
+        config: BlockConfig,
+        state: Any = None,
+    ) -> DataObject:
+        raise NotImplementedError
+
+    def run(self, inputs, config):
+        primary = next(iter(inputs.values()))
+        state = self.setup(config)
+        try:
+            if isinstance(primary, Collection):
+                results = []
+                for item in primary:
+                    result = self.process_item(item, config, state)
+                    result = self._auto_flush(result)
+                    results.append(result)
+                output_name = self.output_ports[0].name if self.output_ports else "output"
+                return {output_name: Collection(results, item_type=primary.item_type)}
+            else:
+                result = self.process_item(primary, config, state)
+                output_name = self.output_ports[0].name if self.output_ports else "output"
+                return {output_name: result}
+        finally:
+            self.teardown(state)
+```
+
+Key properties:
+
+- `setup` receives **only** the config. It does not see `inputs`. Data-driven initialisation belongs inside `process_item` (lazy init + cache on `state`).
+- `setup` is called **inside the worker subprocess**, after `TypeRegistry.scan()` and input reconstruction. The returned state object lives for the lifetime of one `run()` call and is garbage-collected with the subprocess.
+- `teardown` is called in a `finally` block so it runs even when `process_item` raises. Use it for `torch.cuda.empty_cache()`, `conn.close()`, and similar cleanup.
+- Blocks that do not need setup ignore the hooks entirely — the defaults are no-ops, fully backward-compatible with any existing 2-arg `process_item(self, item, config)` override. The new `state` parameter defaults to `None`, so existing overrides continue to work.
+- Cellpose and similar GPU workloads should use `setup` to load the model once per Collection and override `run()` in Tier 2 style to exploit the library's own batched `eval([...], batch_size=N)` API. See §5.3 for the full pattern.
 
 ### 5.2 Port system
 
@@ -862,6 +1090,10 @@ class SubWorkflowBlock(Block):
 
 Blocks and custom data types are discovered from two sources, merged into a unified registry. The design goal: a bench scientist adds a block by dropping a file; a community maintainer publishes a polished package via pip.
 
+**Core / plugin boundary (ADR-027 D2)**: Core ships only the seven base types listed in §4.1 (`DataObject`, `Array`, `Series`, `DataFrame`, `Text`, `Artifact`, `CompositeData`). **No domain subtypes live in core.** `Image`, `FluorImage`, `SRSImage`, `MSImage`, `Spectrum`, `RamanSpectrum`, `MassSpectrum`, `PeakTable`, `MetabPeakTable`, `AnnData`, `SpatialData` — all of these are supplied by plugin packages via the `scieasy.types` entry-point group. The same rule applies to blocks: the core package ships only cross-cutting built-ins (`IOBlock`, `CodeBlock`, `AppBlock`, `AIBlock`, `SubWorkflowBlock`, `MergeCollection`, `SplitCollection`, `FilterCollection`, `SliceCollection`, `MergeBlock`, `SplitBlock`, `TransformBlock`). Every domain-aware block — Gaussian denoise, watershed, Cellpose, peak picking, mass calibration — lives in a plugin package.
+
+This boundary keeps the core modality-agnostic and ensures new modalities can be added to the ecosystem without modifying core. A scientist who only does imaging installs `scieasy + scieasy-blocks-imaging`; the core never even imports imaging-specific symbols. The worker subprocess calls `TypeRegistry.scan()` at startup (ADR-027 D11) so plugin types are resolvable from serialised `type_chain` metadata.
+
 #### Tier 1 — Drop-in files (zero config)
 
 Users place `.py` files in scan directories. The framework auto-discovers them on startup (and via a "Reload" button in the UI).
@@ -873,12 +1105,12 @@ Users place `.py` files in scan directories. The framework auto-discovers them o
 
 For each `.py` file, the framework imports the module, finds all classes inheriting `Block` or `DataObject`, reads their class-level declarations, and registers them with `BlockRegistry` or `TypeRegistry` respectively.
 
-**Minimal drop-in block example:**
+**Minimal drop-in block example** (using a plugin-provided type):
 
 ```python
 # my_project/blocks/raman_denoise.py
 from scieasy.blocks.base import ProcessBlock, InputPort, OutputPort
-from scieasy.core.types import Spectrum
+from scieasy_blocks_spectral.types import Spectrum  # plugin-provided, not core
 
 class RamanDenoise(ProcessBlock):
     name = "Raman denoise"
@@ -889,14 +1121,17 @@ class RamanDenoise(ProcessBlock):
     input_ports = [InputPort(name="spectrum", accepted_types=[Spectrum])]
     output_ports = [OutputPort(name="smoothed", accepted_types=[Spectrum])]
 
-    def run(self, inputs, config):
+    def process_item(self, item, config, state=None):
         from scipy.signal import savgol_filter
-        data = inputs["spectrum"].to_memory()
+        data = item.to_memory()
         result = savgol_filter(data, config.get("window", 11), config.get("order", 3))
-        return {"smoothed": result}
+        return Spectrum(
+            axes=item.axes, shape=result.shape, dtype=result.dtype,
+            meta=item.meta,
+        )
 ```
 
-Save → click "Reload blocks" → appears in palette under "spectroscopy".
+Save → click "Reload blocks" → appears in palette under "spectroscopy". The `from scieasy_blocks_spectral.types import Spectrum` requires that the user has installed `scieasy-blocks-spectral`; the drop-in file itself does not need to live inside the plugin package.
 
 **Minimal drop-in type example:**
 
@@ -1144,6 +1379,10 @@ Core responsibilities:
 4. **Cancellation handling**: on `CANCEL_BLOCK_REQUEST`, terminates the block's subprocess and propagates `SKIPPED` to all unreachable downstream blocks (ADR-018).
 5. **State propagation**: all block state changes are emitted as events on the `EventBus`, consumed by the WebSocket handler, LineageRecorder, CheckpointManager, and ResourceManager.
 
+**Concurrency model (ADR-018 Addendum 1)**: The scheduler uses `asyncio.create_task` to start each block as an independent task. `_dispatch` performs only the synchronous prelude (state transition, input gathering, block instantiation) and then creates a task for `_run_and_finalize`, which awaits the subprocess via `runner.run(...)`. Independent DAG branches therefore execute concurrently — the event loop returns to dispatching other ready blocks immediately after creating the task, rather than blocking on `popen.communicate()`.
+
+When `ResourceManager.can_dispatch()` refuses a block (GPU slot exhausted, system memory above watermark), the block stays in READY state and `_dispatch` returns without creating a task. A helper `_dispatch_newly_ready()` is called from `_on_block_done` and `_on_process_exited` to re-scan for READY blocks whose earlier dispatch was blocked, retrying them as resources free up.
+
 ```python
 @dataclass
 class RunHandle:
@@ -1154,55 +1393,126 @@ class RunHandle:
 
 class DAGScheduler:
     def __init__(self, workflow: WorkflowDefinition, event_bus: EventBus,
-                 runner: BlockRunner, resource_manager: ResourceManager):
+                 runner: BlockRunner, resource_manager: ResourceManager,
+                 process_registry: ProcessRegistry):
         self.graph = build_dag(workflow)
         self.block_states: dict[str, BlockState] = {}
         self.skip_reasons: dict[str, str] = {}
+        self._active_tasks: dict[str, asyncio.Task[None]] = {}   # ADR-018 Addendum 1
         self.event_bus = event_bus
         self.runner = runner
         self.resource_manager = resource_manager
+        self.process_registry = process_registry
 
-        # Subscribe to events
         event_bus.subscribe(CANCEL_BLOCK_REQUEST, self._on_cancel_block)
         event_bus.subscribe(CANCEL_WORKFLOW_REQUEST, self._on_cancel_workflow)
         event_bus.subscribe(PROCESS_EXITED, self._on_process_exited)
 
     async def execute(self):
-        self.event_bus.emit(EngineEvent(WORKFLOW_STARTED, data={"workflow_id": ...}))
+        await self.event_bus.emit(EngineEvent(WORKFLOW_STARTED, data={"workflow_id": ...}))
+        try:
+            # Initial dispatch: find all blocks with no dependencies → READY → dispatch.
+            # Note: dispatch does NOT inline-await the runner; it creates a task.
+            for block_id in self._find_ready_blocks():
+                await self._dispatch(block_id)
 
-        # Initial dispatch: find all blocks with no dependencies → READY → dispatch
-        for block_id in self._find_ready_blocks():
-            await self._dispatch(block_id)
-
-        # Event loop: react to block completions, errors, cancellations
-        while not self._all_terminal():
-            event = await self._next_event()
-            if event.event_type == BLOCK_DONE:
-                self._store_outputs(event.block_id, event.data["output_refs"])
-                for next_id in self._find_newly_ready_blocks():
-                    await self._dispatch(next_id)
-            elif event.event_type in (BLOCK_ERROR, BLOCK_CANCELLED):
-                self._propagate_skipped(event.block_id)
-
-        self.event_bus.emit(EngineEvent(WORKFLOW_COMPLETED, data={...}))
+            # Wait for event-driven completion. Event handlers call
+            # _dispatch_newly_ready() to fan out successors and retry
+            # resource-blocked dispatches.
+            await self._completed_event.wait()
+        finally:
+            await self._cancel_active_tasks_on_shutdown()
+        await self.event_bus.emit(EngineEvent(WORKFLOW_COMPLETED, data={...}))
 
     async def _dispatch(self, block_id: str):
-        """Acquire resources, call runner.run(), track the RunHandle."""
-        block = self.graph.nodes[block_id]
-        await self.resource_manager.acquire(block.resource_request)
+        """Synchronous prelude: transition state and create the run task.
+        Returns immediately — does NOT await the subprocess (ADR-018 Addendum 1)."""
+        if self._paused:
+            return
+        if not self.resource_manager.can_dispatch(block.resource_request):
+            return   # stay READY; retried on next resource release
         self.set_state(block_id, BlockState.RUNNING)
-        handle = await self.runner.run(block, inputs, config)
-        self._active_runs[block_id] = handle
-        # handle.result resolves when subprocess exits → emits BLOCK_DONE or BLOCK_ERROR
+        await self.event_bus.emit(EngineEvent(BLOCK_RUNNING, block_id=block_id))
+
+        block = self._instantiate_block(block_id)
+        inputs = self._gather_inputs(block_id)
+        node = self.graph.nodes[block_id]
+
+        # Create an independent task for the subprocess wait + completion event.
+        task = asyncio.create_task(
+            self._run_and_finalize(block_id, block, inputs, node.config),
+            name=f"dispatch:{block_id}",
+        )
+        self._active_tasks[block_id] = task
+
+    async def _run_and_finalize(self, block_id, block, inputs, config):
+        """Task body: await subprocess, store outputs, emit terminal events."""
+        try:
+            result = await self.runner.run(block, inputs, config)
+            self._block_outputs[block_id] = result
+            self.set_state(block_id, BlockState.DONE)
+            await self.event_bus.emit(EngineEvent(BLOCK_DONE, block_id=block_id, data={...}))
+        except Exception as exc:
+            if self.block_states.get(block_id) == BlockState.CANCELLED:
+                return   # cancellation already handled by _on_cancel_block
+            self.set_state(block_id, BlockState.ERROR)
+            await self.event_bus.emit(EngineEvent(BLOCK_ERROR, block_id=block_id, data={"error": str(exc)}))
+        finally:
+            self._active_tasks.pop(block_id, None)
+
+    async def _on_block_done(self, event: EngineEvent):
+        """Dispatch newly-ready successors AND retry any READY blocks that
+        were previously blocked by resource gating."""
+        await self._dispatch_newly_ready()
+        self._check_completion()
+
+    async def _dispatch_newly_ready(self):
+        """Scan for IDLE blocks whose predecessors are DONE and for READY blocks
+        that could not dispatch earlier due to resource gating; dispatch them."""
+        for node_id in self._order:
+            state = self.block_states[node_id]
+            if state == BlockState.IDLE and self._check_readiness(node_id):
+                self.set_state(node_id, BlockState.READY)
+                await self._dispatch(node_id)
+            elif state == BlockState.READY and node_id not in self._active_tasks:
+                await self._dispatch(node_id)
 
     async def _on_cancel_block(self, event: EngineEvent):
         block_id = event.block_id
         if self.block_states[block_id] not in (BlockState.RUNNING, BlockState.PAUSED):
             return
-        await self.runner.cancel(self._active_runs[block_id].run_id)
+        # Primary path: kill the subprocess; _run_and_finalize unwinds naturally.
+        handle = self.process_registry.get_handle(block_id)
+        if handle is not None:
+            handle.terminate(grace_period_sec=block.terminate_grace_sec)
+        elif block_id in self._active_tasks:
+            # Rare: cancellation requested before the subprocess started.
+            self._active_tasks[block_id].cancel()
         self.set_state(block_id, BlockState.CANCELLED)
-        self.event_bus.emit(EngineEvent(BLOCK_CANCELLED, block_id=block_id))
+        await self.event_bus.emit(EngineEvent(BLOCK_CANCELLED, block_id=block_id))
         self._propagate_skipped(block_id)
+
+    def _check_completion(self) -> None:
+        terminal = {BlockState.DONE, BlockState.ERROR, BlockState.CANCELLED, BlockState.SKIPPED}
+        if all(s in terminal for s in self.block_states.values()) and not self._active_tasks:
+            self._completed_event.set()
+
+    async def _cancel_active_tasks_on_shutdown(self) -> None:
+        """Best-effort cleanup in execute()'s finally block. Terminates any
+        remaining subprocesses and awaits their tasks so execute() never leaks."""
+        for block_id, task in list(self._active_tasks.items()):
+            handle = self.process_registry.get_handle(block_id)
+            if handle is not None:
+                try:
+                    handle.terminate()
+                except Exception:
+                    logger.exception("Shutdown: failed to terminate %s", block_id)
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except BaseException:
+                    pass
 
     def _propagate_skipped(self, failed_block_id: str):
         """Mark all unreachable downstream blocks as SKIPPED."""
@@ -1219,6 +1529,14 @@ class DAGScheduler:
                     data={"skip_reason": self.skip_reasons[block_id]}))
                 queue.extend(self._get_downstream_of(block_id))
 ```
+
+Key properties of the concurrency model:
+
+- **True parallel branch execution**: two blocks with no data dependency between them run simultaneously in separate subprocesses. The wall-clock time of independent branches is `max(a, b)`, not `a + b`.
+- **Resource-aware throttling**: `ResourceManager.can_dispatch()` is the sole gate. With `gpu_slots=4`, four GPU blocks run concurrently; with `gpu_slots=1`, they queue. Blocks blocked by gating sit in READY and are retried whenever a block releases resources.
+- **Clean cancellation**: `ProcessHandle.terminate()` on the running subprocess is the authoritative stop signal. The task body catches the resulting exception, sees the state is already `CANCELLED`, and unwinds quietly.
+- **Clean shutdown**: `execute()`'s `try/finally` guarantees that any outstanding tasks are cancelled and their subprocesses terminated before `execute()` returns, even on engine-level exceptions.
+- **Single-threaded cooperative execution**: asyncio is single-threaded, so state mutations happen only between `await` points. No explicit locking is needed except for `reset_block()`, which has its own `_reset_lock` because it can be triggered from external callers.
 
 **EventBus subscription matrix** — who listens to what:
 
@@ -1363,30 +1681,39 @@ Resource management uses a three-layer defence model (ADR-022):
 class ResourceRequest:
     """Declared by each block: what discrete resources does it need?"""
     requires_gpu: bool = False
-    gpu_memory_gb: float = 0.0      # GPU VRAM — declared (not monitorable cross-platform)
+    gpu_memory_gb: float = 0.0          # GPU VRAM — declared (not monitorable cross-platform)
     cpu_cores: int = 1
+    max_internal_workers: int = 1       # ADR-027 D8: declared internal parallelism
     # NOTE: estimated_memory_gb removed (ADR-022).
     # System memory is monitored at OS level via psutil, not estimated per-block.
+
+    @property
+    def effective_cpu(self) -> int:
+        """Total CPU footprint for ResourceManager accounting."""
+        return self.cpu_cores * self.max_internal_workers
 
 class ResourceManager:
     """Dispatch gating based on discrete resources + OS memory monitoring."""
 
     def __init__(
         self,
-        gpu_slots: int = 0,
+        gpu_slots: int | None = None,           # ADR-027 D10: None triggers auto-detect
         cpu_workers: int = 4,
         memory_high_watermark: float = 0.80,    # pause dispatch above 80% system RAM
-        memory_critical: float = 0.95,           # never dispatch above 95% system RAM
-    ): ...
+        memory_critical: float = 0.95,          # never dispatch above 95% system RAM
+    ):
+        if gpu_slots is None:
+            gpu_slots = _auto_detect_gpu_slots()  # torch.cuda.device_count() or nvidia-smi
+        ...
 
-    async def can_dispatch(self, request: ResourceRequest) -> bool:
+    def can_dispatch(self, request: ResourceRequest) -> bool:
         """Check if resources are available for dispatching a block.
         GPU/CPU: discrete slot counting (declaration-based, predictive).
         Memory: OS-level check via psutil (monitoring-based, reactive)."""
         import psutil
         if request.requires_gpu and self._gpu_in_use >= self.gpu_slots:
             return False
-        if self._cpu_in_use + request.cpu_cores > self.max_cpu_workers:
+        if self._cpu_in_use + request.effective_cpu > self.max_cpu_workers:
             return False
         if psutil.virtual_memory().percent / 100.0 > self.memory_high_watermark:
             return False
@@ -1401,7 +1728,30 @@ class ResourceManager:
     def available(self) -> ResourceSnapshot:
         """Current resource state (for UI display and scheduler decisions)."""
         ...
+
+def _auto_detect_gpu_slots() -> int:
+    """Best-effort GPU count detection. Tries torch, then nvidia-smi, then 0.
+    ADR-027 D10: returns physical GPU count, not VRAM-aware slot calculation.
+    Users with large models on small cards should override via project config."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return torch.cuda.device_count()
+    except ImportError:
+        pass
+    try:
+        import subprocess
+        r = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True, timeout=2)
+        if r.returncode == 0:
+            return sum(1 for line in r.stdout.splitlines() if line.startswith("GPU "))
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        pass
+    return 0
 ```
+
+**`gpu_slots` default behaviour (ADR-027 D10)**: prior to this addendum, the default was `0`, which meant every block declaring `requires_gpu=True` failed `can_dispatch()` unconditionally. Phase 10 changes the default to `None`, which triggers `_auto_detect_gpu_slots()` at construction time. On a workstation with two CUDA-visible GPUs, `gpu_slots` becomes `2` automatically, and two GPU blocks can run concurrently (subject to scheduler concurrency per ADR-018 Addendum 1). Users who need to override (for VRAM constraints, or to intentionally serialise GPU work) pass an explicit integer: `ResourceManager(gpu_slots=1, ...)`.
+
+**Declared internal parallelism (ADR-027 D8)**: `ResourceRequest.max_internal_workers` lets a block declare that its own `run()` will internally use N workers (threads or processes) beyond the base `cpu_cores` declaration. The resource manager multiplies the two to compute `effective_cpu`, preventing scheduler-level CPU over-subscription when a block author uses library-level parallelism (numpy/MKL thread pools, `concurrent.futures` inside a block). This is an honour-system field — the framework does not enforce the declared count — but it does give the scheduler enough information to avoid double-booking CPU resources.
 
 Blocks declare discrete resource needs via a class-level attribute:
 
@@ -2572,6 +2922,8 @@ Key developer-facing rules (translated from ADRs):
 ## Appendix A: Concrete example walkthrough
 
 **Scenario**: Jiazhen has LC-MS data, Raman spectra, IF images, and SRS hyperspectral images. The goal is to integrate all four modalities at the single-cell level.
+
+**Plugin prerequisites**: this scenario uses domain types (`PeakTable`, `MetabPeakTable`, `Image`, `Spectrum`, `MSImage`, `AnnData`) that are **not in core** (ADR-027 D2). Running this workflow requires the relevant plugin packages installed: `scieasy-blocks-spectral` (Spectrum, PeakTable, MetabPeakTable), `scieasy-blocks-imaging` (Image, FluorImage, SRSImage), `scieasy-blocks-msi` (MSImage), and `scieasy-blocks-singlecell` (AnnData output). Each plugin registers its types via the `scieasy.types` entry-point group (ADR-025) and its blocks via `scieasy.blocks`. The core SciEasy installation has no knowledge of any of these types.
 
 ```
                     ┌───────────┐

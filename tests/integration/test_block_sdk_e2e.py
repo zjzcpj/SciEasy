@@ -433,7 +433,13 @@ class TestTypeRegistryEntryPoints:
         return type(name, (DataObject,), {"__doc__": f"Custom type: {name}"})
 
     def test_scan_all_discovers_builtins(self) -> None:
-        """scan_all() populates at least the core built-in types."""
+        """scan_all() populates at least the core built-in types.
+
+        ADR-027 D2: domain subclasses (``Image``, ``Spectrum``,
+        ``PeakTable``, ...) live in plugin packages now and only appear
+        in the registry once their owning plugin is installed. Core
+        ``scan_builtins()`` only registers the seven base types.
+        """
         reg = TypeRegistry()
 
         # Mock empty entry-points so _scan_entrypoint_types doesn't hit real packages.
@@ -443,9 +449,16 @@ class TestTypeRegistryEntryPoints:
         all_types = reg.all_types()
         assert "DataObject" in all_types
         assert "Array" in all_types
-        assert "Image" in all_types
         assert "DataFrame" in all_types
         assert "Series" in all_types
+        assert "Text" in all_types
+        assert "Artifact" in all_types
+        assert "CompositeData" in all_types
+        # Image / Spectrum / PeakTable are plugin types and must NOT
+        # appear in a core-only registry scan.
+        assert "Image" not in all_types
+        assert "Spectrum" not in all_types
+        assert "PeakTable" not in all_types
 
     def test_entrypoint_type_appears_in_registry(self) -> None:
         """A custom type returned by an entry-point is registered."""
@@ -558,17 +571,19 @@ class TestTypeRegistryEntryPoints:
 
     def test_is_instance_check(self) -> None:
         """is_instance() uses the loaded class for isinstance checking."""
-        from scieasy.core.types.array import Image
+        from scieasy.core.types.array import Array
 
         reg = TypeRegistry()
         with patch("importlib.metadata.entry_points", return_value=[]):
             reg.scan_all()
 
-        img = Image()
-        assert reg.is_instance(img, "Image")
-        assert reg.is_instance(img, "Array")
-        assert reg.is_instance(img, "DataObject")
-        assert not reg.is_instance(img, "DataFrame")
+        # ADR-027 D2: core no longer ships ``Image``; exercise the
+        # registry's inheritance-aware isinstance check against the
+        # base ``Array`` type it does register.
+        arr = Array(axes=["y", "x"], shape=(1, 1))
+        assert reg.is_instance(arr, "Array")
+        assert reg.is_instance(arr, "DataObject")
+        assert not reg.is_instance(arr, "DataFrame")
 
 
 # ===========================================================================

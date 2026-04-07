@@ -1,20 +1,165 @@
-"""Tests for DataObject types, TypeSignature, and TypeRegistry (Phase 3.1)."""
+"""Tests for DataObject types, TypeSignature, and TypeRegistry (Phase 3.1).
+
+T-006 (ADR-027 D2) removed ``Image``, ``MSImage``, ``SRSImage``, and
+``FluorImage`` from ``scieasy.core.types.array``.
+
+T-007 (ADR-027 D2) additionally removed ``Spectrum``, ``RamanSpectrum``,
+``MassSpectrum``, ``PeakTable``, ``MetabPeakTable``, ``AnnData``, and
+``SpatialData`` — they now belong in the spectral / single-cell /
+spatial-omics plugin packages.
+
+This test module keeps its historical coverage by defining local shim
+subclasses that mimic the pre-removal constructor surface. The fully
+migrated versions of these tests will land in T-008.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, ClassVar
 
 import numpy as np
 import pytest
 
-from scieasy.core.types.array import Array, FluorImage, Image, MSImage, SRSImage
+from scieasy.core.types.array import Array
 from scieasy.core.types.artifact import Artifact
 from scieasy.core.types.base import DataObject, TypeSignature
-from scieasy.core.types.composite import AnnData, CompositeData, SpatialData
-from scieasy.core.types.dataframe import DataFrame, MetabPeakTable, PeakTable
+from scieasy.core.types.composite import CompositeData
+from scieasy.core.types.dataframe import DataFrame
 from scieasy.core.types.registry import TypeRegistry, TypeSpec
-from scieasy.core.types.series import MassSpectrum, RamanSpectrum, Series, Spectrum
+from scieasy.core.types.series import Series
 from scieasy.core.types.text import Text
+
+# ---------------------------------------------------------------------------
+# T-006 shim: local Image/MSImage/SRSImage/FluorImage subclasses.
+# These mirror the pre-T-006 constructor surface to keep existing tests
+# running without a full migration sweep (that is T-008's job).
+# ---------------------------------------------------------------------------
+
+
+class Image(Array):
+    """T-006 shim for the removed core ``Image`` class.
+
+    Accepts the legacy ``shape=/ndim=/dtype=`` kwargs. Uses
+    ``axes=["y", "x"]`` for 2D payloads. TODO(T-008): drop shim and
+    migrate tests to ``Array(axes=["y","x"], ...)`` or to the plugin
+    ``Image`` once ``scieasy-blocks-imaging`` is available.
+    """
+
+    required_axes: ClassVar[frozenset[str]] = frozenset({"y", "x"})
+    allowed_axes: ClassVar[frozenset[str] | None] = frozenset({"t", "z", "c", "lambda", "y", "x"})
+    canonical_order: ClassVar[tuple[str, ...]] = ("t", "z", "c", "lambda", "y", "x")
+
+    def __init__(
+        self,
+        *,
+        shape: tuple[int, ...] | None = None,
+        ndim: int | None = None,
+        dtype: Any = None,
+        axes: list[str] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(axes=axes if axes is not None else ["y", "x"], shape=shape, dtype=dtype, **kwargs)
+
+
+class MSImage(Array):
+    """T-006 shim for the removed core ``MSImage`` class."""
+
+    def __init__(
+        self,
+        *,
+        shape: tuple[int, ...] | None = None,
+        ndim: int | None = None,
+        dtype: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(axes=["y", "x", "mz"], shape=shape, dtype=dtype, **kwargs)
+
+
+class SRSImage(Image):
+    """T-006 shim for the removed core ``SRSImage`` class."""
+
+    required_axes: ClassVar[frozenset[str]] = frozenset({"y", "x"})
+    # Permit the legacy ``wavenumber`` axis alongside the 6D alphabet.
+    allowed_axes: ClassVar[frozenset[str] | None] = frozenset({"t", "z", "c", "lambda", "y", "x", "wavenumber"})
+
+    def __init__(
+        self,
+        *,
+        shape: tuple[int, ...] | None = None,
+        ndim: int | None = None,
+        dtype: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        Array.__init__(self, axes=["y", "x", "wavenumber"], shape=shape, dtype=dtype, **kwargs)
+
+
+class FluorImage(Image):
+    """T-006 shim for the removed core ``FluorImage`` class."""
+
+    required_axes: ClassVar[frozenset[str]] = frozenset({"y", "x"})
+    # Permit the legacy discrete ``channel`` axis alongside the 6D alphabet.
+    allowed_axes: ClassVar[frozenset[str] | None] = frozenset({"t", "z", "c", "lambda", "y", "x", "channel"})
+
+    def __init__(
+        self,
+        *,
+        shape: tuple[int, ...] | None = None,
+        ndim: int | None = None,
+        dtype: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        Array.__init__(self, axes=["y", "x", "channel"], shape=shape, dtype=dtype, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# T-007 shims: local Spectrum / PeakTable / AnnData / SpatialData
+# subclasses. These mirror the pre-T-007 behaviour to keep existing
+# test coverage running without a full migration sweep (T-008).
+# ---------------------------------------------------------------------------
+
+
+class Spectrum(Series):
+    """T-007 shim for the removed core ``Spectrum`` class."""
+
+
+class RamanSpectrum(Spectrum):
+    """T-007 shim for the removed core ``RamanSpectrum`` class."""
+
+
+class MassSpectrum(Spectrum):
+    """T-007 shim for the removed core ``MassSpectrum`` class."""
+
+
+class PeakTable(DataFrame):
+    """T-007 shim for the removed core ``PeakTable`` class."""
+
+
+class MetabPeakTable(PeakTable):
+    """T-007 shim for the removed core ``MetabPeakTable`` class."""
+
+
+class AnnData(CompositeData):
+    """T-007 shim for the removed core ``AnnData`` class."""
+
+    expected_slots: ClassVar[dict[str, type]] = {
+        "X": Array,
+        "obs": DataFrame,
+        "var": DataFrame,
+        "uns": Artifact,
+    }
+
+
+class SpatialData(CompositeData):
+    """T-007 shim for the removed core ``SpatialData`` class."""
+
+    expected_slots: ClassVar[dict[str, type]] = {
+        "images": Array,
+        "points": DataFrame,
+        "shapes": DataFrame,
+        "table": AnnData,
+    }
+
 
 # ---------------------------------------------------------------------------
 # TypeSignature.from_type
@@ -150,7 +295,7 @@ class TestDataObjectDtypeInfo:
     """Verify dtype_info auto-generation on instances."""
 
     def test_array_dtype_info(self) -> None:
-        arr = Array(shape=(10, 10), dtype="float64")
+        arr = Array(axes=["y", "x"], shape=(10, 10), dtype="float64")
         assert arr.dtype_info.type_chain == ["DataObject", "Array"]
 
     def test_image_dtype_info(self) -> None:
@@ -172,16 +317,23 @@ class TestDataObjectDtypeInfo:
 
 
 class TestDataObjectMetadata:
-    """Verify metadata handling."""
+    """Verify the three-slot metadata API (T-005, ADR-027 D5).
 
-    def test_default_metadata_empty(self) -> None:
+    The legacy ``metadata`` dict was migrated to the ``user`` slot.
+    The pre-T-005 single-dict tests are now expressed against
+    ``obj.user``; the deprecation shim is regression-tested in
+    ``tests/core/test_stratified_metadata.py`` and
+    ``tests/core/test_dataobject_extended.py``.
+    """
+
+    def test_default_user_empty(self) -> None:
         obj = DataObject()
-        assert obj.metadata == {}
+        assert obj.user == {}
 
-    def test_custom_metadata(self) -> None:
-        obj = DataObject(metadata={"source": "test", "units": "nm"})
-        assert obj.metadata["source"] == "test"
-        assert obj.metadata["units"] == "nm"
+    def test_custom_user(self) -> None:
+        obj = DataObject(user={"source": "test", "units": "nm"})
+        assert obj.user["source"] == "test"
+        assert obj.user["units"] == "nm"
 
 
 # ---------------------------------------------------------------------------
@@ -232,26 +384,39 @@ class TestTypeRegistry:
         registry = TypeRegistry()
         registry.scan_builtins()
         all_t = registry.all_types()
-        assert "Image" in all_t
-        assert "Spectrum" in all_t
+        # T-006 / T-007 / ADR-027 D2: all domain subtypes moved to
+        # plugins; scan_builtins only registers the seven core base
+        # types (plus DataObject itself).
+        assert "DataObject" in all_t
+        assert "Array" in all_t
+        assert "Series" in all_t
         assert "DataFrame" in all_t
-        assert "AnnData" in all_t
-        assert len(all_t) >= 18  # All 18 built-in types
+        assert "Text" in all_t
+        assert "Artifact" in all_t
+        assert "CompositeData" in all_t
+        # Domain subtypes are NOT present — they will be re-registered
+        # via the ``scieasy.types`` entry-point when the relevant plugin
+        # is installed.
+        assert "Spectrum" not in all_t
+        assert "PeakTable" not in all_t
+        assert "AnnData" not in all_t
+        assert "SpatialData" not in all_t
+        # Exactly the seven core base types plus DataObject.
+        assert len(all_t) == 7
 
     def test_load_class(self) -> None:
         registry = TypeRegistry()
         registry.scan_builtins()
-        cls = registry.load_class("Image")
-        assert cls is Image
+        cls = registry.load_class("Array")
+        assert cls is Array
 
     def test_is_instance(self) -> None:
         registry = TypeRegistry()
         registry.scan_builtins()
-        img = Image(shape=(10, 10))
-        assert registry.is_instance(img, "Image")
-        assert registry.is_instance(img, "Array")
-        assert registry.is_instance(img, "DataObject")
-        assert not registry.is_instance(img, "Series")
+        arr = Array(axes=["y", "x"], shape=(10, 10))
+        assert registry.is_instance(arr, "Array")
+        assert registry.is_instance(arr, "DataObject")
+        assert not registry.is_instance(arr, "Series")
 
 
 # ---------------------------------------------------------------------------
@@ -414,8 +579,9 @@ class TestTypeRegistryEntryPoints:
             registry.scan_all()
 
         all_t = registry.all_types()
-        # Builtins are present
-        assert "Image" in all_t
+        # Builtins are present. T-006 / ADR-027 D2: Image moved to
+        # scieasy-blocks-imaging; Array stays in core.
+        assert "Array" in all_t
         assert "DataFrame" in all_t
         # External type is also present
         assert "ExternalType" in all_t
@@ -429,8 +595,10 @@ class TestTypeRegistryEntryPoints:
             registry.scan_all()
 
         all_t = registry.all_types()
-        assert "Image" in all_t
-        assert len(all_t) >= 18
+        # T-006 / T-007: core only registers the seven base types plus
+        # DataObject; domain subtypes live in plugins.
+        assert "Array" in all_t
+        assert len(all_t) == 7
 
     def test_scan_skips_bad_entries_registers_good_ones(self) -> None:
         """Mixed valid/invalid items: good ones register, bad ones are skipped."""
@@ -547,7 +715,7 @@ class TestArrayProtocol:
         ref = StorageReference(backend="zarr", path=str(tmp_path / "test.zarr"))
         backend.write(data, ref)
 
-        arr = Array(shape=(2, 2), dtype="float32", storage_ref=ref)
+        arr = Array(axes=["y", "x"], shape=(2, 2), dtype="float32", storage_ref=ref)
 
         result = np.asarray(arr)
         np.testing.assert_array_equal(result, data)
@@ -562,7 +730,7 @@ class TestArrayProtocol:
         ref = StorageReference(backend="zarr", path=str(tmp_path / "test.zarr"))
         backend.write(data, ref)
 
-        arr = Array(shape=(2, 2), dtype="float32", storage_ref=ref)
+        arr = Array(axes=["y", "x"], shape=(2, 2), dtype="float32", storage_ref=ref)
 
         result = np.asarray(arr, dtype=np.float64)
         assert result.dtype == np.float64
@@ -570,6 +738,6 @@ class TestArrayProtocol:
 
     def test_array_protocol_without_storage_raises(self) -> None:
         """Array.__array__() raises when no storage reference is set."""
-        arr = Array(shape=(2, 2), dtype="float32")
+        arr = Array(axes=["y", "x"], shape=(2, 2), dtype="float32")
         with pytest.raises(ValueError, match="storage reference"):
             np.asarray(arr)

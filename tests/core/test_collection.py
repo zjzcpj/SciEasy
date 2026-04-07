@@ -1,14 +1,39 @@
-"""Tests for Collection — ADR-020."""
+"""Tests for Collection — ADR-020.
+
+T-006 (ADR-027 D2) removed ``Image`` from core. This module keeps its
+historical coverage by defining a local shim subclass that mimics the
+pre-T-006 constructor surface (``shape=``, ``ndim=``, ``dtype=``). Full
+migration is part of T-008.
+"""
 
 from __future__ import annotations
+
+from typing import Any, ClassVar
 
 import pytest
 
 from scieasy.core.storage.ref import StorageReference
-from scieasy.core.types.array import Image
+from scieasy.core.types.array import Array
 from scieasy.core.types.base import DataObject
 from scieasy.core.types.collection import Collection
 from scieasy.core.types.dataframe import DataFrame
+
+
+class Image(Array):
+    """T-006 shim — plugin migration tracked by T-008."""
+
+    required_axes: ClassVar[frozenset[str]] = frozenset({"y", "x"})
+
+    def __init__(
+        self,
+        *,
+        shape: tuple[int, ...] | None = None,
+        ndim: int | None = None,
+        dtype: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(axes=["y", "x"], shape=shape, dtype=dtype, **kwargs)
+
 
 # -- Construction and invariants -----------------------------------------------
 
