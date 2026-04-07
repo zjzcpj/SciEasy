@@ -5168,3 +5168,755 @@ This demotion is consistent with ADR-007 (lazy loading): laziness is now express
 - **Changing the wire format JSON keys.** The engine→worker payload structure is unchanged. This Addendum specifies the **contents** of the metadata sidecar precisely, but does not rename any top-level keys (`backend`, `path`, `format`, `metadata`, `_collection`, `items`, `item_type` all remain).
 - **Changing `Collection` semantics.** Collection of typed items continues to work as ADR-020 specified. The only change is that the items inside a reconstructed `Collection` are now typed instances rather than `ViewProxy`.
 - **Reopening D11's main "discussion table" row.** That row commits to `TypeRegistry.scan()` in the worker, which this Addendum keeps unchanged. Only the Decision-section pseudocode and the corresponding "Alternatives considered" entry are superseded.
+
+## ADR-028: IOBlock architectural refactor — plugin-owned IO pattern
+
+**Status**: proposed
+**Date**: 2026-04-06
+
+### Context
+
+Phase 10 landed the final core type surface (ADR-027) with exactly seven base types — `DataObject`, `Array`, `Series`, `DataFrame`, `Text`, `Artifact`, `CompositeData` — and excised every domain subtype (`Image`, `Spectrum`, `PeakTable`, `AnnData`, ...) to plugin packages. The core's deliberate smallness is now load-bearing: `scieasy-blocks-imaging`, `scieasy-blocks-srs`, `scieasy-blocks-lcms`, and future plugins all depend on it as a stable foundation.
+
+The IO layer, however, was not revised during Phase 10. It still follows the pre-Phase-10 "central adapter registry" pattern that was originally designed when domain types lived inside core:
+
+1. `src/scieasy/blocks/io/adapters/` ships eight bundled format adapters: `csv_adapter.py`, `fcs_adapter.py`, `generic_adapter.py`, `h5ad_adapter.py`, `mzxml_adapter.py`, `parquet_adapter.py`, `tiff_adapter.py`, `zarr_adapter.py`.
+2. `src/scieasy/blocks/io/adapter_registry.py` is a separate registry class that dispatches by file extension, completely parallel to the `BlockRegistry` in `scieasy.blocks.registry` and the `TypeRegistry` in `scieasy.core.types.registry`.
+3. `src/scieasy/blocks/io/io_block.py::_run_input` (lines 78–106) loops files in a directory, asks `AdapterRegistry.get_for_extension(ext)` for a class, calls `adapter.create_reference(path)`, and wraps the result in a bare `DataObject(storage_ref=ref)` — *with no type information*. The loaded object has no `Image`/`SRSImage`/`PeakTable` identity; it is a generic `DataObject` whose only distinguishing feature is its `storage_ref.metadata` dict.
+4. ADR-025 §6 (block package distribution protocol) specifies a `scieasy.adapters` entry-point group alongside `scieasy.blocks` and `scieasy.types`, intended so external packages can register additional adapters via `pyproject.toml`.
+
+This model was coherent when `Image` lived in core: the TIFF adapter knew about `Image`, returned an `Image` instance, and the adapter registry was the single source of truth for format-to-type mapping. With Phase 10's domain types moved to plugins, the model is broken in several concrete ways that surfaced when planning Phase 11's three plugin packages.
+
+#### Tension 1 — Core enumerates formats it cannot predict
+
+The eight bundled adapters mix two orthogonal concerns:
+
+| Adapter | Category | Belongs in |
+|---|---|---|
+| `csv_adapter.py` | Generic tabular | Core |
+| `parquet_adapter.py` | Generic tabular | Core |
+| `generic_adapter.py` | Opaque bytes | Core |
+| `zarr_adapter.py` | Generic chunked array | Core |
+| `tiff_adapter.py` | Image-specific | `scieasy-blocks-imaging` |
+| `mzxml_adapter.py` | LC-MS-specific | `scieasy-blocks-lcms` |
+| `h5ad_adapter.py` | Single-cell-specific | Future `scieasy-blocks-singlecell` |
+| `fcs_adapter.py` | Flow-cytometry-specific | Future `scieasy-blocks-flow` |
+
+Four of the eight adapters are plugin-domain concerns that core currently imports unconditionally. A user who installs only `scieasy` and wants to do single-cell analysis gets an `h5ad_adapter` they cannot meaningfully use (because `AnnData` was deleted from core in T-007). A user who installs `scieasy` plus `scieasy-blocks-lcms` gets the plugin's mzML support — but also the core's `mzxml_adapter`, which is a second, differently-behaving path to the same goal.
+
+This is the literal opposite of "core stays small and stable" from CLAUDE.md §2.3, and it is the literal opposite of ADR-027 D2's "core contains only base types; all domain subtypes live in plugins".
+
+#### Tension 2 — Typed reconstruction never happens in the IO path
+
+The current `IOBlock._run_input` implementation (reproduced in full because it is load-bearing for this ADR):
+
+```python
+def _run_input(self, path: Path, registry: Any) -> dict[str, Any]:
+    """Build a lazy Collection from *path* (file or directory)."""
+    if path.is_dir():
+        items: list[DataObject] = []
+        for child in sorted(path.iterdir()):
+            if child.is_file():
+                ext = child.suffix.lower()
+                try:
+                    adapter_cls = registry.get_for_extension(ext)
+                except KeyError:
+                    continue
+                adapter = adapter_cls()
+                ref = adapter.create_reference(child)
+                obj = DataObject(storage_ref=ref)   # <-- type information lost here
+                items.append(obj)
+
+        if not items:
+            raise ValueError(f"No recognised files found in directory: {path}")
+
+        collection = Collection(items=items, item_type=DataObject)
+    else:
+        ext = path.suffix.lower()
+        adapter_cls = registry.get_for_extension(ext)
+        adapter = adapter_cls()
+        ref = adapter.create_reference(path)
+        obj = DataObject(storage_ref=ref)           # <-- again here
+        collection = Collection(items=[obj], item_type=DataObject)
+
+    return {"data": collection}
+```
+
+Two lines, `obj = DataObject(storage_ref=ref)`, throw away every piece of type knowledge the adapter had. A plugin `LoadImage` block that wants to return `Collection[Image]` cannot use `IOBlock` as-is; it would have to bypass the registry entirely and re-implement format detection. Phase 10's `TypeRegistry.resolve(type_chain)` (T-012) and `_reconstruct_one` (T-014) — designed exactly to map a `type_chain` to a concrete class — are never reached from the IO path because the IO path never produces a `type_chain`.
+
+#### Tension 3 — Two parallel registries for one concern
+
+ADR-009 (registry stores specs), ADR-025 (plugin distribution), and Phase 10's `TypeRegistry` together establish that SciEasy has two registries:
+
+- `BlockRegistry` — maps block name → `BlockSpec` → block class, scanned from `scieasy.blocks` entry-points plus Tier-1 drop-in files.
+- `TypeRegistry` — maps type name → `TypeSpec` → `DataObject` subclass, scanned from `scieasy.types` entry-points plus core builtins.
+
+The adapter layer adds a third:
+
+- `AdapterRegistry` — maps file extension → adapter class, scanned from `scieasy.adapters` entry-points plus a hardcoded `register_defaults()` list in `adapter_registry.py`.
+
+These three registries overlap substantially. An adapter IS a kind of block (specifically, an IO block). An adapter's output type IS a registered DataObject subclass. The extension → adapter lookup IS functionally a specialised form of "find the block that knows how to read this format". Keeping three registries requires plugin authors to understand three registration protocols, debug three scan paths when their plugin does not load, and read three sections of ADR-025 to register a single feature.
+
+#### Tension 4 — No first-class ergonomics for pickle / TSV / ndarray / single-column Series
+
+The user asked during Phase 11 planning for the following additional first-class load paths: Python pickle (`.pkl`), tab-separated values (`.tsv`), single numpy arrays (`.npy`, `.npz`), and pandas Series sidecars. None of these fits cleanly into the current adapter layer:
+
+- `.pkl` requires a security-conscious `allow_pickle` opt-in (pickle is arbitrary code execution); the `generic_adapter` would happily read bytes but could not produce a typed Python object.
+- `.tsv` is functionally CSV with a separator, but `csv_adapter.py` is hardcoded to `,` and the existing adapter protocol has no param-passing mechanism (parameters are block-level, not adapter-level).
+- `.npy` / `.npz` need to return `Array` instances, but no current adapter binds to `Array`; the closest match is `generic_adapter.py` which returns `DataObject(storage_ref=ref)` with no `axes` field.
+- Single-column Series have no adapter at all. `parquet_adapter` returns `DataFrame`; there is no path to `Series`.
+
+Retrofitting the adapter layer to handle each of these requires either four new adapters (further bloating core) or an orthogonal "adapter params" mechanism (a protocol change with no existing consumers). Both options make the layer more complex in exchange for a feature the user explicitly prefers to own inside the loader block.
+
+#### Tension 5 — Block authors want user-facing named blocks, not `IOBlock(format=...)`
+
+OptEasy's experience directly informs this tension. OptEasy ships `LoadImage`, `SaveImage`, `LoadPeakTable`, `LoadSpectrum` as named blocks in the block palette. Each is self-explanatory; a non-programmer scientist picking `LoadImage` from the palette immediately understands what it will do. SciEasy's current `IOBlock(direction="input", path=..., format="tiff")` is strictly less expressive in the GUI: the same block name appears for every IO operation, and the user must set `format` correctly for the workflow to validate. The block palette's two-level grouping (ADR-025 §3) cannot help, because every IO block has the same `type_name = "io_block"`.
+
+The user-facing fix is obvious: ship `LoadImage` as a concrete class whose `output_ports` declares `accepted_types=[Image]`. The current adapter layer stands directly in the way of doing this, because it forces the declaration of type into the `storage_ref.metadata` dict rather than into the block's port contract.
+
+---
+
+These five tensions are cross-cutting and reinforcing. Any one of them alone might be fixable inside the current adapter model; all five together compose an architectural pattern that no longer matches Phase 10's philosophy. This ADR resolves all five in a single coherent refactor.
+
+### Discussion points and resolution
+
+| # | Topic | Options discussed | Final decision |
+|---|---|---|---|
+| 1 | Should `IOBlock` be a concrete class (current state) or an abstract base? | (A) Concrete, with a `format` param and internal dispatch. (B) Abstract base class with `load()` / `save()` abstract methods; concrete loaders are subclasses. | **Decision: (B).** Abstract base forces every IO block to declare its input/output types via the standard `input_ports` / `output_ports` ClassVars. Type information flows through the block's port contract (ADR-016, Phase 10 port-check), not through a side-channel metadata dict. Concrete loaders are subclasses (one per loaded type for core, one per loaded type per plugin). This aligns the IO layer with every other block category: `ProcessBlock`, `CodeBlock`, `AppBlock` are all abstract-or-configurable bases with concrete subclasses carrying domain knowledge. |
+| 2 | Should the central adapter registry survive? | (A) Keep it, add typed reconstruction. (B) Delete it entirely; adapters are absorbed into loader blocks. (C) Keep it as a soft-deprecated compatibility layer for one phase. | **Decision: (B).** The registry is a second source of truth for "how to load files". Its only consumer is `IOBlock._run_input`, which this ADR deletes. Option (C) doubles the plugin-author cognitive burden for a full phase with no long-term payoff. Deleting in one cut (per Phase 10's "first destructive change is the risk point" lesson — this ADR and its implementation are explicitly expected to be the risk point, not a plugin package's first integration) keeps the surface area small. |
+| 3 | Which formats does core ship loader support for? | (A) Minimum: just Zarr for Array, Parquet for DataFrame/Series. (B) Pragmatic: all formats that are genuinely generic and not domain-specific, including CSV, TSV, Parquet, Pickle, NumPy, Zarr, plain text, opaque bytes. (C) Maximum: everything currently shipped, minus the four clearly plugin-specific ones. | **Decision: (B).** Pragmatic set. Users working with generic data (metadata CSVs, config files, numpy arrays from intermediate calculations, pickled sklearn models) should not need to install a domain plugin just to load their file. The specific format set is enumerated in Decision D3 below. |
+| 4 | Should the `scieasy.adapters` entry-point group be kept or deleted? | (A) Keep it for plugin-provided adapters. (B) Delete it; plugins ship IO *blocks*, not adapters. | **Decision: (B).** The `scieasy.blocks` entry-point group already accepts any block class, including `IOBlock` subclasses. A plugin loading mzML files registers an `LoadMSRawFile(IOBlock)` through `scieasy.blocks`, not a `MzmlAdapter` through `scieasy.adapters`. One registration protocol instead of two. ADR-025 §6 is superseded. |
+| 5 | What happens to the eight bundled adapters during implementation? | (A) Delete all eight, no migration. (B) Merge the four generic ones into core loaders; move the four domain-specific ones to their target plugin packages. | **Decision: (B).** The four generic adapters (`csv_adapter`, `parquet_adapter`, `zarr_adapter`, `generic_adapter`) contain logic that core needs — CSV parsing with pandas, Parquet reading, Zarr metadata handling, byte copy. That logic is absorbed into the corresponding `LoadDataFrame` / `LoadArray` / `LoadArtifact` core loaders. The four domain-specific adapters (`tiff_adapter`, `mzxml_adapter`, `h5ad_adapter`, `fcs_adapter`) are moved verbatim into their target plugin packages (`scieasy-blocks-imaging` / `scieasy-blocks-lcms` / future `scieasy-blocks-singlecell` / future `scieasy-blocks-flow`). The TIFF adapter's JSON-in-ImageDescription metadata round-trip logic is preserved as-is and becomes part of `scieasy-blocks-imaging`'s `LoadImage` block (Phase 11 Track 2). |
+| 6 | Is pickle safe to support as a core loader path? | (A) No — pickle is arbitrary code execution, block authors should never load it. (B) Yes, with a mandatory opt-in flag and a prominent security warning. (C) Yes, unconditionally. | **Decision: (B).** Pickle is the de-facto serialisation format for sklearn models, intermediate pandas frames from notebooks, and arbitrary Python objects that cannot round-trip through parquet. Refusing to support it forces users to write `CodeBlock` script escape hatches to do something trivial, which is a worse outcome than a clearly-documented opt-in. The opt-in takes the form of an `allow_pickle: bool = False` config param on the relevant core loaders. When `allow_pickle` is `False` and the file extension is `.pkl` / `.pickle`, the block raises `ValueError` with a message pointing at the security implication and the opt-in path. This matches numpy's `np.load(..., allow_pickle=False)` convention and makes the decision auditable at workflow definition time. |
+| 7 | How does a plugin loader declare its output type? | (A) Via `output_ports = [OutputPort(accepted_types=[Image])]` — the standard Phase 10 port contract. (B) Via a new sidecar protocol specific to IO blocks. | **Decision: (A).** No new protocol. Plugin `LoadImage` subclasses `IOBlock` and declares `output_ports = [OutputPort(name="data", accepted_types=[Image])]` exactly like every other block. The Phase 10 port-check system already handles type compatibility via `TypeSignature.matches()` (T-005/T-006). Downstream `process_item(self, item: Image, ...)` annotations become accurate, isinstance checks work, `item.meta.pixel_size` autocompletes in IDEs — everything Phase 10 promised for typed DataObjects finally applies to the IO path. |
+| 8 | Does this ADR require changes to `_reconstruct_one` / `_serialise_one` (Phase 10 worker round-trip)? | (A) Yes — the IO block's output type needs a new field in the wire format. (B) No — the existing `type_chain` field in the metadata sidecar already handles this. | **Decision: (B).** No change required. When a plugin `LoadImage` block returns an `Image` instance, the worker's `serialise_outputs` calls `_serialise_one(image)`, which writes `md["type_chain"] = image.dtype_info.type_chain == ["DataObject", "Array", "Image"]` into the sidecar. The downstream block's worker calls `_reconstruct_one(payload_item)`, which calls `TypeRegistry.resolve(type_chain)` → `Image` class → constructs a typed `Image` instance. The wire format, the resolver, and the reconstruction hook contracts are all unchanged. This ADR interacts with Phase 10 only by *finally* making the IO path feed data into the Phase 10 pipeline in the typed form the pipeline was designed for. |
+| 9 | How does the default `IOBlock.run()` dispatch between load and save modes? | (A) Keep the current `direction: str = "input"` class var. (B) Split into two separate abstract base classes, `LoaderBlock` and `SaverBlock`. | **Decision: (A).** The current `direction` ClassVar is sufficient. Concrete subclasses that load override `load()` and set `direction = "input"`; concrete subclasses that save override `save()` and set `direction = "output"`. The default `run()` branches once on `direction` and delegates. Splitting into two base classes would double the number of IO block classes shipped by core (seven loaders + seven savers = fourteen classes across two base classes, instead of fourteen classes across one base). It would also make "round-trip" blocks (rare but possible — e.g. a transcoder that reads one format and writes another) awkward to express. |
+| 10 | What is the contract between `IOBlock.load()` and the engine's `Collection` wrapping? | (A) `load()` returns a `DataObject` (or list of them); the default `run()` wraps into a `Collection`. (B) `load()` returns a `Collection` directly. | **Decision: (A).** `load(config) -> DataObject \| list[DataObject]` is the simpler contract for block authors. Loader authors do not think about Collections; they think "given this path, produce this many objects of this type". The default `run()` handles the "one file → length-1 Collection" and "directory → length-N Collection" cases automatically. This matches the existing `ProcessBlock.process_item` pattern (author writes per-item logic, framework handles Collection). `save()` accepts a `Collection` because the save path by design iterates — a user saving `Collection[Image]` wants all N images saved, and the default `run()` handles the "single vs many" split via Collection length. |
+| 11 | Do we ship concrete loaders for all seven core types, or only the subset that has a natural binary format? | (A) All seven (`DataObject`, `Array`, `Series`, `DataFrame`, `Text`, `Artifact`, `CompositeData`). (B) Only the five with obvious binary formats (`Array`, `Series`, `DataFrame`, `Text`, `Artifact`). `CompositeData` and bare `DataObject` do not ship loaders. | **Decision: (B) plus LoadCompositeData.** Bare `DataObject` has no reasonable "load" story — it is the abstract root. `CompositeData` does, because composites persist as a directory containing one storage ref per slot plus a `manifest.json` (per Phase 10's §4.2 backend table). `LoadCompositeData` is a thin wrapper that reads the manifest, recurses into `_reconstruct_one` for each slot, and returns the assembled composite. Six concrete loaders + six concrete savers ship from core. |
+| 12 | Pickle only for DataFrame, or also Series / Array? | (A) Only DataFrame (most common pickle target — pandas.to_pickle). (B) DataFrame and Series (symmetric with parquet). (C) DataFrame, Series, Array, and bare DataObject (maximum flexibility). | **Decision: (B).** DataFrame and Series pickle are symmetric (both are pandas-native) and cover 95% of real-world `.pkl` usage. Array pickle is supported via numpy's native `np.load(allow_pickle=True)` path through `LoadArray`, not as a separate code path. Bare DataObject pickle is refused: anyone pickling a DataObject has enough framework knowledge to write a `CodeBlock` escape hatch, and loading a pickled DataObject would bypass Phase 10's typed reconstruction path entirely. |
+| 13 | How are the per-format extensions registered inside each core loader? | (A) Class-level `supported_extensions: ClassVar[dict[str, str]]` mapping extension → internal format name. (B) Hardcoded `if ext == ".csv": ... elif ext == ".tsv": ...` chains. (C) A pluggable registry inside each loader class. | **Decision: (A).** Class-level ClassVar. Every core loader declares `supported_extensions` explicitly so the block palette can render "supported formats: .csv, .tsv, .parquet, .pkl" in the block description automatically. Format dispatch inside the loader is a simple dict lookup plus a call to a private per-format method (`_load_csv`, `_load_tsv`, ...). Option (C) is premature generality — no loader needs runtime-pluggable format support. |
+| 14 | Is the change a breaking change, and if so, what is the migration story? | (A) Yes, breaking; ship a migration guide and a script. (B) No, keep `IOBlock(format=...)` as a deprecated shim for one phase. (C) Yes, breaking; no migration tooling needed because the pre-Phase-11 IOBlock usage base is small. | **Decision: (C).** SciEasy is still in pre-1.0 development; no external user has built production workflows on top of `IOBlock(format=...)`. The internal callers are the three bundled adapter tests plus `tests/blocks/test_adapter_registry.py`, which are migrated as part of this ADR's implementation PR. The CHANGELOG entry flags the break clearly. A migration shim that accepts the old `IOBlock(format=...)` form and re-routes to the new loaders would cost ~150 lines of code and add a permanent "did you mean the new loader?" ambiguity to every workflow file. |
+
+### Decision
+
+The Phase 11 decisions from the discussion table are codified below. Each decision has a one-paragraph summary, a code-shape sketch where useful, and a line-by-line impact reference in the "Detailed impact scope" section.
+
+#### D1. `IOBlock` becomes an abstract base class (covers discussion #1, #9, #10)
+
+`src/scieasy/blocks/io/io_block.py` is rewritten. The post-ADR-028 shape:
+
+```python
+# scieasy/blocks/io/io_block.py
+
+from __future__ import annotations
+
+from abc import abstractmethod
+from pathlib import Path
+from typing import Any, ClassVar
+
+from scieasy.blocks.base.block import Block
+from scieasy.blocks.base.config import BlockConfig
+from scieasy.blocks.base.ports import InputPort, OutputPort
+from scieasy.core.types.base import DataObject
+from scieasy.core.types.collection import Collection
+
+
+class IOBlock(Block):
+    """Abstract base class for data ingress and egress blocks.
+
+    Per ADR-028, IOBlock is an ABC. Concrete subclasses declare their
+    typed output via ``output_ports`` (for loaders) or accept typed
+    input via ``input_ports`` (for savers), and implement ``load`` or
+    ``save`` accordingly.
+
+    Subclasses MUST set ``direction`` to either ``"input"`` or
+    ``"output"`` and override the matching abstract method.
+
+    The default ``run()`` method dispatches based on ``direction``,
+    wraps single-object outputs into a length-1 Collection, and passes
+    Collection inputs unchanged to ``save()``.
+    """
+
+    direction: ClassVar[str] = "input"   # subclasses override to "output"
+
+    # Subclasses override with their typed ports.
+    input_ports: ClassVar[list[InputPort]] = []
+    output_ports: ClassVar[list[OutputPort]] = []
+
+    # Subclasses declare supported extensions (ADR-028 D13).
+    supported_extensions: ClassVar[dict[str, str]] = {}
+
+    @abstractmethod
+    def load(self, config: BlockConfig) -> DataObject | list[DataObject]:
+        """Load data from ``config['path']``.
+
+        Args:
+            config: BlockConfig containing at least ``path: str``.
+                Additional format-specific params (e.g. ``allow_pickle``,
+                ``separator``, ``encoding``) are subclass-specific.
+
+        Returns:
+            A single ``DataObject`` (for single-file loads) or a list
+            of ``DataObject`` instances (for directory/glob loads).
+            Both are wrapped into a ``Collection`` by ``run()``.
+
+        Raises:
+            FileNotFoundError: path does not exist.
+            ValueError: path extension is not in ``supported_extensions``,
+                or a format-specific validation fails.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} is a loader but does not override load()"
+        )
+
+    @abstractmethod
+    def save(self, data: Collection, config: BlockConfig) -> None:
+        """Save ``data`` to ``config['path']``.
+
+        Args:
+            data: A Collection of DataObjects. Subclass decides how
+                length > 1 is serialised (directory with indexed files,
+                multi-page container, etc.).
+            config: BlockConfig containing at least ``path: str``.
+
+        Raises:
+            ValueError: if the target extension is not supported or if
+                ``data`` contains items of an unexpected type.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} is a saver but does not override save()"
+        )
+
+    def run(
+        self,
+        inputs: dict[str, Collection],
+        config: BlockConfig,
+    ) -> dict[str, Collection]:
+        """Default dispatch: load or save based on ``direction``.
+
+        - ``direction == "input"``: calls ``load(config)``, wraps result
+          into ``Collection``, returns on first output port.
+        - ``direction == "output"``: unwraps input Collection, calls
+          ``save(data, config)``, returns empty dict.
+
+        Subclasses that need custom run semantics (e.g. transcoder that
+        reads one format and writes another) override ``run()`` directly.
+        """
+        if self.direction == "input":
+            raw = self.load(config)
+            if isinstance(raw, list):
+                items = raw
+            else:
+                items = [raw]
+            port_name = self.output_ports[0].name if self.output_ports else "data"
+            # item_type is taken from the first output port's accepted_types[0]
+            # so the Collection is correctly typed for downstream port checks.
+            item_type: type[DataObject]
+            if self.output_ports and self.output_ports[0].accepted_types:
+                item_type = self.output_ports[0].accepted_types[0]
+            else:
+                item_type = DataObject
+            return {port_name: Collection(items=items, item_type=item_type)}
+
+        if self.direction == "output":
+            data = next(iter(inputs.values()))
+            if not isinstance(data, Collection):
+                data = Collection(items=[data], item_type=type(data))
+            self.save(data, config)
+            return {}
+
+        raise ValueError(
+            f"{type(self).__name__}.direction must be 'input' or 'output', "
+            f"got {self.direction!r}"
+        )
+```
+
+Block authors write concrete loaders as small subclasses:
+
+```python
+class LoadDataFrame(IOBlock):
+    direction: ClassVar[str] = "input"
+    type_name: ClassVar[str] = "load_dataframe"
+    name: ClassVar[str] = "Load DataFrame"
+    description: ClassVar[str] = "Load a DataFrame from CSV, TSV, Parquet, or Pickle."
+    category: ClassVar[str] = "io"
+    supported_extensions: ClassVar[dict[str, str]] = {
+        ".csv": "csv",
+        ".tsv": "tsv",
+        ".txt": "tsv",
+        ".parquet": "parquet",
+        ".pq": "parquet",
+        ".pkl": "pickle",
+        ".pickle": "pickle",
+    }
+    output_ports: ClassVar[list[OutputPort]] = [
+        OutputPort(
+            name="data",
+            accepted_types=[DataFrame],
+            description="Loaded DataFrame",
+        ),
+    ]
+    config_schema: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "title": "Path"},
+            "allow_pickle": {
+                "type": "boolean",
+                "default": False,
+                "title": "Allow pickle (security risk)",
+                "description": "Required to load .pkl / .pickle files.",
+            },
+            "separator": {
+                "type": "string",
+                "default": ",",
+                "title": "CSV separator (auto for .tsv)",
+            },
+            "encoding": {"type": "string", "default": "utf-8"},
+        },
+        "required": ["path"],
+    }
+
+    def load(self, config: BlockConfig) -> DataObject | list[DataObject]:
+        path = Path(config["path"])
+        if not path.exists():
+            raise FileNotFoundError(f"Path does not exist: {path}")
+        if path.is_dir():
+            return [self._load_one(p, config) for p in sorted(path.iterdir()) if p.is_file()]
+        return self._load_one(path, config)
+
+    def _load_one(self, path: Path, config: BlockConfig) -> DataFrame:
+        ext = path.suffix.lower()
+        fmt = self.supported_extensions.get(ext)
+        if fmt is None:
+            raise ValueError(
+                f"{type(self).__name__} does not support extension {ext!r}. "
+                f"Supported: {sorted(self.supported_extensions.keys())}"
+            )
+        if fmt == "pickle" and not config.get("allow_pickle", False):
+            raise ValueError(
+                f"Loading {path} requires allow_pickle=True. Pickle is "
+                f"arbitrary code execution; only enable for trusted files."
+            )
+        if fmt == "csv":
+            return self._load_csv(path, config)
+        if fmt == "tsv":
+            return self._load_tsv(path, config)
+        if fmt == "parquet":
+            return self._load_parquet(path)
+        if fmt == "pickle":
+            return self._load_pickle(path)
+        raise ValueError(f"Unknown format {fmt!r} for {path}")
+
+    # ... _load_csv, _load_tsv, _load_parquet, _load_pickle implementations
+```
+
+Abstract base status is enforced via `ABC` inheritance in the implementation: `class IOBlock(Block, ABC)`. A direct instantiation of `IOBlock()` raises `TypeError` at construction time, matching Python's standard `abc` contract.
+
+#### D2. `AdapterRegistry` and all bundled adapters are deleted (covers #2, #5)
+
+The following files are **deleted** in the implementation PR (not this ADR PR):
+
+```
+src/scieasy/blocks/io/adapter_registry.py
+src/scieasy/blocks/io/adapters/__init__.py
+src/scieasy/blocks/io/adapters/base.py
+src/scieasy/blocks/io/adapters/csv_adapter.py
+src/scieasy/blocks/io/adapters/fcs_adapter.py
+src/scieasy/blocks/io/adapters/generic_adapter.py
+src/scieasy/blocks/io/adapters/h5ad_adapter.py
+src/scieasy/blocks/io/adapters/mzxml_adapter.py
+src/scieasy/blocks/io/adapters/parquet_adapter.py
+src/scieasy/blocks/io/adapters/tiff_adapter.py
+src/scieasy/blocks/io/adapters/zarr_adapter.py
+tests/blocks/test_adapter_registry.py
+tests/blocks/test_adapters.py  # migrated to tests/blocks/test_core_loaders.py
+```
+
+The per-adapter logic is preserved in one of two destinations per ADR-028 D5:
+
+| Adapter | Destination | Receiving block |
+|---|---|---|
+| `csv_adapter.py` | Core, merged | `LoadDataFrame._load_csv` / `_load_tsv` |
+| `parquet_adapter.py` | Core, merged | `LoadDataFrame._load_parquet`, `LoadSeries._load_parquet` |
+| `zarr_adapter.py` | Core, merged | `LoadArray._load_zarr`, `SaveArray._save_zarr` |
+| `generic_adapter.py` | Core, merged | `LoadArtifact._load_bytes` / `SaveArtifact._save_bytes` |
+| `tiff_adapter.py` | `scieasy-blocks-imaging` | `LoadImage._load_tif` (verbatim) |
+| `mzxml_adapter.py` | `scieasy-blocks-lcms` | `LoadMSRawFile._load_mzxml` (verbatim) |
+| `h5ad_adapter.py` | Future `scieasy-blocks-singlecell` | `LoadAnnData._load_h5ad` |
+| `fcs_adapter.py` | Future `scieasy-blocks-flow` | `LoadFCS._load_fcs` |
+
+Moving the plugin adapters is the responsibility of the Phase 11 plugin-package implementation PRs. The core-merge of the four generic adapters is the responsibility of the ADR-028 implementation PR. Both are tracked separately from this ADR PR.
+
+#### D3. Seven core loader/saver pairs (covers #3, #11)
+
+Core ships seven concrete loader classes and seven concrete saver classes, one per base type, under `src/scieasy/blocks/io/loaders/` and `src/scieasy/blocks/io/savers/`. The table below locks the format set and the primary backend per ADR-027 D2 §4.2:
+
+| Block | Base type | Supported extensions | Primary backend | Notes |
+|---|---|---|---|---|
+| `LoadArray` / `SaveArray` | `Array` | `.zarr`, `.npy`, `.npz` | Zarr (primary), numpy (sidecar for `.npy`/`.npz` + metadata JSON) | `axes` metadata JSON-encoded in Zarr `.attrs` or sidecar `.json` for numpy |
+| `LoadDataFrame` / `SaveDataFrame` | `DataFrame` | `.parquet`, `.pq`, `.csv`, `.tsv`, `.txt`, `.pkl`, `.pickle` | Parquet (primary), pandas read_csv, pandas read_pickle | `.pkl` requires `allow_pickle=True`; `.txt` treated as TSV |
+| `LoadSeries` / `SaveSeries` | `Series` | `.parquet`, `.pq`, `.csv`, `.pkl`, `.pickle` | Parquet single-column, pandas read_csv with single-column enforcement, pandas read_pickle | Loader rejects multi-column CSVs with a clear error |
+| `LoadText` / `SaveText` | `Text` | `.txt`, `.json`, `.md`, `.html`, `.xml`, `.log`, `.yaml`, `.yml`, `.toml` | Filesystem (plain text), UTF-8 default, encoding param | JSON/XML/etc. stored as-is; parsing is downstream's concern |
+| `LoadArtifact` / `SaveArtifact` | `Artifact` | `*` (any extension; fallback for unknown formats) | Filesystem (opaque byte copy) | Loader never parses content; sets `mime_type` from extension if known |
+| `LoadCompositeData` / `SaveCompositeData` | `CompositeData` | `.composite/` (directory) | Directory containing `manifest.json` plus one sub-directory per slot | Recurses into `_reconstruct_one` per slot |
+
+`DataObject` (the abstract root) has no loader or saver. Attempting to load a file with "no specific type" raises `ValueError` with a message suggesting the user pick the specific loader block; the `LoadArtifact` path catches the opaque-bytes case.
+
+#### D4. Pickle security protocol (covers #6, #12)
+
+Pickle support is opt-in via an `allow_pickle: bool = False` config parameter on `LoadDataFrame`, `LoadSeries`, and `LoadArray` (the three block classes that accept `.pkl`/`.pickle` or numpy pickled arrays). When the requested format is pickle and `allow_pickle` is `False`, the loader raises `ValueError` with this exact message template:
+
+```
+Loading {path} requires allow_pickle=True. Pickle is arbitrary code
+execution; only enable for trusted files. If this file came from
+an untrusted source, load it via LoadArtifact (opaque bytes) and
+validate before unpickling.
+```
+
+The security warning is also reproduced in the block's `description` ClassVar so it appears in the GUI block palette: `"Load a DataFrame from CSV, TSV, Parquet, or Pickle. Warning: pickle loading is opt-in and runs arbitrary code — only enable for trusted files."`
+
+`SaveDataFrame` / `SaveSeries` can write pickle unconditionally (writing pickle is safe). The asymmetry is intentional: writing is always safe, reading is a security boundary.
+
+Downstream block authors who pipe loaded-pickle data into `CodeBlock` or `ProcessBlock` get no additional protection — if the pickle ran malicious code during `load()`, the damage is already done by the time the object reaches the next block. This matches numpy's security model.
+
+#### D5. Plugin IO block contract (covers #4, #7)
+
+Plugin packages ship their own IO blocks as subclasses of `scieasy.blocks.io.IOBlock`. The plugin's `LoadImage`:
+
+```python
+# scieasy_blocks_imaging/io/load_image.py
+
+from scieasy.blocks.io import IOBlock
+from scieasy.blocks.base.ports import OutputPort
+from scieasy_blocks_imaging.types import Image
+
+class LoadImage(IOBlock):
+    direction = "input"
+    type_name = "load_image"
+    name = "Load Image"
+    category = "io"
+    supported_extensions = {
+        ".tif": "tiff",
+        ".tiff": "tiff",
+        ".ome.tif": "ome_tiff",
+        ".ome.tiff": "ome_tiff",
+        ".png": "png",
+        ".jpg": "jpeg",
+        ".jpeg": "jpeg",
+        ".zarr": "zarr",
+        ".czi": "czi",       # optional, requires aicsimageio
+        ".nd2": "nd2",       # optional, requires nd2reader
+        ".lif": "lif",       # optional, requires readlif
+        ".npy": "npy",
+        ".npz": "npz",
+    }
+    output_ports = [
+        OutputPort(name="data", accepted_types=[Image]),
+    ]
+
+    def load(self, config):
+        path = Path(config["path"])
+        if path.is_dir():
+            return [self._load_one(p, config) for p in sorted(path.glob(config.get("pattern", "*"))) if p.is_file()]
+        return self._load_one(path, config)
+
+    def _load_one(self, path, config):
+        ext = "".join(path.suffixes).lower()   # handles .ome.tif
+        fmt = self.supported_extensions.get(ext) or self.supported_extensions.get(path.suffix.lower())
+        if fmt == "tiff":
+            return self._load_tif(path)
+        if fmt == "ome_tiff":
+            return self._load_ome_tif(path)
+        # ... etc.
+```
+
+No new protocol, no new entry-point group. The plugin author lists `LoadImage` in `get_blocks()` alongside every other plugin block, and `BlockRegistry._scan_tier2()` picks it up via the `scieasy.blocks` entry-point group.
+
+The plugin's output type (`Image`) must be registered via the `scieasy.types` entry-point group (ADR-025 §4). At scan time, the worker subprocess `TypeRegistry.resolve(["DataObject", "Array", "Image"])` finds the plugin class, and Phase 10's `_reconstruct_one` reconstructs typed instances from serialised payloads. This entire path is unchanged by ADR-028.
+
+#### D6. `scieasy.adapters` entry-point group deletion (covers #4)
+
+The `scieasy.adapters` entry-point group defined in ADR-025 §6 is formally deleted by this ADR. The implementation PR removes:
+
+- `[project.entry-points."scieasy.adapters"]` section from `pyproject.toml` (if it currently has any entries; at the time of ADR-028 writing, the section is declared but empty).
+- All mentions of `scieasy.adapters` from `src/scieasy/blocks/io/adapter_registry.py::scan_entry_points` (the whole file is deleted per D2).
+- The ADR-025 §6 text is marked superseded with a pointer to ADR-028 (in a follow-up doc-update PR, not in this ADR PR).
+
+External plugins that currently use `scieasy.adapters` (none at time of ADR-028 writing) must migrate to shipping an `IOBlock` subclass via `scieasy.blocks`. The migration is straightforward: the adapter class body becomes a `_load_<format>` private method on the new IO block.
+
+#### D7. Default `run()` dispatch and Collection wrapping (covers #10)
+
+Already sketched in D1 above. The normative rules:
+
+1. `load()` returns either a single `DataObject` or a `list[DataObject]`. Both forms are legal; subclasses choose the shape that matches their semantics (a loader that always reads one file returns a single object; a loader that can read a directory returns a list).
+2. `run()` for `direction == "input"` normalises the result into a list and wraps into a `Collection`, using the first `output_ports[0].accepted_types[0]` as the Collection's `item_type`. This makes downstream port checks see the correct item type.
+3. `save()` accepts a `Collection` and does whatever it needs per-item (write N files, write one multi-page file, etc.). The subclass decides.
+4. `run()` for `direction == "output"` wraps single-DataObject inputs into a length-1 Collection before calling `save()`, so `save()` never has to handle the "single or Collection" branching itself.
+5. Subclasses that need custom dispatch (transcoder blocks that read one format and write another) override `run()` directly; the default is a convenience, not a contract.
+
+#### D8. Supported extension declaration and lookup (covers #13)
+
+Each concrete IOBlock subclass declares `supported_extensions: ClassVar[dict[str, str]]` mapping lowercase extension (including the leading dot) to a short internal format name. The internal format name is a dispatch key; the loader's `_load_one()` method does `fmt = self.supported_extensions.get(ext)` and branches to `_load_<fmt>()`.
+
+Compound extensions like `.ome.tif` are handled by the subclass's lookup code, not by the framework. The pattern is `"".join(path.suffixes).lower()` first, then fallback to `path.suffix.lower()`:
+
+```python
+def _detect_format(self, path: Path) -> str | None:
+    compound = "".join(path.suffixes).lower()
+    if compound in self.supported_extensions:
+        return self.supported_extensions[compound]
+    single = path.suffix.lower()
+    if single in self.supported_extensions:
+        return self.supported_extensions[single]
+    return None
+```
+
+The framework provides a helper `IOBlock._detect_format(path)` implementing this lookup so subclasses do not reimplement it. The helper is a regular method (not abstract) and lives on the base class.
+
+#### D9. Metadata extraction protocol (informative, not normative)
+
+ADR-028 does not specify a formal metadata extraction protocol for plugin loaders. Each plugin's `LoadImage` / `LoadPeakTable` / `LoadMSRawFile` extracts metadata from its source files using format-specific logic (e.g. `tifffile.TiffFile.pages[0].description` for TIFF, `pyopenms` for mzML) and populates the loaded DataObject's `meta: Meta` Pydantic model using the `cls.Meta(...)` constructor.
+
+Best-practice guidance (non-binding, for the Phase 11 plugin spec docs):
+
+- Extract whatever the source format provides.
+- Normalise to `PhysicalQuantity` for physical fields (`pixel_size`, `laser_power`, `integration_time`).
+- Fill unknowns with `None` rather than empty strings or sentinel values.
+- Set `framework.source = str(path.resolve())` so Phase 10 lineage tracking works.
+- For directory loads, set `framework.source` per item to the individual file path, not the parent directory.
+
+A plugin's detailed metadata extraction protocol is documented in the plugin's own spec (e.g. `docs/specs/phase11-imaging-block-spec.md`), not in ADR-028.
+
+#### D10. CLI surface (informative)
+
+The `scieasy` CLI surface is unchanged by ADR-028. The existing `scieasy run <workflow.yaml>` command loads the workflow, instantiates blocks via `BlockRegistry`, and executes them — all block classes including IO blocks are resolved through the same `BlockRegistry` path. No CLI command needs to know about the old `AdapterRegistry`; deleting it has no user-visible CLI effect.
+
+### Alternatives considered
+
+**Alternative A — Typed reconstruction inside the existing adapter layer.** Retrofit `IOBlock._run_input` to call `TypeRegistry.resolve(type_chain)` using a new `type_chain` field on the adapter's `create_reference()` return value. Each adapter declares its output type, the registry dispatches, `_reconstruct_one` instantiates.
+
+*Rejected because*:
+- Solves tension 2 but leaves tensions 1, 3, 4, 5 untouched.
+- Requires a new adapter protocol field (`type_chain`) that every existing adapter must be modified to supply.
+- Keeps two parallel registries (`AdapterRegistry` + `BlockRegistry`), increasing cognitive load for plugin authors.
+- Does not deliver user-facing named blocks (`LoadImage`, `LoadPeakTable`), which was an explicit Phase 11 requirement.
+- Adds one more thing to maintain when the long-term direction is to reduce core surface.
+
+**Alternative B — IOBlock stays concrete, gets a `subclass_of: type[DataObject]` ClassVar for typed dispatch.** Keep the adapter registry but add a single ClassVar to `IOBlock` so subclasses can specialise. `IOBlock(subclass_of=Image)` returns Image-typed Collections.
+
+*Rejected because*:
+- Still requires adapters underneath, so tensions 1 and 3 are untouched.
+- Conflates two orthogonal dimensions: what type does the block produce (a class-level concern) and how does the block load it (a runtime format-dispatch concern). Bundling them into one ClassVar requires users to subclass whenever they need a different type OR a different format, creating a Cartesian explosion (`LoadImageFromTiff`, `LoadImageFromZarr`, `LoadImageFromNpy`, ...).
+- Does not match the post-Phase-10 direction (core ships abstract bases, plugins ship concrete subclasses). This alternative proposes a third model (core ships concrete-but-configurable blocks).
+
+**Alternative C — Gradual deprecation over two phases.** Keep `scieasy.adapters` and `AdapterRegistry` alive in Phase 11 as soft-deprecated compatibility shims. Ship the new `IOBlock` ABC pattern alongside them. Mark the old API with `DeprecationWarning`. Remove in Phase 12.
+
+*Rejected because*:
+- Doubles the surface area for a full phase. Every plugin author must learn both patterns to understand which one to use.
+- Introduces "which registry should I write to?" as a permanent question during the deprecation window.
+- Phase 10 deprecated the old `DataObject.metadata` dict with exactly this pattern, and the resulting dual-path code in `filter_collection.py:58` and `bridge.py:52` (tracked by issue #278) has already become a small maintenance burden. Repeating the pattern is a known failure mode.
+- The Phase 11 plugin packages are the first consumers of the new IO path. There are no external users to protect from a breaking change — the change is fully internal to SciEasy at the time of landing.
+
+**Alternative D — Keep adapters, rename to "format readers", integrate with `TypeRegistry`.** Unify the registries under a single umbrella: every type has one or more "format reader" classes attached to it, and `TypeRegistry.resolve(["DataObject", "Array", "Image"]).get_reader(".tif")` returns the correct loader class.
+
+*Rejected because*:
+- This is architecturally appealing but the plumbing is invasive: every `DataObject` subclass must know about its own readers, turning the type hierarchy into a bidirectional graph.
+- The reader objects still need to be IO blocks (so they can run inside the workflow engine), so this alternative ships the same block classes as Option B plus a registry-to-block indirection.
+- Plugin authors have to register both the type and the readers, doubling registration work.
+
+### Consequences
+
+**Breaking changes** (all internal to pre-Phase-11 SciEasy, no external users affected):
+
+- `IOBlock()` is no longer instantiable directly; it is an ABC. Any test or code that constructs `IOBlock()` directly must migrate to one of the concrete loader/saver classes.
+- `AdapterRegistry` class no longer exists. Any code that imports `from scieasy.blocks.io.adapter_registry import AdapterRegistry` breaks.
+- Bundled adapters under `scieasy.blocks.io.adapters.*` no longer exist. Imports from that path break.
+- `scieasy.adapters` entry-point group is removed from `pyproject.toml`. Plugins that declared entries here (none at time of writing) break.
+- `IOBlock(direction="input", path=...)` no longer auto-dispatches by extension. Workflow YAML files using the old form must be migrated to specific loader blocks (e.g. `LoadDataFrame(path=...)`).
+
+**Non-breaking consequences**:
+
+- Block palette gains concrete loader entries: `LoadArray`, `LoadDataFrame`, `LoadSeries`, `LoadText`, `LoadArtifact`, `LoadCompositeData`, plus savers. GUI users see named blocks rather than a generic `IOBlock`.
+- Plugin packages can ship their own IO blocks (`LoadImage`, `LoadPeakTable`, `LoadMSRawFile`) via the existing `scieasy.blocks` entry-point group. No new plugin registration protocol to learn.
+- Typed reconstruction (Phase 10 `_reconstruct_one`) finally reaches the IO path. Downstream blocks can declare `process_item(self, item: Image, ...)` annotations and they will be accurate.
+- Pickle support becomes first-class via the opt-in flag, without requiring a `CodeBlock` escape hatch.
+- `.tsv`, `.pkl`, `.npy`, `.npz` all gain first-class load paths via the core loaders.
+- The TIFF adapter's JSON-in-ImageDescription metadata round-trip is preserved verbatim in `scieasy-blocks-imaging.LoadImage` — no feature regression.
+- Two registries (`BlockRegistry`, `TypeRegistry`) instead of three. Plugin author cognitive load decreases.
+- ADR-025 §6 is superseded, leaving ADR-025 with two entry-point groups (`scieasy.blocks`, `scieasy.types`) instead of three.
+
+**Known risks and mitigations**:
+
+| Risk | Mitigation |
+|---|---|
+| The implementation PR will be large (deletions + new loader files + test migration). | Split into stacked PRs: (a) delete adapters + rewrite IOBlock ABC, (b) add seven concrete loaders, (c) add seven concrete savers, (d) update ARCHITECTURE.md and block-sdk.md. Each stacked PR is small and independently reviewable. The Phase 10 cascade methodology proved this pattern works. |
+| Plugin authors reading ADR-025 §6 will be confused by the deletion. | Follow-up doc-update PR adds a "superseded by ADR-028" notice inside ADR-025 §6 pointing at this ADR. |
+| The four generic adapters being merged into core loaders may introduce subtle behaviour drift (e.g. CSV quoting edge cases). | The implementation PR must include a regression test per adapter: load a known input file, assert the output matches the pre-refactor output byte-for-byte or (for CSV) row-for-row. |
+| Pickle security footgun: a user might enable `allow_pickle=True` and then forget it is dangerous. | (1) The error message when `allow_pickle=False` reproduces the warning verbatim. (2) The block description in the GUI contains the warning. (3) A workflow validation pass can lint for `allow_pickle=True` in block configs and surface it during review. |
+| TIFF adapter's existing behaviour (JSON-in-ImageDescription metadata round-trip) must be preserved in the `scieasy-blocks-imaging` move. | The move PR includes a regression test that writes a known Image, reads it back, and asserts metadata equality. The test file moves alongside the adapter code. |
+| `scieasy.adapters` entry-point group deletion requires editing `pyproject.toml`. | The implementation PR updates `pyproject.toml`; the entry-point group declaration is trivially removable. |
+| Tests under `tests/blocks/test_adapters.py` and `tests/blocks/test_adapter_registry.py` must be rewritten. | The ADR implementation PR deletes `test_adapter_registry.py` and replaces `test_adapters.py` with `test_core_loaders.py` (new file) covering the seven new concrete loaders, the seven savers, the pickle safety flag, the format-dispatch helper, and the default `run()` dispatch. |
+
+### Detailed impact scope
+
+Implementation of ADR-028 is **not** part of this ADR PR. The impact scope below describes what the follow-up implementation PR(s) must do so that the ADR stands as a clear, implementable spec.
+
+#### Files to delete
+
+| File | Reason |
+|---|---|
+| `src/scieasy/blocks/io/adapter_registry.py` | Replaced by per-block dispatch inside concrete loaders (D2). |
+| `src/scieasy/blocks/io/adapters/__init__.py` | Directory deleted (D2). |
+| `src/scieasy/blocks/io/adapters/base.py` | `FormatAdapter` protocol deleted; replaced by `IOBlock` ABC (D1). |
+| `src/scieasy/blocks/io/adapters/csv_adapter.py` | Logic merged into `LoadDataFrame._load_csv` (D5). |
+| `src/scieasy/blocks/io/adapters/fcs_adapter.py` | Moved verbatim to future `scieasy-blocks-flow` (D5). |
+| `src/scieasy/blocks/io/adapters/generic_adapter.py` | Logic merged into `LoadArtifact._load_bytes` (D5). |
+| `src/scieasy/blocks/io/adapters/h5ad_adapter.py` | Moved verbatim to future `scieasy-blocks-singlecell` (D5). |
+| `src/scieasy/blocks/io/adapters/mzxml_adapter.py` | Moved verbatim to `scieasy-blocks-lcms` (D5). |
+| `src/scieasy/blocks/io/adapters/parquet_adapter.py` | Logic merged into `LoadDataFrame._load_parquet`, `LoadSeries._load_parquet` (D5). |
+| `src/scieasy/blocks/io/adapters/tiff_adapter.py` | Moved verbatim to `scieasy-blocks-imaging` (D5). |
+| `src/scieasy/blocks/io/adapters/zarr_adapter.py` | Logic merged into `LoadArray._load_zarr`, `SaveArray._save_zarr` (D5). |
+| `tests/blocks/test_adapter_registry.py` | Registry no longer exists (D2). |
+| `tests/blocks/test_adapters.py` | Replaced by `tests/blocks/test_core_loaders.py` and `tests/blocks/test_core_savers.py` (D11). |
+
+#### Files to rewrite
+
+| File | Before | After |
+|---|---|---|
+| `src/scieasy/blocks/io/io_block.py` | 138 lines concrete class with `_run_input` / `_run_output` adapter-dispatch implementations | Abstract base class with `load()` / `save()` abstract methods, default `run()` dispatching on `direction`, `_detect_format()` helper (D1, D7, D8) |
+| `src/scieasy/blocks/io/__init__.py` | Re-exports `IOBlock`, `AdapterRegistry` | Re-exports `IOBlock` only; adds re-exports for the seven concrete core loaders/savers |
+| `pyproject.toml` | Contains `[project.entry-points."scieasy.adapters"]` section (empty) | Section removed (D6) |
+
+#### Files to create
+
+| File | Contents |
+|---|---|
+| `src/scieasy/blocks/io/loaders/__init__.py` | Re-exports the seven concrete loaders |
+| `src/scieasy/blocks/io/loaders/array.py` | `LoadArray(IOBlock)` — supports `.zarr`, `.npy`, `.npz`. Metadata JSON sidecar for numpy formats |
+| `src/scieasy/blocks/io/loaders/dataframe.py` | `LoadDataFrame(IOBlock)` — supports `.parquet`, `.pq`, `.csv`, `.tsv`, `.txt`, `.pkl`, `.pickle`. `allow_pickle` flag (D4) |
+| `src/scieasy/blocks/io/loaders/series.py` | `LoadSeries(IOBlock)` — supports `.parquet`, `.pq`, `.csv`, `.pkl`, `.pickle`. Single-column enforcement on CSV. `allow_pickle` flag |
+| `src/scieasy/blocks/io/loaders/text.py` | `LoadText(IOBlock)` — supports `.txt`, `.json`, `.md`, `.html`, `.xml`, `.log`, `.yaml`, `.yml`, `.toml`. UTF-8 default, `encoding` param |
+| `src/scieasy/blocks/io/loaders/artifact.py` | `LoadArtifact(IOBlock)` — catch-all for any extension; opaque byte copy; sets `mime_type` from extension |
+| `src/scieasy/blocks/io/loaders/composite.py` | `LoadCompositeData(IOBlock)` — reads `manifest.json`, recurses into `_reconstruct_one` per slot |
+| `src/scieasy/blocks/io/savers/__init__.py` | Re-exports the seven concrete savers |
+| `src/scieasy/blocks/io/savers/array.py` | `SaveArray(IOBlock)` — writes `.zarr`, `.npy`, `.npz`. Round-trips `axes`/`shape`/`dtype`/`chunk_shape` via sidecar JSON or Zarr `.attrs` |
+| `src/scieasy/blocks/io/savers/dataframe.py` | `SaveDataFrame(IOBlock)` — writes `.parquet`, `.csv`, `.tsv`, `.pkl` |
+| `src/scieasy/blocks/io/savers/series.py` | `SaveSeries(IOBlock)` — writes `.parquet`, `.csv`, `.pkl` |
+| `src/scieasy/blocks/io/savers/text.py` | `SaveText(IOBlock)` — writes `.txt`, `.json`, etc. UTF-8 default |
+| `src/scieasy/blocks/io/savers/artifact.py` | `SaveArtifact(IOBlock)` — byte copy to any destination |
+| `src/scieasy/blocks/io/savers/composite.py` | `SaveCompositeData(IOBlock)` — writes `manifest.json` and per-slot sub-directories via `_serialise_one` |
+| `tests/blocks/test_core_loaders.py` | Per-loader tests: happy path for each format, error on unknown extension, error on missing file, pickle opt-in enforcement, metadata round-trip |
+| `tests/blocks/test_core_savers.py` | Per-saver tests: happy path for each format, round-trip equivalence with loaders, directory-mode for `Collection` length > 1 |
+| `tests/blocks/test_ioblock_base.py` | `IOBlock()` direct instantiation raises `TypeError`; default `run()` dispatch branches correctly on `direction`; `_detect_format()` handles compound extensions |
+
+#### Files to modify (documentation)
+
+| File | Changes |
+|---|---|
+| `docs/adr/ADR.md` | This ADR (appended) |
+| `docs/adr/ADR.md` (ADR-025 §6) | **Follow-up PR after this ADR lands**: insert a `**Superseded by**: ADR-028` line at the start of §6 linking to ADR-028. Not included in this ADR PR to keep scope minimal. |
+| `docs/architecture/ARCHITECTURE.md` §4.2 (Storage backends) | **Follow-up PR**: clarify that loaders per base type now live at `scieasy.blocks.io.loaders.*` instead of `scieasy.blocks.io.adapters.*` |
+| `docs/architecture/ARCHITECTURE.md` §5.1 (Block base) | **Follow-up PR**: add IOBlock ABC discussion alongside CodeBlock / AppBlock / ProcessBlock |
+| `docs/architecture/PROJECT_TREE.md` | **Follow-up PR**: update to reflect new `loaders/` and `savers/` sub-directories, deletion of `adapters/` |
+| `docs/guides/block-sdk.md` | **Follow-up PR**: add a "Shipping a format-specific IO block" section with the `LoadImage` example from D5 |
+| `docs/specs/phase11-imaging-block-spec.md` | **New file, separate PR**: the Phase 11 imaging plugin spec consumes ADR-028's contract |
+| `docs/specs/phase11-srs-block-spec.md` | **New file, separate PR** |
+| `docs/specs/phase11-lcms-block-spec.md` | **New file, separate PR** |
+| `CHANGELOG.md` | **This ADR PR**: entry under `[Unreleased]` → `### Added` per CLAUDE.md Appendix A Stage 6 |
+
+#### Files NOT affected (explicitly)
+
+The following files are NOT touched by ADR-028 or its implementation. Listing them explicitly to prevent scope creep in the implementation PR:
+
+- `src/scieasy/core/types/*` — Phase 10's type hierarchy is unchanged.
+- `src/scieasy/core/types/registry.py` — `TypeRegistry.resolve` is unchanged.
+- `src/scieasy/core/types/serialization.py` — `_reconstruct_one` / `_serialise_one` are unchanged.
+- `src/scieasy/engine/runners/worker.py` — worker subprocess reconstruction path is unchanged.
+- `src/scieasy/engine/scheduler.py` — scheduler is unchanged.
+- `src/scieasy/blocks/base/*` — `Block` ABC, `InputPort`, `OutputPort`, `BlockConfig`, `BlockSpec` are unchanged.
+- `src/scieasy/blocks/process/*` — `ProcessBlock` is unchanged.
+- `src/scieasy/blocks/code/*` — `CodeBlock` is unchanged.
+- `src/scieasy/blocks/app/*` — `AppBlock` is unchanged.
+- `src/scieasy/blocks/ai/*` — AI blocks are unchanged.
+- Any test under `tests/core/`, `tests/engine/`, `tests/integration/` that does not currently import from `scieasy.blocks.io.adapters.*` or `scieasy.blocks.io.adapter_registry`.
+
+#### Test impact
+
+| Test file | Action |
+|---|---|
+| `tests/blocks/test_adapter_registry.py` | Delete |
+| `tests/blocks/test_adapters.py` | Delete |
+| `tests/blocks/test_core_loaders.py` | Create — covers D1, D3, D4, D8 |
+| `tests/blocks/test_core_savers.py` | Create — covers D3, D7 |
+| `tests/blocks/test_ioblock_base.py` | Create — covers D1 (ABC enforcement), D7 (default run dispatch), D8 (format detection helper) |
+| Any test under `tests/blocks/test_io_block.py` that instantiates `IOBlock()` directly | Migrate to one of the concrete core loaders |
+| `tests/integration/test_block_sdk_e2e.py` | Audit for `IOBlock(format=...)` usage; migrate any hits to specific loaders |
+
+#### Migration guide for workflow YAML files
+
+Pre-ADR-028 workflow YAML:
+
+```yaml
+blocks:
+  - id: load
+    type: io_block
+    config:
+      direction: input
+      path: data/input.csv
+```
+
+Post-ADR-028 equivalent:
+
+```yaml
+blocks:
+  - id: load
+    type: load_dataframe
+    config:
+      path: data/input.csv
+```
+
+The block `type` field changes from the generic `io_block` to the specific loader name (`load_array`, `load_dataframe`, `load_series`, `load_text`, `load_artifact`, `load_composite_data`, or a plugin-provided name like `load_image`). The `direction` field is removed; the block class encodes it. The `path` field is unchanged.
+
+For save blocks:
+
+```yaml
+# Before
+- id: save
+  type: io_block
+  config:
+    direction: output
+    path: data/output.parquet
+
+# After
+- id: save
+  type: save_dataframe
+  config:
+    path: data/output.parquet
+```
+
+The implementation PR ships a small `scieasy migrate-workflow <file.yaml>` helper that rewrites old workflow files in place. The helper is explicitly optional — not shipping it would also be acceptable because no production workflows exist yet.
+
+### Open questions deferred to implementation
+
+The following details are deliberately left for the implementation PR(s) to resolve, rather than being locked in this ADR. The implementation author is expected to pick the simplest option consistent with the ADR's decision text and document the choice in the PR body.
+
+1. **Zarr `.attrs` key name for `axes` metadata**. `"axes"`, `"scieasy_axes"`, `"_axes"`, or nested under `"scieasy": {"axes": [...]}`? Low stakes; pick whichever matches the Phase 10 convention in `tiff_adapter.py::write`.
+
+2. **Sidecar JSON filename for `.npy` / `.npz`**. `foo.npy` → `foo.npy.json` or `foo.json` or `foo_meta.json`? Low stakes; pick the least-ambiguous option.
+
+3. **`LoadText` encoding auto-detection**. Ship `charset-normalizer` as a dependency, or require users to pass `encoding` explicitly? Decision: require explicit encoding (UTF-8 default), no auto-detection. This is lower-risk and avoids a new dependency. Documented here to save the implementation author from re-litigating.
+
+4. **`LoadArtifact` `mime_type` detection**. Use Python's `mimetypes` stdlib module (always available) or add `python-magic` (libmagic binding) for content sniffing. Decision: `mimetypes` only. Extension-based is sufficient; content sniffing adds a system dependency.
+
+5. **`SaveCompositeData` manifest file format**. JSON (per Phase 10's `backend_router.py`) or YAML? Decision: JSON. Keep consistency with existing composite persistence.
+
+6. **Whether the default `run()` should catch `FileNotFoundError` and wrap with additional context**. Decision: no — let it propagate. Subclasses can wrap if they want, but the framework should not swallow.
+
+7. **Whether the CLI `scieasy migrate-workflow` helper is part of the implementation PR or a follow-up**. Decision: follow-up, issue filed separately. The ADR implementation PR must not block on tooling.
+
+### Relationship to other ADRs
+
+- **Supersedes**: ADR-025 §6 "Adapter registration via entry-points". The `scieasy.adapters` entry-point group is removed. The rest of ADR-025 (blocks entry-point group §1, package metadata §2, two-level categorization §3, types entry-point group §4, custom metadata persistence §5, built-in blocks strategy §7) stands unchanged.
+- **Depends on**: ADR-009 (registry stores specs) — `BlockRegistry` is the surviving registry for IO blocks. ADR-027 (Phase 10 core type system) — the seven base types this ADR provides loaders for. ADR-027 Addendum 1 §1 (typed reconstruction) — the downstream path for any loaded DataObject.
+- **Does not affect**: ADR-017 (subprocess isolation), ADR-018 + Addendum 1 (scheduler), ADR-019 (ProcessHandle), ADR-020 + Addenda (Collection transport), ADR-021 (collection operations), ADR-022 (memory monitoring). These operate at the runtime layer which is orthogonal to how IO blocks are structured.
+- **Enables**: Phase 11 Track 2 (`scieasy-blocks-imaging`), Track 3 (`scieasy-blocks-srs`), Track 4 (`scieasy-blocks-lcms`). All three plugin packages ship their primary user-facing blocks via the `IOBlock` ABC path specified here. The three plugin specs (`docs/specs/phase11-imaging-block-spec.md`, `phase11-srs-block-spec.md`, `phase11-lcms-block-spec.md`) will reference this ADR as their IO contract source of truth.
