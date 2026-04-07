@@ -4,7 +4,7 @@
 class AxisProjection:
     """Placeholder for T-IMG-030 (AxisProjection)."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: object, **kwargs: object) -> None:
         raise NotImplementedError(
             "T-IMG-030: AxisProjection is a Phase 11 placeholder; see "
             "docs/specs/phase11-imaging-block-spec.md §9 T-IMG-030."
@@ -14,7 +14,7 @@ class AxisProjection:
 class SelectSlice:
     """Placeholder for T-IMG-030 (SelectSlice)."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: object, **kwargs: object) -> None:
         raise NotImplementedError(
             "T-IMG-030: SelectSlice is a Phase 11 placeholder; see "
             "docs/specs/phase11-imaging-block-spec.md §9 T-IMG-030."

@@ -4,8 +4,7 @@
 class SRSImage:
     """Placeholder for T-SRS-001 — SRSImage(Image) type class."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: object, **kwargs: object) -> None:
         raise NotImplementedError(
-            "T-SRS-001: SRSImage type is a Phase 11 placeholder; see "
-            "docs/specs/phase11-srs-block-spec.md §9 T-SRS-001."
+            "T-SRS-001: SRSImage type is a Phase 11 placeholder; see docs/specs/phase11-srs-block-spec.md §9 T-SRS-001."
         )

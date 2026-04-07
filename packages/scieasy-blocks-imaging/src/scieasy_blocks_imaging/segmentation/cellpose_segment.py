@@ -4,7 +4,7 @@
 class CellposeSegment:
     """Placeholder for T-IMG-019 (FLAGSHIP)."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: object, **kwargs: object) -> None:
         raise NotImplementedError(
             "T-IMG-019: CellposeSegment is a Phase 11 placeholder; see "
             "docs/specs/phase11-imaging-block-spec.md §9 T-IMG-019."
