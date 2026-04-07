@@ -1,13 +1,18 @@
-"""CompositeData type — named collection of heterogeneous DataObject slots."""
+"""CompositeData — named collection of heterogeneous DataObject slots.
+
+ADR-027 D2: this module is core-only. The legacy domain subclasses
+(``AnnData``, ``SpatialData``) have been removed as of T-007 and now
+belong in dedicated plugin packages (``scieasy-blocks-singlecell``,
+``scieasy-blocks-spatial-omics``). Code that previously imported them
+should either define a local subclass with the appropriate
+``expected_slots`` or depend on the respective plugin.
+"""
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Self
 
-from scieasy.core.types.array import Array
-from scieasy.core.types.artifact import Artifact
 from scieasy.core.types.base import DataObject
-from scieasy.core.types.dataframe import DataFrame
 
 
 class CompositeData(DataObject):
@@ -28,6 +33,15 @@ class CompositeData(DataObject):
         slots: dict[str, DataObject] | None = None,
         **kwargs: Any,
     ) -> None:
+        """Construct a CompositeData with optional initial slot mapping.
+
+        Standard :class:`DataObject` slots (``framework``, ``meta``,
+        ``user``, ``storage_ref``) are passed through ``**kwargs`` to
+        :meth:`DataObject.__init__`. Note that the :class:`CompositeData`
+        ``slots`` attribute is distinct from the DataObject metadata
+        slots — it holds child :class:`DataObject` instances keyed by
+        slot name.
+        """
         super().__init__(**kwargs)
         self._slots: dict[str, DataObject] = {}
         if slots:
@@ -77,24 +91,46 @@ class CompositeData(DataObject):
             result[slot_name] = (backend_name, slot_data)
         return result
 
+    # -- with_meta override (T-005's base only handles standard slots) ----
 
-class AnnData(CompositeData):
-    """AnnData-like composite: X (array), obs/var (dataframes), uns (artifact)."""
+    def with_meta(self, **changes: Any) -> Self:
+        """Return a new CompositeData with the ``meta`` slot updated.
 
-    expected_slots: ClassVar[dict[str, type]] = {
-        "X": Array,
-        "obs": DataFrame,
-        "var": DataFrame,
-        "uns": Artifact,
-    }
+        Overrides :meth:`DataObject.with_meta` to propagate the
+        CompositeData-specific constructor argument (the ``slots``
+        mapping). Slots themselves are shared by reference on the new
+        instance — composite slot sharing is intentional because the
+        child :class:`DataObject` instances are independently immutable
+        via their own ``with_meta`` methods; T-013 will revisit deep
+        slot copying during worker-subprocess reconstruction.
 
+        The base implementation only propagates the four standard
+        DataObject slots (``framework``, ``meta``, ``user``,
+        ``storage_ref``); without this override the call would drop
+        the populated slot children on the returned instance.
 
-class SpatialData(CompositeData):
-    """SpatialData-like composite: images, points, shapes, and an AnnData table."""
+        Raises:
+            ValueError: if ``self.meta is None`` (no typed Meta to
+                update). Only CompositeData subclasses that declare a
+                ``Meta`` ClassVar can use :meth:`with_meta`.
+        """
+        if self._meta is None:
+            raise ValueError(
+                f"{type(self).__name__}.with_meta() requires a typed `meta` slot. "
+                f"This instance has meta=None. Subclass with a class-level `Meta` "
+                f"Pydantic model and pass an instance via the constructor to use "
+                f"with_meta()."
+            )
 
-    expected_slots: ClassVar[dict[str, type]] = {
-        "images": Array,
-        "points": DataFrame,
-        "shapes": DataFrame,
-        "table": AnnData,
-    }
+        from scieasy.core.meta import with_meta_changes
+
+        new_meta = with_meta_changes(self._meta, **changes)
+        new_framework = self._framework.derive()
+
+        return type(self)(
+            slots=dict(self._slots) if self._slots else None,
+            framework=new_framework,
+            meta=new_meta,
+            user=dict(self._user),
+            storage_ref=self._storage_ref,
+        )

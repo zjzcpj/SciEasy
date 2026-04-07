@@ -1,9 +1,14 @@
-"""Artifact type — opaque files (PDF, binary, images, reports)."""
+"""Artifact — opaque file DataObject (PDF, binary, image, report).
+
+ADR-027 D2: this module is core-only. No domain subclasses of
+:class:`Artifact` exist in core; any future file-format specialisations
+(e.g. ``PdfArtifact``, ``HtmlReport``) should live in a plugin package.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 from scieasy.core.types.base import DataObject
 
@@ -13,7 +18,7 @@ class Artifact(DataObject):
 
     Attributes:
         file_path: Local filesystem path to the artifact, if available.
-        mime_type: MIME type of the artifact (e.g. "application/pdf").
+        mime_type: MIME type of the artifact (e.g. ``"application/pdf"``).
         description: Human-readable description.
     """
 
@@ -25,6 +30,12 @@ class Artifact(DataObject):
         description: str = "",
         **kwargs: Any,
     ) -> None:
+        """Construct an Artifact with optional file/MIME/description.
+
+        Standard :class:`DataObject` slots (``framework``, ``meta``,
+        ``user``, ``storage_ref``) are passed through ``**kwargs`` to
+        :meth:`DataObject.__init__`.
+        """
         super().__init__(**kwargs)
         self.file_path = file_path
         self.mime_type = mime_type
@@ -35,3 +46,44 @@ class Artifact(DataObject):
         if self.file_path is not None and self.file_path.exists():
             return self.file_path.read_bytes()
         return super().get_in_memory_data()
+
+    # -- with_meta override (T-005's base only handles standard slots) ----
+
+    def with_meta(self, **changes: Any) -> Self:
+        """Return a new Artifact with the ``meta`` slot updated.
+
+        Overrides :meth:`DataObject.with_meta` to propagate the
+        Artifact-specific constructor arguments (``file_path``,
+        ``mime_type``, ``description``). The base implementation only
+        propagates the four standard DataObject slots (``framework``,
+        ``meta``, ``user``, ``storage_ref``); without this override the
+        call would lose the Artifact-specific attributes on the
+        returned instance.
+
+        Raises:
+            ValueError: if ``self.meta is None`` (no typed Meta to
+                update). Only Artifact subclasses that declare a
+                ``Meta`` ClassVar can use :meth:`with_meta`.
+        """
+        if self._meta is None:
+            raise ValueError(
+                f"{type(self).__name__}.with_meta() requires a typed `meta` slot. "
+                f"This instance has meta=None. Subclass with a class-level `Meta` "
+                f"Pydantic model and pass an instance via the constructor to use "
+                f"with_meta()."
+            )
+
+        from scieasy.core.meta import with_meta_changes
+
+        new_meta = with_meta_changes(self._meta, **changes)
+        new_framework = self._framework.derive()
+
+        return type(self)(
+            file_path=self.file_path,
+            mime_type=self.mime_type,
+            description=self.description,
+            framework=new_framework,
+            meta=new_meta,
+            user=dict(self._user),
+            storage_ref=self._storage_ref,
+        )

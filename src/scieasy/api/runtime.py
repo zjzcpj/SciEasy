@@ -25,7 +25,7 @@ from scieasy.core.types.artifact import Artifact
 from scieasy.core.types.composite import CompositeData
 from scieasy.core.types.dataframe import DataFrame
 from scieasy.core.types.registry import TypeRegistry
-from scieasy.core.types.series import Series, Spectrum
+from scieasy.core.types.series import Series
 from scieasy.core.types.text import Text
 from scieasy.engine.checkpoint import CheckpointManager
 from scieasy.engine.events import EventBus
@@ -600,7 +600,11 @@ class ApiRuntime:
                 "mime_type": "image/tiff",
             }
 
-        if record.type_name in {Series.__name__, Spectrum.__name__}:
+        # T-007 / ADR-027 D2: ``Spectrum`` lives in the spectral plugin,
+        # not core. Preview rendering keys off the ``Series`` base name
+        # (and its subclasses by substring), so plugin-provided spectra
+        # still hit the chart preview path.
+        if record.type_name == Series.__name__ or "Spectrum" in record.type_name:
             values = record.metadata.get("values", [])
             return {
                 "kind": "chart",

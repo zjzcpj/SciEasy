@@ -1,10 +1,15 @@
 """Tests for DataObject types, TypeSignature, and TypeRegistry (Phase 3.1).
 
 T-006 (ADR-027 D2) removed ``Image``, ``MSImage``, ``SRSImage``, and
-``FluorImage`` from ``scieasy.core.types.array``; they now live in
-``scieasy-blocks-imaging``. This test module keeps its historical
-coverage by defining local shim subclasses that mimic the pre-T-006
-constructor surface (``shape=``, ``ndim=``, ``dtype=``). The fully
+``FluorImage`` from ``scieasy.core.types.array``.
+
+T-007 (ADR-027 D2) additionally removed ``Spectrum``, ``RamanSpectrum``,
+``MassSpectrum``, ``PeakTable``, ``MetabPeakTable``, ``AnnData``, and
+``SpatialData`` — they now belong in the spectral / single-cell /
+spatial-omics plugin packages.
+
+This test module keeps its historical coverage by defining local shim
+subclasses that mimic the pre-removal constructor surface. The fully
 migrated versions of these tests will land in T-008.
 """
 
@@ -19,10 +24,10 @@ import pytest
 from scieasy.core.types.array import Array
 from scieasy.core.types.artifact import Artifact
 from scieasy.core.types.base import DataObject, TypeSignature
-from scieasy.core.types.composite import AnnData, CompositeData, SpatialData
-from scieasy.core.types.dataframe import DataFrame, MetabPeakTable, PeakTable
+from scieasy.core.types.composite import CompositeData
+from scieasy.core.types.dataframe import DataFrame
 from scieasy.core.types.registry import TypeRegistry, TypeSpec
-from scieasy.core.types.series import MassSpectrum, RamanSpectrum, Series, Spectrum
+from scieasy.core.types.series import Series
 from scieasy.core.types.text import Text
 
 # ---------------------------------------------------------------------------
@@ -105,6 +110,55 @@ class FluorImage(Image):
         **kwargs: Any,
     ) -> None:
         Array.__init__(self, axes=["y", "x", "channel"], shape=shape, dtype=dtype, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# T-007 shims: local Spectrum / PeakTable / AnnData / SpatialData
+# subclasses. These mirror the pre-T-007 behaviour to keep existing
+# test coverage running without a full migration sweep (T-008).
+# ---------------------------------------------------------------------------
+
+
+class Spectrum(Series):
+    """T-007 shim for the removed core ``Spectrum`` class."""
+
+
+class RamanSpectrum(Spectrum):
+    """T-007 shim for the removed core ``RamanSpectrum`` class."""
+
+
+class MassSpectrum(Spectrum):
+    """T-007 shim for the removed core ``MassSpectrum`` class."""
+
+
+class PeakTable(DataFrame):
+    """T-007 shim for the removed core ``PeakTable`` class."""
+
+
+class MetabPeakTable(PeakTable):
+    """T-007 shim for the removed core ``MetabPeakTable`` class."""
+
+
+class AnnData(CompositeData):
+    """T-007 shim for the removed core ``AnnData`` class."""
+
+    expected_slots: ClassVar[dict[str, type]] = {
+        "X": Array,
+        "obs": DataFrame,
+        "var": DataFrame,
+        "uns": Artifact,
+    }
+
+
+class SpatialData(CompositeData):
+    """T-007 shim for the removed core ``SpatialData`` class."""
+
+    expected_slots: ClassVar[dict[str, type]] = {
+        "images": Array,
+        "points": DataFrame,
+        "shapes": DataFrame,
+        "table": AnnData,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -330,15 +384,25 @@ class TestTypeRegistry:
         registry = TypeRegistry()
         registry.scan_builtins()
         all_t = registry.all_types()
-        # T-006 / ADR-027 D2: Image and friends moved to
-        # scieasy-blocks-imaging; scan_builtins no longer registers them.
+        # T-006 / T-007 / ADR-027 D2: all domain subtypes moved to
+        # plugins; scan_builtins only registers the seven core base
+        # types (plus DataObject itself).
+        assert "DataObject" in all_t
         assert "Array" in all_t
-        assert "Spectrum" in all_t
+        assert "Series" in all_t
         assert "DataFrame" in all_t
-        assert "AnnData" in all_t
-        # 14 core builtins after T-006 removal (Image/MSImage/SRSImage/
-        # FluorImage dropped from the 18 pre-T-006 baseline).
-        assert len(all_t) >= 14
+        assert "Text" in all_t
+        assert "Artifact" in all_t
+        assert "CompositeData" in all_t
+        # Domain subtypes are NOT present — they will be re-registered
+        # via the ``scieasy.types`` entry-point when the relevant plugin
+        # is installed.
+        assert "Spectrum" not in all_t
+        assert "PeakTable" not in all_t
+        assert "AnnData" not in all_t
+        assert "SpatialData" not in all_t
+        # Exactly the seven core base types plus DataObject.
+        assert len(all_t) == 7
 
     def test_load_class(self) -> None:
         registry = TypeRegistry()
@@ -531,9 +595,10 @@ class TestTypeRegistryEntryPoints:
             registry.scan_all()
 
         all_t = registry.all_types()
-        # T-006: core no longer registers Image; Array stays.
+        # T-006 / T-007: core only registers the seven base types plus
+        # DataObject; domain subtypes live in plugins.
         assert "Array" in all_t
-        assert len(all_t) >= 14
+        assert len(all_t) == 7
 
     def test_scan_skips_bad_entries_registers_good_ones(self) -> None:
         """Mixed valid/invalid items: good ones register, bad ones are skipped."""
