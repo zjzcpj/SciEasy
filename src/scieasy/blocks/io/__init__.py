@@ -10,5 +10,6 @@ from __future__ import annotations
 
 from scieasy.blocks.io.io_block import IOBlock
 from scieasy.blocks.io.loaders.load_data import LoadData
+from scieasy.blocks.io.savers.save_data import SaveData
 
-__all__ = ["IOBlock", "LoadData"]
+__all__ = ["IOBlock", "LoadData", "SaveData"]
