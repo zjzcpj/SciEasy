@@ -57,13 +57,14 @@ def test_preview_supports_image_series_composite_and_artifact_types(
     image_path = opened_project / "data" / "raw" / "image.tiff"
     image_path.write_bytes(b"fake-tiff")
 
-    class FakeImage:
-        def __init__(self) -> None:
-            self._data = np.array([[0.0, 1.0], [2.0, 3.0]])
+    # T-TRK-004 / ADR-028 §D2: ``TIFFAdapter`` was deleted; the runtime
+    # preview path now reads via ``tifffile.imread`` directly. Patch
+    # that import in scieasy.api.runtime to return a fixed matrix
+    # instead of touching the real ``image.tiff`` payload.
+    fake_matrix = np.array([[0.0, 1.0], [2.0, 3.0]])
+    import tifffile
 
-    from scieasy.blocks.io.adapters import tiff_adapter
-
-    monkeypatch.setattr(tiff_adapter.TIFFAdapter, "read", lambda self, path: FakeImage())
+    monkeypatch.setattr(tifffile, "imread", lambda path: fake_matrix)
     image_record = runtime.register_data_ref(
         StorageReference(backend="filesystem", path=str(image_path), format="tiff"),
         type_name=Array.__name__,

@@ -1,8 +1,12 @@
 """End-to-end integration tests for Block SDK (issue #218).
 
 Verifies the full Block SDK flow: package metadata, registry discovery,
-adapter priority enforcement, type registry entry-points, and Tier 1
-drop-in block scanning with instantiation and execution.
+type registry entry-points, and Tier 1 drop-in block scanning with
+instantiation and execution.
+
+T-TRK-004 / ADR-028 §D2: the legacy ``AdapterRegistry`` priority
+enforcement test suites were removed alongside the deleted adapter
+layer.
 """
 
 from __future__ import annotations
@@ -16,7 +20,6 @@ import pytest
 from scieasy.blocks.base.block import Block
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.package_info import PackageInfo
-from scieasy.blocks.io.adapter_registry import BUILTIN_EXTENSIONS, AdapterRegistry
 from scieasy.blocks.registry import BlockRegistry
 from scieasy.core.types.base import DataObject
 from scieasy.core.types.registry import TypeRegistry
@@ -331,97 +334,9 @@ class {class_name}(ProcessBlock):
 
 
 # ===========================================================================
-# Test Suite 3: Adapter priority enforcement (ADR-025 Section 6)
-# ===========================================================================
-
-
-class TestAdapterPriorityEnforcement:
-    """Verify that BUILTIN_EXTENSIONS are protected from external override."""
-
-    def test_builtin_extensions_are_defined(self) -> None:
-        """BUILTIN_EXTENSIONS contains the expected core extensions."""
-        assert ".csv" in BUILTIN_EXTENSIONS
-        assert ".tiff" in BUILTIN_EXTENSIONS
-        assert ".zarr" in BUILTIN_EXTENSIONS
-        assert ".json" in BUILTIN_EXTENSIONS
-        assert ".parquet" in BUILTIN_EXTENSIONS
-
-    def test_external_adapter_cannot_override_builtin(self, caplog: pytest.LogCaptureFixture) -> None:
-        """An external adapter for .csv is rejected with a warning."""
-
-        class EvilCSVAdapter:
-            def supported_extensions(self) -> list[str]:
-                return [".csv"]
-
-        reg = AdapterRegistry()
-        reg.register_defaults()
-
-        # Remember the original adapter for .csv.
-        original = reg.get_for_extension(".csv")
-
-        with caplog.at_level(logging.WARNING):
-            reg._register_external(EvilCSVAdapter, "evil-csv-package")
-
-        # The original adapter must remain.
-        assert reg.get_for_extension(".csv") is original
-        assert "override built-in extension '.csv'" in caplog.text
-
-    def test_external_adapter_cannot_override_tiff(self, caplog: pytest.LogCaptureFixture) -> None:
-        """An external adapter for .tiff is rejected."""
-
-        class EvilTIFFAdapter:
-            def supported_extensions(self) -> list[str]:
-                return [".tiff", ".tif"]
-
-        reg = AdapterRegistry()
-        reg.register_defaults()
-        original_tiff = reg.get_for_extension(".tiff")
-
-        with caplog.at_level(logging.WARNING):
-            reg._register_external(EvilTIFFAdapter, "evil-tiff-package")
-
-        assert reg.get_for_extension(".tiff") is original_tiff
-        assert "override built-in extension" in caplog.text
-
-    def test_external_adapter_for_new_extension_succeeds(self) -> None:
-        """An external adapter for a non-builtin extension registers fine."""
-
-        class HDF5Adapter:
-            def supported_extensions(self) -> list[str]:
-                return [".hdf5", ".h5"]
-
-        reg = AdapterRegistry()
-        reg.register_defaults()
-
-        reg._register_external(HDF5Adapter, "hdf5-plugin")
-
-        assert reg.get_for_extension(".hdf5") is HDF5Adapter
-        assert reg.get_for_extension(".h5") is HDF5Adapter
-
-    def test_mixed_builtin_and_new_extensions(self, caplog: pytest.LogCaptureFixture) -> None:
-        """An adapter with both builtin and new extensions: new ones register, builtins rejected."""
-
-        class MixedAdapter:
-            def supported_extensions(self) -> list[str]:
-                return [".csv", ".ome.tiff", ".xyz_custom"]
-
-        reg = AdapterRegistry()
-        reg.register_defaults()
-
-        with caplog.at_level(logging.WARNING):
-            reg._register_external(MixedAdapter, "mixed-plugin")
-
-        # .csv blocked (builtin).
-        from scieasy.blocks.io.adapters.csv_adapter import CSVAdapter
-
-        assert reg.get_for_extension(".csv") is CSVAdapter
-        # New extensions registered.
-        assert reg.get_for_extension(".ome.tiff") is MixedAdapter
-        assert reg.get_for_extension(".xyz_custom") is MixedAdapter
-
-
-# ===========================================================================
-# Test Suite 4: TypeRegistry entry-point scanning
+# Test Suite 3: TypeRegistry entry-point scanning
+# T-TRK-004: the previous "Adapter priority enforcement" test suite was
+# removed alongside the deleted ``AdapterRegistry`` layer (ADR-028 §D2).
 # ===========================================================================
 
 
@@ -587,7 +502,7 @@ class TestTypeRegistryEntryPoints:
 
 
 # ===========================================================================
-# Test Suite 5: Cross-cutting integration — full scan and resolve
+# Test Suite 4: Cross-cutting integration — full scan and resolve
 # ===========================================================================
 
 
@@ -652,21 +567,6 @@ class TestFullIntegration:
             reg._scan_tier2()
 
         assert "unsupported type" in caplog.text
-
-    def test_adapter_and_type_registries_independent(self) -> None:
-        """AdapterRegistry and TypeRegistry operate on separate namespaces."""
-        adapter_reg = AdapterRegistry()
-        adapter_reg.register_defaults()
-
-        type_reg = TypeRegistry()
-        with patch("importlib.metadata.entry_points", return_value=[]):
-            type_reg.scan_all()
-
-        # Both registries populated, no cross-contamination.
-        assert ".csv" in adapter_reg.all_adapters()
-        assert "Array" in type_reg.all_types()
-        assert ".csv" not in type_reg.all_types()
-        assert "Array" not in adapter_reg.all_adapters()
 
     def test_tier1_and_tier2_coexist_in_registry(self, tmp_path: Path) -> None:
         """Tier 1 drop-in blocks and Tier 2 entry-point blocks coexist."""
