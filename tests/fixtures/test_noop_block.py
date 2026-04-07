@@ -12,7 +12,6 @@ from __future__ import annotations
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.core.types.base import DataObject
 from scieasy.core.types.collection import Collection
-
 from tests.fixtures.noop_block import NoopBlock
 
 

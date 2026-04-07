@@ -91,12 +91,17 @@ class BlockRegistry:
         from scieasy.blocks.process.builtins.slice_collection import SliceCollection
         from scieasy.blocks.process.builtins.split import SplitBlock
         from scieasy.blocks.process.builtins.split_collection import SplitCollection
-        from scieasy.blocks.process.builtins.transform import TransformBlock
         from scieasy.blocks.subworkflow.subworkflow_block import SubWorkflowBlock
+
+        # Phase 11 / T-TRK-003: ``TransformBlock`` was relocated to
+        # ``tests/fixtures/noop_block.py`` as ``NoopBlock``. It is no
+        # longer registered as a core builtin. Tests that need a generic
+        # pass-through Process block under the legacy ``"process_block"``
+        # registry alias rely on the test-only registration hook in
+        # ``tests/conftest.py``.
 
         for cls in (
             IOBlock,
-            TransformBlock,
             MergeBlock,
             SplitBlock,
             MergeCollection,
