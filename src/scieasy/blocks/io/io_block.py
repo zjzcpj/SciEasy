@@ -22,6 +22,7 @@ from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.core.types.base import DataObject
 from scieasy.core.types.collection import Collection
+from scieasy.core.types.text import Text
 
 
 class IOBlock(Block):
@@ -93,11 +94,17 @@ class IOBlock(Block):
             if data is None:
                 raise ValueError("IOBlock(output) requires 'data' input")
             self.save(data, config)
-            # ADR-028 §D1 spec body intentionally returns a string-keyed
-            # path receipt rather than a Collection in the output
-            # direction. The pre-T-TRK-004 ``IOBlock`` had the same
-            # behaviour; mypy accepted it via ``dict[str, Any]`` typed
-            # helper methods. The spec body uses a literal dict here so
-            # the type-checker correctly observes the mismatch — suppress
-            # only this single dict entry.
-            return {"path": str(config.get("path"))}  # type: ignore[dict-item]
+            # T-TRK-008: wrap the path receipt in a single-item Collection
+            # of Text so the return type matches the public
+            # ``dict[str, Collection]`` signature without a type-ignore
+            # suppression. The pre-T-TRK-004 IOBlock returned a bare
+            # string here; the spec body for the post-T-TRK-004 ABC made
+            # the same shape literal which forced a targeted
+            # ``# type: ignore[dict-item]``. Wrapping in a typed
+            # ``Text`` Collection preserves the "configured path" receipt
+            # semantics for downstream consumers (they call
+            # ``coll[0].content`` instead of ``result["path"]``) and
+            # restores strict typing across the IO surface. See
+            # ``project_phase11_ttrk007_008_bookkeeping.md`` Item 1.
+            path_receipt = Text(content=str(config.get("path")), format="plain")
+            return {"path": Collection(items=[path_receipt], item_type=Text)}

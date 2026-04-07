@@ -95,7 +95,19 @@ class BlockRegistry:
 
             {
                 "source_config_key": str,
+                # Exactly one of the following two keys must be present.
+                # ``output_port_mapping`` is used by input-direction blocks
+                # (LoadData) and ``input_port_mapping`` by output-direction
+                # blocks (SaveData). The shape of the value is identical.
                 "output_port_mapping": {
+                    "<port_name>": {
+                        "<enum_value>": ["<TypeName>", ...],
+                        ...
+                    },
+                    ...
+                },
+                # OR
+                "input_port_mapping": {
                     "<port_name>": {
                         "<enum_value>": ["<TypeName>", ...],
                         ...
@@ -106,6 +118,15 @@ class BlockRegistry:
 
         Raises ``ValueError`` with the offending class name and field path
         when the shape is wrong.
+
+        T-TRK-008 (SaveData) note: the ``input_port_mapping`` variant was
+        added in this ticket per ADR-028 Addendum 1 §C5/§C9. T-TRK-006
+        (PR #321) only declared the ``output_port_mapping`` variant
+        because LoadData (T-TRK-007) was the first consumer; SaveData is
+        the symmetric output-direction consumer and uses the
+        ``input_port_mapping`` key. The frontend
+        ``computeEffectivePorts`` helper in T-TRK-009 must handle both
+        keys.
         """
         descriptor = getattr(cls, "dynamic_ports", None)
         if descriptor is None:
@@ -124,39 +145,55 @@ class BlockRegistry:
                 f"got {type(source_key).__name__}"
             )
 
-        if "output_port_mapping" not in descriptor:
-            raise ValueError(f"{cls_name}.dynamic_ports is missing required key 'output_port_mapping'")
-        mapping = descriptor["output_port_mapping"]
+        # Exactly one of ``output_port_mapping`` or ``input_port_mapping``
+        # must be present. Per ADR-028 Addendum 1 §C5: input-direction
+        # blocks (LoadData) drive output ports from a config enum, and
+        # output-direction blocks (SaveData) drive input ports from a
+        # config enum. Both use the same nested-dict shape.
+        has_output = "output_port_mapping" in descriptor
+        has_input = "input_port_mapping" in descriptor
+        if not has_output and not has_input:
+            raise ValueError(
+                f"{cls_name}.dynamic_ports is missing required key "
+                "'output_port_mapping' or 'input_port_mapping'"
+            )
+        if has_output and has_input:
+            raise ValueError(
+                f"{cls_name}.dynamic_ports must declare exactly one of "
+                "'output_port_mapping' or 'input_port_mapping', not both"
+            )
+        mapping_key = "output_port_mapping" if has_output else "input_port_mapping"
+        mapping = descriptor[mapping_key]
         if not isinstance(mapping, dict):
             raise ValueError(
-                f"{cls_name}.dynamic_ports['output_port_mapping'] must be a dict, got {type(mapping).__name__}"
+                f"{cls_name}.dynamic_ports[{mapping_key!r}] must be a dict, got {type(mapping).__name__}"
             )
 
         for port_name, enum_map in mapping.items():
             if not isinstance(port_name, str) or not port_name:
                 raise ValueError(
-                    f"{cls_name}.dynamic_ports['output_port_mapping'] keys must be non-empty strings, got {port_name!r}"
+                    f"{cls_name}.dynamic_ports[{mapping_key!r}] keys must be non-empty strings, got {port_name!r}"
                 )
             if not isinstance(enum_map, dict):
                 raise ValueError(
-                    f"{cls_name}.dynamic_ports['output_port_mapping'][{port_name!r}] must be a dict, "
+                    f"{cls_name}.dynamic_ports[{mapping_key!r}][{port_name!r}] must be a dict, "
                     f"got {type(enum_map).__name__}"
                 )
             for enum_value, type_names in enum_map.items():
                 if not isinstance(enum_value, str) or not enum_value:
                     raise ValueError(
-                        f"{cls_name}.dynamic_ports['output_port_mapping'][{port_name!r}] keys must be "
+                        f"{cls_name}.dynamic_ports[{mapping_key!r}][{port_name!r}] keys must be "
                         f"non-empty strings, got {enum_value!r}"
                     )
                 if not isinstance(type_names, list):
                     raise ValueError(
-                        f"{cls_name}.dynamic_ports['output_port_mapping'][{port_name!r}][{enum_value!r}] "
+                        f"{cls_name}.dynamic_ports[{mapping_key!r}][{port_name!r}][{enum_value!r}] "
                         f"must be a list, got {type(type_names).__name__}"
                     )
                 for type_name in type_names:
                     if not isinstance(type_name, str) or not type_name:
                         raise ValueError(
-                            f"{cls_name}.dynamic_ports['output_port_mapping'][{port_name!r}][{enum_value!r}] "
+                            f"{cls_name}.dynamic_ports[{mapping_key!r}][{port_name!r}][{enum_value!r}] "
                             f"entries must be non-empty strings, got {type_name!r}"
                         )
 

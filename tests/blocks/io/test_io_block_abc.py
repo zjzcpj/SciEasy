@@ -112,7 +112,10 @@ class TestIOBlockSubclassDispatch:
     def test_output_direction_forwards_data_to_save(self) -> None:
         """``run({"data": obj}, config)`` with ``direction='output'``
         invokes :meth:`save` with the supplied object and returns the
-        configured path."""
+        configured path wrapped in a single-item ``Collection`` of
+        :class:`Text` per T-TRK-008 (the typed receipt that replaces
+        the old ``# type: ignore[dict-item]`` literal-string return)."""
+        from scieasy.core.types.text import Text
 
         class OutputBlock(InMemoryIOBlock):
             direction: ClassVar[str] = "output"
@@ -126,7 +129,15 @@ class TestIOBlockSubclassDispatch:
         saved_obj, saved_config = block.last_saved
         assert saved_obj is payload
         assert saved_config is block.config
-        assert result == {"path": "/tmp/out.bin"}
+
+        assert set(result.keys()) == {"path"}
+        path_collection = result["path"]
+        assert isinstance(path_collection, Collection)
+        assert path_collection.item_type is Text
+        assert len(path_collection) == 1
+        path_item = path_collection[0]
+        assert isinstance(path_item, Text)
+        assert path_item.content == "/tmp/out.bin"
 
     def test_output_direction_missing_data_raises(self) -> None:
         """Output mode without a ``"data"`` input raises ``ValueError``."""
