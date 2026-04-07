@@ -229,19 +229,17 @@ srs = "scieasy_blocks_srs:get_blocks"
 # Optional: register custom DataObject subtypes
 [project.entry-points."scieasy.types"]
 srs = "scieasy_blocks_srs.types:get_types"
-
-# Optional: register custom file-format adapters
-[project.entry-points."scieasy.adapters"]
-srs = "scieasy_blocks_srs.io:get_adapters"
 ```
 
-Three entry-point groups are available:
+Two entry-point groups are available (ADR-028 §D4 supersedes the old
+`scieasy.adapters` group from ADR-025 §6 — plugin-owned IO loaders and
+savers are now registered as ordinary `IOBlock` subclasses through
+`scieasy.blocks`):
 
 | Group | Purpose | Return type |
 |-------|---------|-------------|
-| `scieasy.blocks` | Block class discovery | `(PackageInfo, list[type[Block]])` or `list[type[Block]]` |
+| `scieasy.blocks` | Block class discovery (including plugin-owned `IOBlock` subclasses such as `LoadSRSImage`) | `(PackageInfo, list[type[Block]])` or `list[type[Block]]` |
 | `scieasy.types` | Custom DataObject subtype registration | `list[type[DataObject]]` |
-| `scieasy.adapters` | Custom IO adapter registration | `list[type[FormatAdapter]]` |
 
 #### Two-level categorization in the GUI
 
@@ -423,44 +421,65 @@ def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, C
 
 ### 3.2 IOBlock
 
-**Purpose**: Data ingress (loading files) and egress (saving files). Handles
-reading from and writing to the file system using pluggable format adapters.
+**Purpose**: Data ingress (loading files) and egress (saving files). `IOBlock`
+is an **abstract base class** (ADR-028 §D2). Concrete IO blocks subclass it and
+implement either `load()` (input-only) or `save()` (output-only). The previous
+"single block type with a `direction` flag plus a `FormatAdapter` registry"
+pattern is gone — there is no `scieasy.blocks.io.adapters` package and no
+`scieasy.adapters` entry-point group.
 
 **Module**: `scieasy.blocks.io.io_block`
+
+**Abstract methods** (subclasses must implement at least one):
+
+| Method | Signature | When to implement |
+|--------|-----------|-------------------|
+| `load` | `load(self, config: BlockConfig) -> DataObject` | Input-only blocks (`direction = "input"`) |
+| `save` | `save(self, obj: DataObject, config: BlockConfig) -> None` | Output-only blocks (`direction = "output"`) |
 
 **Special ClassVars**:
 
 | ClassVar | Type | Default | Purpose |
 |----------|------|---------|---------|
-| `direction` | `str` | `"input"` | `"input"` to load, `"output"` to save |
-| `format` | `str` | `""` | File format hint |
+| `direction` | `ClassVar[str]` | `"input"` | `"input"` to load, `"output"` to save. Drives the default `run()` dispatch. |
 
-**Pre-declared ports**:
+**How it works**: The default `run()` method on `IOBlock` reads `direction` and
+dispatches to either `load()` or `save()`. Concrete subclasses do not need to
+override `run()` themselves. For one-class-many-types loaders that want a single
+block with type-narrowing output ports based on user config, see
+[Writing a dynamic-port block](#writing-a-dynamic-port-block) below.
 
-- Input port: `data` (accepted types: `[DataObject]`, required: `False`)
-- Output port: `data` (accepted types: `[DataObject]`)
-
-**Config schema** includes `path` (required) and `direction`.
-
-**How it works**: In input mode, the block scans the given path (file or
-directory), selects the appropriate format adapter by file extension, creates
-lazy `StorageReference` objects, and wraps them in a Collection. In output mode,
-it iterates the input Collection and writes each item through the adapter.
-
-**Example: Custom IOBlock subclass**
+**Example: Minimal custom IOBlock subclass (single concrete output type)**
 
 ```python
 from typing import ClassVar
 
+from scieasy.blocks.base.config import BlockConfig
+from scieasy.blocks.base.ports import OutputPort
 from scieasy.blocks.io.io_block import IOBlock
+from scieasy.core.types.array import Array
 
 
 class TiffLoaderBlock(IOBlock):
     name: ClassVar[str] = "TIFF Loader"
-    description: ClassVar[str] = "Load TIFF image files"
+    description: ClassVar[str] = "Load a TIFF image file as an Array"
     direction: ClassVar[str] = "input"
-    format: ClassVar[str] = "tiff"
+    category: ClassVar[str] = "io"
+
+    output_ports: ClassVar[list[OutputPort]] = [
+        OutputPort(name="data", accepted_types=[Array]),
+    ]
+
+    def load(self, config: BlockConfig) -> Array:
+        import tifffile
+        path = config["path"]
+        data = tifffile.imread(path)
+        return Array(data=data, axes=("y", "x"))
 ```
+
+This example uses a fixed `Array` output type. For dynamic-port blocks (one
+class, multiple effective output types based on config), see
+[Writing a dynamic-port block](#writing-a-dynamic-port-block).
 
 ### 3.3 CodeBlock
 
@@ -647,6 +666,218 @@ uses a large language model to process or analyze data.
 **Note**: AIBlock is currently a placeholder. The `run()` method raises
 `NotImplementedError`. The infrastructure for AI-powered blocks is planned but
 not yet implemented.
+
+### 3.6 Writing a dynamic-port block
+
+Most blocks declare their input and output ports as static `ClassVar` lists at
+class definition time. A `ProcessBlock` that "takes a `DataFrame` and returns a
+`DataFrame`" looks the same to the validator and to the GUI palette no matter
+what the user types into its config panel.
+
+**Dynamic-port blocks break that assumption.** A dynamic-port block has *one*
+class but exposes *different effective port types* depending on a user-selected
+config enum. The canonical example is core's `LoadData` (ADR-028 Addendum 1
+§C5 / §C9): one block class loads any of the six core `DataObject` types
+(`Array`, `DataFrame`, `Series`, `Text`, `Artifact`, `CompositeData`), and the
+output port colour in the GUI palette tracks the user's `core_type` selection
+live. If the user picks `"DataFrame"`, the output port advertises
+`accepted_types=[DataFrame]` and only connects to downstream blocks that accept
+`DataFrame`; if they switch to `"Array"`, the same port instantly narrows to
+`accepted_types=[Array]`.
+
+**Why dynamic ports exist**. Without this hook, an author of a "load any core
+type" block has two bad options:
+
+1. Declare `accepted_types=[DataObject]` on the static port. The validator
+   accepts every downstream connection, even ones that will fail at runtime.
+2. Ship six separate classes (`LoadArray`, `LoadDataFrame`, …). The palette
+   becomes cluttered and the dispatch logic is duplicated six times.
+
+The dynamic-port mechanism gives a third option: **one class, one static port
+declaration with the broad `[DataObject]` upper bound, plus a per-instance
+override that reports the *narrowed* type for the configured enum value.** The
+runtime validator, the worker subprocess, and the frontend `BlockNode` all
+consume `get_effective_*_ports()` rather than the static class-level lists, so
+type narrowing flows through the entire stack consistently.
+
+#### The two-part contract
+
+A dynamic-port block declares two things:
+
+1. **`dynamic_ports: ClassVar[dict[str, Any] | None]`** — a static descriptor
+   that the API and the frontend consume to render the enum-driven port-colour
+   UI. The format is intentionally narrow (no expressions, no mini-DSL):
+
+   ```python
+   dynamic_ports: ClassVar[dict[str, Any] | None] = {
+       "source_config_key": "core_type",
+       "output_port_mapping": {
+           "data": {
+               "Array": ["Array"],
+               "DataFrame": ["DataFrame"],
+               # ... one entry per enum value
+           },
+       },
+       # Optional: same shape as output_port_mapping, for input narrowing
+       # "input_port_mapping": { ... },
+   }
+   ```
+
+   `source_config_key` names the config field whose enum value drives the
+   narrowing. `output_port_mapping[port_name][enum_value]` is a list of *type
+   names* (strings) that the frontend resolves through `TypeRegistry`.
+
+2. **`get_effective_input_ports()` / `get_effective_output_ports()`** — a
+   per-instance override that reads `self.config[source_config_key]` and
+   returns a fresh list of `InputPort` / `OutputPort` instances with
+   `accepted_types` narrowed to the resolved Python type. The runtime validator
+   calls this method, not the static `output_ports` ClassVar.
+
+The static class-level `output_ports` (or `input_ports`) declaration uses the
+broad upper bound (`[DataObject]`) so registration still succeeds for clients
+that don't know about the dynamic hook.
+
+#### Worked example: the `LoadData` core block
+
+The class body below is the canonical implementation that ships in core at
+`src/scieasy/blocks/io/loaders/load_data.py`. Read it top-to-bottom — every
+piece of the dynamic-port pattern is present.
+
+```python
+from typing import Any, ClassVar
+
+from scieasy.blocks.base.config import BlockConfig
+from scieasy.blocks.base.ports import OutputPort
+from scieasy.blocks.io.io_block import IOBlock
+from scieasy.core.types.array import Array
+from scieasy.core.types.artifact import Artifact
+from scieasy.core.types.base import DataObject
+from scieasy.core.types.composite import CompositeData
+from scieasy.core.types.dataframe import DataFrame
+from scieasy.core.types.series import Series
+from scieasy.core.types.text import Text
+
+
+# Module-level enum-to-type table. Hardcoded per ADR-028 Addendum 1 §C5
+# (no entry-point lookup, no runtime registration — the six core types
+# are stable and the table is small enough to read at a glance).
+_CORE_TYPE_MAP: dict[str, type[DataObject]] = {
+    "Array": Array,
+    "DataFrame": DataFrame,
+    "Series": Series,
+    "Text": Text,
+    "Artifact": Artifact,
+    "CompositeData": CompositeData,
+}
+
+
+class LoadData(IOBlock):
+    """One IOBlock subclass that loads any of the six core DataObject types.
+
+    The output port `data` advertises `[DataObject]` statically (for
+    backward-compatible registration) but its effective `accepted_types`
+    are narrowed per-instance via `get_effective_output_ports()`.
+    """
+
+    direction: ClassVar[str] = "input"
+    name: ClassVar[str] = "Load Data"
+    category: ClassVar[str] = "io"
+
+    # Static (broad) port declaration — what the registry sees at class
+    # definition time. The narrowed per-instance list comes from
+    # get_effective_output_ports() below.
+    output_ports: ClassVar[list[OutputPort]] = [
+        OutputPort(name="data", accepted_types=[DataObject]),
+    ]
+
+    # The dynamic-ports descriptor. The frontend `BlockNode` and the
+    # backend validator both consume this declaratively to render the
+    # enum-driven port colour and to validate connections live as the
+    # user edits the config panel.
+    dynamic_ports: ClassVar[dict[str, Any] | None] = {
+        "source_config_key": "core_type",
+        "output_port_mapping": {
+            "data": {
+                "Array": ["Array"],
+                "DataFrame": ["DataFrame"],
+                "Series": ["Series"],
+                "Text": ["Text"],
+                "Artifact": ["Artifact"],
+                "CompositeData": ["CompositeData"],
+            },
+        },
+    }
+
+    config_schema: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "core_type": {
+                "type": "string",
+                "enum": list(_CORE_TYPE_MAP.keys()),
+                "default": "DataFrame",
+                "ui_priority": 0,
+            },
+            "path": {"type": "string", "ui_priority": 1},
+        },
+        "required": ["core_type", "path"],
+    }
+
+    def get_effective_output_ports(self) -> list[OutputPort]:
+        """Return the per-instance output port for the configured core_type.
+
+        Reads ``self.config["core_type"]`` (defaulting to ``"DataFrame"``)
+        and returns a single ``OutputPort`` whose ``accepted_types`` is the
+        resolved Python class. Unknown enum values fall back to ``DataFrame``
+        so the validator never sees a malformed port; the run-time
+        ``load()`` call still raises ``ValueError`` on unknown values, so
+        the frontend can show the error path.
+        """
+        type_name = self.config.get("core_type", "DataFrame")
+        cls = _CORE_TYPE_MAP.get(type_name, DataFrame)
+        return [OutputPort(name="data", accepted_types=[cls])]
+
+    def load(self, config: BlockConfig) -> DataObject:
+        """Dispatch to one of the six private _load_* functions.
+
+        Per ADR-028 Addendum 1 §C9 the dispatch table is hardcoded and the
+        helper functions are module-level private functions, not helper
+        classes. Unknown enum values raise ValueError rather than silently
+        picking a default.
+        """
+        type_name = config.get("core_type", "DataFrame")
+        if type_name not in _CORE_TYPE_MAP:
+            raise ValueError(f"Unknown core_type: {type_name}")
+        # _load_array / _load_dataframe / etc. are module-level private
+        # functions in load_data.py — see the source for the full list.
+        return _DISPATCH[type_name](config)
+```
+
+Read the live source at `src/scieasy/blocks/io/loaders/load_data.py` for the
+six private `_load_*` functions, the pickle-opt-in `allow_pickle` flag, and the
+matching `SaveData` mirror at `src/scieasy/blocks/io/savers/save_data.py`.
+
+#### What dynamic ports do *not* cover
+
+The dynamic-port mechanism narrows the **type** of an existing static port. It
+does **not** add or remove ports based on config — `LoadData` always has
+exactly one output port named `data`. For variadic *port count* (e.g., a
+"merge N inputs" block where the number of input ports is itself a config
+field), see **ADR-029** (currently draft, deferred from Phase 11). Until
+ADR-029 lands, blocks that need variadic counts should declare a fixed
+upper bound and accept `Optional` for the unused slots.
+
+#### Pointers
+
+- **ADR-028 Addendum 1 §C5** — the `dynamic_ports` descriptor format and the
+  enum-only design rationale (why no expressions, no mini-DSL).
+- **ADR-028 Addendum 1 §C9** — the "private module-level dispatch functions
+  instead of helper classes" rule that `LoadData.load()` follows.
+- **ADR-028 Addendum 1 §B** — the GUI consequences (live port-colour updates
+  in `BlockNode.tsx` via `computeEffectivePorts`).
+- **`docs/specs/phase11-implementation-standards.md` T-TRK-007** — the LoadData
+  ticket that produced the canonical implementation.
+- **ADR-029** (draft, deferred) — variadic port count mechanism for the merge /
+  fan-in case.
 
 ---
 
