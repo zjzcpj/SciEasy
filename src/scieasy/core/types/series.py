@@ -84,3 +84,41 @@ class Series(DataObject):
             user=dict(self._user),
             storage_ref=self._storage_ref,
         )
+
+    # -- worker subprocess reconstruction hooks (ADR-027 Addendum 1 §2) -----
+
+    @classmethod
+    def _reconstruct_extra_kwargs(cls, metadata: dict[str, Any]) -> dict[str, Any]:
+        """Return ``Series``-specific kwargs for worker reconstruction.
+
+        Extracts ``index_name`` / ``value_name`` / ``length`` from the
+        wire-format metadata sidecar. All three are optional on the
+        constructor; a missing key round-trips as ``None``.
+
+        See ADR-027 Addendum 1 §2 ("D11' companion") for the full
+        contract.
+        """
+        return {
+            "index_name": metadata.get("index_name"),
+            "value_name": metadata.get("value_name"),
+            "length": metadata.get("length"),
+        }
+
+    @classmethod
+    def _serialise_extra_metadata(cls, obj: DataObject) -> dict[str, Any]:
+        """Return ``Series``-specific fields for the metadata sidecar.
+
+        Symmetric counterpart of :meth:`_reconstruct_extra_kwargs`.
+        All three fields are already JSON-primitive (``str | None`` /
+        ``int | None``) and need no conversion.
+
+        The parameter is typed as :class:`DataObject` to respect the
+        Liskov substitution principle with the base classmethod; at
+        runtime the caller only ever passes an instance of ``cls``.
+        """
+        assert isinstance(obj, Series), f"Expected Series, got {type(obj).__name__}"
+        return {
+            "index_name": obj.index_name,
+            "value_name": obj.value_name,
+            "length": obj.length,
+        }

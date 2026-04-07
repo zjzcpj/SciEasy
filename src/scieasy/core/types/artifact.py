@@ -87,3 +87,45 @@ class Artifact(DataObject):
             user=dict(self._user),
             storage_ref=self._storage_ref,
         )
+
+    # -- worker subprocess reconstruction hooks (ADR-027 Addendum 1 §2) -----
+
+    @classmethod
+    def _reconstruct_extra_kwargs(cls, metadata: dict[str, Any]) -> dict[str, Any]:
+        """Return ``Artifact``-specific kwargs for worker reconstruction.
+
+        Extracts ``file_path`` / ``mime_type`` / ``description`` from
+        the wire-format metadata sidecar. ``file_path`` is stored as a
+        string on the wire (``pathlib.Path`` is not JSON-native) and
+        rebuilt into a :class:`pathlib.Path` here; ``None`` round-trips
+        unchanged. ``description`` defaults to the empty string to
+        mirror :meth:`Artifact.__init__`.
+
+        See ADR-027 Addendum 1 §2 ("D11' companion") for the full
+        contract.
+        """
+        file_path_raw = metadata.get("file_path")
+        return {
+            "file_path": Path(file_path_raw) if file_path_raw is not None else None,
+            "mime_type": metadata.get("mime_type"),
+            "description": metadata.get("description", ""),
+        }
+
+    @classmethod
+    def _serialise_extra_metadata(cls, obj: DataObject) -> dict[str, Any]:
+        """Return ``Artifact``-specific fields for the metadata sidecar.
+
+        Symmetric counterpart of :meth:`_reconstruct_extra_kwargs`.
+        :attr:`Artifact.file_path` is converted to a string (or
+        ``None``) so the payload is JSON-clean.
+
+        The parameter is typed as :class:`DataObject` to respect the
+        Liskov substitution principle with the base classmethod; at
+        runtime the caller only ever passes an instance of ``cls``.
+        """
+        assert isinstance(obj, Artifact), f"Expected Artifact, got {type(obj).__name__}"
+        return {
+            "file_path": str(obj.file_path) if obj.file_path is not None else None,
+            "mime_type": obj.mime_type,
+            "description": obj.description,
+        }
