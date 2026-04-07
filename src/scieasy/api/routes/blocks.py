@@ -86,6 +86,11 @@ async def get_block_schema(
             )
             for entry in type_registry.all_types().values()
         ],
+        # ADR-028 Addendum 1 D4 / D7: surface dynamic-port descriptor and IO
+        # direction to the frontend so BlockNode.tsx can render dynamic-port
+        # UI and IO-specific controls without hardcoded type checks.
+        dynamic_ports=spec.dynamic_ports,
+        direction=spec.direction or None,
     )
 
 
