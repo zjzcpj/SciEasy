@@ -41,54 +41,12 @@ import pytest
 
 # ---------------------------------------------------------------------------
 # T-010 / ADR-027 D4 companion — scieasy.utils.constraints
+#
+# T-010 has landed; the smoke tests that lived here have been replaced by
+# the real per-feature suite in ``tests/utils/test_constraints.py``. The
+# cross-skeleton co-import check below still exercises the constraints
+# module's public surface.
 # ---------------------------------------------------------------------------
-
-
-def test_constraints_module_importable() -> None:
-    from scieasy.utils.constraints import (
-        ConstraintFn,
-        has_axes,
-        has_exact_axes,
-        has_shape,
-    )
-
-    assert ConstraintFn is not None
-    assert callable(has_axes)
-    assert callable(has_exact_axes)
-    assert callable(has_shape)
-
-
-def test_constraint_factories_return_callables() -> None:
-    """The skeleton's factory bodies do not raise; they return a
-    placeholder callable that itself raises NotImplementedError when
-    invoked. This matches the standards-doc contract for T-010."""
-    from scieasy.utils.constraints import has_axes, has_exact_axes, has_shape
-
-    has_yx = has_axes("y", "x")
-    assert callable(has_yx)
-    with pytest.raises(NotImplementedError, match="T-010"):
-        has_yx([])
-
-    has_exact_yx = has_exact_axes("y", "x")
-    assert callable(has_exact_yx)
-    with pytest.raises(NotImplementedError, match="T-010"):
-        has_exact_yx([])
-
-    has_2d = has_shape(2)
-    assert callable(has_2d)
-    with pytest.raises(NotImplementedError, match="T-010"):
-        has_2d([])
-
-
-def test_constraint_factory_callables_have_useful_repr_doc() -> None:
-    """The placeholder factories assign a doc string to the returned
-    callable so that future error messages have a useful breadcrumb.
-    T-010 will preserve this contract in the real implementation."""
-    from scieasy.utils.constraints import has_axes, has_exact_axes, has_shape
-
-    assert "y" in has_axes("y", "x").__doc__  # type: ignore[operator]
-    assert "y" in has_exact_axes("y", "x").__doc__  # type: ignore[operator]
-    assert "2" in has_shape(2).__doc__  # type: ignore[operator]
 
 
 # ---------------------------------------------------------------------------
