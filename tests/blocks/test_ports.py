@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from scieasy.blocks.base.ports import (
     InputPort,
     OutputPort,
@@ -10,11 +12,47 @@ from scieasy.blocks.base.ports import (
     validate_connection,
     validate_port_constraint,
 )
-from scieasy.core.types.array import Array, Image
+from scieasy.core.types.array import Array
 from scieasy.core.types.base import DataObject, TypeSignature
-from scieasy.core.types.composite import AnnData, CompositeData
-from scieasy.core.types.dataframe import DataFrame, PeakTable
-from scieasy.core.types.series import Series, Spectrum
+from scieasy.core.types.composite import CompositeData
+from scieasy.core.types.dataframe import DataFrame
+from scieasy.core.types.series import Series
+
+# ---------------------------------------------------------------------------
+# Local test fixtures.
+#
+# ADR-027 D2: core no longer ships ``Image``, ``Spectrum``, ``AnnData``
+# or ``PeakTable`` — those live in plugin packages. These tests need
+# concrete subclasses of the four base types to exercise subtype /
+# multi-accepted-types port matching, so we declare minimal fixtures
+# here (same pattern as ``tests/core/test_types.py``).
+# ---------------------------------------------------------------------------
+
+
+class Image(Array):
+    """Local 2D Array test fixture."""
+
+    def __init__(
+        self,
+        *,
+        shape: tuple[int, ...] | None = None,
+        ndim: int | None = None,
+        dtype: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(axes=["y", "x"], shape=shape, dtype=dtype, **kwargs)
+
+
+class Spectrum(Series):
+    """Local Series subclass test fixture."""
+
+
+class PeakTable(DataFrame):
+    """Local DataFrame subclass test fixture."""
+
+
+class AnnData(CompositeData):
+    """Local CompositeData subclass test fixture."""
 
 
 class TestPortAcceptsType:
@@ -162,7 +200,6 @@ class TestCollectionTransparency:
 
     def test_collection_image_matches_image_port(self) -> None:
         """Collection[Image] should be accepted by a port accepting Image."""
-        from scieasy.core.types.array import Image
         from scieasy.core.types.collection import Collection
 
         port = InputPort(name="in", accepted_types=[Image])
@@ -183,7 +220,6 @@ class TestCollectionTransparency:
 
     def test_collection_subtype_matches(self) -> None:
         """Collection[Image] (subtype of Array) should match Array port."""
-        from scieasy.core.types.array import Image
         from scieasy.core.types.collection import Collection
 
         port = InputPort(name="in", accepted_types=[Array])

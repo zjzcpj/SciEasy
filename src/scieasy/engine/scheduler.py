@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -98,6 +99,11 @@ class DAGScheduler:
         self._block_outputs: dict[str, Any] = {}
         self.skip_reasons: dict[str, str] = {}
 
+        # Active asyncio.Task per block (ADR-018 Addendum 1). Populated by
+        # ``_dispatch`` when a block's ``_run_and_finalize`` task is created
+        # and popped by that task's ``finally`` clause on exit.
+        self._active_tasks: dict[str, asyncio.Task[None]] = {}
+
         self._completed_event = asyncio.Event()
         self._paused = False
         self._reset_lock = asyncio.Lock()
@@ -109,7 +115,15 @@ class DAGScheduler:
         self._event_bus.subscribe(PROCESS_EXITED, self._on_process_exited)
 
     async def execute(self) -> None:
-        """Begin executing the workflow from its current state."""
+        """Begin executing the workflow from its current state.
+
+        Independent DAG branches run concurrently: ``_dispatch`` creates an
+        ``asyncio.Task`` per block (ADR-018 Addendum 1). The method body is
+        wrapped in ``try/finally`` so that any exception triggers
+        ``_cancel_active_tasks_on_shutdown`` to terminate subprocess
+        handles and cancel pre-subprocess tasks, preventing zombie
+        processes on engine-level failure.
+        """
         await self._event_bus.emit(EngineEvent(event_type=WORKFLOW_STARTED, data={"workflow_id": self._workflow.id}))
 
         if not self._dag.nodes:
@@ -119,20 +133,48 @@ class DAGScheduler:
             )
             return
 
-        for node_id in self._order:
-            if self._block_states[node_id] == BlockState.IDLE and self._check_readiness(node_id):
-                self._block_states[node_id] = BlockState.READY
-                await self._dispatch(node_id)
+        try:
+            # Initial dispatch of root-ready blocks. Each _dispatch call
+            # creates a task and returns immediately; successor dispatches
+            # are triggered by _on_block_done -> _dispatch_newly_ready.
+            for node_id in self._order:
+                if self._block_states[node_id] == BlockState.IDLE and self._check_readiness(node_id):
+                    self._block_states[node_id] = BlockState.READY
+                    await self._dispatch(node_id)
+            await self._completed_event.wait()
+        finally:
+            await self._cancel_active_tasks_on_shutdown()
 
-        await self._completed_event.wait()
         await self._event_bus.emit(EngineEvent(event_type=WORKFLOW_COMPLETED, data={"workflow_id": self._workflow.id}))
 
     async def _dispatch(self, node_id: str) -> None:
-        """Dispatch a single block for execution."""
+        """Synchronous prelude for dispatching a single block.
+
+        Per ADR-018 Addendum 1, this method performs only the work that
+        must run on the scheduler coroutine itself — paused/resource
+        checks, state transition to RUNNING, BLOCK_RUNNING emission,
+        lineage start, input gathering, and block instantiation — and
+        then wraps the long-running ``runner.run`` call in an
+        ``asyncio.Task`` via ``_run_and_finalize``. The task is stored in
+        ``self._active_tasks`` and the method returns immediately so
+        that independent branches can run concurrently.
+
+        If ``_paused`` is True or ``ResourceManager.can_dispatch`` returns
+        False, the block stays in its current state (READY) and the
+        method returns without creating a task — it will be retried on
+        the next successor event via ``_dispatch_newly_ready``.
+        """
         if self._paused:
             return
 
         if not self._resource_manager.can_dispatch(ResourceRequest()):
+            # Stay READY; retried by _dispatch_newly_ready on the next
+            # resource-freeing event (BLOCK_DONE / PROCESS_EXITED).
+            return
+
+        # A task already exists for this block — guard against double
+        # dispatch that could otherwise replace the live task reference.
+        if node_id in self._active_tasks:
             return
 
         self._block_states[node_id] = BlockState.RUNNING
@@ -152,7 +194,67 @@ class DAGScheduler:
 
         try:
             block = self._instantiate_block(node_id)
-            result = await self._runner.run(block, inputs, node.config)
+        except Exception as exc:
+            # Block instantiation failed before a task could be created.
+            # Transition directly to ERROR and emit BLOCK_ERROR so that
+            # skip propagation fires via the normal event path.
+            logger.exception("Block %s failed to instantiate", node_id)
+            self._block_states[node_id] = BlockState.ERROR
+            await self._event_bus.emit(
+                EngineEvent(
+                    event_type=BLOCK_ERROR,
+                    block_id=node_id,
+                    data={"workflow_id": self._workflow.id, "error": str(exc)},
+                )
+            )
+            self.save_checkpoint(self._checkpoint_manager)
+            return
+
+        task = asyncio.create_task(
+            self._run_and_finalize(node_id, block, inputs, node.config),
+            name=f"dispatch:{node_id}",
+        )
+        self._active_tasks[node_id] = task
+
+    async def _run_and_finalize(
+        self,
+        node_id: str,
+        block: Any,
+        inputs: dict[str, Any],
+        config: dict[str, Any],
+    ) -> None:
+        """Long-running task body for a single block (ADR-018 Addendum 1).
+
+        Awaits ``runner.run``, transitions state to DONE (or ERROR on
+        exception, unless the block was already CANCELLED), emits the
+        terminal event, and always removes the block from
+        ``self._active_tasks`` in its ``finally`` clause.
+        """
+        try:
+            try:
+                result = await self._runner.run(block, inputs, config)
+            except asyncio.CancelledError:
+                # Task was cancelled externally (e.g. via _on_cancel_block
+                # pre-subprocess path). State transition to CANCELLED is
+                # handled by the caller; re-raise so asyncio can finalise.
+                raise
+            except Exception as exc:
+                if self._block_states.get(node_id) == BlockState.CANCELLED:
+                    logger.info("Block %s exited after cancellation", node_id)
+                    self.save_checkpoint(self._checkpoint_manager)
+                    return
+                logger.exception("Block %s failed with exception", node_id)
+                self._block_states[node_id] = BlockState.ERROR
+                await self._event_bus.emit(
+                    EngineEvent(
+                        event_type=BLOCK_ERROR,
+                        block_id=node_id,
+                        data={"workflow_id": self._workflow.id, "error": str(exc)},
+                    )
+                )
+                self.save_checkpoint(self._checkpoint_manager)
+                return
+
             self._block_outputs[node_id] = result
             self._block_states[node_id] = BlockState.DONE
             await self._event_bus.emit(
@@ -163,22 +265,11 @@ class DAGScheduler:
                 )
             )
             self.save_checkpoint(self._checkpoint_manager)
-        except Exception as exc:
-            if self._block_states.get(node_id) == BlockState.CANCELLED:
-                logger.info("Block %s exited after cancellation", node_id)
-                self._check_completion()
-                self.save_checkpoint(self._checkpoint_manager)
-                return
-            logger.exception("Block %s failed with exception", node_id)
-            self._block_states[node_id] = BlockState.ERROR
-            await self._event_bus.emit(
-                EngineEvent(
-                    event_type=BLOCK_ERROR,
-                    block_id=node_id,
-                    data={"workflow_id": self._workflow.id, "error": str(exc)},
-                )
-            )
-            self.save_checkpoint(self._checkpoint_manager)
+        finally:
+            # Always pop the task entry so _check_completion can observe
+            # "no active tasks" once the final block finalises.
+            self._active_tasks.pop(node_id, None)
+            self._check_completion()
 
     def _instantiate_block(self, node_id: str) -> Any:
         """Instantiate the concrete block for a DAG node.
@@ -210,17 +301,35 @@ class DAGScheduler:
                 inputs[tgt_port] = upstream_outputs
         return inputs
 
+    async def _dispatch_newly_ready(self) -> None:
+        """Dispatch blocks that became ready or were previously throttled.
+
+        Called from ``_on_block_done`` and ``_on_process_exited`` after
+        a terminal event. Scans the topological order for:
+
+        * IDLE blocks whose predecessors are all DONE — transition to
+          READY and dispatch.
+        * READY blocks with no active task — previously refused by
+          ``ResourceManager.can_dispatch`` and now eligible for a retry.
+
+        ``_dispatch`` is itself idempotent: if ``can_dispatch`` still
+        returns False, the block stays READY and no task is created.
+        """
+        for node_id in self._order:
+            state = self._block_states[node_id]
+            if state == BlockState.IDLE and self._check_readiness(node_id):
+                self._block_states[node_id] = BlockState.READY
+                await self._dispatch(node_id)
+            elif state == BlockState.READY and node_id not in self._active_tasks:
+                # Previously blocked by can_dispatch / paused; retry now.
+                await self._dispatch(node_id)
+
     async def _on_block_done(self, event: EngineEvent) -> None:
         """Handle a block completion and dispatch newly ready blocks."""
         if event.block_id is None:
             return
 
-        for node_id in self._order:
-            if self._block_states[node_id] != BlockState.IDLE:
-                continue
-            if self._check_readiness(node_id):
-                self._block_states[node_id] = BlockState.READY
-                await self._dispatch(node_id)
+        await self._dispatch_newly_ready()
 
         self._check_completion()
         self.save_checkpoint(self._checkpoint_manager)
@@ -236,15 +345,49 @@ class DAGScheduler:
         self.save_checkpoint(self._checkpoint_manager)
 
     async def _on_cancel_block(self, event: EngineEvent) -> None:
-        """Handle a block cancellation request."""
+        """Handle a block cancellation request.
+
+        Per ADR-018 Addendum 1, cancellation branches on whether a
+        ``ProcessHandle`` has been registered for the block yet:
+
+        * **Handle present** (block is executing inside a subprocess):
+          call ``handle.terminate()`` and let the worker unwind
+          naturally. ``_run_and_finalize`` observes the CANCELLED state
+          on its exception path and exits without emitting BLOCK_ERROR.
+        * **Handle absent** (block is still in its pre-subprocess setup
+          window or has no subprocess at all): call ``task.cancel()``
+          on the active task. ``_run_and_finalize`` receives a
+          ``CancelledError`` and unwinds via its ``finally`` clause.
+        * **No handle, no active task**: the block is pre-dispatch or
+          was set externally (e.g. tests that pre-assign RUNNING). In
+          that case we simply transition to CANCELLED without
+          terminating or cancelling anything.
+        """
         if event.block_id is None:
             return
 
         block_id = event.block_id
+        handle = None
         if self._process_registry is not None:
             handle = self._process_registry.get_handle(block_id)
-            if handle is not None:
+
+        # Mark CANCELLED before terminating/cancelling so that
+        # _run_and_finalize's exception path sees the CANCELLED state
+        # and does not re-emit BLOCK_ERROR.
+        self._block_states[block_id] = BlockState.CANCELLED
+
+        if handle is not None:
+            # Authoritative path per ADR-019 — SIGTERM/SIGKILL the worker.
+            try:
                 handle.terminate()
+            except Exception:
+                logger.exception("Failed to terminate subprocess for block %s", block_id)
+        else:
+            # No subprocess handle yet: cancel the pre-subprocess task
+            # so that the setup phase aborts with CancelledError.
+            task = self._active_tasks.get(block_id)
+            if task is not None and not task.done():
+                task.cancel()
 
         if hasattr(self._runner, "cancel"):
             try:
@@ -252,7 +395,6 @@ class DAGScheduler:
             except Exception:
                 logger.exception("Failed to cancel block %s via runner", block_id)
 
-        self._block_states[block_id] = BlockState.CANCELLED
         await self._event_bus.emit(
             EngineEvent(
                 event_type=BLOCK_CANCELLED,
@@ -265,14 +407,36 @@ class DAGScheduler:
         self.save_checkpoint(self._checkpoint_manager)
 
     async def _on_cancel_workflow(self, event: EngineEvent) -> None:
-        """Handle a workflow cancellation: cancel all running blocks."""
+        """Handle a workflow cancellation: cancel all running blocks.
+
+        Applies the same handle-vs-task branch as ``_on_cancel_block``
+        (ADR-018 Addendum 1). Any block still IDLE/READY at the time of
+        the cancel request is transitioned to SKIPPED with reason
+        "workflow cancelled".
+        """
         running_blocks = [bid for bid, state in self._block_states.items() if state == BlockState.RUNNING]
 
         for block_id in running_blocks:
+            handle = None
             if self._process_registry is not None:
                 handle = self._process_registry.get_handle(block_id)
-                if handle is not None:
+
+            # Mark CANCELLED before terminating/cancelling so that
+            # _run_and_finalize observes the CANCELLED state.
+            self._block_states[block_id] = BlockState.CANCELLED
+
+            if handle is not None:
+                try:
                     handle.terminate()
+                except Exception:
+                    logger.exception(
+                        "Failed to terminate subprocess for block %s during workflow cancel",
+                        block_id,
+                    )
+            else:
+                task = self._active_tasks.get(block_id)
+                if task is not None and not task.done():
+                    task.cancel()
 
             if hasattr(self._runner, "cancel"):
                 try:
@@ -280,7 +444,6 @@ class DAGScheduler:
                 except Exception:
                     logger.exception("Failed to cancel block %s during workflow cancel", block_id)
 
-            self._block_states[block_id] = BlockState.CANCELLED
             await self._event_bus.emit(
                 EngineEvent(
                     event_type=BLOCK_CANCELLED,
@@ -356,6 +519,10 @@ class DAGScheduler:
                     data={"workflow_id": self._workflow.id, "error": error_detail},
                 )
             )
+            # Retry any READY blocks that were previously throttled and
+            # dispatch successors whose predecessors are now all DONE.
+            await self._dispatch_newly_ready()
+            self._check_completion()
 
     async def _propagate_skip(self, failed_id: str, reason: str) -> None:
         """Breadth-first skip propagation downstream from *failed_id*."""
@@ -392,14 +559,66 @@ class DAGScheduler:
         return all(self._block_states[p] == BlockState.DONE for p in predecessors)
 
     def _check_completion(self) -> None:
-        """Set the completed event if all blocks are in a terminal state."""
+        """Set the completed event when every block has reached a terminal
+        state **and** no dispatched task is still running.
+
+        The ``_active_tasks`` guard (ADR-018 Addendum 1) prevents
+        ``execute()`` from returning before the final
+        ``_run_and_finalize`` coroutine has finished its cleanup.
+        """
         terminal = {BlockState.DONE, BlockState.ERROR, BlockState.CANCELLED, BlockState.SKIPPED}
-        if all(s in terminal for s in self._block_states.values()):
+        if all(s in terminal for s in self._block_states.values()) and not self._active_tasks:
             self._completed_event.set()
+
+    async def _cancel_active_tasks_on_shutdown(self) -> None:
+        """Best-effort cleanup of any tasks still running on shutdown.
+
+        Called from ``execute()``'s ``finally`` block (ADR-018
+        Addendum 1). Iterates every entry in ``self._active_tasks``:
+
+        1. If a ``ProcessHandle`` is registered, terminate the
+           subprocess via the ADR-019 path.
+        2. If the task is still not done, cancel it and await its
+           completion. Swallows any exception because this runs inside
+           a ``finally`` clause and must not mask the original error.
+        """
+        for block_id, task in list(self._active_tasks.items()):
+            handle = None
+            if self._process_registry is not None:
+                handle = self._process_registry.get_handle(block_id)
+            if handle is not None:
+                try:
+                    handle.terminate()
+                except Exception:
+                    logger.exception(
+                        "Shutdown: failed to terminate process for block %s",
+                        block_id,
+                    )
+            if not task.done():
+                task.cancel()
+                # Shutdown path: swallow any exception (including the
+                # ``CancelledError`` raised by ``task.cancel()``) so the
+                # original exception that triggered ``finally`` is not
+                # masked.
+                with contextlib.suppress(BaseException):
+                    await task
 
     async def pause(self) -> None:
         """Request a graceful pause after current blocks complete."""
         self._paused = True
+
+    async def _drain_active_tasks(self) -> None:
+        """Await all dispatched tasks, including any successors they trigger.
+
+        Used by callers that do not otherwise wait on
+        ``self._completed_event`` (``resume``, ``reset_block``) but must
+        still block until the tasks they just scheduled have finished.
+        A snapshot is awaited in each iteration because ``_on_block_done``
+        can add new entries to ``_active_tasks`` while we wait.
+        """
+        while self._active_tasks:
+            tasks = list(self._active_tasks.values())
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def resume(self) -> None:
         """Resume a previously paused workflow execution."""
@@ -410,6 +629,7 @@ class DAGScheduler:
             elif self._block_states[node_id] == BlockState.IDLE and self._check_readiness(node_id):
                 self._block_states[node_id] = BlockState.READY
                 await self._dispatch(node_id)
+        await self._drain_active_tasks()
 
     async def cancel_workflow(self) -> None:
         """Cancel the current workflow execution."""
@@ -479,6 +699,12 @@ class DAGScheduler:
                     ready_ids.append(node_id)
             for node_id in ready_ids:
                 await self._dispatch(node_id)
+
+        # Drain outside the reset lock: _run_and_finalize → _on_block_done
+        # acquires no locks but still touches scheduler state, and the
+        # caller expects reset_block to return only after the dispatched
+        # tasks have finished.
+        await self._drain_active_tasks()
 
     def _reset_upstream(self, block_id: str, visited: set[str]) -> None:
         """Recursively reset non-DONE upstream blocks to IDLE."""
@@ -578,12 +804,15 @@ class DAGScheduler:
             )
         )
 
-        for node_id in self._order:
-            if self._block_states[node_id] == BlockState.IDLE and self._check_readiness(node_id):
-                self._block_states[node_id] = BlockState.READY
-                await self._dispatch(node_id)
+        try:
+            for node_id in self._order:
+                if self._block_states[node_id] == BlockState.IDLE and self._check_readiness(node_id):
+                    self._block_states[node_id] = BlockState.READY
+                    await self._dispatch(node_id)
+            await self._completed_event.wait()
+        finally:
+            await self._cancel_active_tasks_on_shutdown()
 
-        await self._completed_event.wait()
         await self._event_bus.emit(
             EngineEvent(
                 event_type=WORKFLOW_COMPLETED,

@@ -266,7 +266,7 @@ class TestTIFFAdapter:
         import tifffile as tf
 
         from scieasy.blocks.io.adapters.tiff_adapter import TIFFAdapter
-        from scieasy.core.types.array import Image
+        from scieasy.core.types.array import Array
 
         arr = np.random.randint(0, 255, (32, 32), dtype=np.uint8)
         path = tmp_path / "test.tif"
@@ -274,7 +274,9 @@ class TestTIFFAdapter:
 
         adapter = TIFFAdapter()
         result = adapter.read(path)
-        assert isinstance(result, Image)
+        # ADR-027 D2: core TIFFAdapter returns plain Array; typed Image
+        # subclass lives in scieasy-blocks-imaging.
+        assert isinstance(result, Array)
         assert result.shape == (32, 32)
 
     def test_write_from_ndarray(self, tmp_path: Path) -> None:
@@ -287,10 +289,11 @@ class TestTIFFAdapter:
 
     def test_write_from_image(self, tmp_path: Path) -> None:
         from scieasy.blocks.io.adapters.tiff_adapter import TIFFAdapter
-        from scieasy.core.types.array import Image
+        from scieasy.core.types.array import Array
 
         arr = np.zeros((8, 8), dtype=np.float32)
-        img = Image(shape=arr.shape, ndim=arr.ndim, dtype=arr.dtype)
+        # ADR-027 D2: construct a plain 2D Array directly.
+        img = Array(axes=["y", "x"], shape=arr.shape, dtype=arr.dtype)
         img._data = arr  # type: ignore[attr-defined]
         out = tmp_path / "out.tif"
         result = TIFFAdapter().write(img, out)

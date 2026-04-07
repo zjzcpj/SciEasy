@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import pytest
 
 from scieasy.core.storage.backend_router import BackendRouter, get_router
 from scieasy.core.storage.zarr_backend import ZarrBackend
-from scieasy.core.types.array import Array, Image
+from scieasy.core.types.array import Array
+
+
+class Image(Array):
+    """T-006 shim for the removed core ``Image`` class (T-008 migration)."""
+
+    required_axes: ClassVar[frozenset[str]] = frozenset({"y", "x"})
 
 
 class TestResolveDirectType:
