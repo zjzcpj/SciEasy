@@ -517,11 +517,42 @@ def test_t_img_033_render_classes() -> None:
 
 
 def test_t_img_033_pseudo_color_lut() -> None:
-    pytest.skip("T-IMG-033 impl pending")
+    pytest.importorskip("matplotlib")
+    from scieasy_blocks_imaging.types import Image
+    from scieasy_blocks_imaging.visualization.render import RenderPseudoColor
+
+    image = Image(axes=["y", "x"], shape=(4, 4), dtype=np.float32)
+    image._data = np.arange(16, dtype=np.float32).reshape(4, 4)  # type: ignore[attr-defined]
+
+    artifact = RenderPseudoColor().process_item(image, BlockConfig(params={"lut": "viridis"}))
+
+    assert artifact.mime_type == "image/png"
+    assert artifact.file_path is not None
+    assert artifact.file_path.exists()
 
 
 def test_t_img_033_overlay_alpha() -> None:
-    pytest.skip("T-IMG-033 impl pending")
+    pytest.importorskip("matplotlib")
+    from scieasy_blocks_imaging.types import Image, Label
+    from scieasy_blocks_imaging.visualization.render import RenderOverlay
+
+    from scieasy.core.types.array import Array
+
+    image = Image(axes=["y", "x"], shape=(4, 4), dtype=np.float32)
+    image._data = np.arange(16, dtype=np.float32).reshape(4, 4)  # type: ignore[attr-defined]
+    raster = Array(axes=["y", "x"], shape=(4, 4), dtype=np.int32)
+    raster._data = np.array([[0, 0, 1, 1], [0, 0, 1, 1], [0, 0, 0, 0], [0, 0, 0, 0]], dtype=np.int32)  # type: ignore[attr-defined]
+    label = Label(slots={"raster": raster})
+
+    result = RenderOverlay().run(
+        {"image": image, "overlay": label},
+        BlockConfig(params={"alpha": 0.8, "outline_only": True}),
+    )
+
+    artifact = result["artifact"]
+    assert artifact.mime_type == "image/png"
+    assert artifact.file_path is not None
+    assert artifact.file_path.exists()
 
 
 # ── T-IMG-034 ──────────────────────────────────────────────────────────

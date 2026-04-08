@@ -38,6 +38,13 @@ from scieasy_blocks_imaging.segmentation.connected_components import ConnectedCo
 from scieasy_blocks_imaging.segmentation.threshold import Threshold
 from scieasy_blocks_imaging.segmentation.watershed import Watershed
 from scieasy_blocks_imaging.types import Image, Label, Mask, Transform
+from scieasy_blocks_imaging.visualization.render import (
+    RenderHistogram,
+    RenderMontage,
+    RenderMovie,
+    RenderOverlay,
+    RenderPseudoColor,
+)
 
 
 def get_types() -> list[type]:
@@ -77,6 +84,11 @@ def get_blocks() -> list[type]:
         MultiplyScalar,
         DivideScalar,
         ImageCalculator,
+        RenderPseudoColor,
+        RenderOverlay,
+        RenderMontage,
+        RenderMovie,
+        RenderHistogram,
         RegionProps,
         PairwiseDistance,
         Colocalization,
@@ -129,6 +141,11 @@ __all__ = [
     "RegisterSeries",
     "RemoveBorderObjects",
     "RemoveSmallObjects",
+    "RenderHistogram",
+    "RenderMontage",
+    "RenderMovie",
+    "RenderOverlay",
+    "RenderPseudoColor",
     "Resize",
     "RidgeFilter",
     "Rotate",
