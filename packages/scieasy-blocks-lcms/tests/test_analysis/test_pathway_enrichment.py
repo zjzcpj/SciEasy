@@ -1,7 +1,6 @@
 """Test stub for T-LCMS-017 — PathwayEnrichment (skeleton @ c08a885)."""
 
 import pytest
-
 from scieasy_blocks_lcms.analysis.pathway_enrichment import PathwayEnrichment
 
 

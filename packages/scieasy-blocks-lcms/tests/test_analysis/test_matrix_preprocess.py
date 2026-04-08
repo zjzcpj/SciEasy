@@ -1,7 +1,6 @@
 """Test stub for T-LCMS-014 — MatrixPreprocess (skeleton @ c08a885)."""
 
 import pytest
-
 from scieasy_blocks_lcms.analysis.matrix_preprocess import MatrixPreprocess
 
 

@@ -1,7 +1,6 @@
 """Test stub for T-LCMS-006 — SaveTable (skeleton @ c08a885)."""
 
 import pytest
-
 from scieasy_blocks_lcms.io.save_table import SaveTable
 
 

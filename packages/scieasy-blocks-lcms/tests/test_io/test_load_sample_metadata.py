@@ -1,7 +1,6 @@
 """Test stub for T-LCMS-006 — LoadSampleMetadata (skeleton @ c08a885)."""
 
 import pytest
-
 from scieasy_blocks_lcms.io.load_sample_metadata import LoadSampleMetadata
 
 

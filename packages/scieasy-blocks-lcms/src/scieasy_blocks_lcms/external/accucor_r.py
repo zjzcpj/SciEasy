@@ -23,7 +23,6 @@ from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.code.code_block import CodeBlock
 from scieasy.core.types.collection import Collection
-
 from scieasy_blocks_lcms._base import _LCMSBlockMixin
 from scieasy_blocks_lcms.types import MIDTable, PeakTable, SampleMetadata
 
@@ -41,8 +40,7 @@ class AccuCorR(_LCMSBlockMixin, CodeBlock):
     type_name: ClassVar[str] = "accucor_r"
     category: ClassVar[str] = "external"
     description: ClassVar[str] = (
-        "Run the AccuCor R package on a PeakTable to apply natural "
-        "abundance correction and emit a typed MIDTable."
+        "Run the AccuCor R package on a PeakTable to apply natural abundance correction and emit a typed MIDTable."
     )
 
     language: ClassVar[str] = "r"

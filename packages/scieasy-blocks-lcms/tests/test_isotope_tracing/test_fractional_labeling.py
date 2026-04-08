@@ -1,7 +1,6 @@
 """Test stub for T-LCMS-009 — FractionalLabeling (skeleton @ c08a885)."""
 
 import pytest
-
 from scieasy_blocks_lcms.isotope_tracing.fractional_labeling import FractionalLabeling
 
 

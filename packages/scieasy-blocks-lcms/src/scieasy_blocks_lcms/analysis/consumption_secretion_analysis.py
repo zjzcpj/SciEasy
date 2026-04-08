@@ -17,7 +17,6 @@ from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.process.process_block import ProcessBlock
 from scieasy.core.types.collection import Collection
 from scieasy.core.types.dataframe import DataFrame
-
 from scieasy_blocks_lcms._base import _LCMSBlockMixin
 from scieasy_blocks_lcms.types import PeakTable
 

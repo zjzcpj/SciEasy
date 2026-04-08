@@ -1,7 +1,6 @@
 """Test stub for T-LCMS-012 — PoolSizeNormalize (skeleton @ c08a885)."""
 
 import pytest
-
 from scieasy_blocks_lcms.isotope_tracing.pool_size_normalize import PoolSizeNormalize
 
 

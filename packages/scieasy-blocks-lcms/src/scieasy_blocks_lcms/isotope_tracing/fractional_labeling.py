@@ -1,4 +1,4 @@
-"""FractionalLabeling — ``1 - M+0`` per compound × sample (T-LCMS-009).
+"""FractionalLabeling — ``1 - M+0`` per compound x sample (T-LCMS-009).
 
 Skeleton @ c08a885. Per ``docs/specs/phase11-lcms-block-spec.md`` §9
 T-LCMS-009.
@@ -16,7 +16,6 @@ from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.process.process_block import ProcessBlock
 from scieasy.core.types.dataframe import DataFrame
-
 from scieasy_blocks_lcms._base import _LCMSBlockMixin
 from scieasy_blocks_lcms.types import MIDTable
 

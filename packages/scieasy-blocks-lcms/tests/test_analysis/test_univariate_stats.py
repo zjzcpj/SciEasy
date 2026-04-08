@@ -1,7 +1,6 @@
 """Test stub for T-LCMS-015 — UnivariateStats (skeleton @ c08a885)."""
 
 import pytest
-
 from scieasy_blocks_lcms.analysis.univariate_stats import UnivariateStats
 
 

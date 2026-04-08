@@ -20,7 +20,6 @@ from scieasy.blocks.base.state import ExecutionMode
 from scieasy.core.types.artifact import Artifact
 from scieasy.core.types.collection import Collection
 from scieasy.core.types.dataframe import DataFrame
-
 from scieasy_blocks_lcms._base import _LCMSBlockMixin
 
 

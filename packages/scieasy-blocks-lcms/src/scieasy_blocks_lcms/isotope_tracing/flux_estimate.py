@@ -4,7 +4,7 @@ Skeleton @ c08a885. Per ``docs/specs/phase11-lcms-block-spec.md`` §9
 T-LCMS-011.
 
 This is the **simplest possible** flux estimate:
-``flux = labeling_rate × pool_size``, where ``labeling_rate`` is the
+``flux = labeling_rate x pool_size``, where ``labeling_rate`` is the
 slope of a linear fit to fractional labelling vs. time and
 ``pool_size`` is the optional total compound abundance from a
 :class:`PeakTable`.
@@ -25,13 +25,12 @@ from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.process.process_block import ProcessBlock
 from scieasy.core.types.collection import Collection
 from scieasy.core.types.dataframe import DataFrame
-
 from scieasy_blocks_lcms._base import _LCMSBlockMixin
 from scieasy_blocks_lcms.types import MIDTable, PeakTable, SampleMetadata
 
 
 class FluxEstimate(_LCMSBlockMixin, ProcessBlock):
-    """Naive steady-state flux estimate (labelling rate × pool size).
+    """Naive steady-state flux estimate (labelling rate x pool size).
 
     NOT a replacement for full 13C-MFA — see INCA / OpenFLUX / Metran
     for proper EMU-based flux analysis.

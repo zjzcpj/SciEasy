@@ -13,7 +13,6 @@ from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.process.process_block import ProcessBlock
 from scieasy.core.types.collection import Collection
 from scieasy.core.types.dataframe import DataFrame
-
 from scieasy_blocks_lcms._base import _LCMSBlockMixin
 from scieasy_blocks_lcms.types import SampleMetadata
 
@@ -37,7 +36,7 @@ class UnivariateStats(_LCMSBlockMixin, ProcessBlock):
             name="matrix",
             accepted_types=[DataFrame],
             required=True,
-            description="Wide compound × sample matrix",
+            description="Wide compound x sample matrix",
         ),
         InputPort(
             name="sample_metadata",

@@ -1,7 +1,6 @@
 """Test stub for T-LCMS-013 — MetaboliteMatrix (skeleton @ c08a885)."""
 
 import pytest
-
 from scieasy_blocks_lcms.analysis.metabolite_matrix import MetaboliteMatrix
 
 

@@ -1,7 +1,6 @@
 """Test stub for T-LCMS-011 — FluxEstimate (skeleton @ c08a885)."""
 
 import pytest
-
 from scieasy_blocks_lcms.isotope_tracing.flux_estimate import FluxEstimate
 
 

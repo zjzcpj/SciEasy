@@ -40,15 +40,9 @@ class MSRawFile(Artifact):
 
         model_config = ConfigDict(frozen=True)
 
-        format: str = Field(
-            ..., description='Acquisition file format: "mzML" | "mzXML" | "raw" | "d"'
-        )
-        polarity: str | None = Field(
-            None, description='Ionisation polarity: "+" | "-" | None if unknown'
-        )
-        instrument: str | None = Field(
-            None, description="Instrument model name (e.g. 'Q Exactive HF')"
-        )
+        format: str = Field(..., description='Acquisition file format: "mzML" | "mzXML" | "raw" | "d"')
+        polarity: str | None = Field(None, description='Ionisation polarity: "+" | "-" | None if unknown')
+        instrument: str | None = Field(None, description="Instrument model name (e.g. 'Q Exactive HF')")
         acquisition_date: datetime | None = Field(
             None, description="UTC datetime of acquisition; None if not in header"
         )
@@ -72,9 +66,7 @@ class PeakTable(DataFrame):
 
         model_config = ConfigDict(frozen=True)
 
-        source: str = Field(
-            ..., description='Source tool: "ElMAVEN" | "MZmine" | "XCMS" | ...'
-        )
+        source: str = Field(..., description='Source tool: "ElMAVEN" | "MZmine" | "XCMS" | ...')
         polarity: str | None = Field(
             None,
             description='Ionisation polarity: "+" | "-" | None if mixed/unknown',
@@ -117,9 +109,7 @@ class MIDTable(DataFrame):
             True,
             description="Whether natural-abundance correction has been applied",
         )
-        correction_tool: str = Field(
-            "AccuCor", description="Name of the correction tool used"
-        )
+        correction_tool: str = Field("AccuCor", description="Name of the correction tool used")
 
 
 class SampleMetadata(DataFrame):

@@ -19,7 +19,6 @@ from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.process.process_block import ProcessBlock
 from scieasy.core.types.dataframe import DataFrame
-
 from scieasy_blocks_lcms._base import _LCMSBlockMixin
 
 
@@ -32,17 +31,14 @@ class MatrixPreprocess(_LCMSBlockMixin, ProcessBlock):
     name: ClassVar[str] = "Matrix Preprocess"
     type_name: ClassVar[str] = "matrix_preprocess"
     category: ClassVar[str] = "process"
-    description: ClassVar[str] = (
-        "Consolidated impute → log → scale preprocessing pipeline for "
-        "metabolite matrices."
-    )
+    description: ClassVar[str] = "Consolidated impute → log → scale preprocessing pipeline for metabolite matrices."
 
     input_ports: ClassVar[list[InputPort]] = [
         InputPort(
             name="matrix",
             accepted_types=[DataFrame],
             required=True,
-            description="Wide compound × sample matrix",
+            description="Wide compound x sample matrix",
         ),
     ]
     output_ports: ClassVar[list[OutputPort]] = [

@@ -21,7 +21,6 @@ from scieasy.blocks.io.io_block import IOBlock
 from scieasy.core.types.base import DataObject
 from scieasy.core.types.collection import Collection
 from scieasy.core.types.dataframe import DataFrame
-
 from scieasy_blocks_lcms._base import _LCMSBlockMixin
 
 
@@ -36,8 +35,7 @@ class SaveTable(_LCMSBlockMixin, IOBlock):
     name: ClassVar[str] = "Save Table"
     category: ClassVar[str] = "io"
     description: ClassVar[str] = (
-        "Save any DataFrame (PeakTable / MIDTable / SampleMetadata / "
-        "generic) to CSV, TSV, or XLSX."
+        "Save any DataFrame (PeakTable / MIDTable / SampleMetadata / generic) to CSV, TSV, or XLSX."
     )
 
     input_ports: ClassVar[list[InputPort]] = [
@@ -80,9 +78,7 @@ class SaveTable(_LCMSBlockMixin, IOBlock):
 
     def load(self, config: BlockConfig) -> DataObject | Collection:
         """Not supported — :class:`SaveTable` is output-only."""
-        raise NotImplementedError(
-            "T-LCMS-006 SaveTable is direction='output'; load() is unreachable."
-        )
+        raise NotImplementedError("T-LCMS-006 SaveTable is direction='output'; load() is unreachable.")
 
     def save(self, obj: DataObject | Collection, config: BlockConfig) -> None:
         """Persist *obj* to the configured path.

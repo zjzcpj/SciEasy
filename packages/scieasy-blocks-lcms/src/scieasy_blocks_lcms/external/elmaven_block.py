@@ -20,7 +20,6 @@ from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.base.state import ExecutionMode
 from scieasy.core.types.collection import Collection
-
 from scieasy_blocks_lcms._base import _LCMSBlockMixin
 from scieasy_blocks_lcms.types import MIDTable, MSRawFile, PeakTable
 
@@ -113,6 +112,4 @@ def _classify_export(path: Path) -> str:
     Implementation deferred to T-LCMS-007 impl ticket
     (skeleton @ c08a885).
     """
-    raise NotImplementedError(
-        "T-LCMS-007 _classify_export — impl pending (skeleton @ c08a885)."
-    )
+    raise NotImplementedError("T-LCMS-007 _classify_export — impl pending (skeleton @ c08a885).")

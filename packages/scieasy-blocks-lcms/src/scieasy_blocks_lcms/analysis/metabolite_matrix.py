@@ -1,4 +1,4 @@
-"""MetaboliteMatrix — pivot a long PeakTable into a wide compound × sample matrix (T-LCMS-013).
+"""MetaboliteMatrix — pivot a long PeakTable into a wide compound x sample matrix (T-LCMS-013).
 
 Skeleton @ c08a885. Per ``docs/specs/phase11-lcms-block-spec.md`` §9
 T-LCMS-013.
@@ -13,13 +13,12 @@ from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.process.process_block import ProcessBlock
 from scieasy.core.types.collection import Collection
 from scieasy.core.types.dataframe import DataFrame
-
 from scieasy_blocks_lcms._base import _LCMSBlockMixin
 from scieasy_blocks_lcms.types import PeakTable, SampleMetadata
 
 
 class MetaboliteMatrix(_LCMSBlockMixin, ProcessBlock):
-    """Pivot a long-format PeakTable to a wide compound × sample matrix.
+    """Pivot a long-format PeakTable to a wide compound x sample matrix.
 
     See spec §9 T-LCMS-013 for the 8 acceptance criteria.
     """
@@ -28,7 +27,7 @@ class MetaboliteMatrix(_LCMSBlockMixin, ProcessBlock):
     type_name: ClassVar[str] = "metabolite_matrix"
     category: ClassVar[str] = "process"
     description: ClassVar[str] = (
-        "Pivot a long-format PeakTable into a wide compound × sample matrix. "
+        "Pivot a long-format PeakTable into a wide compound x sample matrix. "
         "Missing combinations become NaN; imputation is the caller's responsibility."
     )
 
@@ -50,7 +49,7 @@ class MetaboliteMatrix(_LCMSBlockMixin, ProcessBlock):
         OutputPort(
             name="matrix",
             accepted_types=[DataFrame],
-            description="Wide compound × sample DataFrame",
+            description="Wide compound x sample DataFrame",
         ),
     ]
 

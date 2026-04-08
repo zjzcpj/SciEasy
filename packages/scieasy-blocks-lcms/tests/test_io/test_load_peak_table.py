@@ -1,7 +1,6 @@
 """Test stub for T-LCMS-004 — LoadPeakTable (skeleton @ c08a885)."""
 
 import pytest
-
 from scieasy_blocks_lcms.io.load_peak_table import LoadPeakTable
 
 

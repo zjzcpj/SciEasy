@@ -17,7 +17,6 @@ from scieasy.blocks.base.ports import OutputPort
 from scieasy.blocks.io.io_block import IOBlock
 from scieasy.core.types.base import DataObject
 from scieasy.core.types.collection import Collection
-
 from scieasy_blocks_lcms._base import _LCMSBlockMixin
 from scieasy_blocks_lcms.types import SampleMetadata
 
@@ -87,6 +86,4 @@ class LoadSampleMetadata(_LCMSBlockMixin, IOBlock):
 
     def save(self, obj: DataObject | Collection, config: BlockConfig) -> None:
         """Not supported — use :class:`SaveTable` for output."""
-        raise NotImplementedError(
-            "T-LCMS-006 LoadSampleMetadata is direction='input'; use SaveTable to write."
-        )
+        raise NotImplementedError("T-LCMS-006 LoadSampleMetadata is direction='input'; use SaveTable to write.")

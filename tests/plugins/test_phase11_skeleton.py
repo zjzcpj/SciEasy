@@ -184,10 +184,6 @@ def test_lcms_block_skeletons_inherit_real_bases() -> None:
     ``AppBlock`` / ``CodeBlock``). Each entry below pairs a block
     class with the lowest-level real base it must subclass.
     """
-    from scieasy.blocks.app.app_block import AppBlock
-    from scieasy.blocks.code.code_block import CodeBlock
-    from scieasy.blocks.io.io_block import IOBlock
-    from scieasy.blocks.process.process_block import ProcessBlock
     from scieasy_blocks_lcms.analysis import (
         ConsumptionSecretionAnalysis,
         MatrixPreprocess,
@@ -211,6 +207,11 @@ def test_lcms_block_skeletons_inherit_real_bases() -> None:
         FractionalLabeling,
         PoolSizeNormalize,
     )
+
+    from scieasy.blocks.app.app_block import AppBlock
+    from scieasy.blocks.code.code_block import CodeBlock
+    from scieasy.blocks.io.io_block import IOBlock
+    from scieasy.blocks.process.process_block import ProcessBlock
 
     expected: list[tuple[type, type]] = [
         (LoadMSRawFiles, IOBlock),
