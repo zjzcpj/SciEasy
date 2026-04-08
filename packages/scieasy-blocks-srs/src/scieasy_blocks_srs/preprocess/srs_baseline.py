@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any, ClassVar, cast
 
 import numpy as np
-from scipy import ndimage
 
 from scieasy.blocks.base.block import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
@@ -137,6 +136,7 @@ def _lower_hull_indices(x: np.ndarray, y: np.ndarray) -> list[int]:
 def _baseline_rolling_ball(spec: np.ndarray, *, window: int) -> np.ndarray:
     size = [1] * spec.ndim
     size[-1] = window
+    from scipy import ndimage
     baseline = ndimage.grey_opening(spec, size=tuple(size))
     return cast(np.ndarray, spec - baseline)
 
