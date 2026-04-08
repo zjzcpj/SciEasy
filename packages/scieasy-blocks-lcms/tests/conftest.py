@@ -1,13 +1,16 @@
-"""LC-MS plugin test configuration with marker registration per §Q5/§Q7.
+"""LC-MS plugin test configuration."""
 
-Markers: ``requires_r``, ``requires_elmaven``, ``requires_graphpad``.
-Full marker behaviour and skip semantics land with the per-ticket
-implementation PRs (T-LCMS-007, T-LCMS-019). This placeholder only
-registers the marker names so pytest does not warn about unknown marks
-when the plugin tests begin to use them.
-"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
 
 import pytest
+
+_PACKAGE_SRC = Path(__file__).resolve().parents[1] / "src"
+_PACKAGE_SRC_STR = str(_PACKAGE_SRC)
+if _PACKAGE_SRC_STR not in sys.path:
+    sys.path.insert(0, _PACKAGE_SRC_STR)
 
 
 def pytest_configure(config: pytest.Config) -> None:

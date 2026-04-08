@@ -1,33 +1,27 @@
-"""CompareGroupMID — per-isotopologue group statistics (T-LCMS-010).
-
-Skeleton @ c08a885. Per ``docs/specs/phase11-lcms-block-spec.md`` §9
-T-LCMS-010.
-
-Compares MID values between two sample groups using a per-isotopologue
-t-test, Wilcoxon, or Mann-Whitney test, with optional Bonferroni / FDR
-multiple-testing correction. >2 groups raise
-:class:`NotImplementedError` pointing at :class:`UnivariateStats`
-(T-LCMS-015) which supports ANOVA.
-"""
+"""CompareGroupMID - per-isotopologue group statistics (T-LCMS-010)."""
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from types import ModuleType
+from typing import TYPE_CHECKING, Any, ClassVar, TypeVar, cast
 
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.process.process_block import ProcessBlock
+from scieasy.core.types.base import DataObject
 from scieasy.core.types.collection import Collection
 from scieasy.core.types.dataframe import DataFrame
 from scieasy_blocks_lcms._base import _LCMSBlockMixin
 from scieasy_blocks_lcms.types import MIDTable, SampleMetadata
 
+if TYPE_CHECKING:
+    import pandas as pd
+
+TDataObject = TypeVar("TDataObject", bound=DataObject)
+
 
 class CompareGroupMID(_LCMSBlockMixin, ProcessBlock):
-    """Per-isotopologue statistical comparison of MID values between groups.
-
-    See spec §9 T-LCMS-010 for the 12 acceptance criteria.
-    """
+    """Per-isotopologue statistical comparison of MID values between groups."""
 
     name: ClassVar[str] = "Compare Group MID"
     type_name: ClassVar[str] = "compare_group_mid"
@@ -103,22 +97,156 @@ class CompareGroupMID(_LCMSBlockMixin, ProcessBlock):
         inputs: dict[str, Collection],
         config: BlockConfig,
     ) -> dict[str, Collection]:
-        """Run the per-isotopologue group comparison.
+        """Run the per-isotopologue group comparison."""
+        mid_table = _extract_single_item(inputs["mid_table"], MIDTable, "mid_table")
+        sample_metadata = _extract_single_item(inputs["sample_metadata"], SampleMetadata, "sample_metadata")
+        mid_frame = _as_pandas_frame(mid_table)
+        metadata_frame = _as_pandas_frame(sample_metadata)
 
-        Implementation must:
+        group_column = str(config.get("group_column", ""))
+        if not group_column:
+            raise ValueError("CompareGroupMID: group_column is required")
+        if group_column not in metadata_frame.columns:
+            raise ValueError(f"CompareGroupMID: group column {group_column!r} is missing")
 
-        * raise :class:`ValueError` on missing ``group_column``
-        * raise :class:`ValueError` on a single group
-        * raise :class:`NotImplementedError` on >2 groups (with a
-          pointer to :class:`UnivariateStats` for ANOVA)
-        * dispatch to ``scipy.stats.ttest_ind`` /
-          ``scipy.stats.wilcoxon`` / ``scipy.stats.mannwhitneyu``
-        * apply Bonferroni or FDR correction
-          (``statsmodels.stats.multitest.multipletests``)
-        * emit a long-format DataFrame with the columns documented in
-          spec §9 T-LCMS-010
-        """
-        raise NotImplementedError(
-            "T-LCMS-010 CompareGroupMID.run — impl pending (skeleton @ c08a885). "
-            "See docs/specs/phase11-lcms-block-spec.md §9 T-LCMS-010."
-        )
+        metadata_meta = cast(SampleMetadata.Meta, sample_metadata.meta)
+        sample_id_column = metadata_meta.sample_id_column
+        if sample_id_column not in metadata_frame.columns:
+            raise ValueError(f"CompareGroupMID: sample id column {sample_id_column!r} is missing")
+
+        groups = metadata_frame[group_column].dropna().drop_duplicates().tolist()
+        if len(groups) < 2:
+            raise ValueError("CompareGroupMID: at least two groups are required")
+        if len(groups) > 2:
+            raise NotImplementedError("CompareGroupMID: >2 groups should use UnivariateStats (T-LCMS-015)")
+        group1, group2 = groups[0], groups[1]
+
+        compound_column = _resolve_compound_column(mid_frame)
+        mid_meta = cast(MIDTable.Meta, mid_table.meta)
+        tracer_atoms = list(mid_meta.tracer_atoms)
+        per_isotopologue = bool(config.get("per_isotopologue", True))
+        alpha = float(config.get("alpha", 0.05))
+        test_name = str(config.get("test", "t-test"))
+        correction = str(config.get("correction", "fdr"))
+
+        sample_to_group = metadata_frame.set_index(sample_id_column)[group_column].to_dict()
+        sample_columns = [
+            sample for sample in mid_meta.sample_columns if sample in mid_frame.columns and sample in sample_to_group
+        ]
+
+        rows: list[dict[str, object]] = []
+        for compound, compound_frame in mid_frame.groupby(compound_column, sort=False):
+            if per_isotopologue:
+                work_items = [
+                    (
+                        f"M+{int(row[tracer_atoms].astype(float).sum())}",
+                        {sample: float(row[sample]) for sample in sample_columns},
+                    )
+                    for _, row in compound_frame.iterrows()
+                ]
+            else:
+                labeled = compound_frame.loc[compound_frame[tracer_atoms].astype(float).sum(axis=1) > 0]
+                work_items = [("summed_labeled", labeled[sample_columns].astype(float).sum(axis=0).to_dict())]
+
+            for isotopologue, values_by_sample in work_items:
+                group1_values = [
+                    value for sample, value in values_by_sample.items() if sample_to_group[sample] == group1
+                ]
+                group2_values = [
+                    value for sample, value in values_by_sample.items() if sample_to_group[sample] == group2
+                ]
+                pvalue = _run_test(group1_values, group2_values, test_name)
+                row: dict[str, object] = {
+                    "compound": compound,
+                    "group1": group1,
+                    "group2": group2,
+                    "group1_mean": float(sum(group1_values) / len(group1_values)),
+                    "group2_mean": float(sum(group2_values) / len(group2_values)),
+                    "pvalue": pvalue,
+                }
+                if per_isotopologue:
+                    row["isotopologue"] = isotopologue
+                rows.append(row)
+
+        adjusted = _adjust_pvalues([cast(float, row["pvalue"]) for row in rows], correction) if rows else []
+        for row, adjusted_pvalue in zip(rows, adjusted, strict=True):
+            row["pvalue_adj"] = adjusted_pvalue
+            row["significant"] = bool(adjusted_pvalue < alpha)
+
+        result_object = _to_core_dataframe(_pandas().DataFrame(rows))
+        return {"comparison": Collection(items=[result_object], item_type=DataFrame)}
+
+
+def _pandas() -> ModuleType:
+    import pandas as pd
+
+    return cast(ModuleType, pd)
+
+
+def _extract_single_item(payload: Collection | DataObject, expected_type: type[TDataObject], name: str) -> TDataObject:
+    if isinstance(payload, Collection):
+        if len(payload) != 1:
+            raise ValueError(f"CompareGroupMID: input {name!r} must contain exactly one item")
+        item = payload[0]
+    else:
+        item = payload
+    if not isinstance(item, expected_type):
+        raise TypeError(f"CompareGroupMID: input {name!r} must be {expected_type.__name__}")
+    return cast(TDataObject, item)
+
+
+def _as_pandas_frame(item: DataObject) -> pd.DataFrame:
+    pd = _pandas()
+    raw = getattr(item, "_data", None)
+    if isinstance(raw, pd.DataFrame):
+        return raw.copy()
+    if raw is not None:
+        return pd.DataFrame(raw).copy()
+    materialized = item.to_memory()
+    if isinstance(materialized, pd.DataFrame):
+        return materialized.copy()
+    return pd.DataFrame(materialized).copy()
+
+
+def _resolve_compound_column(frame: pd.DataFrame) -> str:
+    if "Compound" in frame.columns:
+        return "Compound"
+    if "compound" in frame.columns:
+        return "compound"
+    raise ValueError("CompareGroupMID: no compound column found")
+
+
+def _run_test(group1_values: list[float], group2_values: list[float], test_name: str) -> float:
+    from scipy import stats
+
+    if test_name == "t-test":
+        return float(stats.ttest_ind(group1_values, group2_values, equal_var=False, nan_policy="omit").pvalue)
+    if test_name == "mann-whitney":
+        return float(stats.mannwhitneyu(group1_values, group2_values, alternative="two-sided").pvalue)
+    if test_name == "wilcoxon":
+        if len(group1_values) != len(group2_values):
+            raise ValueError("CompareGroupMID: wilcoxon requires equal group sizes")
+        try:
+            return float(stats.wilcoxon(group1_values, group2_values).pvalue)
+        except ValueError:
+            return 1.0
+    raise ValueError(f"CompareGroupMID: unsupported test {test_name!r}")
+
+
+def _adjust_pvalues(pvalues: list[float], method: str) -> list[float]:
+    if method == "none":
+        return pvalues
+    if method == "bonferroni":
+        count = len(pvalues)
+        return [min(1.0, pvalue * count) for pvalue in pvalues]
+    if method == "fdr":
+        from statsmodels.stats.multitest import multipletests
+
+        return [float(value) for value in multipletests(pvalues, method="fdr_bh")[1]]
+    raise ValueError(f"CompareGroupMID: unsupported correction {method!r}")
+
+
+def _to_core_dataframe(frame: pd.DataFrame) -> DataFrame:
+    result = DataFrame(columns=list(frame.columns), row_count=len(frame))
+    result._data = frame.reset_index(drop=True)  # type: ignore[attr-defined]
+    return result
