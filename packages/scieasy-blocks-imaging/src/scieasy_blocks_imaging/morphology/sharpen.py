@@ -1,17 +1,18 @@
-"""Sharpen — unsharp mask / laplacian (T-IMG-015).
-
-Skeleton (Sprint C continuation A). See
-``docs/specs/phase11-imaging-block-spec.md`` §9 T-IMG-015.
-"""
+"""Sharpen - unsharp mask / laplacian (T-IMG-015)."""
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
+
+import numpy as np
 
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.process.process_block import ProcessBlock
+from scieasy.utils.axis_iter import iterate_over_axes
 from scieasy_blocks_imaging.types import Image
+
+_METHODS = frozenset({"unsharp", "laplacian"})
 
 
 class Sharpen(ProcessBlock):
@@ -45,7 +46,28 @@ class Sharpen(ProcessBlock):
     }
 
     def process_item(self, item: Image, config: BlockConfig, state: Any = None) -> Image:
-        raise NotImplementedError(
-            "T-IMG-015 Sharpen.process_item — impl pending (skeleton continuation A). "
-            "See docs/specs/phase11-imaging-block-spec.md §9 T-IMG-015."
+        method = str(config.get("method", "unsharp"))
+        amount = float(config.get("amount", 1.0))
+        radius = float(config.get("radius", 1.0))
+
+        if method not in _METHODS:
+            raise ValueError(f"Sharpen: unknown method {method!r}; expected one of {sorted(_METHODS)}")
+        if amount < 0:
+            raise ValueError(f"Sharpen: amount must be >= 0, got {amount}")
+        if radius <= 0:
+            raise ValueError(f"Sharpen: radius must be > 0, got {radius}")
+
+        return cast(Image, iterate_over_axes(item, frozenset({"y", "x"}), _build_sharpen_fn(method, amount, radius)))
+
+
+def _build_sharpen_fn(method: str, amount: float, radius: float) -> Any:
+    from skimage.filters import laplace, unsharp_mask
+
+    if method == "unsharp":
+        return lambda slice_2d, _coord: np.asarray(
+            unsharp_mask(slice_2d, radius=radius, amount=amount, preserve_range=True)
         )
+    if method == "laplacian":
+        ksize = max(1, round(radius) * 2 + 1)
+        return lambda slice_2d, _coord: np.asarray(slice_2d - amount * laplace(slice_2d, ksize=ksize))
+    raise ValueError(f"Sharpen: unknown method {method!r}")  # pragma: no cover

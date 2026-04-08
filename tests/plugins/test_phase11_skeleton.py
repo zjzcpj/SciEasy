@@ -429,3 +429,46 @@ def test_imaging_preprocess_b_impl_smoke() -> None:
     split = AxisSplit().run({"image": Collection(items=[stack], item_type=Image)}, BlockConfig(params={"axis": "c"}))
     merged = AxisMerge().run({"images": split["images"]}, BlockConfig(params={"axis": "c"}))
     assert merged["image"][0].shape == (2, 3, 4)
+
+
+def test_imaging_morphology_impl_smoke() -> None:
+    """Smoke test that T-IMG-012..016 bodies are concrete."""
+    pytest.importorskip("skimage")
+    import numpy as np
+    from scieasy_blocks_imaging.morphology.edge_detect import EdgeDetect
+    from scieasy_blocks_imaging.morphology.fft_filter import FFTFilter
+    from scieasy_blocks_imaging.morphology.morphology_op import MorphologyOp
+    from scieasy_blocks_imaging.morphology.ridge_filter import RidgeFilter
+    from scieasy_blocks_imaging.morphology.sharpen import Sharpen
+    from scieasy_blocks_imaging.types import Image
+
+    from scieasy.blocks.base.config import BlockConfig
+
+    def _img(arr: np.ndarray) -> Image:
+        out = Image(axes=["y", "x"], shape=arr.shape, dtype=arr.dtype)
+        out._data = arr
+        return out
+
+    base = np.zeros((32, 32), dtype=np.float32)
+    base[12:20, 15:17] = 1.0
+
+    morph = MorphologyOp().process_item(
+        _img(base),
+        BlockConfig(params={"op": "dilate", "selem_shape": "disk", "selem_size": 1}),
+    )
+    assert morph.shape == (32, 32)
+
+    edges = EdgeDetect().process_item(_img(base), BlockConfig(params={"method": "sobel"}))
+    assert edges.shape == (32, 32)
+
+    ridge = RidgeFilter().process_item(
+        _img(base),
+        BlockConfig(params={"method": "frangi", "sigma_min": 1.0, "sigma_max": 2.0, "num_sigma": 2}),
+    )
+    assert ridge.shape == (32, 32)
+
+    sharp = Sharpen().process_item(_img(base), BlockConfig(params={"method": "unsharp", "amount": 1.0}))
+    assert sharp.shape == (32, 32)
+
+    fft = FFTFilter().process_item(_img(base), BlockConfig(params={"type": "lowpass", "cutoff_high": 0.2}))
+    assert fft.shape == (32, 32)
