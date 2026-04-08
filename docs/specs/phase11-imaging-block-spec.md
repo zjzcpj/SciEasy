@@ -4178,6 +4178,15 @@ class TrackObjects(ProcessBlock):
 
 ### T-IMG-024 — RegionProps
 
+**Status**: Implemented in issue #376's measurement bundle. The live
+repository skeleton uses the singular `label` / `intensity_image`
+ports and publishes a `properties` `DataFrame`; the landed
+implementation follows that surface, emits `label_id` first, and
+concatenates collection inputs into one table with `image_index`. The
+measurement behavior is covered in
+`packages/scieasy-blocks-imaging/tests/test_continuation_b_skeletons.py`
+plus the top-level imaging plugin smoke.
+
 **a. Ticket ID and name**: T-IMG-024 — `RegionProps` block.
 
 **b. Source ADR sections**: ADR-027 D2 (DataFrame output), ADR-020 (Collection); Q-IMG-12.
@@ -4334,6 +4343,14 @@ class RegionProps(ProcessBlock):
 
 ### T-IMG-025 — PairwiseDistance
 
+**Status**: Implemented in issue #376's measurement bundle. The live
+repository skeleton narrows this block to a single `label` input and a
+`metric` enum of `centroid` / `edge`; the landed implementation keeps
+that contract, returns a long-format `DataFrame`
+(`label_id_a` / `label_id_b` / `distance`), and respects the optional
+`max_distance` cutoff. Coverage lives in the continuation-B imaging
+tests and the imaging plugin smoke.
+
 **a. Ticket ID and name**: T-IMG-025 — `PairwiseDistance` block.
 
 **b. Source ADR sections**: ADR-027 D2 (DataFrame output).
@@ -4466,6 +4483,14 @@ def _dist(a, b, metric):
 ---
 
 ### T-IMG-026 — Colocalization
+
+**Status**: Implemented in issue #376's measurement bundle. The live
+repository skeleton uses `channel_a` / `channel_b` / `mask` inputs and
+a `metrics` list of `pearson` / `manders` / `costes`; the landed block
+keeps those names, validates collection pairing, and emits a
+measurement `DataFrame` with optional `image_index` when collections
+are provided. Tests now cover masked Pearson and Manders behavior, and
+the imaging plugin smoke confirms export wiring on `main`.
 
 **a. Ticket ID and name**: T-IMG-026 — `Colocalization` block.
 

@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from scieasy_blocks_imaging.io.load_image import LoadImage
 from scieasy_blocks_imaging.io.save_image import SaveImage
+from scieasy_blocks_imaging.measurement.colocalization import Colocalization
+from scieasy_blocks_imaging.measurement.pairwise_distance import PairwiseDistance
+from scieasy_blocks_imaging.measurement.region_props import RegionProps
 from scieasy_blocks_imaging.morphology.edge_detect import EdgeDetect
 from scieasy_blocks_imaging.morphology.fft_filter import FFTFilter
 from scieasy_blocks_imaging.morphology.morphology_op import MorphologyOp
@@ -58,6 +61,9 @@ def get_blocks() -> list[type]:
         RidgeFilter,
         Sharpen,
         FFTFilter,
+        RegionProps,
+        PairwiseDistance,
+        Colocalization,
         Threshold,
         Watershed,
         CellposeSegment,
@@ -77,6 +83,7 @@ __all__ = [
     "BackgroundSubtract",
     "BlobDetect",
     "CellposeSegment",
+    "Colocalization",
     "ConnectedComponents",
     "ConvertDType",
     "Crop",
@@ -94,6 +101,8 @@ __all__ = [
     "MorphologyOp",
     "Normalize",
     "Pad",
+    "PairwiseDistance",
+    "RegionProps",
     "RemoveBorderObjects",
     "RemoveSmallObjects",
     "Resize",
