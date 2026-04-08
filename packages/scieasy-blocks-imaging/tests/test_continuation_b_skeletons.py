@@ -7,12 +7,15 @@ marked via ``pytest.skip``.
 
 from __future__ import annotations
 
+import sys
+
 import numpy as np
 import pyarrow as pa
 import pytest
 
 from scieasy.blocks.app.app_block import AppBlock
 from scieasy.blocks.base.config import BlockConfig
+from scieasy.blocks.base.state import BlockState
 from scieasy.blocks.process.process_block import ProcessBlock
 from scieasy.core.types.array import Array
 from scieasy.core.types.collection import Collection
@@ -563,8 +566,38 @@ def test_t_img_034_fiji_block_class() -> None:
     assert FijiBlock.app_command == r"C:\Program Files\Fiji\fiji-windows-x64.exe"
 
 
-def test_t_img_034_run_routes_outputs() -> None:
-    pytest.skip("T-IMG-034 impl pending")
+def test_t_img_034_run_routes_outputs(tmp_path) -> None:
+    from scieasy_blocks_imaging.interactive.fiji_block import FijiBlock
+    from scieasy_blocks_imaging.types import Image
+
+    script = tmp_path / "fake_fiji.py"
+    script.write_text(
+        """
+from pathlib import Path
+import shutil
+import sys
+
+exchange = Path(sys.argv[-1])
+source = next((exchange / "inputs").glob("*.tif"))
+target = exchange / "outputs" / "image_reviewed.tif"
+target.parent.mkdir(exist_ok=True)
+shutil.copyfile(source, target)
+""".strip(),
+        encoding="utf-8",
+    )
+
+    block = FijiBlock()
+    block.transition(BlockState.READY)
+    block.transition(BlockState.RUNNING)
+    image = Image(axes=["y", "x"], shape=(3, 3), dtype=np.uint8)
+    image._data = np.arange(9, dtype=np.uint8).reshape(3, 3)  # type: ignore[attr-defined]
+
+    result = block.run(
+        {"image": Collection(items=[image], item_type=Image)},
+        BlockConfig(params={"app_command": [sys.executable, str(script)], "watch_timeout": 5}),
+    )
+
+    assert "image" in result
 
 
 # ── T-IMG-035 ──────────────────────────────────────────────────────────
@@ -575,8 +608,38 @@ def test_t_img_035_napari_block_class() -> None:
     assert NapariBlock.app_command == "napari"
 
 
-def test_t_img_035_run_routes_outputs() -> None:
-    pytest.skip("T-IMG-035 impl pending")
+def test_t_img_035_run_routes_outputs(tmp_path) -> None:
+    from scieasy_blocks_imaging.interactive.napari_block import NapariBlock
+    from scieasy_blocks_imaging.types import Image
+
+    script = tmp_path / "fake_napari.py"
+    script.write_text(
+        """
+from pathlib import Path
+import shutil
+import sys
+
+exchange = Path(sys.argv[-1])
+source = next((exchange / "inputs").glob("*.tif"))
+target = exchange / "outputs" / "image_layer.tif"
+target.parent.mkdir(exist_ok=True)
+shutil.copyfile(source, target)
+""".strip(),
+        encoding="utf-8",
+    )
+
+    block = NapariBlock()
+    block.transition(BlockState.READY)
+    block.transition(BlockState.RUNNING)
+    image = Image(axes=["y", "x"], shape=(3, 3), dtype=np.uint8)
+    image._data = np.arange(9, dtype=np.uint8).reshape(3, 3)  # type: ignore[attr-defined]
+
+    result = block.run(
+        {"image": Collection(items=[image], item_type=Image)},
+        BlockConfig(params={"app_command": [sys.executable, str(script)], "watch_timeout": 5}),
+    )
+
+    assert "image" in result
 
 
 # ── T-IMG-036 ──────────────────────────────────────────────────────────
@@ -589,8 +652,48 @@ def test_t_img_036_cell_profiler_block_class() -> None:
     assert CellProfilerBlock.app_command == "cellprofiler"
 
 
-def test_t_img_036_run_routes_outputs() -> None:
-    pytest.skip("T-IMG-036 impl pending")
+def test_t_img_036_run_routes_outputs(tmp_path) -> None:
+    from scieasy_blocks_imaging.interactive.cell_profiler_block import CellProfilerBlock
+    from scieasy_blocks_imaging.types import Image
+
+    script = tmp_path / "fake_cellprofiler.py"
+    script.write_text(
+        """
+from pathlib import Path
+import shutil
+import sys
+
+exchange = Path(sys.argv[-1])
+source = next((exchange / "inputs").glob("*.tif"))
+output_dir = exchange / "outputs"
+output_dir.mkdir(exist_ok=True)
+shutil.copyfile(source, output_dir / "label_output.tif")
+(output_dir / "measurements.csv").write_text("object_id,area\\n1,42\\n", encoding="utf-8")
+""".strip(),
+        encoding="utf-8",
+    )
+    pipeline = tmp_path / "fake_pipeline.cppipe"
+    pipeline.write_text("fake pipeline", encoding="utf-8")
+
+    block = CellProfilerBlock()
+    block.transition(BlockState.READY)
+    block.transition(BlockState.RUNNING)
+    image = Image(axes=["y", "x"], shape=(3, 3), dtype=np.uint8)
+    image._data = np.arange(9, dtype=np.uint8).reshape(3, 3)  # type: ignore[attr-defined]
+
+    result = block.run(
+        {"image": Collection(items=[image], item_type=Image)},
+        BlockConfig(
+            params={
+                "app_command": [sys.executable, str(script)],
+                "pipeline_path": str(pipeline),
+                "watch_timeout": 5,
+            }
+        ),
+    )
+
+    assert "measurements" in result
+    assert "label" in result
 
 
 # ── T-IMG-037 ──────────────────────────────────────────────────────────
@@ -601,5 +704,41 @@ def test_t_img_037_qupath_block_class() -> None:
     assert QuPathBlock.app_command == "qupath"
 
 
-def test_t_img_037_run_routes_outputs() -> None:
-    pytest.skip("T-IMG-037 impl pending")
+def test_t_img_037_run_routes_outputs(tmp_path) -> None:
+    from scieasy_blocks_imaging.interactive.qupath_block import QuPathBlock
+    from scieasy_blocks_imaging.types import Image
+
+    script = tmp_path / "fake_qupath.py"
+    script.write_text(
+        """
+from pathlib import Path
+import sys
+
+exchange = Path(sys.argv[-1])
+output_dir = exchange / "outputs"
+output_dir.mkdir(exist_ok=True)
+(output_dir / "measurements.csv").write_text("cell_id,intensity\\n1,3.14\\n", encoding="utf-8")
+""".strip(),
+        encoding="utf-8",
+    )
+    tool_script = tmp_path / "fake_qupath.groovy"
+    tool_script.write_text("// fake script", encoding="utf-8")
+
+    block = QuPathBlock()
+    block.transition(BlockState.READY)
+    block.transition(BlockState.RUNNING)
+    image = Image(axes=["y", "x"], shape=(3, 3), dtype=np.uint8)
+    image._data = np.arange(9, dtype=np.uint8).reshape(3, 3)  # type: ignore[attr-defined]
+
+    result = block.run(
+        {"image": Collection(items=[image], item_type=Image)},
+        BlockConfig(
+            params={
+                "app_command": [sys.executable, str(script)],
+                "script_path": str(tool_script),
+                "watch_timeout": 5,
+            }
+        ),
+    )
+
+    assert "measurements" in result
