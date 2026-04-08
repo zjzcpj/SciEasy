@@ -685,6 +685,34 @@ def test_srs_types_impl_smoke() -> None:
     assert get_types() == [SRSImage]
 
 
+def test_srs_preprocess_impl_smoke() -> None:
+    """Smoke test that T-SRS-002..005 preprocess bodies are concrete."""
+    pytest.importorskip("sklearn")
+    pytest.importorskip("scipy")
+    import numpy as np
+    from scieasy_blocks_imaging.types import Image
+    from scieasy_blocks_srs import SRSBaseline, SRSCalibrate, SRSDenoise, SRSImage, SRSNormalize
+
+    from scieasy.blocks.base.config import BlockConfig
+
+    raw_arr = np.arange(2 * 2 * 6, dtype=np.uint16).reshape(2, 2, 6)
+    raw = Image(axes=["y", "x", "lambda"], shape=raw_arr.shape, dtype=raw_arr.dtype)
+    raw._data = raw_arr
+
+    calibrated = SRSCalibrate().process_item(
+        raw,
+        BlockConfig(params={"wavenumbers_cm1": [2850.0, 2865.0, 2880.0, 2895.0, 2910.0, 2930.0]}),
+    )
+    baseline = SRSBaseline().process_item(calibrated, BlockConfig(params={"method": "polynomial", "order": 2}))
+    denoised = SRSDenoise().process_item(baseline, BlockConfig(params={"method": "PCA_denoise", "n_components": 2}))
+    normalized = SRSNormalize().process_item(denoised, BlockConfig(params={"method": "SNV"}))
+
+    assert isinstance(calibrated, SRSImage)
+    assert baseline.shape == calibrated.shape
+    assert denoised.shape == calibrated.shape
+    assert normalized.dtype == np.dtype(np.float32)
+
+
 def test_imaging_segmentation_core_impl_smoke() -> None:
     """Smoke test that the segmentation core bundle is wired into the imaging plugin surface."""
     pytest.importorskip("skimage")

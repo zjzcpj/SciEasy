@@ -218,6 +218,11 @@ registration imports them all in `get_blocks()`. T-SRS-014 is the capstone
 and depends on the entire plugin plus the imaging plugin's `CellposeSegment`
 ticket having landed.
 
+Implementation status note (2026-04-08): T-SRS-001 merged in PR #367. The
+dependency-root preprocess chain T-SRS-002..005 is implemented in PR #380,
+which leaves component analysis, spectral extraction, package wiring, and the
+capstone E2E ticket as the remaining SRS work.
+
 ## 5. Recommended chained PR order
 
 Each PR's base branch is the previous merged PR's branch (stacked PRs). When
