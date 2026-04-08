@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import App from "./App";
+import App, { shouldFallbackToFullWorkflowRun } from "./App";
 import { resetAppStore } from "./testUtils";
 
 function jsonResponse(data: unknown) {
@@ -66,5 +66,13 @@ describe("App", () => {
     await waitFor(() => {
       expect(screen.getByText("SciEasy")).toBeInTheDocument();
     });
+  });
+
+  it("falls back to a full workflow run when execute-from has no checkpoint", () => {
+    expect(shouldFallbackToFullWorkflowRun("No checkpoint exists for execute-from")).toBe(true);
+    expect(
+      shouldFallbackToFullWorkflowRun("Cannot execute from block without cached upstream outputs: load"),
+    ).toBe(true);
+    expect(shouldFallbackToFullWorkflowRun("Unknown block: load")).toBe(false);
   });
 });

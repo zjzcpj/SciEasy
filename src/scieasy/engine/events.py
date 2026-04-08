@@ -33,6 +33,7 @@ PROCESS_SPAWNED = "process_spawned"  # ADR-017/019
 PROCESS_EXITED = "process_exited"  # ADR-017/019
 WORKFLOW_STARTED = "workflow_started"  # ADR-018
 WORKFLOW_COMPLETED = "workflow_completed"  # ADR-018
+WORKFLOW_ERROR = "workflow_error"
 CHECKPOINT_SAVED = "checkpoint_saved"  # ADR-018
 
 

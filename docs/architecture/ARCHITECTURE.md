@@ -2164,7 +2164,7 @@ POST   /api/workflows/{id}/pause       Pause at current block
 POST   /api/workflows/{id}/resume      Resume from checkpoint
 POST   /api/workflows/{id}/cancel      Cancel entire workflow (ADR-018)
 POST   /api/workflows/{id}/blocks/{block_id}/cancel  Cancel a single block (ADR-018)
-POST   /api/workflows/{id}/execute-from  Start execution from a specific block (ADR-023)
+POST   /api/workflows/{id}/execute-from  Start a checkpoint-backed selective rerun from a specific block (ADR-023)
 
 # Block registry
 GET    /api/blocks                     List all available blocks (with search/filter)
@@ -2519,7 +2519,7 @@ Each block node has a `[↻]` button that re-runs the workflow from that block u
 
 **Execution flow:**
 
-1. Frontend sends `POST /api/workflows/{id}/execute-from` with `{"block_id": "C"}`.
+1. Frontend sends `POST /api/workflows/{id}/execute-from` with `{"block_id": "C"}` after a prior run has produced a checkpoint.
 2. Backend validates all predecessors of C have cached outputs in checkpoint `intermediate_refs`.
 3. Backend resets C and all downstream blocks to IDLE, clears their cached outputs.
 4. Backend loads predecessor outputs from checkpoint, sets predecessors to DONE.
