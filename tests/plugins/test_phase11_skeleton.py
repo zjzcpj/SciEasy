@@ -503,3 +503,23 @@ def test_imaging_morphology_impl_smoke() -> None:
 
     fft = FFTFilter().process_item(_img(base), BlockConfig(params={"type": "lowpass", "cutoff_high": 0.2}))
     assert fft.shape == (32, 32)
+
+
+def test_imaging_types_impl_smoke() -> None:
+    """Smoke test that T-IMG-001 type classes are concrete."""
+    import numpy as np
+    from scieasy_blocks_imaging.types import Image, Label, Mask, Transform
+
+    from scieasy.core.types.array import Array
+
+    image = Image(axes=["y", "x"], shape=(4, 4), dtype=np.float32)
+    mask = Mask(axes=["y", "x"], shape=(4, 4), dtype=bool)
+    label = Label(slots={"raster": Array(axes=["y", "x"], shape=(4, 4), dtype=np.int32)})
+    transform = Transform(
+        axes=["row", "col"], shape=(2, 3), dtype=np.float32, meta=Transform.Meta(transform_type="affine")
+    )
+
+    assert image.shape == (4, 4)
+    assert mask.dtype == bool
+    assert "raster" in label.slots
+    assert transform.shape == (2, 3)

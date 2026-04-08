@@ -735,6 +735,14 @@ packages/scieasy-blocks-imaging/
 
 ### T-IMG-001 — Types module (Image / Mask / Label / Transform)
 
+**Status**: Implemented in PR #365. `Image`, `Mask`, `Label`, and
+`Transform` now enforce the typed metadata and validation contract on
+`main` (`PhysicalQuantity`, `ChannelInfo`, label-slot presence, and
+transform-matrix shape), with worker reconstruction coverage in
+`packages/scieasy-blocks-imaging/tests/test_types.py`. The same PR also
+aligns `T-IMG-008` / `T-IMG-010` compatibility tests with the typed
+metadata contract so downstream imaging validation stays green.
+
 **a. Ticket ID and name**: T-IMG-001 — `scieasy_blocks_imaging.types` module.
 
 **b. Source ADR sections**:
