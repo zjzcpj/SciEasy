@@ -114,6 +114,30 @@ def _image_data_uri_from_matrix(values: list[list[float]]) -> str:
     return f"data:image/png;base64,{base64.b64encode(png).decode('ascii')}"
 
 
+def _load_preview_matrix(ref: StorageReference) -> Any:
+    """Load a raster payload for preview generation."""
+    path = Path(ref.path)
+    suffix = path.suffix.lower()
+
+    if suffix in {".tif", ".tiff"}:
+        import tifffile
+
+        return tifffile.imread(str(path))
+
+    if suffix == ".zarr":
+        import zarr
+
+        node: Any = zarr.open(str(path), mode="r")
+        if isinstance(node, zarr.Array):
+            return node[...]
+        if "data" in node:
+            data_array: Any = node["data"]
+            return data_array[...]
+        raise ValueError(f"Zarr preview store at {path} has no top-level array or 'data' dataset")
+
+    raise ValueError(f"Unsupported raster preview format for {path}")
+
+
 @dataclass
 class KnownProject:
     """Persisted metadata for a known project workspace."""
@@ -640,16 +664,14 @@ class ApiRuntime:
         # Array / image (raster data)
         # ------------------------------------------------------------------
         is_array = record.type_name == Array.__name__ or (resolved_cls is not None and issubclass(resolved_cls, Array))
-        if is_array or suffix in {".tif", ".tiff"}:
+        if is_array or suffix in {".tif", ".tiff", ".zarr"}:
             # T-TRK-004 / ADR-028 §D2: ``TIFFAdapter`` is gone. Read the
             # tiff directly via the ``tifffile`` package, which was the
             # adapter's only dependency. The imaging plugin's
             # ``LoadImage`` block will own this code path post-Phase 11
             # (T-IMG-002).
             try:
-                import tifffile
-
-                matrix = tifffile.imread(str(path))
+                matrix = _load_preview_matrix(ref)
                 while getattr(matrix, "ndim", 0) > 2:
                     matrix = matrix[0]
                 height = min(int(matrix.shape[0]), 64)
@@ -662,11 +684,11 @@ class ApiRuntime:
                     "src": _image_data_uri_from_matrix(thumbnail),
                 }
             except Exception:
-                logger.debug("Failed to read TIFF preview for %s", ref.path, exc_info=True)
+                logger.debug("Failed to read raster preview for %s", ref.path, exc_info=True)
             return {
                 "kind": "artifact",
                 "path": ref.path,
-                "mime_type": "image/tiff",
+                "mime_type": "image/tiff" if suffix in {".tif", ".tiff"} else "application/zarr",
             }
 
         # ------------------------------------------------------------------
