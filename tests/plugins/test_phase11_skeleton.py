@@ -472,3 +472,26 @@ def test_imaging_morphology_impl_smoke() -> None:
 
     fft = FFTFilter().process_item(_img(base), BlockConfig(params={"type": "lowpass", "cutoff_high": 0.2}))
     assert fft.shape == (32, 32)
+
+
+def test_srs_types_impl_smoke() -> None:
+    """Smoke test that T-SRS-001 SRSImage is concrete."""
+    import numpy as np
+    from scieasy_blocks_srs import SRSImage, get_types
+
+    from scieasy.core.units import PhysicalQuantity
+
+    img = SRSImage(
+        axes=["lambda", "y", "x"],
+        shape=(3, 4, 4),
+        dtype=np.float32,
+        meta=SRSImage.Meta(
+            wavenumbers_cm1=[2850.0, 2880.0, 2930.0],
+            integration_time=PhysicalQuantity(5.0, "ms"),
+            laser_power=8.0,
+        ),
+    )
+
+    assert img.meta is not None
+    assert img.meta.wavenumbers_cm1 == [2850.0, 2880.0, 2930.0]
+    assert get_types() == [SRSImage]
