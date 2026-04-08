@@ -162,38 +162,35 @@ class LoadImage(IOBlock):
     config_schema: ClassVar[dict[str, Any]] = {
         "type": "object",
         "properties": {
-            "path": {"type": "string", "ui_priority": 0},
+            "path": {
+                "type": ["string", "array"],
+                "items": {"type": "string"},
+                "ui_priority": 0,
+            },
             "axes": {"type": "string", "ui_priority": 1},
         },
         "required": ["path"],
     }
 
     def load(self, config: BlockConfig) -> DataObject | Collection:
-        """Load the configured file into a ``Collection[Image]``.
+        """Load the configured file(s) into a ``Collection[Image]``.
 
         Args:
-            config: BlockConfig with ``path`` (str) and optional
-                ``axes`` (axis string override, e.g. ``"cyx"``).
+            config: BlockConfig with ``path`` (str or list[str]) and optional
+                ``axes`` (axis string override, e.g. ``"cyx"``). When
+                ``path`` is a list, each file is loaded and all images are
+                packed into a single :class:`Collection`.
 
         Returns:
-            A length-1 :class:`Collection` of :class:`Image`.
+            A :class:`Collection` of :class:`Image`. Length-1 for a single
+            path, length-N for a list of N paths.
 
         Raises:
-            FileNotFoundError: If the path does not exist.
-            ValueError: If the extension is not in {.tif, .tiff, .zarr}.
+            FileNotFoundError: If any path does not exist.
+            ValueError: If any extension is not in {.tif, .tiff, .zarr},
+                or if ``path`` is neither a string nor a list of strings.
         """
         raw_path = config.get("path")
-        if not isinstance(raw_path, str) or not raw_path:
-            raise ValueError("LoadImage: config['path'] must be a non-empty string")
-        path = Path(raw_path)
-        if not path.exists():
-            raise FileNotFoundError(f"LoadImage: no file at {path}")
-
-        ext = path.suffix.lower()
-        if ext not in _SUPPORTED_EXTS:
-            raise ValueError(
-                f"LoadImage: unsupported image format {ext!r}; supported extensions are {sorted(_SUPPORTED_EXTS)}"
-            )
 
         axes_cfg = config.get("axes")
         axes_override: list[str] | None
@@ -204,8 +201,42 @@ class LoadImage(IOBlock):
         else:
             raise ValueError(f"LoadImage: config['axes'] must be a string or omitted, got {type(axes_cfg).__name__}")
 
-        image = _load_tiff(path, axes_override) if ext in _TIFF_EXTS else _load_zarr(path, axes_override)
+        if isinstance(raw_path, list):
+            # Multi-path: load each file and return a combined Collection.
+            images: list[DataObject] = []
+            for single_raw in raw_path:
+                if not isinstance(single_raw, str) or not single_raw:
+                    raise ValueError("LoadImage: each entry in path list must be a non-empty string")
+                images.append(self._load_single(Path(single_raw), axes_override))
+            return Collection(items=images, item_type=Image)
+
+        if not isinstance(raw_path, str) or not raw_path:
+            raise ValueError("LoadImage: config['path'] must be a non-empty string or list of strings")
+        image = self._load_single(Path(raw_path), axes_override)
         return Collection(items=[image], item_type=Image)
+
+    def _load_single(self, path: Path, axes_override: list[str] | None) -> Image:
+        """Load a single image file into an :class:`Image`.
+
+        Args:
+            path: Absolute or relative path to a TIFF or Zarr file.
+            axes_override: Optional per-axis label override list.
+
+        Returns:
+            A loaded :class:`Image`.
+
+        Raises:
+            FileNotFoundError: If the path does not exist.
+            ValueError: If the extension is not supported.
+        """
+        if not path.exists():
+            raise FileNotFoundError(f"LoadImage: no file at {path}")
+        ext = path.suffix.lower()
+        if ext not in _SUPPORTED_EXTS:
+            raise ValueError(
+                f"LoadImage: unsupported image format {ext!r}; supported extensions are {sorted(_SUPPORTED_EXTS)}"
+            )
+        return _load_tiff(path, axes_override) if ext in _TIFF_EXTS else _load_zarr(path, axes_override)
 
     def save(
         self,
