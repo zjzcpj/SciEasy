@@ -2253,6 +2253,13 @@ class Resize(ProcessBlock):
 **l. Suggested workflow gate ticket title**:
 `feat(imaging): T-IMG-008 Geometry bundle (Rotate/Flip/Crop/Pad/Resize)`
 
+**Status**: Implemented (Sprint C imaging preprocess subset B). `Rotate`,
+`Flip`, `Crop`, `Pad`, and `Resize` are now concrete `ProcessBlock`
+implementations with focused plugin tests. `Crop(mask=...)` support is
+implemented in the block, while the current local test coverage stays
+on explicit bounding-box paths because `Mask` itself remains under
+T-IMG-001 skeleton status.
+
 ---
 
 ### T-IMG-009 — ConvertDType
@@ -2369,6 +2376,11 @@ def _convert(arr, target, rescale):
 
 **l. Suggested workflow gate ticket title**:
 `feat(imaging): T-IMG-009 ConvertDType (uint8/uint16/float32/float64/bool)`
+
+**Status**: Implemented (Sprint C imaging preprocess subset B).
+`ConvertDType` now supports all five locked target dtypes plus the
+`linear` and `clip` modes, preserving axes / shape / metadata across
+the conversion.
 
 ---
 
@@ -2553,6 +2565,12 @@ class AxisMerge(ProcessBlock):
 
 **l. Suggested workflow gate ticket title**:
 `feat(imaging): T-IMG-010 AxisSplit and AxisMerge for any axis`
+
+**Status**: Implemented (Sprint C imaging preprocess subset B).
+`AxisSplit` and `AxisMerge` now provide typed Collection-based split /
+merge across `t` / `z` / `c` / `lambda`, append `meta.source_file`
+suffixes per split item, and partition channel / wavelength metadata
+when the driving axis is `c` or `lambda`.
 
 ---
 
