@@ -437,11 +437,28 @@ def test_t_img_031_scalar_op_classes() -> None:
 
 
 def test_t_img_031_add_subtract_basic() -> None:
-    pytest.skip("T-IMG-031 impl pending")
+    from scieasy_blocks_imaging.math.scalar_ops import AddScalar, SubtractScalar
+    from scieasy_blocks_imaging.types import Image
+
+    image = Image(axes=["y", "x"], shape=(2, 2), dtype=np.float32)
+    image._data = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)  # type: ignore[attr-defined]
+
+    added = AddScalar().process_item(image, BlockConfig(params={"value": 1.0}))
+    subtracted = SubtractScalar().process_item(image, BlockConfig(params={"value": 1.0}))
+
+    assert np.array_equal(added._data, np.array([[2.0, 3.0], [4.0, 5.0]], dtype=np.float32))
+    assert np.array_equal(subtracted._data, np.array([[0.0, 1.0], [2.0, 3.0]], dtype=np.float32))
 
 
 def test_t_img_031_divide_by_zero_raises() -> None:
-    pytest.skip("T-IMG-031 impl pending")
+    from scieasy_blocks_imaging.math.scalar_ops import DivideScalar
+    from scieasy_blocks_imaging.types import Image
+
+    image = Image(axes=["y", "x"], shape=(1, 1), dtype=np.float32)
+    image._data = np.array([[1.0]], dtype=np.float32)  # type: ignore[attr-defined]
+
+    with pytest.raises(ValueError, match="non-zero"):
+        DivideScalar().process_item(image, BlockConfig(params={"value": 0.0, "epsilon": 0.0}))
 
 
 # ── T-IMG-032 ──────────────────────────────────────────────────────────
@@ -453,11 +470,30 @@ def test_t_img_032_image_calculator_class() -> None:
 
 
 def test_t_img_032_simple_expression() -> None:
-    pytest.skip("T-IMG-032 impl pending")
+    from scieasy_blocks_imaging.math.image_calculator import ImageCalculator
+    from scieasy_blocks_imaging.types import Image
+
+    left = Image(axes=["y", "x"], shape=(2, 2), dtype=np.float32)
+    left._data = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)  # type: ignore[attr-defined]
+    right = Image(axes=["y", "x"], shape=(2, 2), dtype=np.float32)
+    right._data = np.array([[4.0, 3.0], [2.0, 1.0]], dtype=np.float32)  # type: ignore[attr-defined]
+
+    result = ImageCalculator().run({"a": left, "b": right}, BlockConfig(params={"expression": "a - b"}))
+
+    assert np.array_equal(result["result"]._data, np.array([[-3.0, -1.0], [1.0, 3.0]], dtype=np.float32))
 
 
 def test_t_img_032_invalid_expression_raises() -> None:
-    pytest.skip("T-IMG-032 impl pending")
+    from scieasy_blocks_imaging.math.image_calculator import ImageCalculator
+    from scieasy_blocks_imaging.types import Image
+
+    left = Image(axes=["y", "x"], shape=(1, 1), dtype=np.float32)
+    left._data = np.array([[1.0]], dtype=np.float32)  # type: ignore[attr-defined]
+    right = Image(axes=["y", "x"], shape=(1, 1), dtype=np.float32)
+    right._data = np.array([[1.0]], dtype=np.float32)  # type: ignore[attr-defined]
+
+    with pytest.raises(ValueError, match="forbidden"):
+        ImageCalculator().run({"a": left, "b": right}, BlockConfig(params={"expression": "abs(a)"}))
 
 
 # ── T-IMG-033 ──────────────────────────────────────────────────────────

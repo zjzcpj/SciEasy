@@ -1,19 +1,11 @@
-"""Scalar arithmetic bundle (T-IMG-031).
-
-Four trivially symmetric scalar arithmetic blocks bundled in one module:
-
-- :class:`AddScalar`
-- :class:`SubtractScalar`
-- :class:`MultiplyScalar`
-- :class:`DivideScalar`
-
-Skeleton placeholder — T-IMG-031 implementation agent fills the bodies.
-See ``docs/specs/phase11-imaging-block-spec.md`` §9 T-IMG-031.
-"""
+"""Scalar arithmetic bundle for the imaging plugin."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, ClassVar
+
+import numpy as np
 
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
@@ -49,10 +41,7 @@ class AddScalar(ProcessBlock):
     config_schema: ClassVar[dict[str, Any]] = _scalar_schema(0.0)
 
     def process_item(self, item: Image, config: BlockConfig, state: Any = None) -> Image:
-        raise NotImplementedError(
-            "T-IMG-031: AddScalar.process_item — impl pending (skeleton continuation B). "
-            "See docs/specs/phase11-imaging-block-spec.md §9 T-IMG-031."
-        )
+        return _apply_scalar_op(item, config, lambda data, value: np.asarray(data + value))
 
 
 class SubtractScalar(ProcessBlock):
@@ -74,10 +63,7 @@ class SubtractScalar(ProcessBlock):
     config_schema: ClassVar[dict[str, Any]] = _scalar_schema(0.0)
 
     def process_item(self, item: Image, config: BlockConfig, state: Any = None) -> Image:
-        raise NotImplementedError(
-            "T-IMG-031: SubtractScalar.process_item — impl pending (skeleton continuation B). "
-            "See docs/specs/phase11-imaging-block-spec.md §9 T-IMG-031."
-        )
+        return _apply_scalar_op(item, config, lambda data, value: np.asarray(data - value))
 
 
 class MultiplyScalar(ProcessBlock):
@@ -99,10 +85,7 @@ class MultiplyScalar(ProcessBlock):
     config_schema: ClassVar[dict[str, Any]] = _scalar_schema(1.0)
 
     def process_item(self, item: Image, config: BlockConfig, state: Any = None) -> Image:
-        raise NotImplementedError(
-            "T-IMG-031: MultiplyScalar.process_item — impl pending (skeleton continuation B). "
-            "See docs/specs/phase11-imaging-block-spec.md §9 T-IMG-031."
-        )
+        return _apply_scalar_op(item, config, lambda data, value: np.asarray(data * value))
 
 
 class DivideScalar(ProcessBlock):
@@ -110,7 +93,7 @@ class DivideScalar(ProcessBlock):
 
     type_name: ClassVar[str] = "imaging.divide_scalar"
     name: ClassVar[str] = "Divide Scalar"
-    description: ClassVar[str] = "Divide every pixel by a scalar (impl raises on zero)."
+    description: ClassVar[str] = "Divide every pixel by a scalar with optional epsilon."
     version: ClassVar[str] = "0.1.0"
     category: ClassVar[str] = "math"
     algorithm: ClassVar[str] = "divide_scalar"
@@ -121,10 +104,57 @@ class DivideScalar(ProcessBlock):
     output_ports: ClassVar[list[OutputPort]] = [
         OutputPort(name="image", accepted_types=[Image], description="Output image."),
     ]
-    config_schema: ClassVar[dict[str, Any]] = _scalar_schema(1.0)
+    config_schema: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "value": {"type": "number", "default": 1.0},
+            "epsilon": {"type": "number", "default": 1e-9},
+        },
+    }
 
     def process_item(self, item: Image, config: BlockConfig, state: Any = None) -> Image:
-        raise NotImplementedError(
-            "T-IMG-031: DivideScalar.process_item — impl pending (skeleton continuation B). "
-            "See docs/specs/phase11-imaging-block-spec.md §9 T-IMG-031."
-        )
+        value = _scalar_value(config)
+        epsilon = float(config.get("epsilon", 1e-9))
+        denominator = value + epsilon
+        if np.isclose(denominator, 0.0):
+            raise ValueError("DivideScalar: value + epsilon must be non-zero")
+        return _make_derived_image(item, np.asarray(_image_data(item) / denominator))
+
+
+def _apply_scalar_op(
+    image: Image,
+    config: BlockConfig,
+    op: Callable[[np.ndarray, float], np.ndarray],
+) -> Image:
+    value = _scalar_value(config)
+    return _make_derived_image(image, op(_image_data(image), value))
+
+
+def _scalar_value(config: BlockConfig) -> float:
+    value = config.get("value", 0.0)
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"Scalar value must be a number, got {type(value).__name__}")
+    return float(value)
+
+
+def _image_data(image: Image) -> np.ndarray:
+    if image.storage_ref is None and hasattr(image, "_data") and getattr(image, "_data", None) is not None:
+        return np.asarray(image._data)  # type: ignore[attr-defined]
+    return np.asarray(image.to_memory())
+
+
+def _make_derived_image(source: Image, data: np.ndarray) -> Image:
+    result = Image(
+        axes=list(source.axes),
+        shape=tuple(data.shape),
+        dtype=data.dtype,
+        framework=source.framework.derive(),
+        meta=source.meta,
+        user=dict(source.user),
+        storage_ref=None,
+    )
+    result._data = data  # type: ignore[attr-defined]
+    return result
+
+
+__all__ = ["AddScalar", "DivideScalar", "MultiplyScalar", "SubtractScalar"]

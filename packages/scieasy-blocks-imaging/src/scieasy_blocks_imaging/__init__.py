@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from scieasy_blocks_imaging.io.load_image import LoadImage
 from scieasy_blocks_imaging.io.save_image import SaveImage
+from scieasy_blocks_imaging.math.image_calculator import ImageCalculator
+from scieasy_blocks_imaging.math.scalar_ops import AddScalar, DivideScalar, MultiplyScalar, SubtractScalar
 from scieasy_blocks_imaging.measurement.colocalization import Colocalization
 from scieasy_blocks_imaging.measurement.pairwise_distance import PairwiseDistance
 from scieasy_blocks_imaging.measurement.region_props import RegionProps
@@ -70,6 +72,11 @@ def get_blocks() -> list[type]:
         RegisterSeries,
         AxisProjection,
         SelectSlice,
+        AddScalar,
+        SubtractScalar,
+        MultiplyScalar,
+        DivideScalar,
+        ImageCalculator,
         RegionProps,
         PairwiseDistance,
         Colocalization,
@@ -87,6 +94,7 @@ def get_blocks() -> list[type]:
 
 
 __all__ = [
+    "AddScalar",
     "ApplyTransform",
     "AxisMerge",
     "AxisProjection",
@@ -100,6 +108,7 @@ __all__ = [
     "ConvertDType",
     "Crop",
     "Denoise",
+    "DivideScalar",
     "EdgeDetect",
     "ExpandLabels",
     "FFTFilter",
@@ -107,10 +116,12 @@ __all__ = [
     "FlatFieldCorrect",
     "Flip",
     "Image",
+    "ImageCalculator",
     "Label",
     "LoadImage",
     "Mask",
     "MorphologyOp",
+    "MultiplyScalar",
     "Normalize",
     "Pad",
     "PairwiseDistance",
@@ -125,6 +136,7 @@ __all__ = [
     "SelectSlice",
     "Sharpen",
     "ShrinkLabels",
+    "SubtractScalar",
     "Threshold",
     "Transform",
     "Watershed",
