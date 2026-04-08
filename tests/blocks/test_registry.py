@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+from abc import abstractmethod
 from pathlib import Path
+from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -11,6 +13,7 @@ import pytest
 from scieasy.blocks.base.package_info import PackageInfo
 from scieasy.blocks.base.state import BlockState
 from scieasy.blocks.registry import BlockRegistry, BlockSpec
+from tests.conftest import _original_scan_builtins
 
 
 class TestBlockRegistryTier2:
@@ -37,6 +40,15 @@ class TestBlockRegistryTier2:
         reg = BlockRegistry()
         with pytest.raises(KeyError, match="not registered"):
             reg.instantiate("NonexistentBlock")
+
+    def test_original_builtin_scan_skips_abstract_ioblock(self) -> None:
+        """Production builtin scan should not register the abstract IOBlock base class."""
+        reg = BlockRegistry()
+
+        _original_scan_builtins(reg)
+
+        assert reg.get_spec("io_block") is None
+        assert all(spec.class_name != "IOBlock" for spec in reg.all_specs().values())
 
 
 class TestBlockRegistryTier1:
@@ -350,6 +362,69 @@ class TestScanTier2CallableProtocol:
 
         # No PackageInfo stored for plain list returns.
         assert len(reg.packages()) == 0
+
+    def test_direct_class_entry_point_is_registered_without_instantiation(self) -> None:
+        """Direct class entry-points should be treated as classes, not called."""
+        from scieasy.blocks.base.block import Block
+
+        class ConstructorSensitiveBlock(Block):
+            name = "ConstructorSensitiveBlock"
+            description = "Direct-class entry point"
+            version = "0.1.0"
+            input_ports: ClassVar[list[object]] = []
+            output_ports: ClassVar[list[object]] = []
+            config_schema: ClassVar[dict[str, object]] = {"type": "object", "properties": {}}
+
+            def __init__(self, required: str) -> None:
+                raise AssertionError(f"scanner must not instantiate direct class entry-points: {required}")
+
+            def run(self, inputs, config):
+                return {}
+
+        ep = self._make_mock_entry_point("ctor_sensitive", ConstructorSensitiveBlock)
+        mock_eps = MagicMock()
+        mock_eps.select.return_value = [ep]
+
+        reg = BlockRegistry()
+        with patch("importlib.metadata.entry_points", return_value=mock_eps):
+            reg._scan_tier2()
+
+        spec = reg.get_spec("ConstructorSensitiveBlock")
+        assert spec is not None
+        assert spec.class_name == "ConstructorSensitiveBlock"
+
+    def test_abstract_direct_class_entry_point_is_skipped(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Abstract direct class entry-points should be ignored with a warning."""
+        from scieasy.blocks.base.block import Block
+
+        class AbstractEntryPointBlock(Block):
+            name = "AbstractEntryPointBlock"
+            description = "Abstract direct-class entry point"
+            version = "0.1.0"
+            input_ports: ClassVar[list[object]] = []
+            output_ports: ClassVar[list[object]] = []
+            config_schema: ClassVar[dict[str, object]] = {"type": "object", "properties": {}}
+
+            @abstractmethod
+            def explain(self) -> str:
+                raise NotImplementedError
+
+            def run(self, inputs, config):
+                return {}
+
+        ep = self._make_mock_entry_point("abstract_block", AbstractEntryPointBlock)
+        mock_eps = MagicMock()
+        mock_eps.select.return_value = [ep]
+
+        reg = BlockRegistry()
+        with (
+            patch("importlib.metadata.entry_points", return_value=mock_eps),
+            caplog.at_level(logging.WARNING),
+        ):
+            reg._scan_tier2()
+
+        assert reg.get_spec("AbstractEntryPointBlock") is None
+        assert "contained abstract Block class" in caplog.text
 
     def test_entry_point_load_failure_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         """Entry-point that fails to load logs warning and continues."""
