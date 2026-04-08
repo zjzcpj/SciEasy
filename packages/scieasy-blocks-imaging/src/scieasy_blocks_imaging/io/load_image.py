@@ -156,7 +156,7 @@ class LoadImage(IOBlock):
     category: ClassVar[str] = "io"
 
     output_ports: ClassVar[list[OutputPort]] = [
-        OutputPort(name="images", accepted_types=[Collection[Image]]),  # type: ignore[misc]
+        OutputPort(name="images", accepted_types=[Image], is_collection=True),
     ]
 
     config_schema: ClassVar[dict[str, Any]] = {

@@ -94,8 +94,10 @@ export function BlockPalette({
   const handleDragStart = (event: React.DragEvent, block: BlockSummary) => {
     // Set the block data for drop handling
     const payload = { ...block };
-    // Inject default direction for split IO blocks
-    if (block.type_name === "io_block") {
+    // Inject default direction for IO blocks when the registry provides it.
+    if (block.direction) {
+      (payload as Record<string, unknown>)._default_direction = block.direction;
+    } else if (block.type_name === "io_block") {
       (payload as Record<string, unknown>)._default_direction =
         block.name === "Load Block" ? "input" : "output";
     }

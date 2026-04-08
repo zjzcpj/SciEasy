@@ -129,7 +129,7 @@ class SaveImage(IOBlock):
     category: ClassVar[str] = "io"
 
     input_ports: ClassVar[list[InputPort]] = [
-        InputPort(name="images", accepted_types=[Collection[Image]]),  # type: ignore[misc]
+        InputPort(name="images", accepted_types=[Image], is_collection=True),
     ]
 
     config_schema: ClassVar[dict[str, Any]] = {

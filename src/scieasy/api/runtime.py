@@ -194,7 +194,7 @@ class ApiRuntime:
         self._bind_event_logging()
 
     def _configure_static_registries(self) -> None:
-        self.type_registry.scan_builtins()
+        self.type_registry.scan_all(include_monorepo=True)
         self.refresh_block_registry()
 
     def _bind_event_logging(self) -> None:
@@ -248,7 +248,7 @@ class ApiRuntime:
         if self.active_project is not None:
             registry.add_scan_dir(Path(self.active_project.path) / "blocks")
             registry.add_scan_dir(Path.home() / ".scieasy" / "blocks")
-        registry.scan()
+        registry.scan(include_monorepo=True)
         self.block_registry = registry
 
     def create_project(self, name: str, description: str = "", parent_path: str | None = None) -> KnownProject:
@@ -676,6 +676,9 @@ class ApiRuntime:
                 await scheduler.execute()
 
         task = asyncio.create_task(_run())
+        task.add_done_callback(
+            lambda finished: asyncio.create_task(self._log_workflow_task_failure(workflow_id, finished))
+        )
         self.workflow_runs[workflow_id] = WorkflowRun(
             scheduler=scheduler,
             task=task,
@@ -694,6 +697,28 @@ class ApiRuntime:
             "reused_blocks": reused_blocks,
             "reset_blocks": reset_blocks,
         }
+
+    async def _log_workflow_task_failure(self, workflow_id: str, task: asyncio.Task[None]) -> None:
+        """Surface unexpected workflow task failures to logs and SSE clients."""
+        if task.cancelled():
+            return
+        try:
+            exc = task.exception()
+        except asyncio.CancelledError:
+            return
+        if exc is None:
+            return
+        logger.error(
+            "Workflow %s task failed: %s",
+            workflow_id,
+            exc,
+            exc_info=(type(exc), exc, exc.__traceback__),
+        )
+        await self.log_broadcaster.publish(
+            level="error",
+            message=str(exc),
+            workflow_id=workflow_id,
+        )
 
     def get_run(self, workflow_id: str) -> WorkflowRun:
         if workflow_id not in self.workflow_runs:

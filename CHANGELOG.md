@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- [#396] Restore plugin IO execution/schema fidelity by surfacing block-run failures in the GUI, exposing `direction` and `is_collection` in block schemas, aligning imaging collection ports to item-type metadata, and adding monorepo plugin block/type discovery so local source checkouts still render correct colors and Browse actions (@Codex, 2026-04-08, branch: fix/issue-396/gui-io-metadata, session: 20260408-133541-fix-issue-396-gui-io-metadata-and-execut)
+
 ### Added
 
 - [#389] Auto-bundle frontend SPA on `pip install` via setuptools `build_py` hook + dev-mode fallback in `api/app.py` so `scieasy gui` serves the React workflow editor instead of the FastAPI /docs panel (@claude, 2026-04-08, branch: feat/issue-389/bundle-frontend-spa, session: 20260408-113948-serve-frontend-spa-automatically-on-pip)

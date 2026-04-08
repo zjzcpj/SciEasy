@@ -13,6 +13,7 @@ import importlib.metadata
 import importlib.util
 import inspect
 import logging
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -74,11 +75,13 @@ class BlockRegistry:
         """Add a directory to the Tier 1 scan path."""
         self._scan_dirs.append(Path(directory))
 
-    def scan(self) -> None:
+    def scan(self, *, include_monorepo: bool = False) -> None:
         """Discover block classes from entry-points and drop-in directories."""
         self._scan_builtins()
         self._scan_tier1()
         self._scan_tier2()
+        if include_monorepo:
+            self._scan_monorepo_packages()
 
     def _register_spec(self, spec: BlockSpec) -> None:
         """Register a spec under its display name and public type name."""
@@ -305,8 +308,12 @@ class BlockRegistry:
                 continue
 
             try:
-                # Invoke the callable to get blocks (and optionally PackageInfo).
-                result = loaded() if callable(loaded) else loaded
+                # Entry-points may point at a concrete block class directly.
+                # Classes are callable, so detect them before invoking.
+                if isinstance(loaded, type) and issubclass(loaded, Block):
+                    result = loaded
+                else:
+                    result = loaded() if callable(loaded) else loaded
 
                 info: PackageInfo | None = None
                 block_classes: list[type] = []
@@ -360,6 +367,85 @@ class BlockRegistry:
                     exc_info=True,
                 )
                 continue
+
+    def _scan_monorepo_packages(self) -> None:
+        """Development fallback for plugin packages living in the monorepo.
+
+        The desktop/app development workflow often runs the core package from
+        source without separately installing Phase 11 plugin packages in
+        editable mode. In that case there are no ``scieasy.blocks`` entry
+        points for the plugins yet, but the plugin sources are still present
+        under ``packages/*/src`` in the same repository checkout.
+
+        This fallback mirrors the entry-point callable protocol for any
+        ``scieasy_blocks_*`` package found in the monorepo:
+
+        - prefer ``get_block_package() -> (PackageInfo, list[type[Block]])``
+        - fall back to ``get_blocks() -> list[type[Block]]``
+
+        Installed entry-points remain authoritative because this scan runs
+        after :meth:`_scan_tier2` and skips any block type that is already
+        registered.
+        """
+        from scieasy.blocks.base.block import Block
+        from scieasy.blocks.base.package_info import PackageInfo
+
+        repo_root = Path(__file__).resolve().parents[3]
+        packages_dir = repo_root / "packages"
+        if not packages_dir.is_dir():
+            return
+
+        for pkg_dir in packages_dir.glob("scieasy-blocks-*"):
+            src_dir = pkg_dir / "src"
+            if not src_dir.is_dir():
+                continue
+
+            src_dir_str = str(src_dir)
+            if src_dir_str not in sys.path:
+                sys.path.insert(0, src_dir_str)
+
+            module_name = pkg_dir.name.replace("-", "_")
+            try:
+                module = importlib.import_module(module_name)
+            except Exception:
+                logger.warning("Failed to import monorepo plugin package '%s'", module_name, exc_info=True)
+                continue
+
+            result: Any | None = None
+            if hasattr(module, "get_block_package") and callable(module.get_block_package):
+                result = module.get_block_package()
+            elif hasattr(module, "get_blocks") and callable(module.get_blocks):
+                result = module.get_blocks()
+            else:
+                continue
+
+            info: PackageInfo | None = None
+            block_classes: list[type] = []
+            if isinstance(result, tuple) and len(result) == 2:
+                first, second = result
+                if isinstance(first, PackageInfo) and isinstance(second, list):
+                    info = first
+                    block_classes = second
+            elif isinstance(result, list):
+                block_classes = result
+
+            if not block_classes:
+                continue
+
+            pkg_name = info.name if info is not None else module_name
+            if info is not None:
+                self._packages[info.name] = info
+
+            for cls in block_classes:
+                if not (isinstance(cls, type) and issubclass(cls, Block) and not inspect.isabstract(cls)):
+                    continue
+                block_spec = _spec_from_class(cls, source="monorepo")
+                block_spec.module_path = cls.__module__
+                block_spec.class_name = cls.__name__
+                block_spec.package_name = pkg_name
+                if block_spec.type_name in self._aliases or block_spec.name in self._registry:
+                    continue
+                self._register_spec(block_spec)
 
     def get_spec(self, identifier: str) -> BlockSpec | None:
         """Resolve a block spec by display name or public type name."""
