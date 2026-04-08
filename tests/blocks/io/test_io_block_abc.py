@@ -9,10 +9,10 @@ These tests verify the post-T-TRK-004 contract:
   :meth:`load` and :meth:`save` based on the ``direction`` ClassVar.
 * The default ``direction='input'`` path wraps a single
   :class:`DataObject` from :meth:`load` in a single-item
-  :class:`Collection` before returning it on the ``"data"`` output port.
-* The ``direction='output'`` path forwards the ``"data"`` input to
-  :meth:`save` and returns the configured path on the ``"path"`` key.
-* Missing ``"data"`` input in output mode raises ``ValueError``.
+  :class:`Collection` before returning it on the declared output port.
+* The ``direction='output'`` path forwards the declared input port to
+  :meth:`save` and returns the configured path on a receipt key.
+* Missing declared input in output mode raises ``ValueError``.
 * The class-level ``config_schema`` matches the spec body (``path``
   property only, ``path`` required).
 
@@ -94,6 +94,24 @@ class TestIOBlockSubclassDispatch:
         assert coll.length == 1
         assert coll[0] is block.payload
 
+    def test_input_direction_uses_declared_output_port_name(self) -> None:
+        """Input-direction dispatch must honor subclass-declared output ports."""
+        from scieasy.blocks.base.ports import OutputPort
+
+        class ImageLoader(InMemoryIOBlock):
+            output_ports: ClassVar[list[OutputPort]] = [
+                OutputPort(name="images", accepted_types=[DataObject], is_collection=True)
+            ]
+
+        block = ImageLoader(config={"params": {"path": "/tmp/in.bin"}})
+        block.payload = DataObject()
+
+        result = block.run({}, block.config)
+
+        assert set(result.keys()) == {"images"}
+        assert isinstance(result["images"], Collection)
+        assert result["images"][0] is block.payload
+
     def test_input_direction_passes_through_existing_collection(self) -> None:
         """If :meth:`load` already returns a Collection, it must not be
         re-wrapped."""
@@ -121,7 +139,7 @@ class TestIOBlockSubclassDispatch:
             direction: ClassVar[str] = "output"
 
         block = OutputBlock(config={"params": {"path": "/tmp/out.bin"}})
-        payload = DataObject()
+        payload = Collection(items=[DataObject()], item_type=DataObject)
 
         result = block.run({"data": payload}, block.config)
 
@@ -139,8 +157,47 @@ class TestIOBlockSubclassDispatch:
         assert isinstance(path_item, Text)
         assert path_item.content == "/tmp/out.bin"
 
-    def test_output_direction_missing_data_raises(self) -> None:
-        """Output mode without a ``"data"`` input raises ``ValueError``."""
+    def test_output_direction_uses_declared_input_port_name(self) -> None:
+        """Output-direction dispatch must honor subclass-declared input ports."""
+        from scieasy.blocks.base.ports import InputPort
+
+        class OutputBlock(InMemoryIOBlock):
+            direction: ClassVar[str] = "output"
+            input_ports: ClassVar[list[InputPort]] = [
+                InputPort(name="image", accepted_types=[DataObject], required=True)
+            ]
+
+        block = OutputBlock(config={"params": {"path": "/tmp/out.bin"}})
+        payload = Collection(items=[DataObject()], item_type=DataObject)
+
+        result = block.run({"image": payload}, block.config)
+
+        assert block.last_saved is not None
+        saved_obj, _saved_config = block.last_saved
+        assert saved_obj is payload
+        assert set(result.keys()) == {"path"}
+
+    def test_output_direction_uses_declared_receipt_port_when_overridden(self) -> None:
+        """Output-direction dispatch should use explicit receipt port overrides."""
+        from scieasy.blocks.base.ports import OutputPort
+        from scieasy.core.types.text import Text
+
+        class OutputBlock(InMemoryIOBlock):
+            direction: ClassVar[str] = "output"
+            output_ports: ClassVar[list[OutputPort]] = [
+                OutputPort(name="saved_path", accepted_types=[Text], is_collection=True, required=False)
+            ]
+
+        block = OutputBlock(config={"params": {"path": "/tmp/out.bin"}})
+        payload = Collection(items=[DataObject()], item_type=DataObject)
+
+        result = block.run({"data": payload}, block.config)
+
+        assert set(result.keys()) == {"saved_path"}
+        assert isinstance(result["saved_path"], Collection)
+
+    def test_output_direction_missing_declared_input_raises(self) -> None:
+        """Output mode without the declared input raises ``ValueError``."""
 
         class OutputBlock(InMemoryIOBlock):
             direction: ClassVar[str] = "output"

@@ -69,6 +69,32 @@ class IOBlock(Block):
         """Persist *obj* to the configured path."""
         ...
 
+    def _resolved_input_port_name(self) -> str:
+        """Return the active input-port name for this IO block."""
+        getter = getattr(self, "get_effective_input_ports", None)
+        ports = getter() if callable(getter) else self.input_ports
+        return ports[0].name if ports else "data"
+
+    def _resolved_load_output_port_name(self) -> str:
+        """Return the active output-port name for input-direction dispatch."""
+        getter = getattr(self, "get_effective_output_ports", None)
+        ports = getter() if callable(getter) else self.output_ports
+        return ports[0].name if ports else "data"
+
+    def _resolved_save_receipt_port_name(self) -> str:
+        """Return the receipt port name for output-direction dispatch.
+
+        Legacy compatibility: subclasses that inherit the base
+        ``output_ports=[OutputPort(name="data", ...)]`` still receive the
+        historical ``"path"`` receipt key unless they explicitly override
+        ``output_ports`` with a concrete receipt port.
+        """
+        getter = getattr(self, "get_effective_output_ports", None)
+        ports = getter() if callable(getter) else self.output_ports
+        if not ports or self.__class__.output_ports is IOBlock.output_ports:
+            return "path"
+        return ports[0].name
+
     def run(
         self,
         inputs: dict[str, Collection],
@@ -78,21 +104,23 @@ class IOBlock(Block):
 
         For ``direction='input'`` the result of :meth:`load` is wrapped
         in a single-item :class:`Collection` if it is not already a
-        Collection, and returned under the ``"data"`` output port.
+        Collection, and returned under the declared output port name.
 
-        For ``direction='output'`` the ``"data"`` input is required and
-        is forwarded to :meth:`save`; the configured ``path`` is
-        returned under the ``"path"`` key for downstream consumers.
+        For ``direction='output'`` the declared input port is required
+        and forwarded to :meth:`save`; the configured ``path`` is
+        returned under a receipt key that defaults to ``"path"`` for
+        backward compatibility.
         """
         if self.direction == "input":
             result = self.load(config)
             if not isinstance(result, Collection):
                 result = Collection(items=[result], item_type=type(result))
-            return {"data": result}
+            return {self._resolved_load_output_port_name(): result}
         else:
-            data = inputs.get("data")
+            input_port_name = self._resolved_input_port_name()
+            data = inputs.get(input_port_name)
             if data is None:
-                raise ValueError("IOBlock(output) requires 'data' input")
+                raise ValueError(f"IOBlock(output) requires {input_port_name!r} input")
             self.save(data, config)
             # T-TRK-008: wrap the path receipt in a single-item Collection
             # of Text so the return type matches the public
@@ -107,4 +135,4 @@ class IOBlock(Block):
             # restores strict typing across the IO surface. See
             # ``project_phase11_ttrk007_008_bookkeeping.md`` Item 1.
             path_receipt = Text(content=str(config.get("path")), format="plain")
-            return {"path": Collection(items=[path_receipt], item_type=Text)}
+            return {self._resolved_save_receipt_port_name(): Collection(items=[path_receipt], item_type=Text)}

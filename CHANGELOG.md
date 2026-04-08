@@ -302,6 +302,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#414] Align `IOBlock.run()` with subclass-declared IO port names so plugin loaders like `LoadImage` no longer wrap payloads under the wrong key before reaching downstream blocks (@codex, 2026-04-08, branch: codex/fix-414-ioblock-ports, session: 20260408-180248-fix-414-align-ioblock-run-with-declared)
 - [#406] Warn on stale editable-install `frontend/dist` bundles and fail CI when `frontend/src` is newer than the served SPA artifact (@codex, 2026-04-08, branch: codex/fix-403-406-gating, session: 20260408-154724-fix-406-scieasy-gui-serves-stale-fronten)
 - [#403] Stop advertising abstract `IOBlock` as a `scieasy.blocks` entry-point and report abstract entry-points precisely in registry logs (@codex, 2026-04-08, branch: codex/fix-403-406-gating, session: 20260408-174206-fix-403-remove-abstract-ioblock-entry-po)
 - [#70] AppBlock command injection guard + FileWatcher TOCTOU stability check (@claude, 2026-04-05, branch: fix/issue-70/appblock-security, session: 20260405-004432-fix-p1-appblock-command-injection-toctou)
