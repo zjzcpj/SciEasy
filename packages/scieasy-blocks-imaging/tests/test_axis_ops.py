@@ -10,6 +10,7 @@ from scieasy_blocks_imaging.preprocess.axis_ops import AxisMerge, AxisSplit
 from scieasy_blocks_imaging.types import Image
 
 from scieasy.blocks.base.config import BlockConfig
+from scieasy.core.meta import ChannelInfo
 from scieasy.core.types.collection import Collection
 
 
@@ -33,8 +34,8 @@ def test_axis_split_c_returns_collection_per_channel() -> None:
     assert out[0].axes == ["y", "x"]
     assert out[0].shape == (3, 4)
     assert out[0].meta.source_file.endswith("__c=0.tif")
-    assert out[0].meta.channels == ["c0"]
-    assert out[1].meta.channels == ["c1"]
+    assert out[0].meta.channels == [ChannelInfo(name="c0")]
+    assert out[1].meta.channels == [ChannelInfo(name="c1")]
 
 
 def test_axis_merge_inverse_of_split() -> None:

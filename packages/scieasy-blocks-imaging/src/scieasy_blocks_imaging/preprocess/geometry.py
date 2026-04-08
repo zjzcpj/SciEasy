@@ -12,6 +12,7 @@ from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.process.process_block import ProcessBlock
 from scieasy.core.types.base import DataObject
 from scieasy.core.types.collection import Collection
+from scieasy.core.units import PhysicalQuantity
 from scieasy.utils.axis_iter import iterate_over_axes
 from scieasy_blocks_imaging.types import Image, Mask
 
@@ -511,6 +512,10 @@ def _scale_pixel_size(pixel_size: object, old_shape: tuple[int, int], new_shape:
     y_factor = old_shape[0] / new_shape[0]
     x_factor = old_shape[1] / new_shape[1]
 
+    if isinstance(pixel_size, PhysicalQuantity):
+        if np.isclose(y_factor, x_factor):
+            return PhysicalQuantity(value=float(pixel_size.value) * y_factor, unit=pixel_size.unit)
+        return pixel_size
     if isinstance(pixel_size, tuple):
         if len(pixel_size) != 2:
             return pixel_size
