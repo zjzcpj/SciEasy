@@ -48,7 +48,6 @@ dev = [
 scieasy = "scieasy.cli.main:app"
 
 [project.entry-points."scieasy.blocks"]
-io_block = "scieasy.blocks.io:IOBlock"
 load_data = "scieasy.blocks.io.loaders.load_data:LoadData"
 save_data = "scieasy.blocks.io.savers.save_data:SaveData"
 process_merge = "scieasy.blocks.process.builtins.merge:MergeBlock"

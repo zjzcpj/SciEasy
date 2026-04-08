@@ -110,6 +110,27 @@ def _resolve_spa_static_dir() -> Path | None:
     for parent in Path(__file__).resolve().parents:
         candidate = parent / "frontend" / "dist"
         if (candidate / "index.html").is_file():
+            # #406: Warn developers when frontend/src has files newer than
+            # dist/index.html — the built SPA may be stale.  This check is
+            # best-effort (errors are silently swallowed) and emits a warning
+            # only; it never blocks startup.
+            src_dir = parent / "frontend" / "src"
+            if src_dir.exists():
+                try:
+                    src_mtime = max(
+                        (f.stat().st_mtime for f in src_dir.rglob("*") if f.is_file()),
+                        default=0.0,
+                    )
+                    dist_mtime = (candidate / "index.html").stat().st_mtime
+                    if src_mtime > dist_mtime:
+                        import logging
+
+                        logging.getLogger(__name__).warning(
+                            "frontend/dist may be stale (frontend/src has newer files than "
+                            "dist/index.html). Run 'cd frontend && npm run build' to rebuild."
+                        )
+                except Exception:
+                    pass
             return candidate
         if (parent / "pyproject.toml").is_file():
             # Reached the repo root without finding frontend/dist/
