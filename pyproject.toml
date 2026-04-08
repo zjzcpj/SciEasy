@@ -132,6 +132,7 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 markers = [
     "requires_imaging: marks tests that need scieasy-blocks-imaging installed (deselect with '-m \"not requires_imaging\"')",
+    "requires_r: tests that need an R installation with Rscript on PATH",
 ]
 
 [tool.importlinter]
