@@ -18,7 +18,11 @@ Source autodetection signatures (per spec):
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, ClassVar
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import OutputPort
@@ -27,6 +31,10 @@ from scieasy.core.types.base import DataObject
 from scieasy.core.types.collection import Collection
 from scieasy_blocks_lcms._base import _LCMSBlockMixin
 from scieasy_blocks_lcms.types import PeakTable
+
+_ELMAVEN_COLUMNS = frozenset({"compound", "formula", "medMz", "medRt", "expectedRtDiff"})
+_MZMINE_COLUMNS = frozenset({"row ID", "row m/z", "row retention time"})
+_XCMS_COLUMNS = frozenset({"mzmed", "rtmed", "mzmin", "mzmax"})
 
 
 class LoadPeakTable(_LCMSBlockMixin, IOBlock):
@@ -98,11 +106,52 @@ class LoadPeakTable(_LCMSBlockMixin, IOBlock):
         * cache the pandas DataFrame under
           ``peak_table.user["pandas_df"]`` for downstream reuse
         """
-        raise NotImplementedError(
-            "T-LCMS-004 LoadPeakTable.load — impl pending (skeleton @ c08a885). "
-            "See docs/specs/phase11-lcms-block-spec.md §9 T-LCMS-004."
+        path = Path(config.get("path"))
+        if not path.exists():
+            raise FileNotFoundError(f"LoadPeakTable: source file not found: {path}")
+
+        frame = _read_table(path, sheet_name=config.get("sheet_name"))
+        if frame.empty:
+            raise ValueError(f"LoadPeakTable: table is empty: {path}")
+
+        source = str(config.get("source", "auto"))
+        resolved_source = _detect_source(frame.columns) if source == "auto" else source
+        table = PeakTable(
+            columns=[str(col) for col in frame.columns],
+            row_count=len(frame),
+            schema={str(col): str(dtype) for col, dtype in frame.dtypes.items()},
+            meta=PeakTable.Meta(
+                source=resolved_source,
+                polarity=config.get("polarity"),
+            ),
         )
+        table.user["pandas_df"] = frame.copy()
+        return Collection(items=[table], item_type=PeakTable)
 
     def save(self, obj: DataObject | Collection, config: BlockConfig) -> None:
         """Not supported — use :class:`SaveTable` for output."""
         raise NotImplementedError("T-LCMS-004 LoadPeakTable is direction='input'; use SaveTable to write.")
+
+
+def _read_table(path: Path, *, sheet_name: str | int | None) -> pd.DataFrame:
+    import pandas as pd
+
+    suffix = path.suffix.lower()
+    if suffix == ".csv":
+        return pd.read_csv(path)
+    if suffix == ".tsv":
+        return pd.read_csv(path, sep="\t")
+    if suffix in {".xlsx", ".xls"}:
+        return pd.read_excel(path, sheet_name=0 if sheet_name is None else sheet_name)
+    raise ValueError(f"LoadPeakTable: unsupported file format: {path.suffix}")
+
+
+def _detect_source(columns: pd.Index) -> str:
+    names = {str(column) for column in columns}
+    if names & _ELMAVEN_COLUMNS:
+        return "ElMAVEN"
+    if names & _MZMINE_COLUMNS:
+        return "MZmine"
+    if names & _XCMS_COLUMNS:
+        return "XCMS"
+    return "ElMAVEN"

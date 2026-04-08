@@ -200,20 +200,51 @@ def test_srs_image_placeholder_raises() -> None:
 
 
 def test_lcms_types_placeholder_raises() -> None:
-    """Representative: T-LCMS-002 ``get_types`` registration helper raises.
-
-    The four LC-MS type classes themselves (``MSRawFile``, ``PeakTable``,
-    ``MIDTable``, ``SampleMetadata``) are spec-final after the #345
-    skeleton drop and instantiate cleanly as ``Artifact`` /
-    ``DataFrame`` subclasses. Only the entry-point registration helper
-    ``get_types()`` is still skeleton — the impl agent wires it up
-    once the plugin is registered via ``pyproject.toml`` entry_points
-    in T-LCMS-021.
-    """
+    """Representative: T-LCMS-002 get_types() is now concrete."""
     from scieasy_blocks_lcms.types import get_types
 
-    with pytest.raises(NotImplementedError, match="T-LCMS-002"):
-        get_types()
+    names = [cls.__name__ for cls in get_types()]
+    assert names == ["MSRawFile", "PeakTable", "MIDTable", "SampleMetadata"]
+
+
+def test_lcms_foundation_chunk1_impl_smoke(tmp_path: Path) -> None:
+    """Smoke test that LCMS foundation chunk 1 bodies are concrete."""
+    pytest.importorskip("pandas")
+    from scieasy_blocks_lcms.external.accucor_r import AccuCorR
+    from scieasy_blocks_lcms.io.load_mid_table import LoadMIDTable
+    from scieasy_blocks_lcms.io.load_ms_raw_files import LoadMSRawFiles
+    from scieasy_blocks_lcms.io.load_peak_table import LoadPeakTable
+    from scieasy_blocks_lcms.io.load_sample_metadata import LoadSampleMetadata
+    from scieasy_blocks_lcms.types import MSRawFile
+
+    from scieasy.blocks.base.config import BlockConfig
+
+    mzml_path = tmp_path / "sample.mzML"
+    mzml_path.write_text(
+        '<mzML><run startTimeStamp="2026-04-08T01:02:03Z"><instrumentConfiguration id="IC1" name="QE" />'
+        '<cvParam accession="MS:1000130" /></run></mzML>',
+        encoding="utf-8",
+    )
+    raw_files = LoadMSRawFiles().load(BlockConfig(params={"path": str(tmp_path), "pattern": "*.mzML"}))
+    assert isinstance(raw_files[0], MSRawFile)
+
+    peak_path = tmp_path / "peak.csv"
+    peak_path.write_text("compound,formula,medMz,medRt\nglucose,C6H12O6,179.0,5.2\n", encoding="utf-8")
+    peak_table = LoadPeakTable().load(BlockConfig(params={"path": str(peak_path)}))[0]
+    assert peak_table.meta.source == "ElMAVEN"
+
+    sample_meta_path = tmp_path / "sample_metadata.csv"
+    sample_meta_path.write_text("sample_id,group\nS1,UL\n", encoding="utf-8")
+    sample_metadata = LoadSampleMetadata().load(BlockConfig(params={"path": str(sample_meta_path)}))[0]
+    assert sample_metadata.meta.sample_id_column == "sample_id"
+
+    mid_path = tmp_path / "mid.csv"
+    mid_path.write_text("Compound,C13,S1\nglucose,0,1.0\n", encoding="utf-8")
+    mid_table = LoadMIDTable().load(BlockConfig(params={"path": str(mid_path)}))[0]
+    assert mid_table.meta.correction_tool == "AccuCor"
+
+    script_path = AccuCorR()._resolve_script_path(BlockConfig(params={}))
+    assert Path(script_path).exists()
 
 
 _CONTINUATION_B_MODULES = [

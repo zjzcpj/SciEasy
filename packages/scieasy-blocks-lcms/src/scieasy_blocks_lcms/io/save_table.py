@@ -13,7 +13,11 @@ this generic saver covers every output need.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, ClassVar
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort
@@ -93,7 +97,56 @@ class SaveTable(_LCMSBlockMixin, IOBlock):
         * materialise the underlying pandas DataFrame from
           ``obj.user["pandas_df"]`` cache or ``obj.view().to_pandas()``
         """
-        raise NotImplementedError(
-            "T-LCMS-006 SaveTable.save — impl pending (skeleton @ c08a885). "
-            "See docs/specs/phase11-lcms-block-spec.md §9 T-LCMS-006."
-        )
+        table = _unwrap_table(obj)
+        frame = _to_pandas(table)
+
+        output_path = Path(config.get("path"))
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        file_format = str(config.get("format", "csv"))
+        include_index = bool(config.get("index", False))
+        if file_format == "csv":
+            frame.to_csv(output_path, index=include_index)
+            return
+        if file_format == "tsv":
+            frame.to_csv(output_path, sep="\t", index=include_index)
+            return
+        if file_format == "xlsx":
+            frame.to_excel(output_path, index=include_index)
+            return
+        raise ValueError(f"SaveTable: unsupported format '{file_format}'")
+
+
+def _unwrap_table(obj: DataObject | Collection) -> DataFrame:
+    if isinstance(obj, Collection):
+        if len(obj) != 1:
+            raise ValueError("SaveTable expects a single DataFrame item")
+        item = obj[0]
+    else:
+        item = obj
+
+    if not isinstance(item, DataFrame):
+        raise TypeError(f"SaveTable requires a DataFrame, got {type(item).__name__}")
+    return item
+
+
+def _to_pandas(table: DataFrame) -> pd.DataFrame:
+    import pandas as pd
+
+    cached = table.user.get("pandas_df")
+    if isinstance(cached, pd.DataFrame):
+        return cached.copy()
+
+    arrow_table = getattr(table, "_arrow_table", None)
+    if arrow_table is not None and hasattr(arrow_table, "to_pandas"):
+        return arrow_table.to_pandas()
+
+    if table.storage_ref is not None:
+        materialized = table.view().to_memory()
+        if isinstance(materialized, pd.DataFrame):
+            return materialized.copy()
+        if hasattr(materialized, "to_pandas"):
+            return materialized.to_pandas()
+        return pd.DataFrame(materialized)
+
+    raise ValueError("SaveTable requires a cached pandas DataFrame or a storage-backed table")
