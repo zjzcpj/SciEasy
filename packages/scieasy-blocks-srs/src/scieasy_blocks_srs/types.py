@@ -8,19 +8,20 @@ Per master plan §2.4, the SRS plugin defines exactly one type:
 
 **There is intentionally no** ``RamanSpectrum(Series)`` **type** —
 spectra are passed around as long-format DataFrames per master plan §2.4.
-
-Skeleton placeholder — T-SRS-001 implementation agent fills the body.
-See ``docs/specs/phase11-srs-block-spec.md`` §9 T-SRS-001.
 """
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import Any, ClassVar
+
+from pydantic import ConfigDict
 
 # Cross-plugin import per standards doc §Q5. The imaging plugin lands its
 # real ``Image`` class in T-IMG-001 (Sprint C, parallel skeleton agent). At
 # skeleton time the symbol may be a placeholder; the impl agent revisits.
 from scieasy_blocks_imaging.types import Image  # type: ignore[import-not-found]
+
+from scieasy.core.units import PhysicalQuantity
 
 
 class SRSImage(Image):  # type: ignore[misc,valid-type]
@@ -44,35 +45,64 @@ class SRSImage(Image):  # type: ignore[misc,valid-type]
     required_axes: ClassVar[frozenset[str]] = frozenset({"y", "x", "lambda"})
     canonical_order: ClassVar[tuple[str, ...]] = ("t", "z", "c", "lambda", "y", "x")
 
-    # NOTE(T-SRS-001 impl agent): declare ``class Meta(Image.Meta)`` here with
-    # ``model_config = ConfigDict(frozen=True, extra="forbid")`` and the nine
-    # fields from master plan §2.4:
-    #   - wavenumbers_cm1: list[float] | None = None
-    #   - laser_power: float | None = None        # mW
-    #   - integration_time: PhysicalQuantity | None = None
-    #   - digitizer_bit_depth: int | None = None
-    #   - digitizer_voltage_range: float | None = None
-    #   - digitizer_offset: float | None = None
-    #   - digitizer_scale: float | None = None
-    #   - pump_wavelength_nm: float | None = None
-    #   - stokes_wavelength_nm: float | None = None
+    class Meta(Image.Meta):
+        """Per-instance SRS metadata locked by the Phase 11 SRS spec."""
 
-    def __init__(self, *args: object, **kwargs: object) -> None:
-        raise NotImplementedError(
-            "T-SRS-001: SRSImage construction — impl pending (skeleton). "
-            "See docs/specs/phase11-srs-block-spec.md §9 T-SRS-001."
+        model_config = ConfigDict(frozen=True, extra="forbid")
+
+        wavenumbers_cm1: list[float] | None = None
+        laser_power: float | None = None
+        integration_time: PhysicalQuantity | None = None
+        digitizer_bit_depth: int | None = None
+        digitizer_voltage_range: float | None = None
+        digitizer_offset: float | None = None
+        digitizer_scale: float | None = None
+        pump_wavelength_nm: float | None = None
+        stokes_wavelength_nm: float | None = None
+
+    def __init__(
+        self,
+        *,
+        axes: list[str],
+        shape: tuple[int, ...] | None = None,
+        dtype: Any = None,
+        chunk_shape: tuple[int, ...] | None = None,
+        meta: Meta | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            axes=axes,
+            shape=shape,
+            dtype=dtype,
+            chunk_shape=chunk_shape,
+            meta=meta,
+            **kwargs,
         )
+        self._validate_wavenumbers_length()
+
+    def _validate_wavenumbers_length(self) -> None:
+        """Ensure metadata wavenumbers match the lambda axis length when known."""
+        if self.meta is None or self.meta.wavenumbers_cm1 is None:
+            return
+        if self.shape is None:
+            return
+
+        lambda_axis = self.axes.index("lambda")
+        lambda_size = self.shape[lambda_axis]
+        if len(self.meta.wavenumbers_cm1) != lambda_size:
+            raise ValueError(
+                "SRSImage.Meta.wavenumbers_cm1 length must match the lambda axis size: "
+                f"{len(self.meta.wavenumbers_cm1)} != {lambda_size}"
+            )
 
 
 def get_types() -> list[type]:
     """Plugin entry point — return the list of types contributed by this plugin.
 
-    Returns ``[SRSImage]`` once T-SRS-001 lands; currently returns ``[]``
-    while the type is a skeleton placeholder. T-SRS-013 wires the final
-    entry-point registration.
+    T-SRS-013 wires the final entry-point registration; T-SRS-001 provides
+    the concrete type payload.
     """
-    # TODO(T-SRS-001 impl agent): return [SRSImage]
-    return []
+    return [SRSImage]
 
 
 __all__ = ["SRSImage", "get_types"]
