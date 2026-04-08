@@ -194,7 +194,7 @@ class ApiRuntime:
         self._bind_event_logging()
 
     def _configure_static_registries(self) -> None:
-        self.type_registry.scan_all()
+        self.type_registry.scan_all(include_monorepo=True)
         self.refresh_block_registry()
 
     def _bind_event_logging(self) -> None:
@@ -248,7 +248,7 @@ class ApiRuntime:
         if self.active_project is not None:
             registry.add_scan_dir(Path(self.active_project.path) / "blocks")
             registry.add_scan_dir(Path.home() / ".scieasy" / "blocks")
-        registry.scan()
+        registry.scan(include_monorepo=True)
         self.block_registry = registry
 
     def create_project(self, name: str, description: str = "", parent_path: str | None = None) -> KnownProject:

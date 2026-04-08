@@ -75,12 +75,13 @@ class BlockRegistry:
         """Add a directory to the Tier 1 scan path."""
         self._scan_dirs.append(Path(directory))
 
-    def scan(self) -> None:
+    def scan(self, *, include_monorepo: bool = False) -> None:
         """Discover block classes from entry-points and drop-in directories."""
         self._scan_builtins()
         self._scan_tier1()
         self._scan_tier2()
-        self._scan_monorepo_packages()
+        if include_monorepo:
+            self._scan_monorepo_packages()
 
     def _register_spec(self, spec: BlockSpec) -> None:
         """Register a spec under its display name and public type name."""

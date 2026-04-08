@@ -423,11 +423,12 @@ class TypeRegistry:
                 )
                 logger.info("Registered external type '%s' from entry-point '%s'", cls.__name__, ep.name)
 
-    def scan_all(self) -> None:
+    def scan_all(self, *, include_monorepo: bool = False) -> None:
         """Register built-in types and then scan entry-points for external types."""
         self.scan_builtins()
         self._scan_entrypoint_types()
-        self._scan_monorepo_types()
+        if include_monorepo:
+            self._scan_monorepo_types()
 
     def _scan_monorepo_types(self) -> None:
         """Development fallback for plugin type discovery in the monorepo.

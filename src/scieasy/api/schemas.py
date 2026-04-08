@@ -118,9 +118,9 @@ class BlockSchemaResponse(BlockSummary):
     dynamic_ports: dict[str, Any] | None = None
     # ADR-028 Addendum 1 D7: IO direction ("input" / "output") so the
     # frontend can render IO-specific UI (browse file vs directory) without
-    # hardcoding ``blockType === "io_block"`` checks. ``None`` for non-IO
-    # blocks.
-    direction: str | None = None
+    # hardcoding ``blockType === "io_block"`` checks. Empty string for
+    # non-IO blocks.
+    direction: str = ""
 
 
 class BlockConnectionValidation(BaseModel):
