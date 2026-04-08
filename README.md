@@ -25,7 +25,7 @@ SciEasy is a **modality-agnostic, building-block workflow framework** where:
 - Multiple data modalities coexist in a **single workflow graph**, enabling true cross-modal fusion analysis.
 - The framework is **AI-native**: AI can generate blocks, synthesize workflows, and optimize parameters at runtime.
 
-> **Status**: SciEasy is in **pre-alpha** (v0.1.0-dev). The core runtime, block system, execution engine, API layer, and frontend workflow editor are implemented and under active development. See [Current Status](#current-status) for details.
+> **Status**: SciEasy is in **pre-alpha** (v0.2.1). The core runtime, block system, execution engine, API layer, and frontend workflow editor are implemented and under active development. See [Current Status](#current-status) for details.
 
 ---
 
@@ -389,7 +389,7 @@ Significant design decisions are documented as ADRs in [`docs/adr/ADR.md`](docs/
 
 ## Current Status
 
-SciEasy is in **pre-alpha** (v0.1.0-dev). The following is implemented and under active development:
+SciEasy is in **pre-alpha** (v0.2.1). The following is implemented and under active development:
 
 **Implemented:**
 - Core data type hierarchy with six base types and domain-specific subtypes

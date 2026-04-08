@@ -1,6 +1,6 @@
 [project]
 name = "scieasy"
-version = "0.1.0-dev"
+version = "0.2.1"
 description = "AI-native, inclusive workflow runtime for multimodal scientific data"
 readme = "README.md"
 license = {text = "MIT"}
@@ -159,7 +159,7 @@ forbidden_modules = ["scieasy.api", "scieasy.ai"]
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.1.0-dev"
+version = "0.2.1"
 tag_format = "v$version"
 
 [tool.coverage.run]
