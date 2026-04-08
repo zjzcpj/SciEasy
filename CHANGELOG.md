@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#416] Activate worker auto-flush context during output serialization so in-memory imaging outputs persist to storage before crossing subprocess boundaries, preventing downstream `Image.to_memory()` failures in interactive blocks like Fiji (@Codex, 2026-04-08, branch: codex/fix-416-worker-autoflush, session: 20260408-181444-fix-416-worker-serialise-outputs-activat)
 - [#408] Deprecate `deserialize_intermediate_refs()` and `_deserialize_value()` in `checkpoint.py` with detailed docstrings explaining the execute-from wire-format pass-through contract; add explanatory comment in `execute_from()` in `scheduler.py` (@claude, 2026-04-08, branch: fix/issue-408/deprecate-dead-deserialize, session: 20260408-154723-chore-deprecate-dead-deserialize-interme)
 - [#405] Fix `preview_data()` to use `TypeRegistry.resolve()` + `issubclass()` for plugin type dispatch, replacing hardcoded class name comparisons and the "Spectrum" substring hack; add `DataRecord.type_chain` field (@claude, 2026-04-08, branch: fix/issue-405/preview-type-identity, session: 20260408-154724-fix-405-preview-runtime-drops-plugin-typ)
 - [#404] Fix `_deserialize_value()` in `checkpoint.py` to read `metadata.type_chain` when building `TypeSignature` for `ViewProxy`, preserving plugin type identity for both single-object and collection-item wire-format dicts; add regression tests (@claude, 2026-04-08, branch: fix/issue-404/checkpoint-wire-format, session: 20260408-154723-fix-404-execute-from-checkpoint-typed-pa)

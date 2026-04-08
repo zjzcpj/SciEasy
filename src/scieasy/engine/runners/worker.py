@@ -118,52 +118,62 @@ def serialise_outputs(outputs: dict[str, Any], output_dir: str) -> dict[str, Any
         Directory for writing output artifacts when auto-flushing.
     """
     from scieasy.blocks.base.block import Block
+    from scieasy.core.storage.flush_context import clear, get_output_dir, set_output_dir
     from scieasy.core.types.base import DataObject
     from scieasy.core.types.collection import Collection
     from scieasy.core.types.serialization import _serialise_one
 
-    result: dict[str, Any] = {}
-    for key, value in outputs.items():
-        # Handle Collection: serialise each item via _serialise_one.
-        if isinstance(value, Collection):
-            item_payloads: list[Any] = []
-            for item in value:
-                flushed = Block._auto_flush(item)
-                if isinstance(flushed, DataObject):
-                    item_payloads.append(_serialise_one(flushed))
+    previous_output_dir = get_output_dir()
+    if output_dir:
+        set_output_dir(output_dir)
+    try:
+        result: dict[str, Any] = {}
+        for key, value in outputs.items():
+            # Handle Collection: serialise each item via _serialise_one.
+            if isinstance(value, Collection):
+                item_payloads: list[Any] = []
+                for item in value:
+                    flushed = Block._auto_flush(item)
+                    if isinstance(flushed, DataObject):
+                        item_payloads.append(_serialise_one(flushed))
+                    else:
+                        item_payloads.append({"_value": str(flushed)})
+                if value.item_type is None:
+                    logger.warning(
+                        "Collection output on port '%s' has item_type=None; defaulting to 'DataObject'",
+                        key,
+                    )
+                result[key] = {
+                    "_collection": True,
+                    "items": item_payloads,
+                    "item_type": value.item_type.__name__ if value.item_type is not None else "DataObject",
+                }
+                continue
+
+            # Typed DataObject: auto-flush then delegate to _serialise_one.
+            if isinstance(value, DataObject):
+                flushed_obj = Block._auto_flush(value)
+                if isinstance(flushed_obj, DataObject):
+                    result[key] = _serialise_one(flushed_obj)
                 else:
-                    item_payloads.append({"_value": str(flushed)})
-            if value.item_type is None:
-                logger.warning(
-                    "Collection output on port '%s' has item_type=None; defaulting to 'DataObject'",
-                    key,
-                )
-            result[key] = {
-                "_collection": True,
-                "items": item_payloads,
-                "item_type": value.item_type.__name__ if value.item_type is not None else "DataObject",
-            }
-            continue
+                    # _auto_flush only ever returns the same obj or a
+                    # passed-through non-DataObject; this branch is
+                    # defensive only.
+                    result[key] = str(flushed_obj)
+                continue
 
-        # Typed DataObject: auto-flush then delegate to _serialise_one.
-        if isinstance(value, DataObject):
-            flushed_obj = Block._auto_flush(value)
-            if isinstance(flushed_obj, DataObject):
-                result[key] = _serialise_one(flushed_obj)
+            # Scalar / list / dict / None: native JSON pass-through.
+            if isinstance(value, (str, int, float, bool, type(None), list, dict)):
+                result[key] = value
             else:
-                # _auto_flush only ever returns the same obj or a
-                # passed-through non-DataObject; this branch is
-                # defensive only.
-                result[key] = str(flushed_obj)
-            continue
+                result[key] = str(value)
 
-        # Scalar / list / dict / None: native JSON pass-through.
-        if isinstance(value, (str, int, float, bool, type(None), list, dict)):
-            result[key] = value
+        return result
+    finally:
+        if previous_output_dir is None:
+            clear()
         else:
-            result[key] = str(value)
-
-    return result
+            set_output_dir(previous_output_dir)
 
 
 def main() -> None:
