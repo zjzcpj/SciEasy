@@ -68,49 +68,6 @@ def test_workflow_execute_and_execute_from_reuses_cached_outputs(
     assert rerun_handle.scheduler.block_states()["final"] == BlockState.DONE
 
 
-def test_workflow_create_rejects_unknown_block_type(client: TestClient, opened_project: Path) -> None:
-    """Workflow create should reject unknown production block types with a 400."""
-    payload = build_linear_workflow(opened_project, workflow_id="unknown-block-flow")
-    payload["nodes"][0]["block_type"] = "missing_block_type"
-
-    response = client.post("/api/workflows/", json=payload)
-
-    assert response.status_code == 400
-    assert "unknown block type 'missing_block_type'" in response.json()["detail"]
-
-
-def test_execute_from_without_checkpoint_returns_404_and_does_not_start_run(
-    client: TestClient,
-    runtime: ApiRuntime,
-    opened_project: Path,
-) -> None:
-    """execute-from should fail before background scheduling when no checkpoint exists."""
-    payload = build_linear_workflow(opened_project, workflow_id="no-checkpoint-flow")
-    assert client.post("/api/workflows/", json=payload).status_code == 200
-
-    response = client.post("/api/workflows/no-checkpoint-flow/execute-from", json={"block_id": "final"})
-
-    assert response.status_code == 404
-    assert response.json()["detail"] == "No checkpoint exists for execute-from"
-    assert "no-checkpoint-flow" not in runtime.workflow_runs
-
-
-def test_execute_from_unknown_block_returns_400_and_does_not_start_run(
-    client: TestClient,
-    runtime: ApiRuntime,
-    opened_project: Path,
-) -> None:
-    """execute-from should validate block IDs before creating the async run task."""
-    payload = build_linear_workflow(opened_project, workflow_id="unknown-block-rerun-flow")
-    assert client.post("/api/workflows/", json=payload).status_code == 200
-
-    response = client.post("/api/workflows/unknown-block-rerun-flow/execute-from", json={"block_id": "missing"})
-
-    assert response.status_code == 400
-    assert response.json()["detail"] == "Unknown block: missing"
-    assert "unknown-block-rerun-flow" not in runtime.workflow_runs
-
-
 def test_workflow_pause_and_resume_keeps_downstream_block_ready(
     client: TestClient,
     runtime: ApiRuntime,

@@ -49,7 +49,7 @@ async def create_workflow(body: WorkflowCreate, runtime: RuntimeDep) -> Workflow
     """Create a new workflow from the supplied graph definition."""
     try:
         definition = runtime.save_workflow(body.model_dump())
-    except (RuntimeError, ValueError) as exc:
+    except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _workflow_response(definition)
 
@@ -75,10 +75,7 @@ async def update_workflow(
     """Replace a workflow definition."""
     if workflow_id != body.id:
         raise HTTPException(status_code=400, detail="Workflow path/body IDs must match.")
-    try:
-        definition = runtime.save_workflow(body.model_dump())
-    except (RuntimeError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    definition = runtime.save_workflow(body.model_dump())
     return _workflow_response(definition)
 
 

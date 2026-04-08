@@ -27,13 +27,6 @@ function emptyWorkflow(id = "main"): WorkflowResponse {
   };
 }
 
-export function shouldFallbackToFullWorkflowRun(errorMessage: string): boolean {
-  return (
-    errorMessage.includes("No checkpoint exists for execute-from") ||
-    errorMessage.includes("Cannot execute from block without cached upstream outputs")
-  );
-}
-
 export default function App() {
   const currentProject = useAppStore((state) => state.currentProject);
   const recentProjects = useAppStore((state) => state.recentProjects);
@@ -237,23 +230,6 @@ export default function App() {
     setActiveBottomTab("logs");
   }
 
-  async function runBlockOrWorkflow(blockId: string) {
-    if (!workflowId) {
-      return;
-    }
-    await saveWorkflow();
-    try {
-      await api.executeFrom(workflowId, blockId);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (!shouldFallbackToFullWorkflowRun(message)) {
-        throw error;
-      }
-      await api.executeWorkflow(workflowId);
-    }
-    setActiveBottomTab("logs");
-  }
-
   async function pauseWorkflow() {
     if (!workflowId) {
       return;
@@ -279,7 +255,9 @@ export default function App() {
     if (!workflowId || !selectedNodeId) {
       return;
     }
-    await runBlockOrWorkflow(selectedNodeId);
+    await saveWorkflow();
+    await api.executeFrom(workflowId, selectedNodeId);
+    setActiveBottomTab("logs");
   }
 
   async function cancelSelectedBlock() {
@@ -291,16 +269,22 @@ export default function App() {
 
   const handleRunBlock = useCallback(
     async (blockId: string) => {
-      await runBlockOrWorkflow(blockId);
+      if (!workflowId) return;
+      await saveWorkflow();
+      await api.executeFrom(workflowId, blockId);
+      setActiveBottomTab("logs");
     },
-    [runBlockOrWorkflow],
+    [workflowId],
   );
 
   const handleRestartBlock = useCallback(
     async (blockId: string) => {
-      await runBlockOrWorkflow(blockId);
+      if (!workflowId) return;
+      await saveWorkflow();
+      await api.executeFrom(workflowId, blockId);
+      setActiveBottomTab("logs");
     },
-    [runBlockOrWorkflow],
+    [workflowId],
   );
 
   const handleNodeSelect = useCallback(

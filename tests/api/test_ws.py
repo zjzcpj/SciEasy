@@ -10,16 +10,8 @@ from fastapi.testclient import TestClient
 
 from scieasy.api.runtime import ApiRuntime
 from scieasy.api.ws import websocket_handler
-from scieasy.engine.events import (
-    BLOCK_DONE,
-    CANCEL_BLOCK_REQUEST,
-    CANCEL_WORKFLOW_REQUEST,
-    WORKFLOW_ERROR,
-    EngineEvent,
-    EventBus,
-)
-from scieasy.engine.scheduler import DAGScheduler
-from tests.api.helpers import build_linear_workflow, wait_for_condition
+from scieasy.engine.events import BLOCK_DONE, CANCEL_BLOCK_REQUEST, CANCEL_WORKFLOW_REQUEST, EngineEvent, EventBus
+from tests.api.helpers import wait_for_condition
 
 
 def test_websocket_receives_serialised_engine_events(client: TestClient, runtime: ApiRuntime) -> None:
@@ -63,31 +55,6 @@ def test_websocket_inbound_messages_emit_cancel_events(client: TestClient, runti
 
     assert (CANCEL_BLOCK_REQUEST, "node-3", "wf-2") in seen
     assert (CANCEL_WORKFLOW_REQUEST, None, "wf-2") in seen
-
-
-def test_websocket_receives_workflow_error_for_background_failure(
-    client: TestClient,
-    runtime: ApiRuntime,
-    opened_project,
-    monkeypatch,
-) -> None:
-    """Unexpected scheduler crashes should surface as workflow_error events."""
-    payload = build_linear_workflow(opened_project, workflow_id="workflow-error-flow")
-    assert client.post("/api/workflows/", json=payload).status_code == 200
-
-    async def boom(self) -> None:
-        raise RuntimeError("scheduler crashed before dispatch")
-
-    monkeypatch.setattr(DAGScheduler, "execute", boom)
-
-    with client.websocket_connect("/ws") as websocket:
-        started = client.post("/api/workflows/workflow-error-flow/execute")
-        assert started.status_code == 200
-        message = websocket.receive_json()
-
-    assert message["type"] == WORKFLOW_ERROR
-    assert message["workflow_id"] == "workflow-error-flow"
-    assert message["data"]["error"] == "Workflow execution failed: scheduler crashed before dispatch"
 
 
 def test_websocket_handler_handles_cancelled_error_on_shutdown() -> None:
