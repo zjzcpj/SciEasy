@@ -1,8 +1,4 @@
-"""NapariBlock — AppBlock wrapper that opens images in napari.
-
-Skeleton placeholder — T-IMG-035 implementation agent fills the body.
-See ``docs/specs/phase11-imaging-block-spec.md`` §9 T-IMG-035.
-"""
+"""Napari AppBlock wrapper for imaging workflows."""
 
 from __future__ import annotations
 
@@ -13,6 +9,14 @@ from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.base.state import ExecutionMode
 from scieasy.core.types.collection import Collection
+from scieasy_blocks_imaging.interactive import (
+    _collect_outputs,
+    _input_images,
+    _prepare_image_exchange,
+    _resolve_command,
+    _resolve_exchange_dir,
+    _run_external_app,
+)
 from scieasy_blocks_imaging.types import Image, Label, Mask
 
 
@@ -54,12 +58,14 @@ class NapariBlock(AppBlock):
         },
     }
 
-    def run(
-        self,
-        inputs: dict[str, Collection],
-        config: BlockConfig,
-    ) -> dict[str, Collection]:
-        raise NotImplementedError(
-            "T-IMG-035: NapariBlock.run — impl pending (skeleton continuation B). "
-            "See docs/specs/phase11-imaging-block-spec.md §9 T-IMG-035."
+    def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, Collection]:
+        images = _input_images(inputs, "image", "NapariBlock")
+        exchange_dir = _resolve_exchange_dir(config, prefix="scieasy_napari_")
+        _prepare_image_exchange(images, exchange_dir, tool_name=self.type_name, config=config)
+        command = _resolve_command(config, app_command=self.app_command, override_key="napari_path")
+        output_files = _run_external_app(
+            self, command=command, exchange_dir=exchange_dir, patterns=self.output_patterns, config=config
+        )
+        return _collect_outputs(
+            output_files, template_image=images[0] if images else None, allowed_ports={"image", "mask", "label"}
         )

@@ -1,8 +1,4 @@
-"""CellProfilerBlock — AppBlock wrapper for CellProfiler.
-
-Skeleton placeholder — T-IMG-036 implementation agent fills the body.
-See ``docs/specs/phase11-imaging-block-spec.md`` §9 T-IMG-036.
-"""
+"""CellProfiler AppBlock wrapper for imaging workflows."""
 
 from __future__ import annotations
 
@@ -14,6 +10,14 @@ from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.base.state import ExecutionMode
 from scieasy.core.types.collection import Collection
 from scieasy.core.types.dataframe import DataFrame
+from scieasy_blocks_imaging.interactive import (
+    _collect_outputs,
+    _input_images,
+    _prepare_image_exchange,
+    _resolve_command,
+    _resolve_exchange_dir,
+    _run_external_app,
+)
 from scieasy_blocks_imaging.types import Image, Label
 
 
@@ -39,17 +43,9 @@ class CellProfilerBlock(AppBlock):
     ]
     output_ports: ClassVar[list[OutputPort]] = [
         OutputPort(
-            name="measurements",
-            accepted_types=[DataFrame],
-            required=False,
-            description="Per-object measurement table.",
+            name="measurements", accepted_types=[DataFrame], required=False, description="Per-object measurement table."
         ),
-        OutputPort(
-            name="label",
-            accepted_types=[Label],
-            required=False,
-            description="Object label image.",
-        ),
+        OutputPort(name="label", accepted_types=[Label], required=False, description="Object label image."),
     ]
 
     config_schema: ClassVar[dict[str, Any]] = {
@@ -71,12 +67,21 @@ class CellProfilerBlock(AppBlock):
         },
     }
 
-    def run(
-        self,
-        inputs: dict[str, Collection],
-        config: BlockConfig,
-    ) -> dict[str, Collection]:
-        raise NotImplementedError(
-            "T-IMG-036: CellProfilerBlock.run — impl pending (skeleton continuation B). "
-            "See docs/specs/phase11-imaging-block-spec.md §9 T-IMG-036."
+    def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, Collection]:
+        images = _input_images(inputs, "image", "CellProfilerBlock")
+        exchange_dir = _resolve_exchange_dir(config, prefix="scieasy_cellprofiler_")
+        _prepare_image_exchange(images, exchange_dir, tool_name=self.type_name, config=config)
+
+        extra_args: list[str] = []
+        pipeline_path = config.get("pipeline_path")
+        if pipeline_path:
+            extra_args.extend(["-c", "-r", "-p", str(pipeline_path)])
+        command = _resolve_command(
+            config, app_command=self.app_command, override_key="cellprofiler_path", extra_args=extra_args
+        )
+        output_files = _run_external_app(
+            self, command=command, exchange_dir=exchange_dir, patterns=self.output_patterns, config=config
+        )
+        return _collect_outputs(
+            output_files, template_image=images[0] if images else None, allowed_ports={"measurements", "label"}
         )

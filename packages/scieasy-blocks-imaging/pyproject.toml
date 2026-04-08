@@ -1,18 +1,41 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
 
 [project]
 name = "scieasy-blocks-imaging"
-version = "0.1.0.dev0"
-description = "SciEasy imaging plugin — placeholder skeleton (Phase 11)."
+version = "0.1.0"
+description = "Phase 11 microscopy imaging blocks for SciEasy."
+readme = "README.md"
+authors = [
+    {name = "SciEasy Contributors"},
+]
 requires-python = ">=3.11"
 dependencies = [
     "scieasy>=0.2",
+    "numpy>=1.24",
+    "scipy>=1.11",
+    "scikit-image>=0.22",
+    "tifffile>=2024.1",
+    "zarr>=3.0",
+    "matplotlib>=3.8",
+    "imageio>=2.33",
+    "pydantic>=2.0",
 ]
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[project.optional-dependencies]
+cellpose = [
+    "cellpose>=3.0",
+]
+
+[project.entry-points."scieasy.blocks"]
+imaging = "scieasy_blocks_imaging:get_block_package"
+
+[project.entry-points."scieasy.types"]
+imaging = "scieasy_blocks_imaging:get_types"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/scieasy_blocks_imaging"]
 
 [tool.pytest.ini_options]
 markers = [

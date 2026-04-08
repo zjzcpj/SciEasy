@@ -7,12 +7,15 @@ marked via ``pytest.skip``.
 
 from __future__ import annotations
 
+import sys
+
 import numpy as np
 import pyarrow as pa
 import pytest
 
 from scieasy.blocks.app.app_block import AppBlock
 from scieasy.blocks.base.config import BlockConfig
+from scieasy.blocks.base.state import BlockState
 from scieasy.blocks.process.process_block import ProcessBlock
 from scieasy.core.types.array import Array
 from scieasy.core.types.collection import Collection
@@ -304,7 +307,27 @@ def test_t_img_027_compute_registration_class() -> None:
 
 
 def test_t_img_027_phase_correlation() -> None:
-    pytest.skip("T-IMG-027 impl pending")
+    pytest.importorskip("skimage")
+    from scieasy_blocks_imaging.registration.compute_registration import (
+        ComputeRegistration,
+    )
+    from scieasy_blocks_imaging.types import Image
+
+    arr = np.zeros((16, 16), dtype=np.float32)
+    arr[4:8, 4:8] = 1.0
+    moving = np.roll(arr, shift=(2, -1), axis=(0, 1))
+    moving_image = Image(axes=["y", "x"], shape=moving.shape, dtype=moving.dtype)
+    moving_image._data = moving  # type: ignore[attr-defined]
+    fixed_image = Image(axes=["y", "x"], shape=arr.shape, dtype=arr.dtype)
+    fixed_image._data = arr  # type: ignore[attr-defined]
+    result = ComputeRegistration().run(
+        {
+            "moving": Collection(items=[moving_image], item_type=Image),
+            "fixed": Collection(items=[fixed_image], item_type=Image),
+        },
+        BlockConfig(params={"method": "phase_correlation"}),
+    )
+    assert result["transform"][0].shape == (2, 3)
 
 
 # ── T-IMG-028 ──────────────────────────────────────────────────────────
@@ -315,7 +338,30 @@ def test_t_img_028_apply_transform_class() -> None:
 
 
 def test_t_img_028_warp_basic() -> None:
-    pytest.skip("T-IMG-028 impl pending")
+    pytest.importorskip("skimage")
+    from scieasy_blocks_imaging.registration.apply_transform import ApplyTransform
+    from scieasy_blocks_imaging.types import Image, Transform
+
+    arr = np.zeros((10, 10), dtype=np.float32)
+    arr[3:5, 3:5] = 1.0
+    image = Image(axes=["y", "x"], shape=arr.shape, dtype=arr.dtype)
+    image._data = arr  # type: ignore[attr-defined]
+    transform = Transform(
+        axes=["row", "col"],
+        shape=(2, 3),
+        dtype=np.float64,
+        meta=Transform.Meta(transform_type="affine"),
+    )
+    transform._data = np.asarray([[1.0, 0.0, 1.0], [0.0, 1.0, 0.0]], dtype=np.float64)  # type: ignore[attr-defined]
+
+    result = ApplyTransform().run(
+        {
+            "image": Collection(items=[image], item_type=Image),
+            "transform": Collection(items=[transform], item_type=Transform),
+        },
+        BlockConfig(params={"interpolation": "nearest"}),
+    )
+    assert result["warped"][0].shape == (10, 10)
 
 
 # ── T-IMG-029 ──────────────────────────────────────────────────────────
@@ -326,7 +372,21 @@ def test_t_img_029_register_series_class() -> None:
 
 
 def test_t_img_029_align_to_reference() -> None:
-    pytest.skip("T-IMG-029 impl pending")
+    pytest.importorskip("skimage")
+    from scieasy_blocks_imaging.registration.register_series import RegisterSeries
+    from scieasy_blocks_imaging.types import Image
+
+    base = np.zeros((12, 12), dtype=np.float32)
+    base[4:8, 4:8] = 1.0
+    shifted = np.roll(base, shift=(1, 2), axis=(0, 1))
+    series = Image(axes=["t", "y", "x"], shape=(2, 12, 12), dtype=np.float32)
+    series._data = np.stack([base, shifted], axis=0)  # type: ignore[attr-defined]
+
+    result = RegisterSeries().run(
+        {"series": Collection(items=[series], item_type=Image)},
+        BlockConfig(params={"axis": "t", "reference_frame": 0}),
+    )
+    assert result["registered"][0].shape == (2, 12, 12)
 
 
 # ── T-IMG-030 ──────────────────────────────────────────────────────────
@@ -341,11 +401,29 @@ def test_t_img_030_projection_classes() -> None:
 
 
 def test_t_img_030_axis_projection_max() -> None:
-    pytest.skip("T-IMG-030 impl pending")
+    from scieasy_blocks_imaging.projection.projection import AxisProjection
+    from scieasy_blocks_imaging.types import Image
+
+    image = Image(axes=["z", "y", "x"], shape=(2, 4, 4), dtype=np.float32)
+    image._data = np.arange(2 * 4 * 4, dtype=np.float32).reshape(2, 4, 4)  # type: ignore[attr-defined]
+
+    projected = AxisProjection().process_item(image, BlockConfig(params={"axis": "z", "method": "max"}))
+
+    assert projected.axes == ["y", "x"]
+    assert projected.shape == (4, 4)
 
 
 def test_t_img_030_select_slice_index() -> None:
-    pytest.skip("T-IMG-030 impl pending")
+    from scieasy_blocks_imaging.projection.projection import SelectSlice
+    from scieasy_blocks_imaging.types import Image
+
+    image = Image(axes=["c", "y", "x"], shape=(2, 4, 4), dtype=np.float32)
+    image._data = np.arange(2 * 4 * 4, dtype=np.float32).reshape(2, 4, 4)  # type: ignore[attr-defined]
+
+    selected = SelectSlice().process_item(image, BlockConfig(params={"axis": "c", "index": 1}))
+
+    assert selected.axes == ["y", "x"]
+    assert selected.shape == (4, 4)
 
 
 # ── T-IMG-031 ──────────────────────────────────────────────────────────
@@ -362,11 +440,28 @@ def test_t_img_031_scalar_op_classes() -> None:
 
 
 def test_t_img_031_add_subtract_basic() -> None:
-    pytest.skip("T-IMG-031 impl pending")
+    from scieasy_blocks_imaging.math.scalar_ops import AddScalar, SubtractScalar
+    from scieasy_blocks_imaging.types import Image
+
+    image = Image(axes=["y", "x"], shape=(2, 2), dtype=np.float32)
+    image._data = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)  # type: ignore[attr-defined]
+
+    added = AddScalar().process_item(image, BlockConfig(params={"value": 1.0}))
+    subtracted = SubtractScalar().process_item(image, BlockConfig(params={"value": 1.0}))
+
+    assert np.array_equal(added._data, np.array([[2.0, 3.0], [4.0, 5.0]], dtype=np.float32))
+    assert np.array_equal(subtracted._data, np.array([[0.0, 1.0], [2.0, 3.0]], dtype=np.float32))
 
 
 def test_t_img_031_divide_by_zero_raises() -> None:
-    pytest.skip("T-IMG-031 impl pending")
+    from scieasy_blocks_imaging.math.scalar_ops import DivideScalar
+    from scieasy_blocks_imaging.types import Image
+
+    image = Image(axes=["y", "x"], shape=(1, 1), dtype=np.float32)
+    image._data = np.array([[1.0]], dtype=np.float32)  # type: ignore[attr-defined]
+
+    with pytest.raises(ValueError, match="non-zero"):
+        DivideScalar().process_item(image, BlockConfig(params={"value": 0.0, "epsilon": 0.0}))
 
 
 # ── T-IMG-032 ──────────────────────────────────────────────────────────
@@ -378,11 +473,30 @@ def test_t_img_032_image_calculator_class() -> None:
 
 
 def test_t_img_032_simple_expression() -> None:
-    pytest.skip("T-IMG-032 impl pending")
+    from scieasy_blocks_imaging.math.image_calculator import ImageCalculator
+    from scieasy_blocks_imaging.types import Image
+
+    left = Image(axes=["y", "x"], shape=(2, 2), dtype=np.float32)
+    left._data = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)  # type: ignore[attr-defined]
+    right = Image(axes=["y", "x"], shape=(2, 2), dtype=np.float32)
+    right._data = np.array([[4.0, 3.0], [2.0, 1.0]], dtype=np.float32)  # type: ignore[attr-defined]
+
+    result = ImageCalculator().run({"a": left, "b": right}, BlockConfig(params={"expression": "a - b"}))
+
+    assert np.array_equal(result["result"]._data, np.array([[-3.0, -1.0], [1.0, 3.0]], dtype=np.float32))
 
 
 def test_t_img_032_invalid_expression_raises() -> None:
-    pytest.skip("T-IMG-032 impl pending")
+    from scieasy_blocks_imaging.math.image_calculator import ImageCalculator
+    from scieasy_blocks_imaging.types import Image
+
+    left = Image(axes=["y", "x"], shape=(1, 1), dtype=np.float32)
+    left._data = np.array([[1.0]], dtype=np.float32)  # type: ignore[attr-defined]
+    right = Image(axes=["y", "x"], shape=(1, 1), dtype=np.float32)
+    right._data = np.array([[1.0]], dtype=np.float32)  # type: ignore[attr-defined]
+
+    with pytest.raises(ValueError, match="forbidden"):
+        ImageCalculator().run({"a": left, "b": right}, BlockConfig(params={"expression": "abs(a)"}))
 
 
 # ── T-IMG-033 ──────────────────────────────────────────────────────────
@@ -406,11 +520,42 @@ def test_t_img_033_render_classes() -> None:
 
 
 def test_t_img_033_pseudo_color_lut() -> None:
-    pytest.skip("T-IMG-033 impl pending")
+    pytest.importorskip("matplotlib")
+    from scieasy_blocks_imaging.types import Image
+    from scieasy_blocks_imaging.visualization.render import RenderPseudoColor
+
+    image = Image(axes=["y", "x"], shape=(4, 4), dtype=np.float32)
+    image._data = np.arange(16, dtype=np.float32).reshape(4, 4)  # type: ignore[attr-defined]
+
+    artifact = RenderPseudoColor().process_item(image, BlockConfig(params={"lut": "viridis"}))
+
+    assert artifact.mime_type == "image/png"
+    assert artifact.file_path is not None
+    assert artifact.file_path.exists()
 
 
 def test_t_img_033_overlay_alpha() -> None:
-    pytest.skip("T-IMG-033 impl pending")
+    pytest.importorskip("matplotlib")
+    from scieasy_blocks_imaging.types import Image, Label
+    from scieasy_blocks_imaging.visualization.render import RenderOverlay
+
+    from scieasy.core.types.array import Array
+
+    image = Image(axes=["y", "x"], shape=(4, 4), dtype=np.float32)
+    image._data = np.arange(16, dtype=np.float32).reshape(4, 4)  # type: ignore[attr-defined]
+    raster = Array(axes=["y", "x"], shape=(4, 4), dtype=np.int32)
+    raster._data = np.array([[0, 0, 1, 1], [0, 0, 1, 1], [0, 0, 0, 0], [0, 0, 0, 0]], dtype=np.int32)  # type: ignore[attr-defined]
+    label = Label(slots={"raster": raster})
+
+    result = RenderOverlay().run(
+        {"image": image, "overlay": label},
+        BlockConfig(params={"alpha": 0.8, "outline_only": True}),
+    )
+
+    artifact = result["artifact"]
+    assert artifact.mime_type == "image/png"
+    assert artifact.file_path is not None
+    assert artifact.file_path.exists()
 
 
 # ── T-IMG-034 ──────────────────────────────────────────────────────────
@@ -421,8 +566,38 @@ def test_t_img_034_fiji_block_class() -> None:
     assert FijiBlock.app_command == r"C:\Program Files\Fiji\fiji-windows-x64.exe"
 
 
-def test_t_img_034_run_routes_outputs() -> None:
-    pytest.skip("T-IMG-034 impl pending")
+def test_t_img_034_run_routes_outputs(tmp_path) -> None:
+    from scieasy_blocks_imaging.interactive.fiji_block import FijiBlock
+    from scieasy_blocks_imaging.types import Image
+
+    script = tmp_path / "fake_fiji.py"
+    script.write_text(
+        """
+from pathlib import Path
+import shutil
+import sys
+
+exchange = Path(sys.argv[-1])
+source = next((exchange / "inputs").glob("*.tif"))
+target = exchange / "outputs" / "image_reviewed.tif"
+target.parent.mkdir(exist_ok=True)
+shutil.copyfile(source, target)
+""".strip(),
+        encoding="utf-8",
+    )
+
+    block = FijiBlock()
+    block.transition(BlockState.READY)
+    block.transition(BlockState.RUNNING)
+    image = Image(axes=["y", "x"], shape=(3, 3), dtype=np.uint8)
+    image._data = np.arange(9, dtype=np.uint8).reshape(3, 3)  # type: ignore[attr-defined]
+
+    result = block.run(
+        {"image": Collection(items=[image], item_type=Image)},
+        BlockConfig(params={"app_command": [sys.executable, str(script)], "watch_timeout": 5}),
+    )
+
+    assert "image" in result
 
 
 # ── T-IMG-035 ──────────────────────────────────────────────────────────
@@ -433,8 +608,38 @@ def test_t_img_035_napari_block_class() -> None:
     assert NapariBlock.app_command == "napari"
 
 
-def test_t_img_035_run_routes_outputs() -> None:
-    pytest.skip("T-IMG-035 impl pending")
+def test_t_img_035_run_routes_outputs(tmp_path) -> None:
+    from scieasy_blocks_imaging.interactive.napari_block import NapariBlock
+    from scieasy_blocks_imaging.types import Image
+
+    script = tmp_path / "fake_napari.py"
+    script.write_text(
+        """
+from pathlib import Path
+import shutil
+import sys
+
+exchange = Path(sys.argv[-1])
+source = next((exchange / "inputs").glob("*.tif"))
+target = exchange / "outputs" / "image_layer.tif"
+target.parent.mkdir(exist_ok=True)
+shutil.copyfile(source, target)
+""".strip(),
+        encoding="utf-8",
+    )
+
+    block = NapariBlock()
+    block.transition(BlockState.READY)
+    block.transition(BlockState.RUNNING)
+    image = Image(axes=["y", "x"], shape=(3, 3), dtype=np.uint8)
+    image._data = np.arange(9, dtype=np.uint8).reshape(3, 3)  # type: ignore[attr-defined]
+
+    result = block.run(
+        {"image": Collection(items=[image], item_type=Image)},
+        BlockConfig(params={"app_command": [sys.executable, str(script)], "watch_timeout": 5}),
+    )
+
+    assert "image" in result
 
 
 # ── T-IMG-036 ──────────────────────────────────────────────────────────
@@ -447,8 +652,48 @@ def test_t_img_036_cell_profiler_block_class() -> None:
     assert CellProfilerBlock.app_command == "cellprofiler"
 
 
-def test_t_img_036_run_routes_outputs() -> None:
-    pytest.skip("T-IMG-036 impl pending")
+def test_t_img_036_run_routes_outputs(tmp_path) -> None:
+    from scieasy_blocks_imaging.interactive.cell_profiler_block import CellProfilerBlock
+    from scieasy_blocks_imaging.types import Image
+
+    script = tmp_path / "fake_cellprofiler.py"
+    script.write_text(
+        """
+from pathlib import Path
+import shutil
+import sys
+
+exchange = Path(sys.argv[-1])
+source = next((exchange / "inputs").glob("*.tif"))
+output_dir = exchange / "outputs"
+output_dir.mkdir(exist_ok=True)
+shutil.copyfile(source, output_dir / "label_output.tif")
+(output_dir / "measurements.csv").write_text("object_id,area\\n1,42\\n", encoding="utf-8")
+""".strip(),
+        encoding="utf-8",
+    )
+    pipeline = tmp_path / "fake_pipeline.cppipe"
+    pipeline.write_text("fake pipeline", encoding="utf-8")
+
+    block = CellProfilerBlock()
+    block.transition(BlockState.READY)
+    block.transition(BlockState.RUNNING)
+    image = Image(axes=["y", "x"], shape=(3, 3), dtype=np.uint8)
+    image._data = np.arange(9, dtype=np.uint8).reshape(3, 3)  # type: ignore[attr-defined]
+
+    result = block.run(
+        {"image": Collection(items=[image], item_type=Image)},
+        BlockConfig(
+            params={
+                "app_command": [sys.executable, str(script)],
+                "pipeline_path": str(pipeline),
+                "watch_timeout": 5,
+            }
+        ),
+    )
+
+    assert "measurements" in result
+    assert "label" in result
 
 
 # ── T-IMG-037 ──────────────────────────────────────────────────────────
@@ -459,5 +704,41 @@ def test_t_img_037_qupath_block_class() -> None:
     assert QuPathBlock.app_command == "qupath"
 
 
-def test_t_img_037_run_routes_outputs() -> None:
-    pytest.skip("T-IMG-037 impl pending")
+def test_t_img_037_run_routes_outputs(tmp_path) -> None:
+    from scieasy_blocks_imaging.interactive.qupath_block import QuPathBlock
+    from scieasy_blocks_imaging.types import Image
+
+    script = tmp_path / "fake_qupath.py"
+    script.write_text(
+        """
+from pathlib import Path
+import sys
+
+exchange = Path(sys.argv[-1])
+output_dir = exchange / "outputs"
+output_dir.mkdir(exist_ok=True)
+(output_dir / "measurements.csv").write_text("cell_id,intensity\\n1,3.14\\n", encoding="utf-8")
+""".strip(),
+        encoding="utf-8",
+    )
+    tool_script = tmp_path / "fake_qupath.groovy"
+    tool_script.write_text("// fake script", encoding="utf-8")
+
+    block = QuPathBlock()
+    block.transition(BlockState.READY)
+    block.transition(BlockState.RUNNING)
+    image = Image(axes=["y", "x"], shape=(3, 3), dtype=np.uint8)
+    image._data = np.arange(9, dtype=np.uint8).reshape(3, 3)  # type: ignore[attr-defined]
+
+    result = block.run(
+        {"image": Collection(items=[image], item_type=Image)},
+        BlockConfig(
+            params={
+                "app_command": [sys.executable, str(script)],
+                "script_path": str(tool_script),
+                "watch_timeout": 5,
+            }
+        ),
+    )
+
+    assert "measurements" in result
