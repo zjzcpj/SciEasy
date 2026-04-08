@@ -182,6 +182,38 @@ def test_lcms_types_placeholder_raises() -> None:
         get_types()
 
 
+_CONTINUATION_B_MODULES = [
+    "scieasy_blocks_imaging.segmentation.connected_components",
+    "scieasy_blocks_imaging.segmentation.cleanup",
+    "scieasy_blocks_imaging.tracking.track_objects",
+    "scieasy_blocks_imaging.measurement.region_props",
+    "scieasy_blocks_imaging.measurement.pairwise_distance",
+    "scieasy_blocks_imaging.measurement.colocalization",
+    "scieasy_blocks_imaging.registration.compute_registration",
+    "scieasy_blocks_imaging.registration.apply_transform",
+    "scieasy_blocks_imaging.registration.register_series",
+    "scieasy_blocks_imaging.projection.projection",
+    "scieasy_blocks_imaging.math.scalar_ops",
+    "scieasy_blocks_imaging.math.image_calculator",
+    "scieasy_blocks_imaging.visualization.render",
+    "scieasy_blocks_imaging.interactive.fiji_block",
+    "scieasy_blocks_imaging.interactive.napari_block",
+    "scieasy_blocks_imaging.interactive.cell_profiler_block",
+    "scieasy_blocks_imaging.interactive.qupath_block",
+]
+
+
+@pytest.mark.parametrize("module_name", _CONTINUATION_B_MODULES)
+def test_continuation_b_modules_importable(module_name: str) -> None:
+    """Sprint C imaging continuation B skeletons importable (T-IMG-021..037).
+
+    Each module exposes its block class(es) inheriting from ``ProcessBlock``
+    or ``AppBlock`` with full ClassVar annotations. ``process_item`` / ``run``
+    bodies raise ``NotImplementedError`` until the impl agent fills them in.
+    """
+    importlib.import_module(module_name)
+
+
 def test_lcms_block_skeletons_inherit_real_bases() -> None:
     """Sanity-check #345: every LC-MS skeleton block subclasses a real base class.
 
