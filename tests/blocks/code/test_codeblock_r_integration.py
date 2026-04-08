@@ -54,11 +54,7 @@ def test_codeblock_r_dataframe_roundtrip() -> None:
         params={
             "language": "r",
             "mode": "inline",
-            "script": (
-                "df <- as.data.frame(data)\n"
-                "filtered <- df[df$value > 5, ]\n"
-                "rm(df)\n"
-            ),
+            "script": ("df <- as.data.frame(data)\nfiltered <- df[df$value > 5, ]\nrm(df)\n"),
         }
     )
     inputs = {
@@ -81,20 +77,12 @@ def test_codeblock_r_dataframe_roundtrip() -> None:
         values = [row["value"] for row in filtered]
     elif isinstance(filtered, dict):
         ids = list(filtered["id"]) if not isinstance(filtered["id"], str) else [filtered["id"]]
-        values = (
-            list(filtered["value"])
-            if not isinstance(filtered["value"], (int, float))
-            else [filtered["value"]]
-        )
+        values = list(filtered["value"]) if not isinstance(filtered["value"], (int, float)) else [filtered["value"]]
     else:  # pragma: no cover - diagnostic branch for audit failure
-        pytest.fail(
-            f"Unexpected R filtered payload shape: {type(filtered).__name__} -> {filtered!r}"
-        )
+        pytest.fail(f"Unexpected R filtered payload shape: {type(filtered).__name__} -> {filtered!r}")
 
     assert ids == ["b", "d"], f"Expected filtered ids ['b','d'], got {ids}"
-    assert [float(v) for v in values] == [6.0, 9.0], (
-        f"Expected filtered values [6, 9], got {values}"
-    )
+    assert [float(v) for v in values] == [6.0, 9.0], f"Expected filtered values [6, 9], got {values}"
 
 
 def test_codeblock_r_error_propagates() -> None:
@@ -114,6 +102,4 @@ def test_codeblock_r_error_propagates() -> None:
         block.run({}, config)
 
     message = str(excinfo.value)
-    assert "scieasy-r-audit: boom from R" in message, (
-        f"R error message not preserved through runner; got: {message!r}"
-    )
+    assert "scieasy-r-audit: boom from R" in message, f"R error message not preserved through runner; got: {message!r}"
