@@ -14,6 +14,9 @@ export interface BlockNodeData extends Record<string, unknown> {
   inputPorts: BlockPortResponse[];
   outputPorts: BlockPortResponse[];
   status?: string;
+  /** Short error message populated when status is 'error'. Sourced from the
+   *  BLOCK_ERROR WebSocket event's \`data.error\` field. */
+  errorMessage?: string;
   outputPreviewLabel?: string;
   selected?: boolean;
   onRun?: () => void;
