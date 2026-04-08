@@ -757,3 +757,46 @@ def test_imaging_measurement_impl_smoke() -> None:
     assert props.row_count == 1
     assert distances.row_count == 0
     assert coloc.row_count == 1
+
+
+def test_imaging_finish_impl_smoke() -> None:
+    """Smoke test the final Phase 11 imaging package surface."""
+    pytest.importorskip("skimage")
+    from scieasy_blocks_imaging import (
+        AxisProjection,
+        CellProfilerBlock,
+        ComputeRegistration,
+        ConvertDType,
+        ImageCalculator,
+        RenderPseudoColor,
+        get_block_package,
+        get_blocks,
+        get_types,
+    )
+    from scieasy_blocks_imaging.types import Image, Label, Mask, Transform
+
+    from scieasy.blocks.base.package_info import PackageInfo
+
+    info, blocks = get_block_package()
+
+    assert isinstance(info, PackageInfo)
+    assert info.name == "scieasy-blocks-imaging"
+    assert get_types() == [Image, Mask, Label, Transform]
+    assert ConvertDType in get_blocks()
+    assert ComputeRegistration in blocks
+    assert AxisProjection in blocks
+    assert ImageCalculator in blocks
+    assert RenderPseudoColor in blocks
+    assert CellProfilerBlock in blocks
+    assert len(blocks) == 51
+
+    for block_cls in (
+        ConvertDType,
+        ComputeRegistration,
+        AxisProjection,
+        ImageCalculator,
+        RenderPseudoColor,
+        CellProfilerBlock,
+    ):
+        block = block_cls()
+        assert block.type_name

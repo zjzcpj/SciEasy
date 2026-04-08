@@ -1,7 +1,8 @@
-"""SciEasy imaging plugin - Phase 11 imaging blocks landed so far."""
+"""SciEasy imaging plugin package metadata and public exports."""
 
 from __future__ import annotations
 
+from scieasy.blocks.base.package_info import PackageInfo
 from scieasy_blocks_imaging.interactive.cell_profiler_block import CellProfilerBlock
 from scieasy_blocks_imaging.interactive.fiji_block import FijiBlock
 from scieasy_blocks_imaging.interactive.napari_block import NapariBlock
@@ -50,67 +51,87 @@ from scieasy_blocks_imaging.visualization.render import (
     RenderPseudoColor,
 )
 
+__version__ = "0.1.0"
+
+_IMAGING_TYPES: tuple[type, ...] = (Image, Mask, Label, Transform)
+_IMAGING_BLOCKS: tuple[type, ...] = (
+    LoadImage,
+    SaveImage,
+    Denoise,
+    BackgroundSubtract,
+    Normalize,
+    FlatFieldCorrect,
+    Rotate,
+    Flip,
+    Crop,
+    Pad,
+    Resize,
+    ConvertDType,
+    AxisSplit,
+    AxisMerge,
+    MorphologyOp,
+    EdgeDetect,
+    RidgeFilter,
+    Sharpen,
+    FFTFilter,
+    ComputeRegistration,
+    ApplyTransform,
+    RegisterSeries,
+    AxisProjection,
+    SelectSlice,
+    AddScalar,
+    SubtractScalar,
+    MultiplyScalar,
+    DivideScalar,
+    ImageCalculator,
+    RenderPseudoColor,
+    RenderOverlay,
+    RenderMontage,
+    RenderMovie,
+    RenderHistogram,
+    FijiBlock,
+    NapariBlock,
+    CellProfilerBlock,
+    QuPathBlock,
+    RegionProps,
+    PairwiseDistance,
+    Colocalization,
+    Threshold,
+    Watershed,
+    CellposeSegment,
+    BlobDetect,
+    ConnectedComponents,
+    RemoveSmallObjects,
+    RemoveBorderObjects,
+    FillHoles,
+    ExpandLabels,
+    ShrinkLabels,
+)
+
+
+def get_package_info() -> PackageInfo:
+    """Return package metadata for the ``scieasy.blocks`` registry."""
+    return PackageInfo(
+        name="scieasy-blocks-imaging",
+        description="Microscopy imaging blocks for SciEasy Phase 11 workflows.",
+        author="SciEasy Contributors",
+        version=__version__,
+    )
+
 
 def get_types() -> list[type]:
     """Return the imaging plugin's exported type classes."""
-    return [Image, Mask, Label, Transform]
+    return list(_IMAGING_TYPES)
 
 
 def get_blocks() -> list[type]:
-    """Return the imaging plugin's exported block classes landed so far."""
-    return [
-        LoadImage,
-        SaveImage,
-        Denoise,
-        BackgroundSubtract,
-        Normalize,
-        FlatFieldCorrect,
-        Rotate,
-        Flip,
-        Crop,
-        Pad,
-        Resize,
-        ConvertDType,
-        AxisSplit,
-        AxisMerge,
-        MorphologyOp,
-        EdgeDetect,
-        RidgeFilter,
-        Sharpen,
-        FFTFilter,
-        ComputeRegistration,
-        ApplyTransform,
-        RegisterSeries,
-        AxisProjection,
-        SelectSlice,
-        AddScalar,
-        SubtractScalar,
-        MultiplyScalar,
-        DivideScalar,
-        ImageCalculator,
-        RenderPseudoColor,
-        RenderOverlay,
-        RenderMontage,
-        RenderMovie,
-        RenderHistogram,
-        FijiBlock,
-        NapariBlock,
-        CellProfilerBlock,
-        QuPathBlock,
-        RegionProps,
-        PairwiseDistance,
-        Colocalization,
-        Threshold,
-        Watershed,
-        CellposeSegment,
-        BlobDetect,
-        ConnectedComponents,
-        RemoveSmallObjects,
-        RemoveBorderObjects,
-        FillHoles,
-        ExpandLabels,
-        ShrinkLabels,
-    ]
+    """Return the imaging plugin's exported concrete block classes."""
+    return list(_IMAGING_BLOCKS)
+
+
+def get_block_package() -> tuple[PackageInfo, list[type]]:
+    """Return package metadata and block classes for ``scieasy.blocks``."""
+    return get_package_info(), get_blocks()
 
 
 __all__ = [
@@ -169,6 +190,9 @@ __all__ = [
     "Threshold",
     "Transform",
     "Watershed",
+    "__version__",
+    "get_block_package",
     "get_blocks",
+    "get_package_info",
     "get_types",
 ]

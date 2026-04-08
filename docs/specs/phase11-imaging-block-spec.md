@@ -4628,6 +4628,11 @@ def _threshold(arr, method):
 
 ### T-IMG-027 — ComputeRegistration
 
+**Status**: Implemented in issue #386. `ComputeRegistration` now supports the
+locked `phase_correlation` / `rigid` / `affine` skeleton methods, emits typed
+`Transform` outputs, and is covered by package-local registration tests plus the
+top-level imaging finish smoke test.
+
 **a. Ticket ID and name**: T-IMG-027 — `ComputeRegistration` block.
 
 **b. Source ADR sections**: ADR-027 D2 (Transform output), D3.
@@ -4739,6 +4744,10 @@ class ComputeRegistration(ProcessBlock):
 
 ### T-IMG-028 — ApplyTransform
 
+**Status**: Implemented in issue #386. `ApplyTransform` now applies typed
+affine transforms to `Image` inputs, validates interpolation and
+transform-shape constraints, and is covered by focused registration tests.
+
 **a. Ticket ID and name**: T-IMG-028 — `ApplyTransform` block.
 
 **b. Source ADR sections**: ADR-027 D3, D5.
@@ -4844,6 +4853,10 @@ def _to_3x3(mat):
 
 ### T-IMG-029 — RegisterSeries
 
+**Status**: Implemented in issue #386. `RegisterSeries` now registers
+collection or stack inputs against a selected reference frame along the locked
+axis contract and returns registered images plus transform collections.
+
 **a. Ticket ID and name**: T-IMG-029 — `RegisterSeries` block.
 
 **b. Source ADR sections**: ADR-027 D3, D5, D2 (multi-output).
@@ -4936,6 +4949,10 @@ class RegisterSeries(ProcessBlock):
 ---
 
 ### T-IMG-030 — AxisProjection / SelectSlice
+
+**Status**: Implemented in issue #386. `AxisProjection` and `SelectSlice` now
+support the locked axis operations from the skeleton, including metadata cleanup
+when projecting channel or wavelength axes.
 
 **a. Ticket ID and name**: T-IMG-030 — `AxisProjection` and `SelectSlice`.
 
@@ -5096,6 +5113,9 @@ class SelectSlice(ProcessBlock):
 
 ### T-IMG-031 — Math scalar bundle (AddScalar / SubtractScalar / MultiplyScalar / DivideScalar)
 
+**Status**: Implemented in issue #386. The scalar bundle now performs concrete
+NumPy arithmetic with dtype preservation and explicit divide-by-zero handling.
+
 **a. Ticket ID and name**: T-IMG-031 — Math scalar bundle.
 
 **b. Source ADR sections**: ADR-027 D3.
@@ -5221,6 +5241,10 @@ class DivideScalar(ProcessBlock):
 ---
 
 ### T-IMG-032 — ImageCalculator
+
+**Status**: Implemented in issue #386. `ImageCalculator` now evaluates the
+locked two-port expression contract with AST validation, shape and axes checks,
+and collection broadcasting support.
 
 **a. Ticket ID and name**: T-IMG-032 — `ImageCalculator` block.
 
@@ -5389,6 +5413,10 @@ def _validate_expression_ast(tree: ast.AST) -> None:
 
 ### T-IMG-033 — Visualization bundle (RenderPseudoColor / RenderOverlay / RenderMontage / RenderMovie / RenderHistogram)
 
+**Status**: Implemented in issue #386. The visualization bundle now renders
+static and movie artifacts through the locked block surface, with optional
+dependency gating in tests where `matplotlib` is required.
+
 **a. Ticket ID and name**: T-IMG-033 — Visualization bundle.
 
 **b. Source ADR sections**: ADR-027 D2 (Artifact output).
@@ -5530,6 +5558,10 @@ class RenderPseudoColor(ProcessBlock):
 
 ### T-IMG-034 — FijiBlock
 
+**Status**: Implemented in issue #386. `FijiBlock` now uses the AppBlock
+file-exchange protocol, supports the locked Fiji executable override, and is
+covered by fake-binary exchange tests.
+
 **a. Ticket ID and name**: T-IMG-034 — `FijiBlock` AppBlock subclass.
 
 **b. Source ADR sections**: ADR-019 (AppBlock + ProcessHandle + FileWatcher), ADR-020 (Collection).
@@ -5635,6 +5667,9 @@ class FijiBlock(AppBlock):
 
 ### T-IMG-035 — NapariBlock
 
+**Status**: Implemented in issue #386. `NapariBlock` now uses the shared
+interactive file-exchange helper flow with fake-binary test coverage.
+
 **a. Ticket ID and name**: T-IMG-035 — `NapariBlock` AppBlock subclass.
 
 **b. Source ADR sections**: ADR-019.
@@ -5731,6 +5766,10 @@ class NapariBlock(AppBlock):
 
 ### T-IMG-036 — CellProfilerBlock
 
+**Status**: Implemented in issue #386. `CellProfilerBlock` now runs pipeline
+file exchanges through the shared AppBlock helper path and routes label plus
+measurement outputs with synthetic tool tests.
+
 **a. Ticket ID and name**: T-IMG-036 — `CellProfilerBlock` AppBlock subclass.
 
 **b. Source ADR sections**: ADR-019.
@@ -5814,6 +5853,9 @@ class CellProfilerBlock(AppBlock):
 
 ### T-IMG-037 — QuPathBlock
 
+**Status**: Implemented in issue #386. `QuPathBlock` now runs script-based
+file exchanges through the shared AppBlock helper path with fake-tool coverage.
+
 **a. Ticket ID and name**: T-IMG-037 — `QuPathBlock` AppBlock subclass.
 
 **b. Source ADR sections**: ADR-019.
@@ -5893,6 +5935,11 @@ class QuPathBlock(AppBlock):
 ---
 
 ### T-IMG-038 — Plugin packaging (`pyproject.toml` + entry-point registration)
+
+**Status**: Implemented in issue #386. The package now ships as
+`scieasy-blocks-imaging` 0.1.0 with hatchling metadata, `scieasy.blocks` /
+`scieasy.types` entry points, package-level packaging tests, README updates, and
+the required top-level workflow smoke coverage.
 
 **a. Ticket ID and name**: T-IMG-038 — Plugin packaging and final wiring.
 
