@@ -231,10 +231,10 @@ srs = "scieasy_blocks_srs:get_blocks"
 srs = "scieasy_blocks_srs.types:get_types"
 ```
 
-Two entry-point groups are available (ADR-028 §D4 supersedes the old
-`scieasy.adapters` group from ADR-025 §6 — plugin-owned IO loaders and
-savers are now registered as ordinary `IOBlock` subclasses through
-`scieasy.blocks`):
+Two entry-point groups are available (ADR-028 §D4 supersedes the
+adapter-registration group originally proposed in ADR-025 §6 —
+plugin-owned IO loaders and savers are now registered as ordinary
+`IOBlock` subclasses through `scieasy.blocks`):
 
 | Group | Purpose | Return type |
 |-------|---------|-------------|
@@ -425,8 +425,8 @@ def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, C
 is an **abstract base class** (ADR-028 §D2). Concrete IO blocks subclass it and
 implement either `load()` (input-only) or `save()` (output-only). The previous
 "single block type with a `direction` flag plus a `FormatAdapter` registry"
-pattern is gone — there is no `scieasy.blocks.io.adapters` package and no
-`scieasy.adapters` entry-point group.
+pattern is gone — see ADR-028 §D2 and the ADR-025 §6 SUPERSEDED stamp for the
+deletion rationale.
 
 **Module**: `scieasy.blocks.io.io_block`
 

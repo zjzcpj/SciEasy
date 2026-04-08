@@ -627,7 +627,7 @@ scieasy = "scieasy.cli.main:app"
 #   or plain list[type[Block]] for backward compat. Concrete IOBlock
 #   subclasses (LoadData, SaveData, plus plugin loaders like LoadImage)
 #   register through this group too — there is no longer a separate
-#   `scieasy.adapters` group (ADR-028 §D4 supersedes ADR-025 §6).
+#   adapter entry-point group (ADR-028 §D4 supersedes ADR-025 §6).
 # For scieasy.types: callable returns list[type[DataObject]].
 
 [project.entry-points."scieasy.blocks"]
