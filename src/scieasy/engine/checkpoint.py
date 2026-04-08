@@ -136,7 +136,14 @@ def _deserialize_value(value: Any) -> Any:
                     format=item_data.get("format"),
                     metadata=item_data.get("metadata"),
                 )
-                sig = TypeSignature(type_chain=[item_type_name])
+                # #404: read type_chain from item metadata when available so
+                # ViewProxy carries the correct plugin type identity rather
+                # than falling back to just [item_type_name].
+                item_meta = item_data.get("metadata") or {}
+                item_chain = item_meta.get("type_chain") if isinstance(item_meta, dict) else None
+                if not (isinstance(item_chain, list) and item_chain):
+                    item_chain = [item_type_name]
+                sig = TypeSignature(type_chain=item_chain)
                 proxies.append(ViewProxy(storage_ref=ref, dtype_info=sig))
 
         return {"_collection": True, "items": proxies, "item_type": item_type_name}
@@ -153,7 +160,14 @@ def _deserialize_value(value: Any) -> Any:
             format=value.get("format"),
             metadata=value.get("metadata"),
         )
-        sig = TypeSignature(type_chain=["DataObject"])
+        # #404: read type_chain from ref metadata when available so ViewProxy
+        # carries the correct plugin type identity rather than hardcoding
+        # ["DataObject"].
+        ref_meta = value.get("metadata") or {}
+        ref_chain = ref_meta.get("type_chain") if isinstance(ref_meta, dict) else None
+        if not (isinstance(ref_chain, list) and ref_chain):
+            ref_chain = ["DataObject"]
+        sig = TypeSignature(type_chain=ref_chain)
         return ViewProxy(storage_ref=ref, dtype_info=sig)
 
     return value
