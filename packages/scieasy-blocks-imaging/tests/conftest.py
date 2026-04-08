@@ -1,8 +1,11 @@
-"""Imaging plugin test configuration.
+"""Imaging plugin test configuration — Phase 11 skeleton placeholder.
 
-Prepends the plugin ``src`` directory to ``sys.path`` so the package is
-importable at skeleton time before T-IMG-038 wires up the
-``pyproject.toml`` entry point and editable install.
+Adds the plugin's ``src`` directory to ``sys.path`` so the plugin tests can
+import ``scieasy_blocks_imaging`` without requiring an editable pip install
+(matches the top-level ``tests/plugins/test_phase11_skeleton.py`` shim).
+Once T-IMG-038 packaging lands and the plugin is installed editable in CI,
+this shim becomes redundant and the test keeps passing via the normal
+import path.
 """
 
 from __future__ import annotations
@@ -10,6 +13,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-_SRC = Path(__file__).resolve().parents[1] / "src"
-if _SRC.is_dir() and str(_SRC) not in sys.path:
-    sys.path.insert(0, str(_SRC))
+_PLUGIN_SRC = Path(__file__).resolve().parents[1] / "src"
+if _PLUGIN_SRC.is_dir():
+    _src_str = str(_PLUGIN_SRC)
+    if _src_str not in sys.path:
+        sys.path.insert(0, _src_str)
