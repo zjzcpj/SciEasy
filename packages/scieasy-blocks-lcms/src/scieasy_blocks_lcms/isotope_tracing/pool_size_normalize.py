@@ -1,22 +1,9 @@
-"""PoolSizeNormalize — IS / TIC / median normalization for PeakTables (T-LCMS-012).
-
-Skeleton @ c08a885. Per ``docs/specs/phase11-lcms-block-spec.md`` §9
-T-LCMS-012.
-
-Three methods:
-
-* **IS** — divide every sample's intensity by the intensity of a
-  reference compound in that sample. Requires ``reference_compound``.
-* **TIC** — divide every sample's intensity by the total ion current.
-* **median** — divide by the per-sample median across all compounds.
-
-Output preserves the input :class:`PeakTable`'s :attr:`Meta` so
-downstream blocks still see a typed PeakTable.
-"""
+"""PoolSizeNormalize - IS / TIC / median normalization for PeakTables (T-LCMS-012)."""
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from types import ModuleType
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
@@ -24,12 +11,12 @@ from scieasy.blocks.process.process_block import ProcessBlock
 from scieasy_blocks_lcms._base import _LCMSBlockMixin
 from scieasy_blocks_lcms.types import PeakTable
 
+if TYPE_CHECKING:
+    import pandas as pd
+
 
 class PoolSizeNormalize(_LCMSBlockMixin, ProcessBlock):
-    """Normalize a :class:`PeakTable` by IS / TIC / median.
-
-    See spec §9 T-LCMS-012 for the 8 acceptance criteria.
-    """
+    """Normalize a :class:`PeakTable` by IS / TIC / median."""
 
     name: ClassVar[str] = "Pool Size Normalize"
     type_name: ClassVar[str] = "pool_size_normalize"
@@ -92,17 +79,71 @@ class PoolSizeNormalize(_LCMSBlockMixin, ProcessBlock):
         config: BlockConfig,
         state: Any = None,
     ) -> PeakTable:
-        """Normalize *item* and return a new :class:`PeakTable`.
+        """Normalize *item* and return a new :class:`PeakTable`."""
+        frame = _as_pandas_frame(item)
+        method = str(config.get("method", "TIC"))
+        intensity_column = str(config.get("intensity_column", "intensity"))
+        compound_column = str(config.get("compound_column", "compound"))
+        sample_column = "sample_id" if "sample_id" in frame.columns else "sample"
 
-        Implementation must:
+        if intensity_column not in frame.columns:
+            raise ValueError(f"PoolSizeNormalize: intensity column {intensity_column!r} is missing")
+        if compound_column not in frame.columns:
+            raise ValueError(f"PoolSizeNormalize: compound column {compound_column!r} is missing")
+        if sample_column not in frame.columns:
+            raise ValueError("PoolSizeNormalize: sample column is missing")
 
-        * raise :class:`ValueError` if ``method == "IS"`` and
-          ``reference_compound`` is unset or absent from the table
-        * preserve ``item.meta`` (source, polarity) on the output
-        * preserve the :class:`PeakTable` type (Liskov)
-        """
-        raise NotImplementedError(
-            "T-LCMS-012 PoolSizeNormalize.process_item — impl pending "
-            "(skeleton @ c08a885). See docs/specs/phase11-lcms-block-spec.md "
-            "§9 T-LCMS-012."
+        normalized = frame.copy()
+        if method == "IS":
+            reference_compound = config.get("reference_compound")
+            if not reference_compound:
+                raise ValueError("PoolSizeNormalize: reference_compound is required for IS normalization")
+            reference_rows = normalized.loc[normalized[compound_column] == reference_compound]
+            if reference_rows.empty:
+                raise ValueError(f"PoolSizeNormalize: reference compound {reference_compound!r} is missing")
+            divisors = reference_rows.groupby(sample_column, sort=False)[intensity_column].first().to_dict()
+        elif method == "TIC":
+            divisors = normalized.groupby(sample_column, sort=False)[intensity_column].sum().to_dict()
+        elif method == "median":
+            divisors = normalized.groupby(sample_column, sort=False)[intensity_column].median().to_dict()
+        else:
+            raise ValueError(f"PoolSizeNormalize: unsupported method {method!r}")
+
+        normalized[intensity_column] = normalized.apply(
+            lambda row: float(row[intensity_column]) / float(divisors[row[sample_column]]),
+            axis=1,
         )
+        return _clone_peak_table(item, normalized)
+
+
+def _pandas() -> ModuleType:
+    import pandas as pd
+
+    return cast(ModuleType, pd)
+
+
+def _as_pandas_frame(item: PeakTable) -> pd.DataFrame:
+    pd = _pandas()
+    raw = getattr(item, "_data", None)
+    if isinstance(raw, pd.DataFrame):
+        return raw.copy()
+    if raw is not None:
+        return pd.DataFrame(raw).copy()
+    materialized = item.to_memory()
+    if isinstance(materialized, pd.DataFrame):
+        return materialized.copy()
+    return pd.DataFrame(materialized).copy()
+
+
+def _clone_peak_table(source: PeakTable, frame: pd.DataFrame) -> PeakTable:
+    result = PeakTable(
+        columns=list(frame.columns),
+        row_count=len(frame),
+        schema=source.schema,
+        framework=source.framework.derive(),
+        meta=source.meta,
+        user=dict(source.user),
+        storage_ref=None,
+    )
+    result._data = frame.reset_index(drop=True)  # type: ignore[attr-defined]
+    return result

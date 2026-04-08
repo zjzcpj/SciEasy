@@ -1,16 +1,9 @@
-"""FractionalLabeling — ``1 - M+0`` per compound x sample (T-LCMS-009).
-
-Skeleton @ c08a885. Per ``docs/specs/phase11-lcms-block-spec.md`` §9
-T-LCMS-009.
-
-For multi-tracer experiments the M+0 row is the intersection across all
-tracer-atom columns being zero. Output is long format with columns
-``compound``, ``sample``, ``fractional_labeling``.
-"""
+"""FractionalLabeling - ``1 - M+0`` per compound x sample (T-LCMS-009)."""
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from types import ModuleType
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
@@ -19,12 +12,12 @@ from scieasy.core.types.dataframe import DataFrame
 from scieasy_blocks_lcms._base import _LCMSBlockMixin
 from scieasy_blocks_lcms.types import MIDTable
 
+if TYPE_CHECKING:
+    import pandas as pd
+
 
 class FractionalLabeling(_LCMSBlockMixin, ProcessBlock):
-    """Compute ``1 - M+0`` per compound per sample.
-
-    See spec §9 T-LCMS-009 for the 8 acceptance criteria.
-    """
+    """Compute ``1 - M+0`` per compound per sample."""
 
     name: ClassVar[str] = "Fractional Labeling"
     type_name: ClassVar[str] = "fractional_labeling"
@@ -68,18 +61,67 @@ class FractionalLabeling(_LCMSBlockMixin, ProcessBlock):
         config: BlockConfig,
         state: Any = None,
     ) -> DataFrame:
-        """Emit the long-format fractional labelling DataFrame.
+        """Emit the long-format fractional labelling DataFrame."""
+        frame = _as_pandas_frame(item)
+        compound_column = _resolve_compound_column(frame, str(config.get("compound_column", "Compound")))
+        meta = cast(MIDTable.Meta, item.meta)
+        tracer_atoms = list(meta.tracer_atoms)
+        sample_columns = list(meta.sample_columns)
 
-        Implementation must:
+        for tracer_atom in tracer_atoms:
+            if tracer_atom not in frame.columns:
+                raise ValueError(f"FractionalLabeling: tracer atom column {tracer_atom!r} is missing")
 
-        * read ``tracer_atoms`` / ``sample_columns`` from ``item.meta``
-        * select rows where every tracer-atom column equals 0 (M+0)
-        * raise :class:`ValueError` if any compound is missing an M+0
-          row (indicates upstream data corruption)
-        * compute ``fractional_labeling = 1 - M+0[sample]`` per row
-        """
-        raise NotImplementedError(
-            "T-LCMS-009 FractionalLabeling.process_item — impl pending "
-            "(skeleton @ c08a885). See docs/specs/phase11-lcms-block-spec.md "
-            "§9 T-LCMS-009."
-        )
+        rows: list[dict[str, object]] = []
+        for compound, compound_frame in frame.groupby(compound_column, sort=False):
+            m0_rows = compound_frame.copy()
+            for tracer_atom in tracer_atoms:
+                m0_rows = m0_rows.loc[m0_rows[tracer_atom] == 0]
+            if m0_rows.empty:
+                raise ValueError(f"FractionalLabeling: compound {compound!r} is missing an M+0 row")
+            m0_row = m0_rows.iloc[0]
+            for sample_column in sample_columns:
+                rows.append(
+                    {
+                        "compound": compound,
+                        "sample": sample_column,
+                        "fractional_labeling": 1.0 - float(m0_row[sample_column]),
+                    }
+                )
+
+        return _to_core_dataframe(_pandas().DataFrame(rows))
+
+
+def _pandas() -> ModuleType:
+    import pandas as pd
+
+    return cast(ModuleType, pd)
+
+
+def _as_pandas_frame(item: MIDTable) -> pd.DataFrame:
+    pd = _pandas()
+    raw = getattr(item, "_data", None)
+    if isinstance(raw, pd.DataFrame):
+        return raw.copy()
+    if raw is not None:
+        return pd.DataFrame(raw).copy()
+    materialized = item.to_memory()
+    if isinstance(materialized, pd.DataFrame):
+        return materialized.copy()
+    return pd.DataFrame(materialized).copy()
+
+
+def _resolve_compound_column(frame: pd.DataFrame, preferred: str) -> str:
+    if preferred in frame.columns:
+        return preferred
+    if "compound" in frame.columns:
+        return "compound"
+    if "Compound" in frame.columns:
+        return "Compound"
+    raise ValueError(f"FractionalLabeling: no compound column found (preferred {preferred!r})")
+
+
+def _to_core_dataframe(frame: pd.DataFrame) -> DataFrame:
+    result = DataFrame(columns=list(frame.columns), row_count=len(frame))
+    result._data = frame.reset_index(drop=True)  # type: ignore[attr-defined]
+    return result
