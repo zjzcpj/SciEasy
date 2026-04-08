@@ -828,7 +828,7 @@ def test_imaging_finish_impl_smoke() -> None:
     ):
         block = block_cls()
         assert block.type_name
-        
+
 def test_srs_component_analysis_impl_smoke() -> None:
     """Smoke test that SRS component_analysis bundle (T-SRS-006..010) is concrete."""
     pytest.importorskip("sklearn")
