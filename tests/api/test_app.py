@@ -8,10 +8,10 @@ import os
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.testclient import TestClient
-import pytest
 
 from scieasy.api.app import _resolve_spa_static_dir, create_app, lifespan
 from scieasy.engine.runners.process_handle import ProcessRegistry
