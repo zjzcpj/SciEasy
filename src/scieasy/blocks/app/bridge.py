@@ -70,18 +70,36 @@ class FileExchangeBridge:
         manifest_path = exchange_dir / "manifest.json"
         manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
-    def launch(self, command: str | list[str], exchange_dir: Path) -> subprocess.Popen[bytes]:
+    def launch(
+        self,
+        command: str | list[str],
+        exchange_dir: Path,
+        argv_override: list[str] | None = None,
+    ) -> subprocess.Popen[bytes]:
         """Launch the external application with *command*.
 
         The command is validated through :func:`validate_app_command` to prevent
         shell injection attacks (see issue #70).  ``shell=False`` is set
         explicitly as a defence-in-depth measure.
+
+        Parameters
+        ----------
+        command:
+            Executable and any fixed arguments (validated for injection safety).
+        exchange_dir:
+            The file-exchange working directory, used as ``cwd`` for the process.
+        argv_override:
+            When provided, these strings are appended to the validated command
+            instead of the default ``str(exchange_dir)`` suffix.  Use this to
+            pass specific file paths (e.g. staged TIFF files) to applications
+            that open files by path rather than by directory (see issue #420).
         """
         from scieasy.blocks.app.command_validator import validate_app_command
 
         parts = validate_app_command(command)
+        trailing = argv_override if argv_override is not None else [str(exchange_dir)]
         return subprocess.Popen(
-            [*parts, str(exchange_dir)],
+            [*parts, *trailing],
             cwd=str(exchange_dir),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
