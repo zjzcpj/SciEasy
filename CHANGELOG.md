@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- [#396] Restore plugin IO execution/schema fidelity by surfacing block-run failures in the GUI, exposing `direction` and `is_collection` in block schemas, aligning imaging collection ports to item-type metadata, and adding monorepo plugin block/type discovery so local source checkouts still render correct colors and Browse actions (@Codex, 2026-04-08, branch: fix/issue-396/gui-io-metadata, session: 20260408-133541-fix-issue-396-gui-io-metadata-and-execut)
+
 ### Added
 
 - [#386] Implement remaining imaging blocks: preprocess B + registration + projection + math + visualization + interactive AppBlocks + packaging (T-IMG-008..038) (@codex, 2026-04-08, branch: feat/sprint-c/imaging-finish, session: 20260408-080833-sprint-c-imaging-finish-t-img-008-038)

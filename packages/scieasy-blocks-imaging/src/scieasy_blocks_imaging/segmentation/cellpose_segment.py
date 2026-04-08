@@ -32,10 +32,10 @@ class CellposeSegment(ProcessBlock):
     algorithm: ClassVar[str] = "cellpose"
 
     input_ports: ClassVar[list[InputPort]] = [
-        InputPort(name="images", accepted_types=[Collection[Image]], required=True),  # type: ignore[misc]
+        InputPort(name="images", accepted_types=[Image], is_collection=True, required=True),
     ]
     output_ports: ClassVar[list[OutputPort]] = [
-        OutputPort(name="labels", accepted_types=[Collection[Label]]),  # type: ignore[misc]
+        OutputPort(name="labels", accepted_types=[Label], is_collection=True),
     ]
 
     config_schema: ClassVar[dict[str, Any]] = {

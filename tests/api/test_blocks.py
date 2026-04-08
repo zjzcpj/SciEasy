@@ -59,6 +59,25 @@ def test_validate_connection_endpoint_uses_registry_type_information(client: Tes
     assert incompatible.json()["reason"]
 
 
+def test_imaging_io_schema_exposes_item_types_and_collection_flags(client: TestClient) -> None:
+    """Imaging IO blocks should expose concrete item types and collection metadata."""
+    load_schema = client.get("/api/blocks/imaging.load_image/schema")
+    assert load_schema.status_code == 200
+    load_payload = load_schema.json()
+    assert load_payload["direction"] == "input"
+    assert load_payload["output_ports"][0]["accepted_types"] == ["Image"]
+    assert load_payload["output_ports"][0]["is_collection"] is True
+    assert any(entry["name"] == "Mask" for entry in load_payload["type_hierarchy"])
+    assert any(entry["name"] == "Label" for entry in load_payload["type_hierarchy"])
+
+    save_schema = client.get("/api/blocks/imaging.save_image/schema")
+    assert save_schema.status_code == 200
+    save_payload = save_schema.json()
+    assert save_payload["direction"] == "output"
+    assert save_payload["input_ports"][0]["accepted_types"] == ["Image"]
+    assert save_payload["input_ports"][0]["is_collection"] is True
+
+
 # ----------------------------------------------------------------------------
 # Stage 10.1 Part 2 — skipped test stubs authored by Agent A.
 #

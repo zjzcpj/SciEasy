@@ -17,7 +17,7 @@ from scieasy_blocks_imaging.interactive import (
     _resolve_exchange_dir,
     _run_external_app,
 )
-from scieasy_blocks_imaging.types import Image, Label, Mask
+from scieasy_blocks_imaging.types import Image
 
 
 class FijiBlock(AppBlock):
@@ -38,16 +38,12 @@ class FijiBlock(AppBlock):
     watch_timeout: ClassVar[int] = 1800
 
     input_ports: ClassVar[list[InputPort]] = [
-        InputPort(name="image", accepted_types=[Image], description="Image(s) to open in Fiji."),
+        InputPort(name="image", accepted_types=[Image], is_collection=True, description="Image(s) to open in Fiji."),
     ]
     output_ports: ClassVar[list[OutputPort]] = [
         OutputPort(
-            name="image", accepted_types=[Image], required=False, description="Image(s) edited / re-saved by the user."
-        ),
-        OutputPort(name="mask", accepted_types=[Mask], required=False, description="Mask exported from Fiji (if any)."),
-        OutputPort(
-            name="label", accepted_types=[Label], required=False, description="Label exported from Fiji (e.g. ROIs)."
-        ),
+            name="image", accepted_types=[Image], is_collection=True, required=False, description="Image(s) edited / re-saved by the user."
+        )
     ]
 
     config_schema: ClassVar[dict[str, Any]] = {

@@ -31,6 +31,7 @@ def _port_response(port: Any, *, direction: str) -> BlockPortResponse:
         required=getattr(port, "required", True),
         description=getattr(port, "description", ""),
         constraint_description=getattr(port, "constraint_description", ""),
+        is_collection=getattr(port, "is_collection", False),
     )
 
 
@@ -53,6 +54,7 @@ def _summary(spec: Any) -> BlockSummary:
         version=spec.version,
         input_ports=[_port_response(port, direction="input") for port in spec.input_ports],
         output_ports=[_port_response(port, direction="output") for port in spec.output_ports],
+        direction=spec.direction or "",
     )
 
 
@@ -90,7 +92,6 @@ async def get_block_schema(
         # direction to the frontend so BlockNode.tsx can render dynamic-port
         # UI and IO-specific controls without hardcoded type checks.
         dynamic_ports=spec.dynamic_ports,
-        direction=spec.direction or None,
     )
 
 
