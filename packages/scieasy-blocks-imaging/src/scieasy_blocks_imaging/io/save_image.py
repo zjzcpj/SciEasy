@@ -13,7 +13,6 @@ from scieasy.blocks.base.ports import InputPort
 from scieasy.blocks.io.io_block import IOBlock
 from scieasy.core.types.base import DataObject
 from scieasy.core.types.collection import Collection
-
 from scieasy_blocks_imaging.types import Image
 
 

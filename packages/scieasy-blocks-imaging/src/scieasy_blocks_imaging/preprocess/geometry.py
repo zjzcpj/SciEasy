@@ -15,7 +15,6 @@ from typing import Any, ClassVar
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.process.process_block import ProcessBlock
-
 from scieasy_blocks_imaging.types import Image, Mask
 
 
@@ -49,9 +48,7 @@ class Rotate(ProcessBlock):
     }
 
     def process_item(self, item: Image, config: BlockConfig, state: Any = None) -> Image:
-        raise NotImplementedError(
-            "T-IMG-008 Rotate.process_item — impl pending (skeleton continuation A)."
-        )
+        raise NotImplementedError("T-IMG-008 Rotate.process_item — impl pending (skeleton continuation A).")
 
 
 class Flip(ProcessBlock):
@@ -82,9 +79,7 @@ class Flip(ProcessBlock):
     }
 
     def process_item(self, item: Image, config: BlockConfig, state: Any = None) -> Image:
-        raise NotImplementedError(
-            "T-IMG-008 Flip.process_item — impl pending (skeleton continuation A)."
-        )
+        raise NotImplementedError("T-IMG-008 Flip.process_item — impl pending (skeleton continuation A).")
 
 
 class Crop(ProcessBlock):
@@ -115,9 +110,7 @@ class Crop(ProcessBlock):
     }
 
     def process_item(self, item: Image, config: BlockConfig, state: Any = None) -> Image:
-        raise NotImplementedError(
-            "T-IMG-008 Crop.process_item — impl pending (skeleton continuation A)."
-        )
+        raise NotImplementedError("T-IMG-008 Crop.process_item — impl pending (skeleton continuation A).")
 
 
 class Pad(ProcessBlock):
@@ -154,9 +147,7 @@ class Pad(ProcessBlock):
     }
 
     def process_item(self, item: Image, config: BlockConfig, state: Any = None) -> Image:
-        raise NotImplementedError(
-            "T-IMG-008 Pad.process_item — impl pending (skeleton continuation A)."
-        )
+        raise NotImplementedError("T-IMG-008 Pad.process_item — impl pending (skeleton continuation A).")
 
 
 class Resize(ProcessBlock):

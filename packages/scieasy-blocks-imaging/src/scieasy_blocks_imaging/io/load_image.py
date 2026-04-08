@@ -12,9 +12,8 @@ from typing import Any, ClassVar
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import OutputPort
 from scieasy.blocks.io.io_block import IOBlock
-from scieasy.core.types.collection import Collection
 from scieasy.core.types.base import DataObject
-
+from scieasy.core.types.collection import Collection
 from scieasy_blocks_imaging.types import Image
 
 
@@ -31,8 +30,7 @@ class LoadImage(IOBlock):
     type_name: ClassVar[str] = "imaging.load_image"
     name: ClassVar[str] = "Load Image"
     description: ClassVar[str] = (
-        "Unified image loader auto-detecting TIFF / OME-TIFF / PNG / JPG / "
-        "Zarr / CZI / ND2 / LIF / npy."
+        "Unified image loader auto-detecting TIFF / OME-TIFF / PNG / JPG / Zarr / CZI / ND2 / LIF / npy."
     )
     category: ClassVar[str] = "io"
 

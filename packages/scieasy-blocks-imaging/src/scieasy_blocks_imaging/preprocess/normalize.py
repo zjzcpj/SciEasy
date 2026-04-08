@@ -11,7 +11,6 @@ from typing import Any, ClassVar
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.process.process_block import ProcessBlock
-
 from scieasy_blocks_imaging.types import Image
 
 
@@ -20,9 +19,7 @@ class Normalize(ProcessBlock):
 
     type_name: ClassVar[str] = "imaging.normalize"
     name: ClassVar[str] = "Normalize"
-    description: ClassVar[str] = (
-        "Rescale image intensities (minmax / zscore / percentile / histogram_match)."
-    )
+    description: ClassVar[str] = "Rescale image intensities (minmax / zscore / percentile / histogram_match)."
     category: ClassVar[str] = "preprocess"
     algorithm: ClassVar[str] = "normalize"
 

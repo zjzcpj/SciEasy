@@ -11,7 +11,6 @@ from typing import Any, ClassVar
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.process.process_block import ProcessBlock
-
 from scieasy_blocks_imaging.types import Image
 
 
@@ -20,9 +19,7 @@ class BackgroundSubtract(ProcessBlock):
 
     type_name: ClassVar[str] = "imaging.background_subtract"
     name: ClassVar[str] = "Background Subtract"
-    description: ClassVar[str] = (
-        "Subtract image background via rolling-ball / top-hat / polynomial / constant."
-    )
+    description: ClassVar[str] = "Subtract image background via rolling-ball / top-hat / polynomial / constant."
     category: ClassVar[str] = "preprocess"
     algorithm: ClassVar[str] = "background_subtract"
 

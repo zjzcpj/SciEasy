@@ -14,7 +14,6 @@ from typing import Any, ClassVar
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.process.process_block import ProcessBlock
-
 from scieasy_blocks_imaging.types import Image
 
 
