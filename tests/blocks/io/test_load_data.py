@@ -540,6 +540,107 @@ def test_load_nonexistent_file_raises_filenotfounderror(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Multi-file Collection support (#421)
+# ---------------------------------------------------------------------------
+
+
+def test_load_data_multi_path_returns_collection(tmp_path: Path) -> None:
+    """A list of paths in config['path'] must return a Collection of DataObjects."""
+    csv1 = tmp_path / "a.csv"
+    csv2 = tmp_path / "b.csv"
+    csv1.write_text("x\n1\n2\n")
+    csv2.write_text("x\n3\n4\n")
+
+    block = LoadData(config={"params": {"core_type": "DataFrame", "path": [str(csv1), str(csv2)]}})
+    result = block.load(block.config)
+
+    from scieasy.core.types.collection import Collection
+
+    assert isinstance(result, Collection)
+    assert len(result) == 2
+    assert all(isinstance(item, DataFrame) for item in result)
+    assert result.item_type is DataFrame
+
+
+def test_load_data_multi_path_collection_preserves_contents(tmp_path: Path) -> None:
+    """Each DataFrame in the Collection must correspond to the correct source file."""
+    csv1 = tmp_path / "first.csv"
+    csv2 = tmp_path / "second.csv"
+    csv1.write_text("col\n10\n20\n")
+    csv2.write_text("col\n30\n40\n50\n")
+
+    block = LoadData(config={"params": {"core_type": "DataFrame", "path": [str(csv1), str(csv2)]}})
+    result = block.load(block.config)
+
+    assert result[0].row_count == 2
+    assert result[1].row_count == 3
+
+
+def test_load_data_multi_path_single_element_list(tmp_path: Path) -> None:
+    """A single-element list still returns a Collection, not a bare DataObject."""
+    csv1 = tmp_path / "only.csv"
+    csv1.write_text("a\n1\n")
+
+    block = LoadData(config={"params": {"core_type": "DataFrame", "path": [str(csv1)]}})
+    result = block.load(block.config)
+
+    from scieasy.core.types.collection import Collection
+
+    assert isinstance(result, Collection)
+    assert len(result) == 1
+
+
+def test_load_data_multi_path_array(tmp_path: Path) -> None:
+    """Multi-path works for Array core_type, returning Collection[Array]."""
+    arr = np.arange(6, dtype=np.float32)
+    npy1 = tmp_path / "s1.npy"
+    npy2 = tmp_path / "s2.npy"
+    np.save(npy1, arr)
+    np.save(npy2, arr * 2)
+
+    block = LoadData(config={"params": {"core_type": "Array", "path": [str(npy1), str(npy2)]}})
+    result = block.load(block.config)
+
+    assert result.item_type is Array
+    assert len(result) == 2
+    np.testing.assert_array_equal(np.asarray(result[0]), arr)
+    np.testing.assert_array_equal(np.asarray(result[1]), arr * 2)
+
+
+def test_load_data_multi_path_get_effective_output_ports_is_collection(tmp_path: Path) -> None:
+    """get_effective_output_ports marks is_collection=True when path is a list."""
+    block = LoadData(config={"params": {"core_type": "DataFrame", "path": ["/tmp/a.csv", "/tmp/b.csv"]}})
+    ports = block.get_effective_output_ports()
+    assert ports[0].is_collection is True
+
+
+def test_load_data_single_path_get_effective_output_ports_not_collection() -> None:
+    """get_effective_output_ports marks is_collection=False for a single path string."""
+    block = LoadData(config={"params": {"core_type": "DataFrame", "path": "/tmp/a.csv"}})
+    ports = block.get_effective_output_ports()
+    assert ports[0].is_collection is False
+
+
+def test_load_data_run_multi_path_wraps_collection_correctly(tmp_path: Path) -> None:
+    """IOBlock.run() must not double-wrap a Collection returned from load()."""
+    csv1 = tmp_path / "run1.csv"
+    csv2 = tmp_path / "run2.csv"
+    csv1.write_text("v\n1\n")
+    csv2.write_text("v\n2\n")
+
+    block = LoadData(config={"params": {"core_type": "DataFrame", "path": [str(csv1), str(csv2)]}})
+    out = block.run(inputs={}, config=block.config)
+
+    from scieasy.core.types.collection import Collection
+
+    collection = out["data"]
+    assert isinstance(collection, Collection)
+    # The Collection from load() (length-2) must be returned directly,
+    # not wrapped in another single-item Collection.
+    assert len(collection) == 2
+
+
+# ---------------------------------------------------------------------------
 # Integration with framework run() dispatch (ADR-028 §D1)
 # ---------------------------------------------------------------------------
 
