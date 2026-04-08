@@ -23,12 +23,15 @@ backends (Zarr for ``Array``, Arrow for ``DataFrame``) so that
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
 from scieasy.blocks.base.state import BlockState
 from scieasy.blocks.code.code_block import CodeBlock
 from scieasy.core.types.array import Array
+from scieasy.core.types.base import DataObject
 from scieasy.core.types.collection import Collection
 from scieasy.core.types.dataframe import DataFrame
 from tests.fixtures.test_images import SEGMENTATION_IMAGES, TEST_IMAGES_DIR
@@ -38,7 +41,7 @@ if not TEST_IMAGES_DIR.exists():
     pytest.skip("test images unavailable", allow_module_level=True)
 
 
-def _load_tiff_as_array(path: object) -> Array:
+def _load_tiff_as_array(path: Path) -> Array:
     """Load a TIFF via tifffile and wrap it as an in-memory ``Array``."""
     tifffile = pytest.importorskip("tifffile")
     data = np.asarray(tifffile.imread(str(path)))
@@ -47,7 +50,7 @@ def _load_tiff_as_array(path: object) -> Array:
     return arr
 
 
-def test_codeblock_python_skimage_workflow(tmp_path: object) -> None:
+def test_codeblock_python_skimage_workflow(tmp_path: Path) -> None:
     """Run a gaussian + threshold skimage pipeline through a CodeBlock.
 
     The block receives a multi-item ``Collection`` (auto-unpacked into
@@ -60,10 +63,10 @@ def test_codeblock_python_skimage_workflow(tmp_path: object) -> None:
 
     # Persist both segmentation images through the real Zarr backend so
     # that ``view().to_memory()`` inside LazyList hits production code.
-    stored: list[Array] = []
+    stored: list[DataObject] = []
     for i, img_path in enumerate(SEGMENTATION_IMAGES):
         arr = _load_tiff_as_array(img_path)
-        arr.save((tmp_path / f"seg_{i}.zarr").as_posix())  # type: ignore[operator]
+        arr.save((tmp_path / f"seg_{i}.zarr").as_posix())
         stored.append(arr)
     assert len(stored) == 2, "T-TRK-003 should provide exactly two segmentation images"
 
@@ -99,7 +102,7 @@ def test_codeblock_python_skimage_workflow(tmp_path: object) -> None:
         assert item.shape is not None and len(item.shape) == 2
 
 
-def test_codeblock_python_collection_unpack(tmp_path: object) -> None:
+def test_codeblock_python_collection_unpack(tmp_path: Path) -> None:
     """Feed a Collection of three DataFrames through a Python CodeBlock.
 
     Verifies that auto-unpack wraps the multi-item Collection in a
@@ -110,7 +113,7 @@ def test_codeblock_python_collection_unpack(tmp_path: object) -> None:
     pa = pytest.importorskip("pyarrow")
 
     # Build three distinct DataFrames, persist each to its own Arrow file.
-    source: list[DataFrame] = []
+    source: list[DataObject] = []
     tables = [
         pa.table({"x": [1, 2, 3], "y": [10, 20, 30]}),
         pa.table({"x": [4, 5, 6], "y": [40, 50, 60]}),
@@ -119,7 +122,7 @@ def test_codeblock_python_collection_unpack(tmp_path: object) -> None:
     for i, tbl in enumerate(tables):
         df = DataFrame(columns=["x", "y"], row_count=tbl.num_rows)
         df._arrow_table = tbl  # type: ignore[attr-defined]
-        df.save((tmp_path / f"df_{i}.parquet").as_posix())  # type: ignore[operator]
+        df.save((tmp_path / f"df_{i}.parquet").as_posix())
         source.append(df)
 
     input_collection = Collection(source, item_type=DataFrame)
