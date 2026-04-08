@@ -370,6 +370,80 @@ def test_lcms_isotope_tracing_core_impl_smoke() -> None:
     assert fractional.loc[0, "fractional_labeling"] == pytest.approx(0.6)
 
 
+def test_lcms_analysis_core_impl_smoke(tmp_path: Path) -> None:
+    """Smoke test that the LCMS analysis core blocks are concrete."""
+    pytest.importorskip("pandas")
+    pytest.importorskip("scipy")
+    pytest.importorskip("statsmodels")
+    pytest.importorskip("sklearn")
+    pytest.importorskip("matplotlib")
+
+    import pandas as pd
+
+    from scieasy_blocks_lcms.analysis.matrix_preprocess import MatrixPreprocess
+    from scieasy_blocks_lcms.analysis.metabolite_matrix import MetaboliteMatrix
+    from scieasy_blocks_lcms.analysis.multivariate_analysis import MultivariateAnalysis
+    from scieasy_blocks_lcms.analysis.univariate_stats import UnivariateStats
+    from scieasy_blocks_lcms.types import PeakTable, SampleMetadata
+
+    from scieasy.blocks.base.config import BlockConfig
+    from scieasy.core.types.collection import Collection
+
+    long_frame = pd.DataFrame(
+        {
+            "compound": ["glucose", "glucose", "lactate", "lactate"],
+            "sample_id": ["S1", "S2", "S1", "S2"],
+            "intensity": [10.0, 12.0, 3.0, 6.0],
+        }
+    )
+    peak = PeakTable(
+        columns=list(long_frame.columns),
+        row_count=len(long_frame),
+        meta=PeakTable.Meta(source="ElMAVEN"),
+    )
+    peak._data = long_frame
+
+    metadata_frame = pd.DataFrame({"sample_id": ["S1", "S2"], "group": ["A", "B"]})
+    metadata = SampleMetadata(
+        columns=list(metadata_frame.columns),
+        row_count=len(metadata_frame),
+        meta=SampleMetadata.Meta(sample_id_column="sample_id"),
+    )
+    metadata._data = metadata_frame
+
+    matrix_out = MetaboliteMatrix().run(
+        {
+            "peak_table": Collection(items=[peak], item_type=PeakTable),
+            "sample_metadata": Collection(items=[metadata], item_type=SampleMetadata),
+        },
+        BlockConfig(params={}),
+    )
+    matrix = matrix_out["matrix"][0]
+    assert matrix._data.loc["glucose", "S1"] == pytest.approx(10.0)
+
+    processed = MatrixPreprocess().process_item(matrix, BlockConfig(params={"impute_method": "none", "scale": "none"}))
+    assert processed._data.shape == matrix._data.shape
+
+    stats = UnivariateStats().run(
+        {
+            "matrix": Collection(items=[processed], item_type=type(processed)),
+            "sample_metadata": Collection(items=[metadata], item_type=SampleMetadata),
+        },
+        BlockConfig(params={"group_column": "group", "test": "t-test", "correction": "none"}),
+    )
+    assert not stats["stats"][0]._data.empty
+
+    multivariate = MultivariateAnalysis().run(
+        {
+            "matrix": Collection(items=[processed], item_type=type(processed)),
+            "sample_metadata": Collection(items=[metadata], item_type=SampleMetadata),
+        },
+        BlockConfig(params={"method": "PCA"}),
+    )
+    assert multivariate["plot"][0].file_path is not None
+    assert multivariate["plot"][0].file_path.exists()
+
+
 def test_imaging_io_impl_smoke(tmp_path: Path) -> None:
     """Smoke test that T-IMG-002/T-IMG-003 bodies are concrete (impl PR #354).
 
