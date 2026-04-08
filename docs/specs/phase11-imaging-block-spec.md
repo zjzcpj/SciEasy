@@ -1481,6 +1481,11 @@ def _save_zarr(img: Image, path: Path) -> None:
 
 ### T-IMG-004 — Denoise
 
+**Status**: Partially implemented (Sprint C preprocess subset A, pilot
+scope: `gaussian` + `median` via scikit-image). `bilateral` / `nlmeans` /
+`wavelet` remain in the enum schema but raise `NotImplementedError` and
+are deferred to a follow-on subset.
+
 **a. Ticket ID and name**: T-IMG-004 — `Denoise` block.
 
 **b. Source ADR sections**:
@@ -1625,6 +1630,10 @@ def _get_denoise_fn(method: str, *, sigma: float, radius: int):
 ---
 
 ### T-IMG-005 — BackgroundSubtract
+
+**Status**: Implemented (Sprint C preprocess subset A). All four
+methods (`rollingball` / `tophat` / `polynomial` / `constant`) are
+functional; N-D inputs broadcast via `iterate_over_axes`.
 
 **a. Ticket ID and name**: T-IMG-005 — `BackgroundSubtract` block.
 
@@ -1782,6 +1791,11 @@ def _polynomial_background_fn(degree: int, clip: bool):
 
 ### T-IMG-006 — Normalize
 
+**Status**: Partially implemented (Sprint C preprocess subset A, pilot
+scope: `minmax` / `zscore` / `percentile`). `histogram_match` remains in
+the enum but raises `NotImplementedError` pending a second input port
+for the reference image.
+
 **a. Ticket ID and name**: T-IMG-006 — `Normalize` block.
 
 **b. Source ADR sections**: ADR-027 D3, D5.
@@ -1886,6 +1900,11 @@ class Normalize(ProcessBlock):
 ---
 
 ### T-IMG-007 — FlatFieldCorrect
+
+**Status**: Partially implemented (Sprint C preprocess subset A). The
+`basic` literal formula is functional with optional dark-frame subtract
+and N-D image broadcasting. The `BaSiC` method stays in the enum but
+raises `NotImplementedError` pending the BaSiC algorithm integration.
 
 **a. Ticket ID and name**: T-IMG-007 — `FlatFieldCorrect` block.
 
