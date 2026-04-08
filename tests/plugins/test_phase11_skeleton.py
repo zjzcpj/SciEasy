@@ -143,11 +143,21 @@ def test_skeleton_module_importable(module_name: str) -> None:
 
 
 def test_image_placeholder_raises() -> None:
-    """Representative: instantiating T-IMG-001 Image raises NotImplementedError."""
-    from scieasy_blocks_imaging.types import Image
+    """T-IMG-001 has landed (Sprint C imaging skeleton, PR #346).
 
-    with pytest.raises(NotImplementedError, match="T-IMG-001"):
-        Image()
+    This smoke test was originally added by PR #309 to verify the bare
+    placeholder for T-IMG-001 raised NotImplementedError on construction.
+    The Sprint C imaging skeleton agent has now upgraded T-IMG-001 to a
+    proper ``Image(Array)`` skeleton with `required_axes`, `Meta` model,
+    and validators. The new behavior is verified by the dedicated test
+    file at ``packages/scieasy-blocks-imaging/tests/test_types.py``.
+
+    Per CLAUDE.md §6.7 (tests are part of the change), this smoke-test
+    function is preserved as a marker that T-IMG-001 reached "skeleton
+    complete" status. Construction is now skipped here — the per-plugin
+    test file is the authoritative coverage.
+    """
+    pytest.skip("T-IMG-001 skeleton landed; coverage moved to packages/scieasy-blocks-imaging/tests/test_types.py")
 
 
 def test_srs_image_placeholder_raises() -> None:
