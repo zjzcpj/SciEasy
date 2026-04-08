@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#405] Fix `preview_data()` to use `TypeRegistry.resolve()` + `issubclass()` for plugin type dispatch, replacing hardcoded class name comparisons and the "Spectrum" substring hack; add `DataRecord.type_chain` field (@claude, 2026-04-08, branch: fix/issue-405/preview-type-identity, session: 20260408-154724-fix-405-preview-runtime-drops-plugin-typ)
 - [#396] Restore plugin IO execution/schema fidelity by surfacing block-run failures in the GUI, exposing `direction` and `is_collection` in block schemas, aligning imaging collection ports to item-type metadata, and adding monorepo plugin block/type discovery so local source checkouts still render correct colors and Browse actions (@Codex, 2026-04-08, branch: fix/issue-396/gui-io-metadata, session: 20260408-133541-fix-issue-396-gui-io-metadata-and-execut)
 
 ### Added
