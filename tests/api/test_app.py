@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import os
 from pathlib import Path
 from unittest.mock import MagicMock
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.testclient import TestClient
+import pytest
 
-from scieasy.api.app import create_app, lifespan
+from scieasy.api.app import _resolve_spa_static_dir, create_app, lifespan
 from scieasy.engine.runners.process_handle import ProcessRegistry
 
 
@@ -162,6 +165,40 @@ class TestStaticMount:
         app = create_app()
         spa_mounts = [r for r in app.routes if isinstance(r, Mount) and r.name == "spa"]
         assert len(spa_mounts) == 1
+
+    def test_resolve_spa_static_dir_warns_when_frontend_dist_is_stale(
+        self,
+        tmp_path: Path,
+        monkeypatch: object,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Editable-install fallback should warn when frontend/src is newer than dist."""
+        import scieasy.api.app as app_mod
+
+        fake_app_py = tmp_path / "src" / "scieasy" / "api" / "app.py"
+        fake_app_py.parent.mkdir(parents=True, exist_ok=True)
+        fake_app_py.write_text("", encoding="utf-8")
+        (tmp_path / "pyproject.toml").write_text("", encoding="utf-8")
+
+        dist_dir = tmp_path / "frontend" / "dist"
+        dist_dir.mkdir(parents=True)
+        dist_index = dist_dir / "index.html"
+        dist_index.write_text("<html>old build</html>", encoding="utf-8")
+
+        src_dir = tmp_path / "frontend" / "src"
+        src_dir.mkdir(parents=True)
+        src_file = src_dir / "BlockNode.tsx"
+        src_file.write_text("export const stale = true;", encoding="utf-8")
+
+        os.utime(dist_index, (1, 1))
+        os.utime(src_file, (2, 2))
+
+        monkeypatch.setattr(app_mod, "__file__", str(fake_app_py))
+        with caplog.at_level(logging.WARNING):
+            resolved = _resolve_spa_static_dir()
+
+        assert resolved == dist_dir
+        assert "frontend/dist may be stale" in caplog.text
 
 
 class TestGetProcessRegistry:

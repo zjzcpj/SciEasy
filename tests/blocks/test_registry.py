@@ -25,6 +25,7 @@ class TestBlockRegistryTier2:
         names = list(specs.keys())
         assert "Merge" in names
         assert "Split" in names
+        assert "IOBlock" not in names
 
     def test_instantiate_by_name(self) -> None:
         reg = BlockRegistry()
@@ -327,6 +328,39 @@ class TestScanTier2CallableProtocol:
         pkgs = reg.packages()
         assert "SRS Imaging" in pkgs
         assert pkgs["SRS Imaging"].author == "Dr. Wang"
+
+    def test_abstract_block_entry_point_logs_precise_warning(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Abstract Block entry-points should not be reported as non-Block items."""
+        from abc import ABC, abstractmethod
+
+        from scieasy.blocks.base.block import Block
+
+        abstract_block = type(
+            "AbstractMockBlock",
+            (Block, ABC),
+            {
+                "name": "Abstract Mock",
+                "description": "abstract",
+                "version": "0.1.0",
+                "input_ports": [],
+                "output_ports": [],
+                "config_schema": {"type": "object", "properties": {}},
+                "run": abstractmethod(lambda self, inputs, config: {}),
+            },
+        )
+        ep = self._make_mock_entry_point("abstract_block", abstract_block)
+        mock_eps = MagicMock()
+        mock_eps.select.return_value = [ep]
+
+        reg = BlockRegistry()
+        with patch("importlib.metadata.entry_points", return_value=mock_eps), caplog.at_level(logging.WARNING):
+            reg._scan_tier2()
+
+        assert "contained abstract Block subclass" in caplog.text
+        assert "contained non-Block item" not in caplog.text
 
     def test_plain_list_return_uses_ep_name(self) -> None:
         """Entry-point returning plain list uses ep.name as package_name."""

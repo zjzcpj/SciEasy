@@ -354,6 +354,12 @@ class BlockRegistry:
                         block_spec.class_name = cls.__name__
                         block_spec.package_name = pkg_name
                         self._register_spec(block_spec)
+                    elif isinstance(cls, type) and issubclass(cls, Block) and inspect.isabstract(cls):
+                        logger.warning(
+                            "Entry-point '%s' contained abstract Block subclass: %s",
+                            ep.name,
+                            cls,
+                        )
                     else:
                         logger.warning(
                             "Entry-point '%s' contained non-Block item: %s",
