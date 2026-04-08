@@ -143,14 +143,34 @@ For the full architecture document, see [`docs/architecture/ARCHITECTURE.md`](do
 
 ### Installation
 
+**End users** — one command from PyPI:
+
 ```bash
-# Clone the repository
+pip install scieasy
+scieasy gui
+```
+
+The wheel ships with the prebuilt React SPA, so `scieasy gui` opens the full
+workflow editor directly. No Node.js required at install time.
+
+**Developers** — clone and install editable:
+
+```bash
 git clone https://github.com/zjzcpj/SciEasy.git
 cd SciEasy
-
-# Install in development mode with dev dependencies
 pip install -e ".[dev]"
+(cd frontend && npm install && npm run build)   # one-time SPA build
+scieasy gui
 ```
+
+The dev path serves the SPA from `frontend/dist/` automatically, so you can
+iterate on Python + SPA without reinstalling. For hot-reload frontend dev,
+run `(cd frontend && npm run dev)` against a separate `scieasy serve`
+backend — Vite proxies `/api/*` to `http://localhost:8000`.
+
+> If `scieasy gui` lands on the FastAPI `/docs` page instead of the workflow
+> editor, the SPA bundle is missing. Run `(cd frontend && npm run build)` in
+> your dev checkout, or reinstall from a wheel that includes `scieasy/api/static/index.html`.
 
 ### Launch the GUI
 
