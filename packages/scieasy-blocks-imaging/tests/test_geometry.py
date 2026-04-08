@@ -14,6 +14,7 @@ from scieasy_blocks_imaging.types import Image
 
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.core.types.collection import Collection
+from scieasy.core.units import PhysicalQuantity
 
 
 def _make_image(arr: np.ndarray, axes: list[str], *, meta: Image.Meta | None = None) -> Image:
@@ -68,8 +69,8 @@ def test_pad_constant_mode() -> None:
 
 
 def test_resize_target_shape_updates_pixel_size() -> None:
-    meta = Image.Meta(pixel_size=(2.0, 4.0))
+    meta = Image.Meta(pixel_size=PhysicalQuantity(2.0, "um"))
     img = _make_image(np.arange(16, dtype=np.float32).reshape(4, 4), ["y", "x"], meta=meta)
-    out = Resize().process_item(img, BlockConfig(params={"target_shape": [2, 8]}))
-    assert out.shape == (2, 8)
-    assert out.meta.pixel_size == (4.0, 2.0)
+    out = Resize().process_item(img, BlockConfig(params={"target_shape": [2, 2]}))
+    assert out.shape == (2, 2)
+    assert out.meta.pixel_size == PhysicalQuantity(4.0, "um")
