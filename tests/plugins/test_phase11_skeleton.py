@@ -342,6 +342,34 @@ def test_lcms_block_skeletons_inherit_real_bases() -> None:
         assert issubclass(cls, base), f"{cls.__name__} must subclass {base.__name__}"
 
 
+def test_lcms_isotope_tracing_core_impl_smoke() -> None:
+    """Smoke test that T-LCMS-008/T-LCMS-009 bodies are concrete (PR #371).
+
+    This lives in the root ``tests/`` tree so the Phase 11 workflow
+    compliance job recognizes the implementation PR as having top-level
+    smoke coverage in addition to the package-local LCMS tests.
+    """
+    pd = pytest.importorskip("pandas")
+    from scieasy_blocks_lcms.isotope_tracing import Calculate13CEnrichment, FractionalLabeling
+    from scieasy_blocks_lcms.types import MIDTable
+
+    from scieasy.blocks.base.config import BlockConfig
+
+    frame = pd.DataFrame({"Compound": ["glucose", "glucose"], "C13": [0, 6], "S1": [0.4, 0.6]})
+    mid = MIDTable(
+        columns=list(frame.columns),
+        row_count=len(frame),
+        meta=MIDTable.Meta(tracer_atoms=["C13"], sample_columns=["S1"]),
+    )
+    mid._data = frame
+
+    enrichment = Calculate13CEnrichment().process_item(mid, BlockConfig(params={}))._data
+    fractional = FractionalLabeling().process_item(mid, BlockConfig(params={}))._data
+
+    assert enrichment.loc[0, "enrichment"] == pytest.approx(0.6)
+    assert fractional.loc[0, "fractional_labeling"] == pytest.approx(0.6)
+
+
 def test_imaging_io_impl_smoke(tmp_path: Path) -> None:
     """Smoke test that T-IMG-002/T-IMG-003 bodies are concrete (impl PR #354).
 
@@ -523,3 +551,39 @@ def test_imaging_types_impl_smoke() -> None:
     assert mask.dtype == bool
     assert "raster" in label.slots
     assert transform.shape == (2, 3)
+
+
+def test_imaging_cellpose_impl_smoke(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Smoke test that T-IMG-019 is wired into the imaging plugin surface."""
+    from types import SimpleNamespace
+
+    import numpy as np
+    from scieasy_blocks_imaging import CellposeSegment, get_blocks
+    from scieasy_blocks_imaging.types import Image, Label
+
+    from scieasy.blocks.base.config import BlockConfig
+    from scieasy.core.types.collection import Collection
+
+    class _FakeModel:
+        def __init__(self, *, gpu: bool = False) -> None:
+            self.gpu = gpu
+
+        def eval(self, data: np.ndarray, **kwargs: object) -> tuple[np.ndarray, None, None, None]:
+            labels = np.zeros(np.asarray(data).shape, dtype=np.int32)
+            labels[1:3, 1:3] = 1
+            return labels, None, None, None
+
+    monkeypatch.setattr(
+        "scieasy_blocks_imaging.segmentation.cellpose_segment._import_cellpose_models",
+        lambda: SimpleNamespace(
+            Cellpose=lambda *, model_type, gpu: _FakeModel(gpu=gpu),
+            CellposeModel=lambda *, pretrained_model, gpu: _FakeModel(gpu=gpu),
+        ),
+    )
+
+    image = Image(axes=["y", "x"], shape=(4, 4), dtype=np.float32)
+    image._data = np.ones((4, 4), dtype=np.float32)
+    result = CellposeSegment().run({"images": Collection(items=[image], item_type=Image)}, BlockConfig(params={}))
+
+    assert CellposeSegment in get_blocks()
+    assert isinstance(result["labels"][0], Label)

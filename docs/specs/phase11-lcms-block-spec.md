@@ -1858,6 +1858,12 @@ remains intentionally pending for the separate Worker A follow-up chunk
 **a. Ticket ID and name**: T-LCMS-008 — `Calculate13CEnrichment`
 weighted-average enrichment per compound per sample.
 
+**Status note (2026-04-08)**: Implemented in issue #366 / PR #371
+(`feat/issue-366/T-LCMS-008-012-isotope-core`). The skeleton
+`NotImplementedError` body is replaced with a concrete
+`ProcessBlock.process_item()` implementation plus synthetic isotope
+tracing tests under `packages/scieasy-blocks-lcms/tests/test_isotope_tracing/`.
+
 **b. Source ADR / spec sections**:
 - Master plan §2.4 LC-MS isotope tracing (the USP).
 - This spec §8 Q-5 (tracer atom handling, multi-tracer).
@@ -2093,6 +2099,11 @@ worked examples and multi-tracer matrix tests need real fixtures.
 **a. Ticket ID and name**: T-LCMS-009 — `FractionalLabeling`
 (`1 - M+0` per compound per sample).
 
+**Status note (2026-04-08)**: Implemented in issue #366 / PR #371
+(`feat/issue-366/T-LCMS-008-012-isotope-core`). The block now computes
+`1 - M+0` from `MIDTable.meta.tracer_atoms` / `sample_columns` and the
+spec-listed error path for missing M+0 rows is covered by real tests.
+
 **b. Source ADR / spec sections**:
 - Master plan §2.4 LC-MS isotope tracing.
 
@@ -2186,6 +2197,11 @@ Total ~330 lines.
 
 **a. Ticket ID and name**: T-LCMS-010 — `CompareGroupMID` per-isotopologue
 statistical comparison between sample groups.
+
+**Status note (2026-04-08)**: Implemented in issue #366 / PR #371
+(`feat/issue-366/T-LCMS-008-012-isotope-core`). Two-group statistical
+comparison, correction modes, and the `>2 groups -> UnivariateStats`
+boundary now have concrete code and synthetic test coverage.
 
 **b. Source ADR / spec sections**:
 - Master plan §2.4 LC-MS isotope tracing.
@@ -2296,6 +2312,11 @@ Total ~580 lines.
 **a. Ticket ID and name**: T-LCMS-011 — `FluxEstimate` simple
 steady-state flux via labelling rate × pool size.
 
+**Status note (2026-04-08)**: Implemented in issue #366 / PR #371
+(`feat/issue-366/T-LCMS-008-012-isotope-core`). The block now performs
+the spec's naive linear-fit flux estimate and keeps the explicit
+non-13C-MFA disclaimer in code and tests.
+
 **b. Source ADR / spec sections**:
 - Master plan §2.4 LC-MS isotope tracing.
 - This spec §8 Q-9 (FluxEstimate simplicity vs 13C-MFA boundary).
@@ -2405,6 +2426,11 @@ Total ~450 lines.
 
 **a. Ticket ID and name**: T-LCMS-012 — `PoolSizeNormalize` intensity
 normalization for PeakTables.
+
+**Status note (2026-04-08)**: Implemented in issue #366 / PR #371
+(`feat/issue-366/T-LCMS-008-012-isotope-core`). `IS`, `TIC`, and
+`median` normalization now return a preserved-type `PeakTable` with the
+spec-required meta retention and error handling.
 
 **b. Source ADR / spec sections**:
 - Master plan §2.4 LC-MS isotope tracing.
