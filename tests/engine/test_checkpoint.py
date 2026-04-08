@@ -387,3 +387,100 @@ class TestDeserializeIntermediateRefs:
         data = {"block_a": "simple_string"}
         restored = deserialize_intermediate_refs(data)
         assert restored["block_a"] == "simple_string"
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for #404 — _deserialize_value must preserve type_chain
+# ---------------------------------------------------------------------------
+
+
+class TestDeserializeTypeChain:
+    """Regression tests: _deserialize_value preserves type_chain from metadata.
+
+    These cover the fix in #404: TypeSignature must be built from
+    metadata.type_chain rather than hardcoded ["DataObject"] or just
+    [item_type_name].
+    """
+
+    def test_single_ref_preserves_type_chain(self) -> None:
+        """Single wire-format dict preserves type_chain in the ViewProxy."""
+        from scieasy.core.proxy import ViewProxy
+
+        data = {
+            "block_a": {
+                "result": {
+                    "backend": "zarr",
+                    "path": "/data/store.zarr",
+                    "format": "zarr",
+                    "metadata": {
+                        "type_chain": ["DataObject", "Array", "Image"],
+                        "axes": ["y", "x"],
+                    },
+                }
+            }
+        }
+        restored = deserialize_intermediate_refs(data)
+        proxy = restored["block_a"]["result"]
+        assert isinstance(proxy, ViewProxy)
+        assert proxy.dtype_info.type_chain == ["DataObject", "Array", "Image"]
+
+    def test_single_ref_falls_back_to_dataobject_when_no_type_chain(self) -> None:
+        """Without type_chain in metadata, ViewProxy defaults to ['DataObject']."""
+        from scieasy.core.proxy import ViewProxy
+
+        data = {
+            "block_a": {
+                "result": {
+                    "backend": "zarr",
+                    "path": "/data/store.zarr",
+                    "format": "zarr",
+                }
+            }
+        }
+        restored = deserialize_intermediate_refs(data)
+        proxy = restored["block_a"]["result"]
+        assert isinstance(proxy, ViewProxy)
+        assert proxy.dtype_info.type_chain == ["DataObject"]
+
+    def test_collection_items_preserve_type_chain_from_item_metadata(self) -> None:
+        """Collection item ViewProxies use type_chain from each item's metadata."""
+        from scieasy.core.proxy import ViewProxy
+
+        data = {
+            "block_a": {
+                "images": {
+                    "_collection": True,
+                    "item_type": "Image",
+                    "items": [
+                        {
+                            "backend": "zarr",
+                            "path": "/data/img_0.zarr",
+                            "format": "zarr",
+                            "metadata": {
+                                "type_chain": ["DataObject", "Array", "Image"],
+                                "axes": ["y", "x"],
+                            },
+                        },
+                        {
+                            "backend": "zarr",
+                            "path": "/data/img_1.zarr",
+                            "format": "zarr",
+                            # No type_chain in metadata — falls back to [item_type_name]
+                            "metadata": {"axes": ["y", "x"]},
+                        },
+                    ],
+                }
+            }
+        }
+        restored = deserialize_intermediate_refs(data)
+        coll = restored["block_a"]["images"]
+        assert coll["_collection"] is True
+        assert len(coll["items"]) == 2
+
+        proxy0, proxy1 = coll["items"]
+        assert isinstance(proxy0, ViewProxy)
+        assert proxy0.dtype_info.type_chain == ["DataObject", "Array", "Image"]
+
+        assert isinstance(proxy1, ViewProxy)
+        # Fallback to [item_type_name] when no type_chain in item metadata
+        assert proxy1.dtype_info.type_chain == ["Image"]

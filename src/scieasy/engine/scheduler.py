@@ -783,6 +783,14 @@ class DAGScheduler:
         descendants = set(get_downstream_blocks(self._dag, block_id)) | {block_id}
         self._completed_event = asyncio.Event()
 
+        # #404 / #408 / ADR-027 Addendum 1: Wire-format dicts from the
+        # checkpoint are assigned directly to _block_outputs WITHOUT calling
+        # deserialize_intermediate_refs().  The wire-format dict carries a
+        # metadata.type_chain field that _reconstruct_one() inside the worker
+        # subprocess uses to instantiate the correct typed DataObject.
+        # Calling deserialize_intermediate_refs() here would produce ViewProxy
+        # objects that are not JSON-serialisable and would break
+        # spawn_block_process().
         for node_id in self._order:
             if node_id in ancestors:
                 self._block_states[node_id] = BlockState.DONE
