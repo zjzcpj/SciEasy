@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#407] Fix `_infer_type_name_from_ref` to honour `type_chain` from worker wire-format metadata; add `DataRecord.type_chain` field; replace hardcoded class name comparisons in `preview_data` with `TypeRegistry.resolve()` + `issubclass()` dispatch, removing the "Spectrum" substring hack (@claude, 2026-04-08, branch: fix/issue-407/infer-type-name-type-chain, session: 20260408-154720-fix-infer-type-name-from-ref-ignores-met)
 - [#396] Restore plugin IO execution/schema fidelity by surfacing block-run failures in the GUI, exposing `direction` and `is_collection` in block schemas, aligning imaging collection ports to item-type metadata, and adding monorepo plugin block/type discovery so local source checkouts still render correct colors and Browse actions (@Codex, 2026-04-08, branch: fix/issue-396/gui-io-metadata, session: 20260408-133541-fix-issue-396-gui-io-metadata-and-execut)
 
 ### Added
