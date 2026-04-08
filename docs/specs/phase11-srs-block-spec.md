@@ -219,10 +219,10 @@ and depends on the entire plugin plus the imaging plugin's `CellposeSegment`
 ticket having landed.
 
 Implementation status note (2026-04-08): T-SRS-001 merged in PR #367. The
-component_analysis subpackage T-SRS-006 (`SRSVCA`), T-SRS-007 (`SRSUnmix`),
-T-SRS-008 (`SRSPCA`), T-SRS-009 (`SRSICA`), and T-SRS-010
-(`SRSKMeansCluster`) are implemented in PR #385, built on the still-open
-T-SRS-002..005 preprocess PR #380. Spectral_extraction (T-SRS-011/012),
+dependency-root preprocess chain T-SRS-002..005 is implemented in PR #380.
+Component analysis T-SRS-006 (`SRSVCA`), T-SRS-007 (`SRSUnmix`), T-SRS-008
+(`SRSPCA`), T-SRS-009 (`SRSICA`), and T-SRS-010 (`SRSKMeansCluster`) are
+implemented in PR #387 (issue #385). Spectral_extraction (T-SRS-011/012),
 packaging (T-SRS-013/014), and the E2E capstone remain.
 
 ## 5. Recommended chained PR order
