@@ -54,6 +54,15 @@ def _safe_parent_dir(path: str | Path | None) -> Path:
 
 
 def _infer_type_name_from_ref(ref: StorageReference) -> str:
+    # ADR-027 D2 / #407: prefer the type_chain written by the worker subprocess
+    # via _serialise_one().  The rightmost (most specific) entry is the
+    # canonical type name.  Fall through to the extension heuristic only when
+    # metadata is absent (e.g. file uploads that have no type_chain yet).
+    if ref.metadata:
+        type_chain = ref.metadata.get("type_chain")
+        if type_chain and isinstance(type_chain, list) and type_chain:
+            return str(type_chain[-1])
+
     fmt = (ref.format or "").lower()
     if fmt in {"csv", "parquet"}:
         return DataFrame.__name__
@@ -124,6 +133,10 @@ class DataRecord:
     ref: StorageReference
     type_name: str
     metadata: dict[str, Any] = field(default_factory=dict)
+    # ADR-027 D2 / #407: full type chain from the worker subprocess wire format,
+    # e.g. ["DataObject", "Array", "Image"].  Used by preview_data() to resolve
+    # plugin types via TypeRegistry instead of relying on class name equality.
+    type_chain: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -474,11 +487,21 @@ class ApiRuntime:
         type_name: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> DataRecord:
+        resolved_type_name = type_name or _infer_type_name_from_ref(ref)
+        # ADR-027 D2 / #407: propagate type_chain from the wire-format metadata
+        # so that preview_data() can use TypeRegistry.resolve() + issubclass()
+        # rather than hardcoded class name comparisons.
+        ref_type_chain: list[str] = []
+        if ref.metadata:
+            tc = ref.metadata.get("type_chain")
+            if isinstance(tc, list):
+                ref_type_chain = [str(n) for n in tc]
         record = DataRecord(
             id=f"data-{uuid4().hex}",
             ref=ref,
-            type_name=type_name or _infer_type_name_from_ref(ref),
+            type_name=resolved_type_name,
             metadata=metadata or self.describe_ref(ref),
+            type_chain=ref_type_chain,
         )
         self.data_catalog[record.id] = record
         return record
@@ -491,7 +514,16 @@ class ApiRuntime:
                 format=payload.get("format"),
                 metadata=payload.get("metadata"),
             )
-            record = self.register_data_ref(ref, metadata=self.describe_ref(ref))
+            # ADR-027 D2 / #407: extract type_chain from wire-format metadata
+            # and pass as explicit type_name so _infer_type_name_from_ref() is
+            # bypassed entirely for worker-produced payloads.  This preserves
+            # plugin type identity (e.g. "Image" instead of "Array").
+            explicit_type_name: str | None = None
+            raw_meta = payload.get("metadata") or {}
+            tc = raw_meta.get("type_chain") if isinstance(raw_meta, dict) else None
+            if tc and isinstance(tc, list) and tc:
+                explicit_type_name = str(tc[-1])
+            record = self.register_data_ref(ref, type_name=explicit_type_name, metadata=self.describe_ref(ref))
             return {
                 "data_ref": record.id,
                 "type_name": record.type_name,
@@ -537,13 +569,39 @@ class ApiRuntime:
                 logger.debug("Failed to read parquet metadata for %s", ref.path, exc_info=True)
         return metadata
 
+    def _resolve_record_class(self, record: DataRecord) -> type | None:
+        """Resolve the DataObject class for *record* via TypeRegistry.
+
+        ADR-027 D2 / #405: Consults ``record.type_chain`` (populated by
+        ``register_data_ref`` from wire-format metadata) via
+        ``TypeRegistry.resolve(list)``, falling back to a single-name lookup
+        on ``record.type_name``.  Returns ``None`` when the type is not
+        registered (e.g. a plugin that is not installed in this environment).
+        """
+        chain = record.type_chain or [record.type_name]
+        try:
+            return self.type_registry.resolve(chain)
+        except Exception:
+            return None
+
     def preview_data(self, data_ref: str) -> dict[str, Any]:
         record = self.get_data_record(data_ref)
         ref = record.ref
         path = Path(ref.path)
         suffix = path.suffix.lower()
 
-        if record.type_name == DataFrame.__name__ or suffix in {".csv", ".parquet"}:
+        # ADR-027 D2 / #405: resolve the concrete class via TypeRegistry so
+        # plugin types (Image, Spectrum, …) are matched by subclass relationship
+        # rather than by exact class name equality.
+        resolved_cls = self._resolve_record_class(record)
+
+        # ------------------------------------------------------------------
+        # DataFrame / tabular
+        # ------------------------------------------------------------------
+        is_dataframe = record.type_name == DataFrame.__name__ or (
+            resolved_cls is not None and issubclass(resolved_cls, DataFrame)
+        )
+        if is_dataframe or suffix in {".csv", ".parquet"}:
             if suffix == ".parquet":
                 table = pq.read_table(path).slice(0, 100)
             else:
@@ -558,7 +616,13 @@ class ApiRuntime:
                 "row_count": len(rows),
             }
 
-        if record.type_name in {Text.__name__, Artifact.__name__} and suffix in {
+        # ------------------------------------------------------------------
+        # Text / artifact (text-based formats only)
+        # ------------------------------------------------------------------
+        is_text = record.type_name in {Text.__name__, Artifact.__name__} or (
+            resolved_cls is not None and (issubclass(resolved_cls, Text) or issubclass(resolved_cls, Artifact))
+        )
+        if is_text and suffix in {
             ".txt",
             ".json",
             ".yaml",
@@ -572,7 +636,11 @@ class ApiRuntime:
                 "language": suffix.lstrip(".") or "text",
             }
 
-        if record.type_name == Array.__name__ or suffix in {".tif", ".tiff"}:
+        # ------------------------------------------------------------------
+        # Array / image (raster data)
+        # ------------------------------------------------------------------
+        is_array = record.type_name == Array.__name__ or (resolved_cls is not None and issubclass(resolved_cls, Array))
+        if is_array or suffix in {".tif", ".tiff"}:
             # T-TRK-004 / ADR-028 §D2: ``TIFFAdapter`` is gone. Read the
             # tiff directly via the ``tifffile`` package, which was the
             # adapter's only dependency. The imaging plugin's
@@ -601,18 +669,29 @@ class ApiRuntime:
                 "mime_type": "image/tiff",
             }
 
-        # T-007 / ADR-027 D2: ``Spectrum`` lives in the spectral plugin,
-        # not core. Preview rendering keys off the ``Series`` base name
-        # (and its subclasses by substring), so plugin-provided spectra
-        # still hit the chart preview path.
-        if record.type_name == Series.__name__ or "Spectrum" in record.type_name:
+        # ------------------------------------------------------------------
+        # Series / spectral (chart preview)
+        # ADR-027 D2 / #405: replaced the "Spectrum" substring hack with a
+        # proper issubclass check via TypeRegistry.  Plugin-provided spectra
+        # still hit this path because Spectrum is a Series subclass.
+        # ------------------------------------------------------------------
+        is_series = record.type_name == Series.__name__ or (
+            resolved_cls is not None and issubclass(resolved_cls, Series)
+        )
+        if is_series:
             values = record.metadata.get("values", [])
             return {
                 "kind": "chart",
                 "points": [{"x": index, "y": value} for index, value in enumerate(values[:256])],
             }
 
-        if record.type_name == CompositeData.__name__:
+        # ------------------------------------------------------------------
+        # CompositeData
+        # ------------------------------------------------------------------
+        is_composite = record.type_name == CompositeData.__name__ or (
+            resolved_cls is not None and issubclass(resolved_cls, CompositeData)
+        )
+        if is_composite:
             return {
                 "kind": "composite",
                 "slots": record.metadata.get("slots", {}),
