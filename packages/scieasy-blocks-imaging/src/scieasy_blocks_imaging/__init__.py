@@ -16,6 +16,7 @@ from scieasy_blocks_imaging.preprocess.denoise import Denoise
 from scieasy_blocks_imaging.preprocess.flat_field_correct import FlatFieldCorrect
 from scieasy_blocks_imaging.preprocess.geometry import Crop, Flip, Pad, Resize, Rotate
 from scieasy_blocks_imaging.preprocess.normalize import Normalize
+from scieasy_blocks_imaging.segmentation.cellpose_segment import CellposeSegment
 from scieasy_blocks_imaging.types import Image, Label, Mask, Transform
 
 
@@ -46,6 +47,7 @@ def get_blocks() -> list[type]:
         RidgeFilter,
         Sharpen,
         FFTFilter,
+        CellposeSegment,
     ]
 
 
@@ -53,6 +55,7 @@ __all__ = [
     "AxisMerge",
     "AxisSplit",
     "BackgroundSubtract",
+    "CellposeSegment",
     "ConvertDType",
     "Crop",
     "Denoise",

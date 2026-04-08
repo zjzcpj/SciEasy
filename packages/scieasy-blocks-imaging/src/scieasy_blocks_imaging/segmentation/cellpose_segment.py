@@ -1,42 +1,26 @@
-"""CellposeSegment — flagship deep-learning cell segmentation (T-IMG-019).
-
-FLAGSHIP block for Phase 11 imaging. Demonstrates the ADR-027 D7
-``setup`` / ``teardown`` lifecycle: the cellpose model is loaded
-ONCE per :meth:`run` (in :meth:`setup`), reused across every
-``process_item`` call via the shared ``state`` object, and freed in
-:meth:`teardown` (which also calls ``torch.cuda.empty_cache()`` when
-torch+CUDA are present).
-
-Skeleton (Sprint C continuation A). See
-``docs/specs/phase11-imaging-block-spec.md`` §9 T-IMG-019.
-"""
+"""Cellpose-based segmentation using ProcessBlock setup/teardown."""
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+import logging
+from collections.abc import Sequence
+from typing import Any, ClassVar, cast
+
+import numpy as np
 
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.process.process_block import ProcessBlock
+from scieasy.core.types.array import Array
+from scieasy.core.types.base import DataObject
 from scieasy.core.types.collection import Collection
 from scieasy_blocks_imaging.types import Image, Label
 
+logger = logging.getLogger(__name__)
+
 
 class CellposeSegment(ProcessBlock):
-    """Flagship segmentation block using cellpose deep learning models.
-
-    Implements ADR-027 D7 ``setup`` / ``teardown`` to load the cellpose
-    model ONCE per run, not per item. The model lives in the ``state``
-    object passed through to :meth:`process_item`.
-
-    Per Q-IMG-2: defaults to CPU. Set ``use_gpu=True`` to use CUDA when
-    available; cellpose falls back to CPU automatically when CUDA is
-    not present.
-
-    Optional dependency. Install with::
-
-        pip install scieasy-blocks-imaging[cellpose]
-    """
+    """Flagship segmentation block using cellpose deep learning models."""
 
     type_name: ClassVar[str] = "imaging.cellpose_segment"
     name: ClassVar[str] = "Cellpose Segmentation"
@@ -77,53 +61,134 @@ class CellposeSegment(ProcessBlock):
     }
 
     def setup(self, config: BlockConfig) -> Any:
-        """Load the cellpose model ONCE per :meth:`run` (ADR-027 D7).
+        """Load the cellpose model once per run (ADR-027 D7)."""
+        models = _import_cellpose_models()
+        model_name = str(config.get("model", "cyto3"))
+        use_gpu = bool(config.get("use_gpu", False))
+        if model_name == "custom":
+            path = config.get("custom_model_path")
+            if not path:
+                raise ValueError("model=custom requires custom_model_path")
+            return models.CellposeModel(pretrained_model=path, gpu=use_gpu)
+        return models.Cellpose(model_type=model_name, gpu=use_gpu)
 
-        Returns:
-            The loaded cellpose model object. This becomes the
-            ``state`` argument to :meth:`process_item`.
-
-        Raises:
-            ImportError: If the optional ``cellpose`` package is not
-                installed (friendly error pointing at the ``[cellpose]``
-                extra).
-            ValueError: If ``model="custom"`` is set without
-                ``custom_model_path``.
-        """
-        raise NotImplementedError(
-            "T-IMG-019 CellposeSegment.setup — impl pending (skeleton continuation A). "
-            "See docs/specs/phase11-imaging-block-spec.md §9 T-IMG-019."
-        )
+    def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, Collection]:
+        """Override Tier 1 run so the output collection carries ``Label`` items."""
+        images = _coerce_images(inputs.get("images"))
+        state = self.setup(config)
+        try:
+            labels: list[Label] = []
+            for image in images:
+                label = cast(Label, self._auto_flush(self.process_item(image, config, state)))
+                labels.append(label)
+            return {"labels": Collection(items=cast(list[DataObject], labels), item_type=Label)}
+        finally:
+            self.teardown(state)
 
     def process_item(self, item: Image, config: BlockConfig, state: Any = None) -> Label:
-        """Segment one image using the model loaded in :meth:`setup`.
+        """Segment one image using the model loaded in :meth:`setup`."""
+        if state is None:
+            raise RuntimeError("CellposeSegment.process_item called without state")
 
-        Args:
-            item: Input :class:`Image`.
-            config: BlockConfig with cellpose params.
-            state: The cellpose model returned by :meth:`setup` —
-                must NOT be ``None`` here.
+        diameter = float(config.get("diameter", 30.0))
+        flow_threshold = float(config.get("flow_threshold", 0.4))
+        cellprob_threshold = float(config.get("cellprob_threshold", 0.0))
+        channels = _coerce_channels(config.get("channels", [0, 0]))
 
-        Returns:
-            A :class:`Label` whose ``raster`` slot holds the integer
-            mask, with ``Label.Meta.n_objects`` populated.
+        data_2d = _center_spatial_slice(_image_data(item))
+        masks, *_ = state.eval(
+            data_2d,
+            diameter=diameter,
+            channels=channels,
+            flow_threshold=flow_threshold,
+            cellprob_threshold=cellprob_threshold,
+        )
+        labels = np.asarray(masks)
+        if not np.issubdtype(labels.dtype, np.integer):
+            labels = labels.astype(np.int32)
 
-        Raises:
-            RuntimeError: If called with ``state=None`` (lifecycle bug).
-        """
-        raise NotImplementedError(
-            "T-IMG-019 CellposeSegment.process_item — impl pending (skeleton continuation A). "
-            "See docs/specs/phase11-imaging-block-spec.md §9 T-IMG-019."
+        raster = Array(axes=["y", "x"], shape=labels.shape, dtype=labels.dtype)
+        raster._data = labels  # type: ignore[attr-defined]
+        return Label(
+            slots={"raster": raster},
+            framework=item.framework.derive(),
+            meta=Label.Meta(
+                source_file=getattr(item.meta, "source_file", None),
+                n_objects=int(labels.max()) if labels.size else 0,
+            ),
+            user=dict(item.user),
         )
 
     def teardown(self, state: Any) -> None:
-        """Release model state and free GPU memory when applicable (Q-IMG-2).
+        """Release GPU memory when applicable (Q-IMG-2)."""
+        if state is None:
+            return
+        if bool(getattr(state, "gpu", False)):
+            _maybe_empty_torch_cuda_cache()
 
-        ADR-027 D7: runs in a ``finally`` block even on error. The
-        impl should call ``torch.cuda.empty_cache()`` when torch+CUDA
-        are available, no-op otherwise.
-        """
-        raise NotImplementedError(
-            "T-IMG-019 CellposeSegment.teardown — impl pending (skeleton continuation A). "
-            "See docs/specs/phase11-imaging-block-spec.md §9 T-IMG-019."
-        )
+
+def _import_cellpose_models() -> Any:
+    try:
+        from cellpose import models
+    except ImportError as exc:
+        raise ImportError(
+            "CellposeSegment requires the [cellpose] extra: pip install scieasy-blocks-imaging[cellpose]"
+        ) from exc
+    return models
+
+
+def _maybe_empty_torch_cuda_cache() -> None:
+    try:
+        import torch
+    except ImportError:
+        return
+
+    if torch.cuda.is_available():
+        logger.debug("Clearing torch CUDA cache after CellposeSegment teardown")
+        torch.cuda.empty_cache()
+
+
+def _coerce_images(value: Collection | Image | None) -> list[Image]:
+    if value is None:
+        raise ValueError("CellposeSegment: missing required 'images' input")
+    if isinstance(value, Image):
+        return [value]
+    if not isinstance(value, Collection):
+        raise ValueError(f"CellposeSegment: expected Image or Collection[Image], got {type(value).__name__}")
+
+    images: list[Image] = []
+    for item in value:
+        if not isinstance(item, Image):
+            raise ValueError(f"CellposeSegment: images must contain Image items, got {type(item).__name__}")
+        images.append(item)
+    if not images:
+        raise ValueError("CellposeSegment: images collection is empty")
+    return images
+
+
+def _coerce_channels(value: object) -> list[int]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)) or len(value) != 2:
+        raise ValueError("CellposeSegment: channels must be a two-element sequence")
+
+    channels: list[int] = []
+    for entry in value:
+        if isinstance(entry, bool) or not isinstance(entry, (int, np.integer)):
+            raise ValueError("CellposeSegment: channels entries must be integers")
+        channels.append(int(entry))
+    return channels
+
+
+def _image_data(image: Image) -> np.ndarray:
+    if image.storage_ref is None and hasattr(image, "_data") and getattr(image, "_data", None) is not None:
+        return np.asarray(image._data)  # type: ignore[attr-defined]
+    return np.asarray(image.to_memory())
+
+
+def _center_spatial_slice(data: np.ndarray) -> np.ndarray:
+    if data.ndim <= 2:
+        return data
+    slicer = (*tuple(size // 2 for size in data.shape[:-2]), slice(None), slice(None))
+    return np.asarray(data[slicer])
+
+
+__all__ = ["CellposeSegment"]

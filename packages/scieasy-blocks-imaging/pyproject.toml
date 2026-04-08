@@ -13,3 +13,8 @@ dependencies = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+markers = [
+    "requires_cellpose: needs the [cellpose] extra",
+]
