@@ -1,24 +1,17 @@
-"""Label/Mask cleanup bundle (T-IMG-022).
-
-Five small ProcessBlocks bundled in one module per spec §9 T-IMG-022:
-
-- :class:`RemoveSmallObjects` — drop labels/mask blobs below ``min_size`` pixels
-- :class:`RemoveBorderObjects` — drop labels touching the image border
-- :class:`FillHoles` — fill interior holes in a :class:`Mask`
-- :class:`ExpandLabels` — dilate labels by ``distance_px``
-- :class:`ShrinkLabels` — erode labels by ``distance_px``
-
-Skeleton placeholder — T-IMG-022 implementation agent fills the bodies.
-See ``docs/specs/phase11-imaging-block-spec.md`` §9 T-IMG-022.
-"""
+"""Label/Mask cleanup bundle (T-IMG-022)."""
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from collections.abc import Callable
+from typing import Any, ClassVar, cast
+
+import numpy as np
 
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.process.process_block import ProcessBlock
+from scieasy.core.types.array import Array
+from scieasy.utils.axis_iter import iterate_over_axes
 from scieasy_blocks_imaging.types import Label, Mask
 
 
@@ -46,10 +39,36 @@ class RemoveSmallObjects(ProcessBlock):
     }
 
     def process_item(self, item: Label | Mask, config: BlockConfig, state: Any = None) -> Label | Mask:
-        raise NotImplementedError(
-            "T-IMG-022: RemoveSmallObjects.process_item — impl pending (skeleton continuation B). "
-            "See docs/specs/phase11-imaging-block-spec.md §9 T-IMG-022."
+        from skimage.morphology import remove_small_objects
+
+        min_size = int(config.get("min_size", 64))
+        if min_size < 1:
+            raise ValueError(f"RemoveSmallObjects: min_size must be >= 1, got {min_size}")
+
+        if isinstance(item, Mask):
+            mask_result = cast(
+                Array,
+                iterate_over_axes(
+                    item,
+                    frozenset({"y", "x"}),
+                    lambda slice_2d, _coord: np.asarray(
+                        remove_small_objects(np.asarray(slice_2d, dtype=bool), min_size=min_size),
+                        dtype=bool,
+                    ),
+                ),
+            )
+            return _mask_from_array(item, np.asarray(mask_result.to_memory(), dtype=bool))
+
+        raster = _label_raster(item, "RemoveSmallObjects")
+        result = iterate_over_axes(
+            raster,
+            frozenset({"y", "x"}),
+            lambda slice_2d, _coord: np.asarray(
+                remove_small_objects(np.asarray(slice_2d, dtype=np.int32), min_size=min_size),
+                dtype=np.int32,
+            ),
         )
+        return _label_from_array(item, np.asarray(result.to_memory(), dtype=np.int32))
 
 
 class RemoveBorderObjects(ProcessBlock):
@@ -71,10 +90,15 @@ class RemoveBorderObjects(ProcessBlock):
     config_schema: ClassVar[dict[str, Any]] = {"type": "object", "properties": {}}
 
     def process_item(self, item: Label, config: BlockConfig, state: Any = None) -> Label:
-        raise NotImplementedError(
-            "T-IMG-022: RemoveBorderObjects.process_item — impl pending (skeleton continuation B). "
-            "See docs/specs/phase11-imaging-block-spec.md §9 T-IMG-022."
+        from skimage.segmentation import clear_border
+
+        raster = _label_raster(item, "RemoveBorderObjects")
+        result = iterate_over_axes(
+            raster,
+            frozenset({"y", "x"}),
+            lambda slice_2d, _coord: np.asarray(clear_border(np.asarray(slice_2d, dtype=np.int32)), dtype=np.int32),
         )
+        return _label_from_array(item, np.asarray(result.to_memory(), dtype=np.int32))
 
 
 class FillHoles(ProcessBlock):
@@ -96,10 +120,17 @@ class FillHoles(ProcessBlock):
     config_schema: ClassVar[dict[str, Any]] = {"type": "object", "properties": {}}
 
     def process_item(self, item: Mask, config: BlockConfig, state: Any = None) -> Mask:
-        raise NotImplementedError(
-            "T-IMG-022: FillHoles.process_item — impl pending (skeleton continuation B). "
-            "See docs/specs/phase11-imaging-block-spec.md §9 T-IMG-022."
+        from scipy.ndimage import binary_fill_holes
+
+        result = cast(
+            Mask,
+            iterate_over_axes(
+                item,
+                frozenset({"y", "x"}),
+                lambda slice_2d, _coord: np.asarray(binary_fill_holes(np.asarray(slice_2d, dtype=bool)), dtype=bool),
+            ),
         )
+        return _mask_from_array(item, np.asarray(result.to_memory(), dtype=bool))
 
 
 class ExpandLabels(ProcessBlock):
@@ -126,10 +157,22 @@ class ExpandLabels(ProcessBlock):
     }
 
     def process_item(self, item: Label, config: BlockConfig, state: Any = None) -> Label:
-        raise NotImplementedError(
-            "T-IMG-022: ExpandLabels.process_item — impl pending (skeleton continuation B). "
-            "See docs/specs/phase11-imaging-block-spec.md §9 T-IMG-022."
+        from skimage.segmentation import expand_labels
+
+        distance_px = int(config.get("distance_px", 5))
+        if distance_px < 1:
+            raise ValueError(f"ExpandLabels: distance_px must be >= 1, got {distance_px}")
+
+        raster = _label_raster(item, "ExpandLabels")
+        result = iterate_over_axes(
+            raster,
+            frozenset({"y", "x"}),
+            lambda slice_2d, _coord: np.asarray(
+                expand_labels(np.asarray(slice_2d, dtype=np.int32), distance=distance_px),
+                dtype=np.int32,
+            ),
         )
+        return _label_from_array(item, np.asarray(result.to_memory(), dtype=np.int32))
 
 
 class ShrinkLabels(ProcessBlock):
@@ -156,7 +199,82 @@ class ShrinkLabels(ProcessBlock):
     }
 
     def process_item(self, item: Label, config: BlockConfig, state: Any = None) -> Label:
-        raise NotImplementedError(
-            "T-IMG-022: ShrinkLabels.process_item — impl pending (skeleton continuation B). "
-            "See docs/specs/phase11-imaging-block-spec.md §9 T-IMG-022."
+        distance_px = int(config.get("distance_px", 1))
+        if distance_px < 1:
+            raise ValueError(f"ShrinkLabels: distance_px must be >= 1, got {distance_px}")
+
+        raster = _label_raster(item, "ShrinkLabels")
+        result = iterate_over_axes(
+            raster,
+            frozenset({"y", "x"}),
+            _build_shrink_fn(distance_px),
         )
+        return _label_from_array(item, np.asarray(result.to_memory(), dtype=np.int32))
+
+
+def _build_shrink_fn(distance_px: int) -> Callable[[np.ndarray, dict[str, int]], np.ndarray]:
+    from skimage.morphology import disk, erosion
+
+    footprint = np.asarray(disk(distance_px), dtype=bool)
+
+    def _shrink(slice_2d: np.ndarray, _coord: dict[str, int]) -> np.ndarray:
+        labels = np.asarray(slice_2d, dtype=np.int32)
+        shrunk = np.zeros(labels.shape, dtype=np.int32)
+        for label_id in sorted(int(value) for value in np.unique(labels) if value > 0):
+            eroded = erosion(labels == label_id, footprint=footprint)
+            shrunk[np.asarray(eroded, dtype=bool)] = label_id
+        return shrunk
+
+    return _shrink
+
+
+def _label_raster(item: Label, block_name: str) -> Array:
+    raster = item.slots.get("raster")
+    if raster is None or not isinstance(raster, Array):
+        raise ValueError(f"{block_name}: label input requires a populated 'raster' slot")
+    return cast(Array, raster)
+
+
+def _label_from_array(item: Label, data: np.ndarray) -> Label:
+    raster_axes = list(_label_raster(item, "cleanup").axes)
+    raster = Array(axes=raster_axes, shape=data.shape, dtype=data.dtype)
+    raster._data = data  # type: ignore[attr-defined]
+    meta_kwargs = item.meta.model_dump() if item.meta is not None else {}
+    meta_kwargs["n_objects"] = _count_objects(data)
+    return Label(
+        slots={"raster": raster},
+        framework=item.framework.derive(),
+        meta=Label.Meta(**meta_kwargs),
+        user=dict(item.user),
+    )
+
+
+def _mask_from_array(item: Mask, data: np.ndarray) -> Mask:
+    mask = Mask(
+        axes=list(item.axes),
+        shape=data.shape,
+        dtype=bool,
+        chunk_shape=item.chunk_shape,
+        framework=item.framework.derive(),
+        meta=item.meta,
+        user=dict(item.user),
+        storage_ref=None,
+    )
+    mask._data = np.asarray(data, dtype=bool)  # type: ignore[attr-defined]
+    return mask
+
+
+def _count_objects(data: np.ndarray) -> int:
+    positive = np.asarray(data) > 0
+    if not positive.any():
+        return 0
+    return len({int(value) for value in np.unique(np.asarray(data)[positive])})
+
+
+__all__ = [
+    "ExpandLabels",
+    "FillHoles",
+    "RemoveBorderObjects",
+    "RemoveSmallObjects",
+    "ShrinkLabels",
+]

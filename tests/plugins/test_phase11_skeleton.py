@@ -528,3 +528,38 @@ def test_imaging_cellpose_impl_smoke(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert CellposeSegment in get_blocks()
     assert isinstance(result["labels"][0], Label)
+
+
+def test_imaging_segmentation_core_impl_smoke() -> None:
+    """Smoke test that the segmentation core bundle is wired into the imaging plugin surface."""
+    pytest.importorskip("skimage")
+    pytest.importorskip("scipy")
+    import numpy as np
+    from scieasy_blocks_imaging import ConnectedComponents, RemoveSmallObjects, Threshold, Watershed, get_blocks
+    from scieasy_blocks_imaging.types import Image, Label, Mask
+
+    from scieasy.blocks.base.config import BlockConfig
+    from scieasy.core.types.collection import Collection
+
+    image = Image(axes=["y", "x"], shape=(16, 16), dtype=np.float32)
+    arr = np.zeros((16, 16), dtype=np.float32)
+    arr[4:8, 4:8] = 1.0
+    arr[9:13, 9:13] = 1.0
+    image._data = arr  # type: ignore[attr-defined]
+
+    thresholded = Threshold().run(
+        {"image": Collection(items=[image], item_type=Image)}, BlockConfig(params={"method": "otsu"})
+    )
+    mask = thresholded["mask"][0]
+    labels = ConnectedComponents().run({"mask": thresholded["mask"]}, BlockConfig(params={"connectivity": 1}))
+    cleaned = RemoveSmallObjects().process_item(labels["label"][0], BlockConfig(params={"min_size": 4}))
+    watershed = Watershed().run(
+        {"image": Collection(items=[image], item_type=Image), "mask": thresholded["mask"]},
+        BlockConfig(params={"method": "distance", "min_distance": 2}),
+    )
+
+    assert Threshold in get_blocks()
+    assert Watershed in get_blocks()
+    assert isinstance(mask, Mask)
+    assert isinstance(cleaned, Label)
+    assert isinstance(watershed["label"][0], Label)
