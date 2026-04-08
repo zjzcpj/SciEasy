@@ -14,9 +14,10 @@ this generic saver covers every output need.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
-import pandas as pd
+if TYPE_CHECKING:
+    import pandas as pd
 
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort
@@ -130,6 +131,8 @@ def _unwrap_table(obj: DataObject | Collection) -> DataFrame:
 
 
 def _to_pandas(table: DataFrame) -> pd.DataFrame:
+    import pandas as pd
+
     cached = table.user.get("pandas_df")
     if isinstance(cached, pd.DataFrame):
         return cached.copy()

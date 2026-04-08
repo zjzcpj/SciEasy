@@ -15,8 +15,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, ClassVar, cast
 
-from pandas.errors import EmptyDataError
-
 from scieasy.blocks.app.app_block import AppBlock
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
@@ -27,6 +25,17 @@ from scieasy_blocks_lcms._base import _LCMSBlockMixin
 from scieasy_blocks_lcms.io.load_mid_table import LoadMIDTable
 from scieasy_blocks_lcms.io.load_peak_table import LoadPeakTable
 from scieasy_blocks_lcms.types import MIDTable, MSRawFile, PeakTable
+
+try:
+    from pandas.errors import EmptyDataError as _PandasEmptyDataErrorImported
+except ModuleNotFoundError:
+
+    class _PandasEmptyDataErrorFallbackError(Exception):
+        """Fallback when pandas is not installed."""
+
+    _PandasEmptyDataErrorImported = _PandasEmptyDataErrorFallbackError
+
+EmptyDataError = _PandasEmptyDataErrorImported
 
 
 class ElMAVENBlock(_LCMSBlockMixin, AppBlock):

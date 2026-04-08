@@ -21,8 +21,6 @@ from importlib import resources
 from pathlib import Path
 from typing import Any, ClassVar, cast
 
-import pandas as pd
-
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.code.code_block import CodeBlock
@@ -135,6 +133,8 @@ class AccuCorR(_LCMSBlockMixin, CodeBlock):
           appropriate ``Meta`` (``corrected=True``,
           ``correction_tool="AccuCor"``, ``tracer_atoms`` from config)
         """
+        import pandas as pd
+
         peak_collection = inputs.get("peak_table")
         metadata_collection = inputs.get("sample_metadata")
         if peak_collection is None or metadata_collection is None:

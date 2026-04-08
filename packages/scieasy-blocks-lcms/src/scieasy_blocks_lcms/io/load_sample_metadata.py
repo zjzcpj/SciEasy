@@ -11,9 +11,10 @@ Mirrors :class:`LoadPeakTable` but wraps the result as
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
-import pandas as pd
+if TYPE_CHECKING:
+    import pandas as pd
 
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import OutputPort
@@ -106,6 +107,8 @@ class LoadSampleMetadata(_LCMSBlockMixin, IOBlock):
 
 
 def _read_table(path: Path, *, sheet_name: str | int | None) -> pd.DataFrame:
+    import pandas as pd
+
     suffix = path.suffix.lower()
     if suffix == ".csv":
         return pd.read_csv(path)
