@@ -139,8 +139,4 @@ def get_types() -> list[type]:
     so the smoke importer in ``tests/test_phase11_skeleton.py`` can
     sanity-check the module.
     """
-    raise NotImplementedError(
-        "T-LCMS-002 get_types — impl pending (skeleton @ c08a885). "
-        "The four classes themselves are spec-final; only this "
-        "registration helper waits for the impl ticket."
-    )
+    return [MSRawFile, PeakTable, MIDTable, SampleMetadata]

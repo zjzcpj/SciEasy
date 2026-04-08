@@ -13,14 +13,19 @@ exports.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
+
+from pandas.errors import EmptyDataError
 
 from scieasy.blocks.app.app_block import AppBlock
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
-from scieasy.blocks.base.state import ExecutionMode
+from scieasy.blocks.base.state import BlockState, ExecutionMode
+from scieasy.core.types.base import DataObject
 from scieasy.core.types.collection import Collection
 from scieasy_blocks_lcms._base import _LCMSBlockMixin
+from scieasy_blocks_lcms.io.load_mid_table import LoadMIDTable
+from scieasy_blocks_lcms.io.load_peak_table import LoadPeakTable
 from scieasy_blocks_lcms.types import MIDTable, MSRawFile, PeakTable
 
 
@@ -97,10 +102,45 @@ class ElMAVENBlock(_LCMSBlockMixin, AppBlock):
         emitted file and route it to either ``peak_table`` or
         ``mid_table`` based on the column-header heuristic.
         """
-        raise NotImplementedError(
-            "T-LCMS-007 ElMAVENBlock.run — impl pending (skeleton @ c08a885). "
-            "See docs/specs/phase11-lcms-block-spec.md §9 T-LCMS-007."
-        )
+        raw_items = list(inputs.get("raw_files", Collection(items=[], item_type=MSRawFile)))
+        raw_paths = [str(item.file_path) for item in raw_items if item.file_path is not None]
+
+        patched_params = dict(config.params)
+        elmaven_path = patched_params.pop("elmaven_path", None)
+        if elmaven_path:
+            patched_params["app_command"] = elmaven_path
+        if self.state == BlockState.IDLE:
+            self.transition(BlockState.READY)
+        if self.state == BlockState.READY:
+            self.transition(BlockState.RUNNING)
+        delegated = super().run(cast(Any, {"raw_files": raw_paths}), BlockConfig(params=patched_params))
+
+        peak_tables: list[PeakTable] = []
+        mid_tables: list[MIDTable] = []
+        for artifacts in delegated.values():
+            if not isinstance(artifacts, Collection):
+                continue
+            for artifact in artifacts:
+                file_path = getattr(artifact, "file_path", None)
+                if file_path is None:
+                    continue
+                if _classify_export(file_path) == "mid_table":
+                    loaded = LoadMIDTable().load(BlockConfig(params={"path": str(file_path)}))
+                    if isinstance(loaded, Collection):
+                        mid_tables.extend(cast(list[MIDTable], list(loaded)))
+                    else:
+                        mid_tables.append(cast(MIDTable, loaded))
+                else:
+                    loaded = LoadPeakTable().load(BlockConfig(params={"path": str(file_path), "source": "auto"}))
+                    if isinstance(loaded, Collection):
+                        peak_tables.extend(cast(list[PeakTable], list(loaded)))
+                    else:
+                        peak_tables.append(cast(PeakTable, loaded))
+
+        return {
+            "peak_table": Collection(items=cast(list[DataObject], peak_tables), item_type=PeakTable),
+            "mid_table": Collection(items=cast(list[DataObject], mid_tables), item_type=MIDTable),
+        }
 
 
 def _classify_export(path: Path) -> str:
@@ -112,4 +152,22 @@ def _classify_export(path: Path) -> str:
     Implementation deferred to T-LCMS-007 impl ticket
     (skeleton @ c08a885).
     """
-    raise NotImplementedError("T-LCMS-007 _classify_export — impl pending (skeleton @ c08a885).")
+    import pandas as pd
+
+    suffix = path.suffix.lower()
+    try:
+        if suffix == ".csv":
+            columns = pd.read_csv(path, nrows=0).columns
+        elif suffix == ".tsv":
+            columns = pd.read_csv(path, sep="\t", nrows=0).columns
+        elif suffix in {".xlsx", ".xls"}:
+            columns = pd.read_excel(path, nrows=0).columns
+        else:
+            return "peak_table"
+    except (EmptyDataError, ValueError):
+        return "peak_table"
+
+    names = {str(column) for column in columns}
+    if {"C13", "H2"} & names:
+        return "mid_table"
+    return "peak_table"

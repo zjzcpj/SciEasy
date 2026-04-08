@@ -10,7 +10,10 @@ Mirrors :class:`LoadPeakTable` but wraps the result as
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, ClassVar
+
+import pandas as pd
 
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import OutputPort
@@ -79,11 +82,35 @@ class LoadSampleMetadata(_LCMSBlockMixin, IOBlock):
           ``sample_id_column`` is not present in the loaded DataFrame
         * preserve column order
         """
-        raise NotImplementedError(
-            "T-LCMS-006 LoadSampleMetadata.load — impl pending (skeleton @ c08a885). "
-            "See docs/specs/phase11-lcms-block-spec.md §9 T-LCMS-006."
+        path = Path(config.get("path"))
+        if not path.exists():
+            raise FileNotFoundError(f"LoadSampleMetadata: source file not found: {path}")
+
+        frame = _read_table(path, sheet_name=config.get("sheet_name"))
+        sample_id_column = str(config.get("sample_id_column", "sample_id"))
+        if sample_id_column not in frame.columns:
+            raise ValueError(f"LoadSampleMetadata requires column '{sample_id_column}'")
+
+        metadata = SampleMetadata(
+            columns=[str(col) for col in frame.columns],
+            row_count=len(frame),
+            schema={str(col): str(dtype) for col, dtype in frame.dtypes.items()},
+            meta=SampleMetadata.Meta(sample_id_column=sample_id_column),
         )
+        metadata.user["pandas_df"] = frame.copy()
+        return Collection(items=[metadata], item_type=SampleMetadata)
 
     def save(self, obj: DataObject | Collection, config: BlockConfig) -> None:
         """Not supported — use :class:`SaveTable` for output."""
         raise NotImplementedError("T-LCMS-006 LoadSampleMetadata is direction='input'; use SaveTable to write.")
+
+
+def _read_table(path: Path, *, sheet_name: str | int | None) -> pd.DataFrame:
+    suffix = path.suffix.lower()
+    if suffix == ".csv":
+        return pd.read_csv(path)
+    if suffix == ".tsv":
+        return pd.read_csv(path, sep="\t")
+    if suffix in {".xlsx", ".xls"}:
+        return pd.read_excel(path, sheet_name=0 if sheet_name is None else sheet_name)
+    raise ValueError(f"LoadSampleMetadata: unsupported file format: {path.suffix}")

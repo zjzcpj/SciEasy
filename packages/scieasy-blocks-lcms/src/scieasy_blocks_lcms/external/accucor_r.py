@@ -16,14 +16,20 @@ SciEasy R runner via the standard ``inputs`` / ``params`` /
 
 from __future__ import annotations
 
+import tempfile
+from importlib import resources
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
+
+import pandas as pd
 
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.code.code_block import CodeBlock
 from scieasy.core.types.collection import Collection
 from scieasy_blocks_lcms._base import _LCMSBlockMixin
+from scieasy_blocks_lcms.io.load_mid_table import _detect_sample_columns
+from scieasy_blocks_lcms.io.save_table import _to_pandas
 from scieasy_blocks_lcms.types import MIDTable, PeakTable, SampleMetadata
 
 
@@ -103,11 +109,13 @@ class AccuCorR(_LCMSBlockMixin, CodeBlock):
         Skeleton body raises ``NotImplementedError``; the impl agent
         wires up the actual ``importlib.resources.as_file`` lookup.
         """
-        raise NotImplementedError(
-            "T-LCMS-007 AccuCorR._resolve_script_path — impl pending "
-            "(skeleton @ c08a885). See docs/specs/phase11-lcms-block-spec.md "
-            "§9 T-LCMS-007."
-        )
+        override = config.get("accucor_script_path")
+        if override:
+            return str(override)
+
+        bundled = resources.files("scieasy_blocks_lcms.external").joinpath("scripts", "accucor.R")
+        with resources.as_file(bundled) as path:
+            return str(path)
 
     def run(
         self,
@@ -127,11 +135,62 @@ class AccuCorR(_LCMSBlockMixin, CodeBlock):
           appropriate ``Meta`` (``corrected=True``,
           ``correction_tool="AccuCor"``, ``tracer_atoms`` from config)
         """
-        # Resolve bundled script path eagerly so the impl agent has a
-        # known anchor for the importlib.resources call.
-        _bundled_script = Path(__file__).parent / "scripts" / "accucor.R"
-        del _bundled_script  # silence linter for the skeleton stub
-        raise NotImplementedError(
-            "T-LCMS-007 AccuCorR.run — impl pending (skeleton @ c08a885). "
-            "See docs/specs/phase11-lcms-block-spec.md §9 T-LCMS-007."
-        )
+        peak_collection = inputs.get("peak_table")
+        metadata_collection = inputs.get("sample_metadata")
+        if peak_collection is None or metadata_collection is None:
+            raise ValueError("AccuCorR requires 'peak_table' and 'sample_metadata' inputs")
+
+        peak_table = peak_collection[0]
+        sample_metadata = metadata_collection[0]
+        assert isinstance(peak_table, PeakTable)
+        assert isinstance(sample_metadata, SampleMetadata)
+
+        patched_params = dict(config.params)
+        patched_params["script_path"] = self._resolve_script_path(config)
+        patched_params["entry_function"] = "run_accucor"
+        patched_params.setdefault("language", "r")
+        patched_params.setdefault("mode", "script")
+
+        with tempfile.TemporaryDirectory(prefix="scieasy_accucor_") as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            peak_path = tmp_path / "peak_table.csv"
+            meta_path = tmp_path / "sample_metadata.csv"
+            _to_pandas(peak_table).to_csv(peak_path, index=False)
+            _to_pandas(sample_metadata).to_csv(meta_path, index=False)
+
+            try:
+                raw_outputs = super().run(
+                    cast(Any, {"peak_table": str(peak_path), "sample_metadata": str(meta_path)}),
+                    BlockConfig(params=patched_params),
+                )
+            except FileNotFoundError as exc:
+                raise ImportError("AccuCorR requires an Rscript runtime on PATH") from exc
+
+            mid_path_raw = raw_outputs.get("mid_table")
+            if not isinstance(mid_path_raw, str):
+                raise ValueError("AccuCorR expected the R script to return a 'mid_table' path")
+
+            mid_path = Path(mid_path_raw)
+            frame = pd.read_csv(mid_path)
+            tracer_formula = str(config.get("tracer_formula", "C13"))
+            sample_columns = _detect_sample_columns(
+                frame.columns,
+                tracer_atoms=[tracer_formula],
+                pattern=None,
+            )
+            if not sample_columns:
+                raise ValueError("AccuCorR produced a MID table with no detectable sample columns")
+
+            mid_table = MIDTable(
+                columns=[str(column) for column in frame.columns],
+                row_count=len(frame),
+                schema={str(col): str(dtype) for col, dtype in frame.dtypes.items()},
+                meta=MIDTable.Meta(
+                    tracer_atoms=[tracer_formula],
+                    sample_columns=sample_columns,
+                    corrected=True,
+                    correction_tool="AccuCor",
+                ),
+            )
+            mid_table.user["pandas_df"] = frame.copy()
+            return {"mid_table": Collection(items=[mid_table], item_type=MIDTable)}
