@@ -809,10 +809,10 @@ classDiagram
     }
 
     class IOBlock {
-        +direction: "input" | "output"
-        +format: str
-        +path: str
-        Loads or saves data in any format
+        <<abstract>>
+        +load(config) DataObject*
+        +save(obj, config) None*
+        Abstract base for ingress / egress
     }
 
     class ProcessBlock {
@@ -860,10 +860,16 @@ classDiagram
 
 #### IOBlock
 
-Handles all data ingress and egress. A single block type with a `direction` flag:
+Handles all data ingress and egress. **`IOBlock` is an abstract base class** (ADR-028 §D2) with two abstract methods — `load(config) -> DataObject` and `save(obj, config) -> None` — and a default `run()` that dispatches to one of them based on the subclass's `direction: ClassVar[str]`. Concrete IO blocks subclass `IOBlock` and implement `load()` (for input-only blocks) or `save()` (for output-only blocks). The previous "single block type with a `direction` flag plus a `FormatAdapter` registry" pattern (the deleted `scieasy.blocks.io.adapters` package and `adapter_registry.py`) is gone.
 
-- **Input mode**: reads files from disk, URLs, cloud storage, or databases. Detects format from extension or explicit config. Produces `DataObject` instances on its output ports.
-- **Output mode**: accepts `DataObject` on input ports. Serialises to the specified format and path. Supports common scientific formats (mzXML, TIFF, CSV, AnnData h5ad, Zarr, etc.) via pluggable format adapters.
+Core ships **two concrete IO blocks** that together cover all six core `DataObject` types (`Array`, `DataFrame`, `Series`, `Text`, `Artifact`, `CompositeData`):
+
+- **`LoadData`** at `src/scieasy/blocks/io/loaders/load_data.py` — input-only. Implements `load()` by dispatching to one of six private module-level `_load_*` functions selected by the `core_type` config enum (ADR-028 Addendum 1 §C9).
+- **`SaveData`** at `src/scieasy/blocks/io/savers/save_data.py` — output-only. Mirrors `LoadData` with six private `_save_*` dispatch functions.
+
+Both classes use the **dynamic-port mechanism** (ADR-028 Addendum 1 §C5): they declare a `dynamic_ports: ClassVar[dict[str, Any] | None]` descriptor mapping the `core_type` config field to a per-`enum`-value list of `accepted_types`, and override `get_effective_input_ports()` / `get_effective_output_ports()` so the validator and the frontend palette see the *narrowed* type for the configured `core_type`. The static `output_ports` declaration uses the broad `[DataObject]` upper bound for backward-compatible registration; the per-instance override is what the runtime and the GUI actually consume.
+
+Plugin packages ship additional concrete `IOBlock` subclasses for domain-specific formats — for example, `LoadImage` in `scieasy-blocks-imaging` absorbs the old `tiff_adapter` logic into a private `_load_tif()` function, and `LoadMSRawFile` in `scieasy-blocks-lcms` absorbs `mzxml_adapter`. Plugin IO blocks register through the existing `scieasy.blocks` entry-point group; the previously planned dedicated `scieasy.adapters` entry-point group has been removed (ADR-025 §6 superseded by ADR-028 §D4).
 
 #### ProcessBlock
 
@@ -1167,19 +1173,20 @@ When a block collection needs formal versioning, dependency management, and broa
 pip install scieasy-flowcyto
 ```
 
-All blocks, types, and format adapters from the package appear in the palette immediately — no config needed.
+All blocks and types from the package appear in the palette immediately — no config needed. Domain-specific IO loaders and savers are shipped as ordinary `IOBlock` subclasses inside the `scieasy.blocks` entry-point group; there is no separate adapter registry (ADR-028 §D4 supersedes ADR-025 §6).
 
-##### Three entry-point groups
+##### Two entry-point groups
 
-External packages register their contributions via three standard Python entry-point groups:
+External packages register their contributions via two standard Python entry-point groups:
 
 | Group | Purpose | Callable return type |
 |-------|---------|---------------------|
-| `scieasy.blocks` | Block class discovery | `(PackageInfo, list[type[Block]])` or `list[type[Block]]` |
+| `scieasy.blocks` | Block class discovery (including plugin-owned `IOBlock` subclasses such as `LoadImage`) | `(PackageInfo, list[type[Block]])` or `list[type[Block]]` |
 | `scieasy.types` | Custom DataObject subtype registration | `list[type[DataObject]]` |
-| `scieasy.adapters` | Custom IO adapter registration | `list[type[FormatAdapter]]` |
 
-Each entry-point value points to a **callable** (typically a `get_blocks()`, `get_types()`, or `get_adapters()` function) that the registry invokes at scan time.
+Each entry-point value points to a **callable** (typically a `get_blocks()` or `get_types()` function) that the registry invokes at scan time. The previously documented `scieasy.adapters` group was removed by ADR-028 §D4 — concrete IO classes register through `scieasy.blocks` like any other block category.
+
+**Dynamic-port override mechanism** (ADR-028 Addendum 1). Any block — not just `IOBlock` subclasses — may declare a `dynamic_ports: ClassVar[dict[str, Any] | None]` descriptor and override `get_effective_input_ports()` / `get_effective_output_ports()` to provide per-instance port resolution. The descriptor format is enum-only (no expressions, no mini-DSL) and maps `{source_config_key, output_port_mapping: {port_name: {enum_value: [type_names]}}}`. Core's `LoadData` and `SaveData` use this hook to narrow `accepted_types` based on the user-selected `core_type` enum; the worker subprocess, the validator, and the frontend `BlockNode` all consume `get_effective_*_ports()` rather than the static class-level declarations. See ADR-028 + Addendum 1 and `docs/guides/block-sdk.md` "Writing a dynamic-port block" for the worked example.
 
 ##### PackageInfo metadata
 
@@ -1245,10 +1252,6 @@ For manual review, use `AppBlock` (see `docs/guides/block-sdk.md` §3.4.1) to op
 
 The `category` field is a free-form string set by the block author in `BlockMetadata`. No fixed taxonomy — authors define categories that make sense for their domain. The `BlockSpec` dataclass gains a `package_name: str` field to support this grouping.
 
-##### Adapter priority enforcement
-
-External adapters registered via `scieasy.adapters` entry-points are loaded **after** built-in adapters. Built-in extensions (`.csv`, `.parquet`, `.tiff`, `.zarr`) cannot be overridden by external packages — this is a safety measure preventing silent behavior changes. External adapters for novel extensions (e.g., `.srs`, `.fcs`, `.d`) are registered normally.
-
 **Package structure (what the community maintainer creates):**
 
 ```
@@ -1259,14 +1262,13 @@ scieasy-flowcyto/
         ├── __init__.py           # PackageInfo + get_blocks()
         ├── types/
         │   └── flow_data.py      # FlowCytoData(CompositeData) + get_types()
-        ├── blocks/
-        │   ├── fcs_loader.py     # IOBlock: load .fcs files
-        │   ├── compensate.py     # ProcessBlock: compensation
-        │   ├── gate.py           # ProcessBlock: gating
-        │   ├── flowjo_bridge.py  # AppBlock: FlowJo integration
-        │   └── clustering.py     # ProcessBlock: FlowSOM / Phenograph
-        └── adapters/
-            └── fcs_adapter.py    # FormatAdapter for .fcs extension + get_adapters()
+        └── blocks/
+            ├── load_fcs.py       # IOBlock subclass: implements load() for .fcs
+            ├── save_fcs.py       # IOBlock subclass: implements save() for .fcs
+            ├── compensate.py     # ProcessBlock: compensation
+            ├── gate.py           # ProcessBlock: gating
+            ├── flowjo_bridge.py  # AppBlock: FlowJo integration
+            └── clustering.py     # ProcessBlock: FlowSOM / Phenograph
 ```
 
 ```toml
@@ -1281,12 +1283,9 @@ flowcyto = "scieasy_flowcyto:get_blocks"              # callable protocol (ADR-0
 
 [project.entry-points."scieasy.types"]
 flowcyto = "scieasy_flowcyto.types.flow_data:get_types"
-
-[project.entry-points."scieasy.adapters"]
-flowcyto = "scieasy_flowcyto.adapters.fcs_adapter:get_adapters"
 ```
 
-Note the entry-point format change from ADR-025: each entry-point value is a **callable** (function or class), not a direct class reference. The callable is invoked by the registry and returns a list of classes (optionally with `PackageInfo`).
+Note the entry-point format change from ADR-025: each entry-point value is a **callable** (function or class), not a direct class reference. The callable is invoked by the registry and returns a list of classes (optionally with `PackageInfo`). Domain-specific loaders/savers (`LoadFCS`, `SaveFCS` above) are concrete `IOBlock` subclasses returned from `get_blocks()` along with the rest of the package's blocks; the dedicated `scieasy.adapters` entry-point group documented in ADR-025 §6 was removed by ADR-028 §D4.
 
 ##### Custom type registration via entry-points
 
@@ -2809,17 +2808,18 @@ The framework is designed for community extensibility at every layer:
 | **New storage backend** | Implement the `StorageBackend` protocol (read, write, slice, iter_chunks). Register for a data type. |
 | **New code runner** | Implement the `CodeRunner` protocol (execute script with namespace injection). Register for a language identifier via `scieasy.runners` entry-point. |
 | **New app bridge** | Configure `AppBlock` with the application's CLI, input/output formats, and watch patterns. |
-| **New format adapter** | Implement `FormatAdapter` (read file → DataObject, write DataObject → file). Register via `scieasy.adapters` entry-point callable (ADR-025). External adapters cannot override built-in extensions. |
+| **New IO block (loader / saver)** | Subclass `IOBlock` (ADR-028 §D2) and implement `load()` or `save()`. For one-class-many-types loaders, declare a `dynamic_ports: ClassVar` descriptor and override `get_effective_*_ports()` (ADR-028 Addendum 1 §C5). Register through the existing `scieasy.blocks` entry-point group; no separate `scieasy.adapters` group exists. |
 | **New block runner** | Implement the `BlockRunner` protocol for remote/cluster execution environments. |
 
-### 12.1 Entry-point callable protocol (ADR-025)
+### 12.1 Entry-point callable protocol (ADR-025, amended by ADR-028 §D4)
 
-All three entry-point groups (`scieasy.blocks`, `scieasy.types`, `scieasy.adapters`) follow a **callable protocol**: the entry-point value is a function (or class) that the registry invokes at scan time. This allows lazy importing — block code is not imported until the registry scans, preventing import-time side effects and heavy dependency loading at startup.
+The two surviving entry-point groups (`scieasy.blocks` and `scieasy.types`) follow a **callable protocol**: the entry-point value is a function (or class) that the registry invokes at scan time. This allows lazy importing — block code is not imported until the registry scans, preventing import-time side effects and heavy dependency loading at startup. The third group originally proposed in ADR-025 §6 (`scieasy.adapters`) was removed by ADR-028 §D4 — concrete IO classes (e.g., `LoadImage`, `LoadMSRawFile`) register through `scieasy.blocks` like any other block.
 
 ```python
 # scieasy.blocks callable protocol:
 def get_blocks() -> tuple[PackageInfo, list[type[Block]]]:
-    """Return package metadata + list of block classes."""
+    """Return package metadata + list of block classes (including any
+    plugin-owned IOBlock subclasses such as LoadImage / SaveImage)."""
     ...
 
 # Backward-compatible variant (no PackageInfo):
@@ -2830,11 +2830,6 @@ def get_blocks() -> list[type[Block]]:
 # scieasy.types callable protocol:
 def get_types() -> list[type[DataObject]]:
     """Return list of custom DataObject subclasses to register."""
-    ...
-
-# scieasy.adapters callable protocol:
-def get_adapters() -> list[type[FormatAdapter]]:
-    """Return list of FormatAdapter subclasses to register."""
     ...
 ```
 
