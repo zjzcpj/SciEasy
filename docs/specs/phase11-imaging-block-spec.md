@@ -3489,6 +3489,13 @@ class Watershed(ProcessBlock):
 
 ### T-IMG-019 — CellposeSegment (FLAGSHIP)
 
+**Status**: Implemented in PR #370. `CellposeSegment` now uses the
+ADR-027 `setup()` / `teardown()` lifecycle to load a cellpose model once
+per run, emit `Collection[Label]` outputs with populated `n_objects`
+metadata, and keep the optional-dependency path friendly. The package
+tests exercise the contract with test doubles, while the imaging smoke
+test verifies the block is wired into the plugin surface.
+
 **a. Ticket ID and name**: T-IMG-019 — `CellposeSegment` (FLAGSHIP block).
 
 **b. Source ADR sections**:

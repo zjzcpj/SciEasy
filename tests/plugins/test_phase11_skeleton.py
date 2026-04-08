@@ -492,3 +492,39 @@ def test_imaging_types_impl_smoke() -> None:
     assert mask.dtype == bool
     assert "raster" in label.slots
     assert transform.shape == (2, 3)
+
+
+def test_imaging_cellpose_impl_smoke(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Smoke test that T-IMG-019 is wired into the imaging plugin surface."""
+    from types import SimpleNamespace
+
+    import numpy as np
+    from scieasy_blocks_imaging import CellposeSegment, get_blocks
+    from scieasy_blocks_imaging.types import Image, Label
+
+    from scieasy.blocks.base.config import BlockConfig
+    from scieasy.core.types.collection import Collection
+
+    class _FakeModel:
+        def __init__(self, *, gpu: bool = False) -> None:
+            self.gpu = gpu
+
+        def eval(self, data: np.ndarray, **kwargs: object) -> tuple[np.ndarray, None, None, None]:
+            labels = np.zeros(np.asarray(data).shape, dtype=np.int32)
+            labels[1:3, 1:3] = 1
+            return labels, None, None, None
+
+    monkeypatch.setattr(
+        "scieasy_blocks_imaging.segmentation.cellpose_segment._import_cellpose_models",
+        lambda: SimpleNamespace(
+            Cellpose=lambda *, model_type, gpu: _FakeModel(gpu=gpu),
+            CellposeModel=lambda *, pretrained_model, gpu: _FakeModel(gpu=gpu),
+        ),
+    )
+
+    image = Image(axes=["y", "x"], shape=(4, 4), dtype=np.float32)
+    image._data = np.ones((4, 4), dtype=np.float32)
+    result = CellposeSegment().run({"images": Collection(items=[image], item_type=Image)}, BlockConfig(params={}))
+
+    assert CellposeSegment in get_blocks()
+    assert isinstance(result["labels"][0], Label)
