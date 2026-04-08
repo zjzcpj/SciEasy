@@ -311,6 +311,34 @@ def test_lcms_block_skeletons_inherit_real_bases() -> None:
         assert issubclass(cls, base), f"{cls.__name__} must subclass {base.__name__}"
 
 
+def test_lcms_isotope_tracing_core_impl_smoke() -> None:
+    """Smoke test that T-LCMS-008/T-LCMS-009 bodies are concrete (PR #371).
+
+    This lives in the root ``tests/`` tree so the Phase 11 workflow
+    compliance job recognizes the implementation PR as having top-level
+    smoke coverage in addition to the package-local LCMS tests.
+    """
+    pd = pytest.importorskip("pandas")
+    from scieasy_blocks_lcms.isotope_tracing import Calculate13CEnrichment, FractionalLabeling
+    from scieasy_blocks_lcms.types import MIDTable
+
+    from scieasy.blocks.base.config import BlockConfig
+
+    frame = pd.DataFrame({"Compound": ["glucose", "glucose"], "C13": [0, 6], "S1": [0.4, 0.6]})
+    mid = MIDTable(
+        columns=list(frame.columns),
+        row_count=len(frame),
+        meta=MIDTable.Meta(tracer_atoms=["C13"], sample_columns=["S1"]),
+    )
+    mid._data = frame
+
+    enrichment = Calculate13CEnrichment().process_item(mid, BlockConfig(params={}))._data
+    fractional = FractionalLabeling().process_item(mid, BlockConfig(params={}))._data
+
+    assert enrichment.loc[0, "enrichment"] == pytest.approx(0.6)
+    assert fractional.loc[0, "fractional_labeling"] == pytest.approx(0.6)
+
+
 def test_imaging_io_impl_smoke(tmp_path: Path) -> None:
     """Smoke test that T-IMG-002/T-IMG-003 bodies are concrete (impl PR #354).
 
@@ -551,3 +579,38 @@ def test_srs_types_impl_smoke() -> None:
     assert img.meta is not None
     assert img.meta.wavenumbers_cm1 == [2850.0, 2880.0, 2930.0]
     assert get_types() == [SRSImage]
+
+
+def test_imaging_segmentation_core_impl_smoke() -> None:
+    """Smoke test that the segmentation core bundle is wired into the imaging plugin surface."""
+    pytest.importorskip("skimage")
+    pytest.importorskip("scipy")
+    import numpy as np
+    from scieasy_blocks_imaging import ConnectedComponents, RemoveSmallObjects, Threshold, Watershed, get_blocks
+    from scieasy_blocks_imaging.types import Image, Label, Mask
+
+    from scieasy.blocks.base.config import BlockConfig
+    from scieasy.core.types.collection import Collection
+
+    image = Image(axes=["y", "x"], shape=(16, 16), dtype=np.float32)
+    arr = np.zeros((16, 16), dtype=np.float32)
+    arr[4:8, 4:8] = 1.0
+    arr[9:13, 9:13] = 1.0
+    image._data = arr  # type: ignore[attr-defined]
+
+    thresholded = Threshold().run(
+        {"image": Collection(items=[image], item_type=Image)}, BlockConfig(params={"method": "otsu"})
+    )
+    mask = thresholded["mask"][0]
+    labels = ConnectedComponents().run({"mask": thresholded["mask"]}, BlockConfig(params={"connectivity": 1}))
+    cleaned = RemoveSmallObjects().process_item(labels["label"][0], BlockConfig(params={"min_size": 4}))
+    watershed = Watershed().run(
+        {"image": Collection(items=[image], item_type=Image), "mask": thresholded["mask"]},
+        BlockConfig(params={"method": "distance", "min_distance": 2}),
+    )
+
+    assert Threshold in get_blocks()
+    assert Watershed in get_blocks()
+    assert isinstance(mask, Mask)
+    assert isinstance(cleaned, Label)
+    assert isinstance(watershed["label"][0], Label)

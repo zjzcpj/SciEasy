@@ -3218,6 +3218,12 @@ ordering, broadcasts per 2D slice, and returns real-valued outputs.
 
 ### T-IMG-017 — Threshold
 
+**Status**: Implemented in issue #372's segmentation core bundle. `Threshold`
+now supports all spec-listed threshold methods, returns `Mask` outputs with
+`Collection[Mask]` packaging, and broadcasts over extra imaging axes via
+`iterate_over_axes`. Package tests cover manual-parameter validation, 5D
+broadcasting, and plugin-surface smoke wiring.
+
 **a. Ticket ID and name**: T-IMG-017 — `Threshold` block.
 
 **b. Source ADR sections**: ADR-027 D3, D2 (Mask output type).
@@ -3351,6 +3357,13 @@ class Threshold(ProcessBlock):
 ---
 
 ### T-IMG-018 — Watershed
+
+**Status**: Implemented in issue #372's segmentation core bundle. `Watershed`
+now runs the `distance`, `gradient`, and `markers` modes with optional mask and
+markers inputs, emits `Collection[Label]` outputs with populated raster slots
+and `n_objects`, and supports per-slice broadcasting across higher-rank imaging
+inputs. Tests cover distance mode, marker-driven mode, mask usage, invalid
+methods, and 5D broadcasting.
 
 **a. Ticket ID and name**: T-IMG-018 — `Watershed` block.
 
@@ -3699,6 +3712,13 @@ class CellposeSegment(ProcessBlock):
 
 ### T-IMG-020 — BlobDetect
 
+**Status**: Implemented in issue #372's segmentation core bundle. The live
+repository skeleton and tests use `segmentation/blob_detect.py` rather than the
+older spec shorthand `blob.py`; implementation follows that live contract.
+`BlobDetect` now supports LoG / DoG / DoH detection, paints disk labels into a
+`Label` raster with unique IDs across broadcast slices, and is wired into the
+imaging plugin exports and smoke coverage.
+
 **a. Ticket ID and name**: T-IMG-020 — `BlobDetect` block.
 
 **b. Source ADR sections**: ADR-027 D3, D2.
@@ -3818,6 +3838,12 @@ class BlobDetect(ProcessBlock):
 
 ### T-IMG-021 — ConnectedComponents
 
+**Status**: Implemented in issue #372's segmentation core bundle.
+`ConnectedComponents` now validates 4-connectivity / 8-connectivity, produces
+`Label` outputs with raster slots and `n_objects`, and returns
+`Collection[Label]` from `run()`. The continuation-B skeleton tests now cover
+both connectivity modes and invalid-parameter behavior.
+
 **a. Ticket ID and name**: T-IMG-021 — `ConnectedComponents` block.
 
 **b. Source ADR sections**: ADR-027 D3, D2.
@@ -3911,6 +3937,13 @@ class ConnectedComponents(ProcessBlock):
 ---
 
 ### T-IMG-022 — Cleanup bundle (RemoveSmallObjects / RemoveBorderObjects / FillHoles / ExpandLabels / ShrinkLabels)
+
+**Status**: Implemented in issue #372's segmentation core bundle. The cleanup
+module now provides all five blocks, including `Label`/`Mask` handling for
+`RemoveSmallObjects`, hole filling for `Mask`, and distance-based label expand
+/ shrink operations on raster labels. Tests now cover minimum-size filtering,
+hole filling, expand/shrink behavior, and metadata preservation on cleaned
+labels.
 
 **a. Ticket ID and name**: T-IMG-022 — Cleanup bundle.
 

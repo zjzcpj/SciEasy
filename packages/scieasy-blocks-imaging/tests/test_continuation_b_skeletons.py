@@ -7,10 +7,13 @@ marked via ``pytest.skip``.
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from scieasy.blocks.app.app_block import AppBlock
+from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.process.process_block import ProcessBlock
+from scieasy.core.types.array import Array
 
 
 # ── T-IMG-021 ──────────────────────────────────────────────────────────
@@ -24,15 +27,53 @@ def test_t_img_021_connected_components_class() -> None:
 
 
 def test_t_img_021_4_conn_label() -> None:
-    pytest.skip("T-IMG-021 impl pending")
+    from scieasy_blocks_imaging.segmentation.connected_components import (
+        ConnectedComponents,
+    )
+    from scieasy_blocks_imaging.types import Mask
+
+    arr = np.zeros((5, 5), dtype=bool)
+    arr[1, 1] = True
+    arr[2, 2] = True
+
+    mask = Mask(axes=["y", "x"], shape=arr.shape, dtype=bool)
+    mask._data = arr  # type: ignore[attr-defined]
+    label = ConnectedComponents().process_item(mask, BlockConfig(params={"connectivity": 1}))
+
+    assert label.meta is not None
+    assert label.meta.n_objects == 2
 
 
 def test_t_img_021_8_conn_label() -> None:
-    pytest.skip("T-IMG-021 impl pending")
+    from scieasy_blocks_imaging.segmentation.connected_components import (
+        ConnectedComponents,
+    )
+    from scieasy_blocks_imaging.types import Mask
+
+    arr = np.zeros((5, 5), dtype=bool)
+    arr[1, 1] = True
+    arr[2, 2] = True
+
+    mask = Mask(axes=["y", "x"], shape=arr.shape, dtype=bool)
+    mask._data = arr  # type: ignore[attr-defined]
+    label = ConnectedComponents().process_item(mask, BlockConfig(params={"connectivity": 2}))
+
+    assert label.meta is not None
+    assert label.meta.n_objects == 1
 
 
 def test_t_img_021_invalid_connectivity_raises() -> None:
-    pytest.skip("T-IMG-021 impl pending")
+    from scieasy_blocks_imaging.segmentation.connected_components import (
+        ConnectedComponents,
+    )
+    from scieasy_blocks_imaging.types import Mask
+
+    arr = np.ones((4, 4), dtype=bool)
+    mask = Mask(axes=["y", "x"], shape=arr.shape, dtype=bool)
+    mask._data = arr  # type: ignore[attr-defined]
+
+    with pytest.raises(ValueError, match="connectivity"):
+        ConnectedComponents().process_item(mask, BlockConfig(params={"connectivity": 3}))
 
 
 # ── T-IMG-022 ──────────────────────────────────────────────────────────
@@ -56,15 +97,56 @@ def test_t_img_022_cleanup_classes() -> None:
 
 
 def test_t_img_022_remove_small_objects_min_size() -> None:
-    pytest.skip("T-IMG-022 impl pending")
+    pytest.importorskip("skimage")
+    from scieasy_blocks_imaging.segmentation.cleanup import RemoveSmallObjects
+    from scieasy_blocks_imaging.types import Mask
+
+    arr = np.zeros((8, 8), dtype=bool)
+    arr[1, 1] = True
+    arr[3:7, 3:7] = True
+    mask = Mask(axes=["y", "x"], shape=arr.shape, dtype=bool)
+    mask._data = arr  # type: ignore[attr-defined]
+
+    result = RemoveSmallObjects().process_item(mask, BlockConfig(params={"min_size": 4}))
+
+    assert np.count_nonzero(np.asarray(result._data)) == 16
 
 
 def test_t_img_022_fill_holes_basic() -> None:
-    pytest.skip("T-IMG-022 impl pending")
+    pytest.importorskip("scipy")
+    from scieasy_blocks_imaging.segmentation.cleanup import FillHoles
+    from scieasy_blocks_imaging.types import Mask
+
+    arr = np.ones((7, 7), dtype=bool)
+    arr[3, 3] = False
+    mask = Mask(axes=["y", "x"], shape=arr.shape, dtype=bool)
+    mask._data = arr  # type: ignore[attr-defined]
+
+    result = FillHoles().process_item(mask, BlockConfig(params={}))
+
+    assert bool(np.asarray(result._data)[3, 3]) is True
 
 
 def test_t_img_022_expand_shrink_labels() -> None:
-    pytest.skip("T-IMG-022 impl pending")
+    pytest.importorskip("skimage")
+    from scieasy_blocks_imaging.segmentation.cleanup import ExpandLabels, ShrinkLabels
+    from scieasy_blocks_imaging.types import Label
+
+    arr = np.zeros((11, 11), dtype=np.int32)
+    arr[4:7, 4:7] = 1
+    raster = Array(axes=["y", "x"], shape=arr.shape, dtype=arr.dtype)
+    raster._data = arr  # type: ignore[attr-defined]
+    label = Label(slots={"raster": raster}, meta=Label.Meta(source_file="label.tif", n_objects=1))
+
+    expanded = ExpandLabels().process_item(label, BlockConfig(params={"distance_px": 2}))
+    shrunk = ShrinkLabels().process_item(expanded, BlockConfig(params={"distance_px": 1}))
+
+    assert np.count_nonzero(np.asarray(expanded.slots["raster"]._data)) > np.count_nonzero(arr)
+    assert np.count_nonzero(np.asarray(shrunk.slots["raster"]._data)) < np.count_nonzero(
+        np.asarray(expanded.slots["raster"]._data)
+    )
+    assert shrunk.meta is not None
+    assert shrunk.meta.source_file == "label.tif"
 
 
 # ── T-IMG-023 ──────────────────────────────────────────────────────────

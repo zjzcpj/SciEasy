@@ -1,26 +1,22 @@
-"""ConnectedComponents — label connected components in a binary :class:`Mask`.
-
-Skeleton placeholder — T-IMG-021 implementation agent fills the body.
-See ``docs/specs/phase11-imaging-block-spec.md`` §9 T-IMG-021.
-"""
+"""ConnectedComponents - label connected components in a binary :class:`Mask`."""
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
+
+import numpy as np
 
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.process.process_block import ProcessBlock
+from scieasy.core.types.array import Array
+from scieasy.core.types.base import DataObject
+from scieasy.core.types.collection import Collection
 from scieasy_blocks_imaging.types import Label, Mask
 
 
 class ConnectedComponents(ProcessBlock):
-    """Label connected foreground components of a :class:`Mask` into :class:`Label`.
-
-    Per spec §9 T-IMG-021, ``connectivity=1`` is 4-connectivity (2D) and
-    ``connectivity=2`` is 8-connectivity. Returns a :class:`Label` with
-    the raster slot populated and ``Label.meta.n_objects`` set.
-    """
+    """Label connected foreground components of a :class:`Mask` into :class:`Label`."""
 
     type_name: ClassVar[str] = "imaging.connected_components"
     name: ClassVar[str] = "Connected Components"
@@ -56,6 +52,12 @@ class ConnectedComponents(ProcessBlock):
         },
     }
 
+    def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, Collection]:
+        """Override Tier 1 run so the output collection carries ``Label`` items."""
+        masks = _coerce_masks(inputs.get("mask"))
+        labels = [cast(Label, self._auto_flush(self.process_item(mask, config))) for mask in masks]
+        return {"label": Collection(items=cast(list[DataObject], labels), item_type=Label)}
+
     def process_item(
         self,
         item: Mask,
@@ -63,7 +65,42 @@ class ConnectedComponents(ProcessBlock):
         state: Any = None,
     ) -> Label:
         """Run skimage connected-component labelling and wrap as :class:`Label`."""
-        raise NotImplementedError(
-            "T-IMG-021: ConnectedComponents.process_item — impl pending (skeleton continuation B). "
-            "See docs/specs/phase11-imaging-block-spec.md §9 T-IMG-021."
+        from skimage.measure import label as cc_label
+
+        connectivity = int(config.get("connectivity", 1))
+        if connectivity not in (1, 2):
+            raise ValueError(f"ConnectedComponents: connectivity must be 1 or 2, got {connectivity}")
+
+        labels = np.asarray(
+            cc_label(np.asarray(item.to_memory(), dtype=bool), connectivity=connectivity), dtype=np.int32
         )
+        raster = Array(axes=list(item.axes), shape=labels.shape, dtype=labels.dtype)
+        raster._data = labels  # type: ignore[attr-defined]
+        return Label(
+            slots={"raster": raster},
+            framework=item.framework.derive(),
+            meta=Label.Meta(
+                source_file=getattr(item.meta, "source_file", None),
+                n_objects=int(labels.max()) if labels.size else 0,
+            ),
+            user=dict(item.user),
+        )
+
+
+def _coerce_masks(value: Collection | Mask | None) -> list[Mask]:
+    if value is None:
+        raise ValueError("ConnectedComponents: missing required 'mask' input")
+    if isinstance(value, Mask):
+        return [value]
+    if not isinstance(value, Collection):
+        raise ValueError(f"ConnectedComponents: expected Mask or Collection[Mask], got {type(value).__name__}")
+
+    masks: list[Mask] = []
+    for item in value:
+        if not isinstance(item, Mask):
+            raise ValueError(f"ConnectedComponents: mask collection must contain Mask items, got {type(item).__name__}")
+        masks.append(item)
+    return masks
+
+
+__all__ = ["ConnectedComponents"]
