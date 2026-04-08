@@ -979,6 +979,11 @@ exist.
 
 ### T-IMG-002 — LoadImage
 
+**Status**: Partially implemented (#354, pilot scope: TIFF + Zarr).
+Broader format support (PNG/JPG/NPY/OME-TIFF/CZI/ND2/LIF, lazy Zarr via
+`storage_ref`, directory/glob enumeration) remains deferred and is
+still tracked in this ticket.
+
 **a. Ticket ID and name**: T-IMG-002 — `LoadImage` IO block.
 
 **b. Source ADR sections**:
@@ -1278,6 +1283,11 @@ def _load_optional(path: Path, extra: str) -> Image:
 ---
 
 ### T-IMG-003 — SaveImage
+
+**Status**: Partially implemented (#354, pilot scope: TIFF + Zarr for
+length-1 inputs, format auto-detect + explicit override). Indexed
+directory writes, multi-page TIFFs, lazy materialisation semantics,
+and PNG/JPG/NPY backends remain deferred.
 
 **a. Ticket ID and name**: T-IMG-003 — `SaveImage` IO block.
 

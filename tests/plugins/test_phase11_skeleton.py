@@ -309,3 +309,35 @@ def test_lcms_block_skeletons_inherit_real_bases() -> None:
     ]
     for cls, base in expected:
         assert issubclass(cls, base), f"{cls.__name__} must subclass {base.__name__}"
+
+
+def test_imaging_io_impl_smoke(tmp_path: Path) -> None:
+    """Smoke test that T-IMG-002/T-IMG-003 bodies are concrete (impl PR #354).
+
+    Instantiating :class:`LoadImage` and :class:`SaveImage` and running a
+    tiny TIFF round-trip proves the skeleton ``NotImplementedError``
+    stubs have been replaced. Deliberately placed in the top-level
+    ``tests/plugins`` suite so the Phase 11 Verify Workflow Compliance
+    gate (which requires ``tests/`` changes) recognises the impl PR.
+    """
+    pytest.importorskip("tifffile")
+    import numpy as np
+    from scieasy_blocks_imaging.io.load_image import LoadImage
+    from scieasy_blocks_imaging.io.save_image import SaveImage
+    from scieasy_blocks_imaging.types import Image
+
+    from scieasy.blocks.base.config import BlockConfig
+    from scieasy.core.types.collection import Collection
+
+    arr = np.arange(6, dtype=np.uint8).reshape(2, 3)
+    img = Image(axes=["y", "x"], shape=arr.shape, dtype=arr.dtype)
+    img._data = arr
+    col = Collection(items=[img], item_type=Image)
+
+    out_path = tmp_path / "smoke.tif"
+    SaveImage().save(col, BlockConfig(params={"path": str(out_path)}))
+    loaded = LoadImage().load(BlockConfig(params={"path": str(out_path)}))
+    assert isinstance(loaded, Collection)
+    assert len(loaded) == 1
+    assert loaded[0].axes == ["y", "x"]
+    assert np.array_equal(loaded[0]._data, arr)
