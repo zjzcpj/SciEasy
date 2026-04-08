@@ -86,35 +86,20 @@ class FilterCollection(ProcessBlock):
         predicate_key = config.params.get("predicate_key")
 
         if expression is not None and predicate_key is not None:
-            raise ValueError(
-                "FilterCollection accepts either 'expression' or "
-                "'predicate_key', not both"
-            )
+            raise ValueError("FilterCollection accepts either 'expression' or 'predicate_key', not both")
 
         if expression is not None:
             if not isinstance(expression, str):
-                raise ValueError(
-                    "FilterCollection 'expression' must be a str, "
-                    f"got {type(expression).__name__}"
-                )
+                raise ValueError(f"FilterCollection 'expression' must be a str, got {type(expression).__name__}")
             evaluator = ExpressionEvaluator(expression)
             filtered: list[DataObject] = [
-                item
-                for index, item in enumerate(collection)
-                if evaluator.evaluate(build_scope(item, index))
+                item for index, item in enumerate(collection) if evaluator.evaluate(build_scope(item, index))
             ]
         else:
             if predicate_key is None:
-                raise ValueError(
-                    "FilterCollection requires either 'expression' or "
-                    "'predicate_key' in config.params"
-                )
+                raise ValueError("FilterCollection requires either 'expression' or 'predicate_key' in config.params")
             predicate_value = config.params.get("predicate_value")
-            filtered = [
-                item
-                for item in collection
-                if item.user.get(predicate_key) == predicate_value
-            ]
+            filtered = [item for item in collection if item.user.get(predicate_key) == predicate_value]
 
         result = Collection(filtered, item_type=collection.item_type)
         return {"output": result}

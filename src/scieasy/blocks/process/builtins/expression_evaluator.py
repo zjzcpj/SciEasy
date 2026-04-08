@@ -87,9 +87,7 @@ class ExpressionEvaluator:
 
     def __init__(self, source: str) -> None:
         if not isinstance(source, str):
-            raise TypeError(
-                f"ExpressionEvaluator source must be str, got {type(source).__name__}"
-            )
+            raise TypeError(f"ExpressionEvaluator source must be str, got {type(source).__name__}")
         self._source: str = source
         try:
             tree = ast.parse(source, mode="eval")
@@ -111,44 +109,28 @@ class ExpressionEvaluator:
             if isinstance(node, ast.Call):
                 func = node.func
                 if not (isinstance(func, ast.Name) and func.id == "len"):
-                    raise ValueError(
-                        "Expression contains forbidden construct: "
-                        f"Call to {ast.dump(func)}"
-                    )
+                    raise ValueError(f"Expression contains forbidden construct: Call to {ast.dump(func)}")
                 continue
 
             if type(node) not in _ALLOWED_NODES:
-                raise ValueError(
-                    f"Expression contains forbidden construct: {type(node).__name__}"
-                )
+                raise ValueError(f"Expression contains forbidden construct: {type(node).__name__}")
 
             # Name: restrict to the whitelisted scope identifiers.
             if isinstance(node, ast.Name):
                 if node.id.startswith("__"):
-                    raise ValueError(
-                        f"Expression contains forbidden construct: dunder name {node.id!r}"
-                    )
+                    raise ValueError(f"Expression contains forbidden construct: dunder name {node.id!r}")
                 if node.id not in _ALLOWED_NAMES:
-                    raise ValueError(
-                        f"Expression contains forbidden construct: name {node.id!r}"
-                    )
+                    raise ValueError(f"Expression contains forbidden construct: name {node.id!r}")
 
             # Attribute: reject dunder access (e.g. obj.__class__).
-            if isinstance(node, ast.Attribute):
-                if node.attr.startswith("__"):
-                    raise ValueError(
-                        "Expression contains forbidden construct: "
-                        f"dunder attribute {node.attr!r}"
-                    )
+            if isinstance(node, ast.Attribute) and node.attr.startswith("__"):
+                raise ValueError(f"Expression contains forbidden construct: dunder attribute {node.attr!r}")
 
             # Subscript: restrict key to a literal constant.
             if isinstance(node, ast.Subscript):
                 key = node.slice
                 if not isinstance(key, ast.Constant):
-                    raise ValueError(
-                        "Expression contains forbidden construct: "
-                        "Subscript with non-literal key"
-                    )
+                    raise ValueError("Expression contains forbidden construct: Subscript with non-literal key")
 
     def evaluate(self, scope: dict[str, Any]) -> bool:
         """Evaluate the validated expression against *scope*.
@@ -216,7 +198,7 @@ class ExpressionEvaluator:
 
         if isinstance(node, ast.Compare):
             left = self._eval_node(node.left, scope)
-            for op, comparator in zip(node.ops, node.comparators):
+            for op, comparator in zip(node.ops, node.comparators, strict=True):
                 right = self._eval_node(comparator, scope)
                 if not self._apply_compare(op, left, right):
                     return False
