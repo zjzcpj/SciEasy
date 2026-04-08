@@ -397,3 +397,35 @@ def test_imaging_preprocess_a_impl_smoke() -> None:
     )
     ff_out = ff_result["image"][0]
     assert np.allclose(np.asarray(ff_out._data), 10.0)
+
+
+def test_imaging_preprocess_b_impl_smoke() -> None:
+    """Smoke test that T-IMG-008..010 bodies are concrete."""
+    import numpy as np
+    from scieasy_blocks_imaging.preprocess.axis_ops import AxisMerge, AxisSplit
+    from scieasy_blocks_imaging.preprocess.convert_dtype import ConvertDType
+    from scieasy_blocks_imaging.preprocess.geometry import Rotate
+    from scieasy_blocks_imaging.types import Image
+
+    from scieasy.blocks.base.config import BlockConfig
+    from scieasy.core.types.collection import Collection
+
+    def _img(arr: np.ndarray, axes: list[str]) -> Image:
+        out = Image(axes=axes, shape=arr.shape, dtype=arr.dtype)
+        out._data = arr
+        return out
+
+    base = np.arange(12, dtype=np.uint8).reshape(3, 4)
+    rotated = Rotate().process_item(_img(base, ["y", "x"]), BlockConfig(params={"angle": 90.0}))
+    assert rotated.shape == (4, 3)
+
+    converted = ConvertDType().process_item(
+        _img(base, ["y", "x"]),
+        BlockConfig(params={"target_dtype": "float32", "rescale": "linear"}),
+    )
+    assert converted.dtype == np.dtype(np.float32)
+
+    stack = _img(np.arange(2 * 3 * 4, dtype=np.uint8).reshape(2, 3, 4), ["c", "y", "x"])
+    split = AxisSplit().run({"image": Collection(items=[stack], item_type=Image)}, BlockConfig(params={"axis": "c"}))
+    merged = AxisMerge().run({"images": split["images"]}, BlockConfig(params={"axis": "c"}))
+    assert merged["image"][0].shape == (2, 3, 4)
