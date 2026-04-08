@@ -783,6 +783,22 @@ class DAGScheduler:
         descendants = set(get_downstream_blocks(self._dag, block_id)) | {block_id}
         self._completed_event = asyncio.Event()
 
+        # ADR-027 Addendum 1 / #408: Wire-format dicts ({"backend": ...,
+        # "path": ..., "format": ..., "metadata": {"type_chain": [...], ...}})
+        # are assigned directly to _block_outputs WITHOUT calling
+        # deserialize_intermediate_refs().  This is intentional:
+        #
+        #   1. Wire-format dicts are already JSON-serialisable and can be
+        #      shipped to a worker subprocess via spawn_block_process() / stdin.
+        #   2. The worker's _reconstruct_one() reads metadata.type_chain and
+        #      reconstructs the correct typed DataObject instance inside the
+        #      sandboxed subprocess, preserving plugin type identity.
+        #   3. Calling deserialize_intermediate_refs() here would produce
+        #      ViewProxy objects that are NOT JSON-serialisable and would break
+        #      spawn_block_process().
+        #
+        # See checkpoint.py for the deprecated deserialize_intermediate_refs()
+        # function and the full rationale.
         for node_id in self._order:
             if node_id in ancestors:
                 self._block_states[node_id] = BlockState.DONE

@@ -86,6 +86,29 @@ def _serialize_value(value: Any) -> Any:
 def deserialize_intermediate_refs(data: dict[str, Any]) -> dict[str, Any]:
     """Deserialize checkpoint intermediate_refs back to live objects.
 
+    .. deprecated::
+        This function is **not called** in the production execute-from path
+        and must not be introduced there.  The execute-from path in
+        :meth:`~scieasy.engine.scheduler.DAGScheduler.execute_from` assigns
+        ``checkpoint.intermediate_refs[node_id]`` directly to
+        ``_block_outputs[node_id]`` as a wire-format dict.  The downstream
+        worker subprocess then calls ``_reconstruct_one()`` (ADR-027 Addendum
+        1 §1) which reads ``metadata.type_chain`` from the wire-format dict
+        and reconstructs the typed object inside the sandboxed subprocess.
+
+        Calling this function would produce :class:`~scieasy.core.proxy.ViewProxy`
+        objects that are **not JSON-serialisable** and would break
+        ``spawn_block_process()`` when the scheduler tries to ship inputs to
+        the worker via stdin/stdout.
+
+        The function is preserved (not deleted) for:
+        - historical reference and future testing utilities
+        - potential use in offline / introspection tooling that does not
+          route through the subprocess execution path
+
+        Do **not** call this from within the scheduler, runner, or any path
+        that feeds inputs to a worker subprocess.
+
     Reconstructs :class:`ViewProxy` instances from serialized
     StorageReference dicts, and preserves Collection structure with
     ViewProxy items so that resumed workflows can feed data to blocks.
@@ -100,7 +123,13 @@ def deserialize_intermediate_refs(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _deserialize_value(value: Any) -> Any:
-    """Deserialize a single value from checkpoint storage."""
+    """Deserialize a single value from checkpoint storage.
+
+    .. deprecated::
+        Only called by :func:`deserialize_intermediate_refs`, which is itself
+        deprecated.  See the deprecation notice on that function for the full
+        rationale.  Do not call this directly from scheduler or runner code.
+    """
     if not isinstance(value, dict):
         return value
 
