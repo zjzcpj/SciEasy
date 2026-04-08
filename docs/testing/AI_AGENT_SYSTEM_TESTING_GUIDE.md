@@ -25,11 +25,48 @@ testing strategy memo.
 
 ---
 
-## 2. Agent Rules
+## 2. System Overview
+
+SciEasy is an AI-native scientific workflow platform built around a typed
+workflow graph and a backend-owned runtime.
+
+At a high level:
+
+- the backend/runtime owns workflow truth, validation, execution state, and
+  checkpoint semantics
+- blocks provide typed inputs/outputs and execute domain logic
+- plugins extend the system with domain-specific data types and blocks such as
+  imaging and SRS processing
+- the frontend is a workflow editor and execution surface, not the source of
+  workflow truth
+- system tests must therefore validate both execution correctness and
+  cross-layer consistency
+
+This guide focuses on four system-level risk areas that have already produced
+real regressions:
+
+- real plugin discovery after installation
+- real typed-data flow across imaging and SRS blocks
+- real frontend/backend/runtime coordination in the browser
+- real runtime control behavior for pause, resume, and checkpoints
+
+These are system tests, not unit tests, because they exercise multiple layers
+at once:
+
+- package installation
+- block/type registry discovery
+- workflow construction
+- runtime execution
+- output persistence
+- browser-driven user interaction
+
+---
+
+## 3. Agent Rules
 
 These rules are mandatory for any agent following this guide.
 
-### 2.1 Use real tools, not hypothetical narration
+### 3.1 Use real tools, not hypothetical narration
 
 When you claim a step was performed, you must have actually performed it with a
 tool available in your environment.
@@ -40,7 +77,7 @@ Required mapping:
 - file inspection: use shell or file-reading tools
 - browser interaction: use the available browser automation tool
 
-### 2.2 GUI testing must use a browser tool
+### 3.2 GUI testing must use a browser tool
 
 For any GUI/system test that says "open Chrome", the agent must call a browser
 automation tool or browser connector.
@@ -62,7 +99,7 @@ If no browser tool is available, stop and report:
 
 `BLOCKED: GUI system test requires a browser automation tool.`
 
-### 2.3 Record evidence while testing
+### 3.3 Record evidence while testing
 
 For every system test, collect:
 
@@ -74,7 +111,7 @@ For every system test, collect:
 - pass/fail verdict
 - failure summary and reproduction point if the test fails
 
-### 2.4 Preserve exact filenames
+### 3.4 Preserve exact filenames
 
 The four example image filenames contain spaces and parentheses. Do not rename
 them. The tests in this guide intentionally exercise path handling with these
@@ -82,9 +119,9 @@ filenames.
 
 ---
 
-## 3. Fixed Dataset
+## 4. Fixed Dataset
 
-### 3.1 Windows canonical dataset path
+### 4.1 Windows canonical dataset path
 
 The canonical Windows dataset directory is:
 
@@ -102,7 +139,7 @@ Semantics:
 - the two `*_2845*` images are used for segmentation
 - the two `*_spectra*` images are used for hyperspectral/SRS tests
 
-### 3.2 macOS dataset requirement
+### 4.2 macOS dataset requirement
 
 On macOS, place the same four files in any absolute directory, but preserve the
 exact filenames.
@@ -115,7 +152,7 @@ The agent must record the chosen macOS absolute dataset path in the test report.
 
 ---
 
-## 4. Required Test Matrix
+## 5. Required Test Matrix
 
 All four tests below are required.
 
@@ -130,9 +167,9 @@ Windows and macOS must both pass the same logical suite.
 
 ---
 
-## 5. Environment Setup
+## 6. Environment Setup
 
-### 5.1 Common prerequisites
+### 6.1 Common prerequisites
 
 - Python 3.11+ available
 - Git available
@@ -140,7 +177,7 @@ Windows and macOS must both pass the same logical suite.
 - network access available for dependency installation if wheels are missing
 - a clean virtual environment for each platform run
 
-### 5.2 Required packages
+### 6.2 Required packages
 
 At minimum, install:
 
@@ -151,7 +188,7 @@ At minimum, install:
 
 If testing from the local repository rather than PyPI, install from local paths.
 
-### 5.3 Windows setup example
+### 6.3 Windows setup example
 
 ```powershell
 cd C:\Users\jiazh\Desktop\workspace\SciEasy
@@ -164,7 +201,7 @@ pip install C:\Users\jiazh\Desktop\workspace\SciEasy\packages\scieasy-blocks-srs
 pip install cellpose
 ```
 
-### 5.4 macOS setup example
+### 6.4 macOS setup example
 
 ```bash
 cd /Users/<username>/Desktop/workspace/SciEasy
@@ -177,7 +214,7 @@ pip install /Users/<username>/Desktop/workspace/SciEasy/packages/scieasy-blocks-
 pip install cellpose
 ```
 
-### 5.5 Installation smoke checks
+### 6.5 Installation smoke checks
 
 Run:
 
@@ -194,7 +231,7 @@ Minimum expectation:
 
 ---
 
-## 6. Test Workspace Conventions
+## 7. Test Workspace Conventions
 
 Create a dedicated workspace per run.
 
@@ -215,21 +252,21 @@ Inside each workspace, preserve:
 
 ---
 
-## 7. ST-001: CLI Core Imaging Workflow
+## 8. ST-001: CLI Core Imaging Workflow
 
-### 7.1 Objective
+### 8.1 Objective
 
 Verify that the core runtime can execute a real imaging workflow using the two
 `*_2845*` images and produce a single-cell intensity table.
 
-### 7.2 Input files
+### 8.2 Input files
 
 Use:
 
 - `K562_L_2845 (uV).tif`
 - `K562_UL_2845 (uV).tif`
 
-### 7.3 Workflow intent
+### 8.3 Workflow intent
 
 The workflow must implement this logical pipeline:
 
@@ -244,7 +281,7 @@ Recommended block sequence:
 
 `LoadImage x2 -> MergeCollection -> Denoise(method=gaussian) -> CellposeSegment -> RegionProps -> SaveData/SaveTable`
 
-### 7.4 Authoring instructions
+### 8.4 Authoring instructions
 
 Create a temporary workflow YAML in the test workspace.
 
@@ -252,7 +289,7 @@ Before authoring, use `scieasy blocks` to confirm the current installed block
 identifiers. The exact internal block type string may differ across builds; the
 agent must use the installed identifiers, but preserve the logical flow above.
 
-### 7.5 Execution steps
+### 8.5 Execution steps
 
 1. Create a test workspace.
 2. Author the workflow YAML.
@@ -266,14 +303,14 @@ agent must use the installed identifiers, but preserve the logical flow above.
 8. Run validation.
 9. Run the workflow via CLI.
 
-### 7.6 Command pattern
+### 8.6 Command pattern
 
 ```bash
 scieasy validate <workflow-yaml>
 scieasy run <workflow-yaml>
 ```
 
-### 7.7 Required evidence
+### 8.7 Required evidence
 
 - full validation output
 - full runtime output
@@ -281,7 +318,7 @@ scieasy run <workflow-yaml>
 - the output CSV path
 - the output CSV header and row count
 
-### 7.8 Pass criteria
+### 8.8 Pass criteria
 
 All of the following must be true:
 
@@ -292,7 +329,7 @@ All of the following must be true:
 - the CSV contains at least one intensity-related column such as `mean_intensity`
 - both 2845 images were processed, not only one image
 
-### 7.9 Fail examples
+### 8.9 Fail examples
 
 Fail the test if any of the following occurs:
 
@@ -303,9 +340,9 @@ Fail the test if any of the following occurs:
 
 ---
 
-## 8. ST-002: GUI Full-Stack Imaging Workflow
+## 9. ST-002: GUI Full-Stack Imaging Workflow
 
-### 8.1 Objective
+### 9.1 Objective
 
 Verify the full user path:
 
@@ -314,21 +351,21 @@ Verify the full user path:
 This test uses the same logical workflow as ST-001, but must be executed
 through the frontend in a real browser session.
 
-### 8.2 Special rule
+### 9.2 Special rule
 
 This test is invalid unless the agent actually uses a browser automation tool.
 
-### 8.3 Setup
+### 9.3 Setup
 
 Run this test from a fresh virtual environment, starting from package install.
 
-### 8.4 Workflow intent
+### 9.4 Workflow intent
 
 Use the same logical workflow as ST-001:
 
 `LoadImage x2 -> MergeCollection -> Denoise(gaussian) -> CellposeSegment -> RegionProps -> SaveData/SaveTable`
 
-### 8.5 Execution steps
+### 9.5 Execution steps
 
 1. Create and activate a fresh virtual environment.
 2. Install `scieasy`, `scieasy-blocks-imaging`, `scieasy-blocks-srs`, and `cellpose`.
@@ -348,7 +385,7 @@ Use the same logical workflow as ST-001:
 11. Run the workflow from the GUI.
 12. Verify node states, logs, and output files.
 
-### 8.6 Browser-tool requirements
+### 9.6 Browser-tool requirements
 
 The agent must use the browser tool to do all of the following:
 
@@ -368,7 +405,7 @@ At minimum, capture screenshots for:
 - run in progress
 - completed run with final node states
 
-### 8.7 GUI-specific checks
+### 9.7 GUI-specific checks
 
 The agent must explicitly verify these regression-prone behaviors:
 
@@ -377,7 +414,7 @@ The agent must explicitly verify these regression-prone behaviors:
 - clicking Run does not result in a silent no-op
 - errors, if any, surface in logs/problems rather than disappearing
 
-### 8.8 Required evidence
+### 9.8 Required evidence
 
 - installation commands
 - GUI server startup log
@@ -386,7 +423,7 @@ The agent must explicitly verify these regression-prone behaviors:
 - final output CSV row count
 - a short note describing any GUI oddity even if the run passes
 
-### 8.9 Pass criteria
+### 9.9 Pass criteria
 
 All of the following must be true:
 
@@ -398,14 +435,14 @@ All of the following must be true:
 
 ---
 
-## 9. ST-003: Hyperspectral/SRS Workflow
+## 10. ST-003: Hyperspectral/SRS Workflow
 
-### 9.1 Objective
+### 10.1 Objective
 
 Verify that the system can process the two hyperspectral images and complete a
 cross-plugin workflow that combines segmentation and spectral extraction.
 
-### 9.2 Input files
+### 10.2 Input files
 
 Segmentation images:
 
@@ -417,7 +454,7 @@ Hyperspectral images:
 - `K562_L_spectra (uV).tif`
 - `K562_UL_spectra (uV).tif`
 
-### 9.3 Workflow intent
+### 10.3 Workflow intent
 
 Run a two-arm workflow:
 
@@ -433,7 +470,7 @@ Join point:
 
 `Cellpose labels + calibrated spectra -> ExtractSpectrum -> SaveData/SaveTable`
 
-### 9.4 Why this test exists
+### 10.4 Why this test exists
 
 This test verifies more than simple file loading. It checks:
 
@@ -442,7 +479,7 @@ This test verifies more than simple file loading. It checks:
 - cross-plugin compatibility between imaging and SRS outputs
 - real output generation for spectral data
 
-### 9.5 Execution notes
+### 10.5 Execution notes
 
 - If the current installed package names or block IDs differ, adjust the YAML or
   GUI selection to the installed identifiers.
@@ -450,7 +487,7 @@ This test verifies more than simple file loading. It checks:
 - If the environment is too constrained for a GUI run, a CLI variant is
   acceptable, but the agent should prefer a GUI run when a browser tool exists.
 
-### 9.6 Required evidence
+### 10.6 Required evidence
 
 - workflow definition
 - runtime logs
@@ -458,7 +495,7 @@ This test verifies more than simple file loading. It checks:
 - output table schema/columns
 - note of which plugin blocks were used for the spectral arm
 
-### 9.7 Pass criteria
+### 10.7 Pass criteria
 
 All of the following must be true:
 
@@ -468,7 +505,7 @@ All of the following must be true:
 - the resulting table is non-empty
 - no type/port incompatibility prevents the imaging/SRS join
 
-### 9.8 Fail examples
+### 10.8 Fail examples
 
 Fail the test if any of the following occurs:
 
@@ -478,9 +515,9 @@ Fail the test if any of the following occurs:
 
 ---
 
-## 10. ST-004: Pause/Resume/Checkpoint Workflow
+## 11. ST-004: Pause/Resume/Checkpoint Workflow
 
-### 10.1 Objective
+### 11.1 Objective
 
 Verify runtime control behavior:
 
@@ -490,7 +527,7 @@ Verify runtime control behavior:
 
 This test validates runtime semantics rather than imaging math.
 
-### 10.2 Preferred execution mode
+### 11.2 Preferred execution mode
 
 Preferred:
 
@@ -500,7 +537,7 @@ Acceptable fallback:
 
 - API/system-level execution against the workflow endpoints
 
-### 10.3 Recommended test workflow
+### 11.3 Recommended test workflow
 
 Use a simple three-node linear workflow with an intentionally slow middle block
 so that pause can be asserted while work is in progress.
@@ -517,7 +554,7 @@ Recommended timing:
 This mirrors the runtime semantics covered in the API/system tests and is a
 good system-level control probe.
 
-### 10.4 Execution steps
+### 11.4 Execution steps
 
 1. Create a workflow whose middle block takes long enough to observe `RUNNING`.
 2. Start execution.
@@ -528,7 +565,7 @@ good system-level control probe.
 7. Resume the workflow.
 8. Verify the workflow reaches terminal success.
 
-### 10.5 Evidence to collect
+### 11.5 Evidence to collect
 
 - command or API call used to execute
 - command or API call used to pause
@@ -537,7 +574,7 @@ good system-level control probe.
 - checkpoint path or checkpoint metadata
 - final terminal workflow state
 
-### 10.6 Pass criteria
+### 11.6 Pass criteria
 
 All of the following must be true:
 
@@ -547,7 +584,7 @@ All of the following must be true:
 - resume unblocks the workflow
 - the workflow reaches successful completion after resume
 
-### 10.7 Fail examples
+### 11.7 Fail examples
 
 Fail the test if any of the following occurs:
 
@@ -557,9 +594,9 @@ Fail the test if any of the following occurs:
 
 ---
 
-## 11. Cross-Platform Expectations
+## 12. Cross-Platform Expectations
 
-### 11.1 Windows
+### 12.1 Windows
 
 Windows is mandatory because the current dataset and several desktop-tool paths
 have been exercised primarily on Windows.
@@ -570,7 +607,7 @@ Windows-specific checks:
 - file pickers handle Windows absolute paths correctly
 - output directories are created correctly
 
-### 11.2 macOS
+### 12.2 macOS
 
 macOS is mandatory because the suite must not be Windows-only.
 
@@ -580,7 +617,7 @@ macOS-specific checks:
 - browser-based GUI workflow still behaves correctly
 - output and checkpoint paths are created under the macOS workspace
 
-### 11.3 Requirement
+### 12.3 Requirement
 
 A test suite run is incomplete unless the agent reports results for both:
 
@@ -591,32 +628,32 @@ The same logical test IDs must be used on both platforms.
 
 ---
 
-## 12. Test Report Format
+## 13. Test Report Format
 
 For each platform, the agent should return results in this shape:
 
-### 12.1 Environment
+### 13.1 Environment
 
 - OS
 - Python version
 - install mode (`pip install` from local path or package index)
 - dataset root
 
-### 12.2 Results
+### 13.2 Results
 
 - `ST-001`: PASS/FAIL
 - `ST-002`: PASS/FAIL
 - `ST-003`: PASS/FAIL
 - `ST-004`: PASS/FAIL
 
-### 12.3 Evidence
+### 13.3 Evidence
 
 - commands executed
 - output file paths
 - screenshot paths or attachments
 - checkpoint path or metadata
 
-### 12.4 Failures
+### 13.4 Failures
 
 For each failure, include:
 
@@ -627,7 +664,7 @@ For each failure, include:
 
 ---
 
-## 13. Escalation Rules
+## 14. Escalation Rules
 
 Open or update a GitHub issue if any of the following occurs:
 
@@ -644,7 +681,7 @@ confidence.
 
 ---
 
-## 14. Future Recommended Additions
+## 15. Future Recommended Additions
 
 These are not optional forever; they are the next tests to formalize after the
 four required tests above.
