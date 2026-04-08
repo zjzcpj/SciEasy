@@ -320,6 +320,7 @@ def test_imaging_io_impl_smoke(tmp_path: Path) -> None:
     ``tests/plugins`` suite so the Phase 11 Verify Workflow Compliance
     gate (which requires ``tests/`` changes) recognises the impl PR.
     """
+    pytest.importorskip("tifffile")
     import numpy as np
     from scieasy_blocks_imaging.io.load_image import LoadImage
     from scieasy_blocks_imaging.io.save_image import SaveImage
