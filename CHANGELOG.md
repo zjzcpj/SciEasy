@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#404] Fix `_deserialize_value()` in `checkpoint.py` to read `metadata.type_chain` when building `TypeSignature` for `ViewProxy`, preserving plugin type identity for both single-object and collection-item wire-format dicts; add regression tests (@claude, 2026-04-08, branch: fix/issue-404/checkpoint-wire-format, session: 20260408-154723-fix-404-execute-from-checkpoint-typed-pa)
 - [#396] Restore plugin IO execution/schema fidelity by surfacing block-run failures in the GUI, exposing `direction` and `is_collection` in block schemas, aligning imaging collection ports to item-type metadata, and adding monorepo plugin block/type discovery so local source checkouts still render correct colors and Browse actions (@Codex, 2026-04-08, branch: fix/issue-396/gui-io-metadata, session: 20260408-133541-fix-issue-396-gui-io-metadata-and-execut)
 
 ### Added
