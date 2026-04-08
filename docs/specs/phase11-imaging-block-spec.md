@@ -2771,6 +2771,11 @@ class MorphologyOp(ProcessBlock):
 **l. Suggested workflow gate ticket title**:
 `feat(imaging): T-IMG-012 MorphologyOp (erode/dilate/open/close/tophat/bottomhat)`
 
+**Status**: Implemented (Sprint C imaging morphology chunk). All six
+locked morphology ops now run on 2D slices and broadcast across extra
+axes via `iterate_over_axes`, with focused tests covering valid ops,
+invalid config, and higher-rank broadcasting.
+
 ---
 
 ### T-IMG-013 — EdgeDetect
@@ -2876,6 +2881,10 @@ class EdgeDetect(ProcessBlock):
 **l. Suggested workflow gate ticket title**:
 `feat(imaging): T-IMG-013 EdgeDetect (sobel/scharr/canny/prewitt)`
 
+**Status**: Implemented (Sprint C imaging morphology chunk). `sobel`,
+`scharr`, `prewitt`, and `canny` are now concrete, validate threshold
+ordering, and broadcast per-slice over higher-rank image inputs.
+
 ---
 
 ### T-IMG-014 — RidgeFilter
@@ -2978,6 +2987,11 @@ class RidgeFilter(ProcessBlock):
 **l. Suggested workflow gate ticket title**:
 `feat(imaging): T-IMG-014 RidgeFilter (frangi/meijering/sato/hessian)`
 
+**Status**: Implemented (Sprint C imaging morphology chunk). All four
+ridge filters now construct sigma ranges from
+`sigma_min`/`sigma_max`/`num_sigma`, operate on 2D slices, and validate
+bad method or sigma-range config explicitly.
+
 ---
 
 ### T-IMG-015 — Sharpen
@@ -3071,6 +3085,11 @@ class Sharpen(ProcessBlock):
 
 **l. Suggested workflow gate ticket title**:
 `feat(imaging): T-IMG-015 Sharpen (unsharp / laplacian)`
+
+**Status**: Implemented (Sprint C imaging morphology chunk). `unsharp`
+and `laplacian` sharpening are now concrete `ProcessBlock`
+implementations with parameter validation and focused shape-preserving
+tests.
 
 ---
 
@@ -3182,6 +3201,10 @@ def _build_freq_mask(shape, ftype, lo, hi):
 
 **l. Suggested workflow gate ticket title**:
 `feat(imaging): T-IMG-016 FFTFilter (lowpass / highpass / bandpass)`
+
+**Status**: Implemented (Sprint C imaging morphology chunk). FFT-based
+lowpass / highpass / bandpass filtering now validates cutoff ranges and
+ordering, broadcasts per 2D slice, and returns real-valued outputs.
 
 ---
 
