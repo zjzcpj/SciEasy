@@ -687,6 +687,8 @@ def test_srs_types_impl_smoke() -> None:
 
 def test_srs_preprocess_impl_smoke() -> None:
     """Smoke test that T-SRS-002..005 preprocess bodies are concrete."""
+    pytest.importorskip("sklearn")
+    pytest.importorskip("scipy")
     import numpy as np
     from scieasy_blocks_imaging.types import Image
     from scieasy_blocks_srs import SRSBaseline, SRSCalibrate, SRSDenoise, SRSImage, SRSNormalize
