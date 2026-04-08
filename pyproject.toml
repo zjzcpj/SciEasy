@@ -132,6 +132,7 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 markers = [
     "requires_imaging: marks tests that need scieasy-blocks-imaging installed (deselect with '-m \"not requires_imaging\"')",
+    "requires_fiji: marks tests that need a local Fiji install at the master-plan §10 path (deselect with '-m \"not requires_fiji\"'). T-IMG-038 will migrate this marker to packages/scieasy-blocks-imaging/pyproject.toml.",
 ]
 
 [tool.importlinter]
