@@ -1083,6 +1083,12 @@ Total ~350 lines.
 **l. Suggested workflow gate ticket title**:
 `LC-MS plugin types module per master plan §2.4 (T-LCMS-002)`
 
+**Status**: Implemented in LCMS foundation chunk 1 (issue #363, PR #369).
+`get_types()` now returns the four plugin classes in registration order,
+the frozen `Meta` models round-trip through JSON, and the concrete type
+tests cover `with_meta(...)` preservation without adding forbidden
+scan-level `MSSpectrum` / `MSRun` classes.
+
 ---
 
 
@@ -1303,6 +1309,13 @@ Total ~550 lines.
 **l. Suggested workflow gate ticket title**:
 `LoadMSRawFiles block per master plan §2.4 (T-LCMS-003)`
 
+**Status**: Implemented in LCMS foundation chunk 1 (issue #363, PR #369).
+`LoadMSRawFiles` now returns `Collection[MSRawFile]`, supports glob vs
+recursive directory search, records `.raw` / `.d` paths without parsing
+scan data, and populates `format`, `polarity`, `instrument`,
+`acquisition_date`, and `sample_id` from lightweight mzML/mzXML header
+sniffing.
+
 ---
 
 ### T-LCMS-004 — `LoadPeakTable`
@@ -1385,6 +1398,13 @@ Total ~450 lines.
 
 **l. Suggested workflow gate ticket title**:
 `LoadPeakTable block per master plan §2.4 (T-LCMS-004)`
+
+**Status**: Implemented in LCMS foundation chunk 1 (issue #363, PR #369).
+`LoadPeakTable` now reads CSV / TSV / XLSX / XLS into a cached pandas
+frame, auto-detects `ElMAVEN` / `MZmine` / `XCMS` from locked column
+signatures, raises on missing or empty inputs, and emits a typed
+`PeakTable` with populated `columns`, `row_count`, `schema`, and
+`PeakTable.Meta`.
 
 ---
 
@@ -1510,6 +1530,13 @@ Total ~480 lines.
 **l. Suggested workflow gate ticket title**:
 `LoadMIDTable block per master plan §2.4 (T-LCMS-005)`
 
+**Status**: Implemented in LCMS foundation chunk 1 (issue #363, PR #369).
+`LoadMIDTable` now enforces long-format MID inputs, detects sample
+columns via the spec’s identity/tracer exclusion heuristic or regex
+override, preserves multi-tracer metadata, raises on missing compound
+columns or empty sample detection, and emits `MIDTable.Meta` with
+`corrected=True` and `correction_tool="AccuCor"`.
+
 ---
 
 ### T-LCMS-006 — `LoadSampleMetadata` + `SaveTable`
@@ -1599,6 +1626,13 @@ Total ~460 lines.
 
 **l. Suggested workflow gate ticket title**:
 `LoadSampleMetadata + SaveTable blocks per master plan §2.4 (T-LCMS-006)`
+
+**Status**: Implemented in LCMS foundation chunk 1 (issue #363, PR #369).
+`LoadSampleMetadata` now mirrors the table-loading path with a required
+configurable sample-ID column, while `SaveTable` writes any
+`DataFrame` subclass to CSV / TSV / XLSX, creates parent directories,
+respects the `index` flag, and prefers cached pandas frames before
+falling back to storage-backed materialisation.
 
 ---
 
@@ -1805,6 +1839,17 @@ script + ~400 lines test. Total ~810 lines.
 
 **l. Suggested workflow gate ticket title**:
 `ElMAVENBlock + AccuCorR external-tool blocks per master plan §2.4 (T-LCMS-007)`
+
+**Status**: Implemented in LCMS foundation chunk 1 (issue #363, PR #369).
+`ElMAVENBlock` now classifies collected exports into `peak_table` vs
+`mid_table` using the locked header heuristic and routes them through
+the concrete LCMS loaders. `AccuCorR` now resolves the bundled default
+driver script, patches `script_path` / `entry_function` / `language` /
+`mode` into the delegated `CodeBlock` config, materialises peak-table
+and sample-metadata inputs to CSV for the R subprocess contract, and
+wraps the returned MID CSV as a typed `MIDTable`. `GraphPadBlock`
+remains intentionally pending for the separate Worker A follow-up chunk
+(`T-LCMS-019`).
 
 ---
 
@@ -2859,6 +2904,10 @@ available), saved as PNG via `matplotlib.pyplot.savefig`, wrapped in an
 - Cross-validation / permutation testing for PLSDA (follow-up).
 
 **j. Dependencies on other tickets**: T-LCMS-001, T-LCMS-002, T-LCMS-013.
+
+**Implementation note**: PR #379 lands PCA and PLSDA. OPLSDA remains
+intentionally deferred behind a `NotImplementedError` until the follow-up
+ticket is scheduled.
 
 **k. Estimated diff size**: ~280 lines source + ~350 lines test.
 Total ~630 lines.

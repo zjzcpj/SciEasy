@@ -200,20 +200,51 @@ def test_srs_image_placeholder_raises() -> None:
 
 
 def test_lcms_types_placeholder_raises() -> None:
-    """Representative: T-LCMS-002 ``get_types`` registration helper raises.
-
-    The four LC-MS type classes themselves (``MSRawFile``, ``PeakTable``,
-    ``MIDTable``, ``SampleMetadata``) are spec-final after the #345
-    skeleton drop and instantiate cleanly as ``Artifact`` /
-    ``DataFrame`` subclasses. Only the entry-point registration helper
-    ``get_types()`` is still skeleton — the impl agent wires it up
-    once the plugin is registered via ``pyproject.toml`` entry_points
-    in T-LCMS-021.
-    """
+    """Representative: T-LCMS-002 get_types() is now concrete."""
     from scieasy_blocks_lcms.types import get_types
 
-    with pytest.raises(NotImplementedError, match="T-LCMS-002"):
-        get_types()
+    names = [cls.__name__ for cls in get_types()]
+    assert names == ["MSRawFile", "PeakTable", "MIDTable", "SampleMetadata"]
+
+
+def test_lcms_foundation_chunk1_impl_smoke(tmp_path: Path) -> None:
+    """Smoke test that LCMS foundation chunk 1 bodies are concrete."""
+    pytest.importorskip("pandas")
+    from scieasy_blocks_lcms.external.accucor_r import AccuCorR
+    from scieasy_blocks_lcms.io.load_mid_table import LoadMIDTable
+    from scieasy_blocks_lcms.io.load_ms_raw_files import LoadMSRawFiles
+    from scieasy_blocks_lcms.io.load_peak_table import LoadPeakTable
+    from scieasy_blocks_lcms.io.load_sample_metadata import LoadSampleMetadata
+    from scieasy_blocks_lcms.types import MSRawFile
+
+    from scieasy.blocks.base.config import BlockConfig
+
+    mzml_path = tmp_path / "sample.mzML"
+    mzml_path.write_text(
+        '<mzML><run startTimeStamp="2026-04-08T01:02:03Z"><instrumentConfiguration id="IC1" name="QE" />'
+        '<cvParam accession="MS:1000130" /></run></mzML>',
+        encoding="utf-8",
+    )
+    raw_files = LoadMSRawFiles().load(BlockConfig(params={"path": str(tmp_path), "pattern": "*.mzML"}))
+    assert isinstance(raw_files[0], MSRawFile)
+
+    peak_path = tmp_path / "peak.csv"
+    peak_path.write_text("compound,formula,medMz,medRt\nglucose,C6H12O6,179.0,5.2\n", encoding="utf-8")
+    peak_table = LoadPeakTable().load(BlockConfig(params={"path": str(peak_path)}))[0]
+    assert peak_table.meta.source == "ElMAVEN"
+
+    sample_meta_path = tmp_path / "sample_metadata.csv"
+    sample_meta_path.write_text("sample_id,group\nS1,UL\n", encoding="utf-8")
+    sample_metadata = LoadSampleMetadata().load(BlockConfig(params={"path": str(sample_meta_path)}))[0]
+    assert sample_metadata.meta.sample_id_column == "sample_id"
+
+    mid_path = tmp_path / "mid.csv"
+    mid_path.write_text("Compound,C13,S1\nglucose,0,1.0\n", encoding="utf-8")
+    mid_table = LoadMIDTable().load(BlockConfig(params={"path": str(mid_path)}))[0]
+    assert mid_table.meta.correction_tool == "AccuCor"
+
+    script_path = AccuCorR()._resolve_script_path(BlockConfig(params={}))
+    assert Path(script_path).exists()
 
 
 _CONTINUATION_B_MODULES = [
@@ -337,6 +368,79 @@ def test_lcms_isotope_tracing_core_impl_smoke() -> None:
 
     assert enrichment.loc[0, "enrichment"] == pytest.approx(0.6)
     assert fractional.loc[0, "fractional_labeling"] == pytest.approx(0.6)
+
+
+def test_lcms_analysis_core_impl_smoke(tmp_path: Path) -> None:
+    """Smoke test that the LCMS analysis core blocks are concrete."""
+    pytest.importorskip("pandas")
+    pytest.importorskip("scipy")
+    pytest.importorskip("statsmodels")
+    pytest.importorskip("sklearn")
+    pytest.importorskip("matplotlib")
+
+    import pandas as pd
+    from scieasy_blocks_lcms.analysis.matrix_preprocess import MatrixPreprocess
+    from scieasy_blocks_lcms.analysis.metabolite_matrix import MetaboliteMatrix
+    from scieasy_blocks_lcms.analysis.multivariate_analysis import MultivariateAnalysis
+    from scieasy_blocks_lcms.analysis.univariate_stats import UnivariateStats
+    from scieasy_blocks_lcms.types import PeakTable, SampleMetadata
+
+    from scieasy.blocks.base.config import BlockConfig
+    from scieasy.core.types.collection import Collection
+
+    long_frame = pd.DataFrame(
+        {
+            "compound": ["glucose", "glucose", "lactate", "lactate"],
+            "sample_id": ["S1", "S2", "S1", "S2"],
+            "intensity": [10.0, 12.0, 3.0, 6.0],
+        }
+    )
+    peak = PeakTable(
+        columns=list(long_frame.columns),
+        row_count=len(long_frame),
+        meta=PeakTable.Meta(source="ElMAVEN"),
+    )
+    peak._data = long_frame
+
+    metadata_frame = pd.DataFrame({"sample_id": ["S1", "S2"], "group": ["A", "B"]})
+    metadata = SampleMetadata(
+        columns=list(metadata_frame.columns),
+        row_count=len(metadata_frame),
+        meta=SampleMetadata.Meta(sample_id_column="sample_id"),
+    )
+    metadata._data = metadata_frame
+
+    matrix_out = MetaboliteMatrix().run(
+        {
+            "peak_table": Collection(items=[peak], item_type=PeakTable),
+            "sample_metadata": Collection(items=[metadata], item_type=SampleMetadata),
+        },
+        BlockConfig(params={}),
+    )
+    matrix = matrix_out["matrix"][0]
+    assert matrix._data.loc["glucose", "S1"] == pytest.approx(10.0)
+
+    processed = MatrixPreprocess().process_item(matrix, BlockConfig(params={"impute_method": "none", "scale": "none"}))
+    assert processed._data.shape == matrix._data.shape
+
+    stats = UnivariateStats().run(
+        {
+            "matrix": Collection(items=[processed], item_type=type(processed)),
+            "sample_metadata": Collection(items=[metadata], item_type=SampleMetadata),
+        },
+        BlockConfig(params={"group_column": "group", "test": "t-test", "correction": "none"}),
+    )
+    assert not stats["stats"][0]._data.empty
+
+    multivariate = MultivariateAnalysis().run(
+        {
+            "matrix": Collection(items=[processed], item_type=type(processed)),
+            "sample_metadata": Collection(items=[metadata], item_type=SampleMetadata),
+        },
+        BlockConfig(params={"method": "PCA"}),
+    )
+    assert multivariate["plot"][0].file_path is not None
+    assert multivariate["plot"][0].file_path.exists()
 
 
 def test_imaging_io_impl_smoke(tmp_path: Path) -> None:
@@ -640,3 +744,42 @@ def test_imaging_segmentation_core_impl_smoke() -> None:
     assert isinstance(mask, Mask)
     assert isinstance(cleaned, Label)
     assert isinstance(watershed["label"][0], Label)
+
+
+def test_imaging_measurement_impl_smoke() -> None:
+    """Smoke test that the measurement bundle is wired into the imaging plugin surface."""
+    pytest.importorskip("skimage")
+    import numpy as np
+    from scieasy_blocks_imaging import Colocalization, PairwiseDistance, RegionProps, get_blocks
+    from scieasy_blocks_imaging.types import Image, Label
+
+    from scieasy.blocks.base.config import BlockConfig
+    from scieasy.core.types.array import Array
+
+    label_arr = np.zeros((4, 4), dtype=np.int32)
+    label_arr[1:3, 1:3] = 1
+    raster = Array(axes=["y", "x"], shape=label_arr.shape, dtype=label_arr.dtype)
+    raster._data = label_arr  # type: ignore[attr-defined]
+    label = Label(slots={"raster": raster}, meta=Label.Meta(source_file="smoke.tif", n_objects=1))
+
+    image_a = Image(axes=["y", "x"], shape=label_arr.shape, dtype=np.float32)
+    image_a._data = label_arr.astype(np.float32)  # type: ignore[attr-defined]
+    image_b = Image(axes=["y", "x"], shape=label_arr.shape, dtype=np.float32)
+    image_b._data = label_arr.astype(np.float32) * 2.0  # type: ignore[attr-defined]
+
+    props = RegionProps().run(
+        {"label": label, "intensity_image": image_a},
+        BlockConfig(params={"properties": ["area", "mean_intensity"]}),
+    )["properties"]
+    distances = PairwiseDistance().process_item(label, BlockConfig(params={"metric": "centroid"}))
+    coloc = Colocalization().run(
+        {"channel_a": image_a, "channel_b": image_b},
+        BlockConfig(params={"metrics": ["pearson"]}),
+    )["metrics"]
+
+    assert RegionProps in get_blocks()
+    assert PairwiseDistance in get_blocks()
+    assert Colocalization in get_blocks()
+    assert props.row_count == 1
+    assert distances.row_count == 0
+    assert coloc.row_count == 1
