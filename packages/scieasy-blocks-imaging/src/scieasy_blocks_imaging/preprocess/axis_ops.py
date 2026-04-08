@@ -29,7 +29,7 @@ class AxisSplit(ProcessBlock):
         InputPort(name="image", accepted_types=[Image], required=True),
     ]
     output_ports: ClassVar[list[OutputPort]] = [
-        OutputPort(name="images", accepted_types=[Collection[Image]]),
+        OutputPort(name="images", accepted_types=[Collection[Image]]),  # type: ignore[misc]
     ]
 
     config_schema: ClassVar[dict[str, Any]] = {
@@ -65,7 +65,7 @@ class AxisMerge(ProcessBlock):
     algorithm: ClassVar[str] = "axis_merge"
 
     input_ports: ClassVar[list[InputPort]] = [
-        InputPort(name="images", accepted_types=[Collection[Image]], required=True),
+        InputPort(name="images", accepted_types=[Collection[Image]], required=True),  # type: ignore[misc]
     ]
     output_ports: ClassVar[list[OutputPort]] = [
         OutputPort(name="image", accepted_types=[Image]),
