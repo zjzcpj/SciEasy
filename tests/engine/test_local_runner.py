@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import tempfile
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from scieasy.engine.events import EventBus
-from scieasy.engine.runners.local import LocalRunner
+from scieasy.engine.runners.local import LocalRunner, _derive_output_dir
 from scieasy.engine.runners.process_handle import (
     ProcessExitInfo,
     ProcessHandle,
@@ -157,6 +159,8 @@ class TestLocalRunnerRun:
         assert payload["block_class"].endswith("FakeBlock")
         assert payload["inputs"] == {"input": "ref1"}
         assert payload["config"] == {"param": 1}
+        assert payload["output_dir"]
+        assert Path(payload["output_dir"]).exists()
 
     @patch("scieasy.engine.runners.process_handle.subprocess.Popen")
     def test_run_raises_on_nonzero_exit(self, mock_popen_cls: MagicMock) -> None:
@@ -245,6 +249,32 @@ class TestLocalRunnerRun:
 
         result = asyncio.run(runner.run(FakeBlock(), {}, {}))
         assert result == raw
+
+
+class TestLocalRunnerOutputDir:
+    def test_derive_output_dir_prefers_project_scoped_path(self, tmp_path: Path) -> None:
+        class FakeBlock:
+            id = "block-123"
+
+        output_dir = _derive_output_dir(
+            FakeBlock(),
+            {
+                "project_dir": str(tmp_path),
+                "workflow_id": "wf-1",
+            },
+        )
+
+        assert output_dir == str(tmp_path / "data" / "zarr" / "wf-1" / "block-123")
+        assert Path(output_dir).exists()
+
+    def test_derive_output_dir_falls_back_to_tempdir(self) -> None:
+        class FakeBlock:
+            id = "block-temp"
+
+        output_dir = _derive_output_dir(FakeBlock(), {})
+
+        assert output_dir.startswith(tempfile.gettempdir())
+        assert Path(output_dir).exists()
 
 
 # ---------------------------------------------------------------------------

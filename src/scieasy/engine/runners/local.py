@@ -9,12 +9,33 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from scieasy.engine.runners.process_handle import ProcessRegistry
 
 logger = logging.getLogger(__name__)
+
+
+def _derive_output_dir(block: Any, config: dict[str, Any]) -> str:
+    """Return a persistence directory for worker auto-flush outputs."""
+    explicit_output_dir = config.get("output_dir")
+    if isinstance(explicit_output_dir, str) and explicit_output_dir:
+        path = Path(explicit_output_dir)
+        path.mkdir(parents=True, exist_ok=True)
+        return str(path)
+
+    project_dir = config.get("project_dir")
+    block_id = str(config.get("block_id") or getattr(block, "id", "block"))
+    workflow_id = str(config.get("workflow_id") or "adhoc")
+    if isinstance(project_dir, str) and project_dir:
+        path = Path(project_dir) / "data" / "zarr" / workflow_id / block_id
+        path.mkdir(parents=True, exist_ok=True)
+        return str(path)
+
+    return tempfile.mkdtemp(prefix="scieasy-worker-")
 
 
 class LocalRunner:
@@ -71,6 +92,7 @@ class LocalRunner:
         block_class_path = f"{block.__class__.__module__}.{block.__class__.__qualname__}"
         registry = self._registry if self._registry is not None else ProcessRegistry()
         block_id = getattr(block, "id", block_class_path)
+        output_dir = _derive_output_dir(block, config)
 
         handle = spawn_block_process(
             block_class=block_class_path,
@@ -79,6 +101,7 @@ class LocalRunner:
             event_bus=self._event_bus,
             registry=registry,
             block_id=block_id,
+            output_dir=output_dir,
         )
 
         # Wait for subprocess to complete by reading stdout.

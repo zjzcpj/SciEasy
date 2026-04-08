@@ -203,6 +203,46 @@ def test_preview_data_dispatches_plugin_image_type_via_type_chain(
     assert preview.json()["preview"]["kind"] == "image"
 
 
+def test_preview_data_supports_zarr_image_payloads(
+    client: TestClient,
+    runtime: ApiRuntime,
+    opened_project: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Zarr-backed array/image payloads should preview as images, not artifacts."""
+    import sys
+    import types
+
+    zarr_path = opened_project / "data" / "zarr" / "preview_image.zarr"
+    zarr_path.mkdir(parents=True)
+
+    fake_matrix = np.array([[0.0, 1.0], [2.0, 3.0]])
+
+    class _FakeArray:
+        def __getitem__(self, key: object) -> np.ndarray:
+            return fake_matrix
+
+    fake_zarr = types.ModuleType("zarr")
+    fake_zarr.Array = _FakeArray  # type: ignore[attr-defined]
+    fake_zarr.open = lambda path, mode="r": _FakeArray()  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "zarr", fake_zarr)
+
+    record = runtime.register_data_ref(
+        StorageReference(
+            backend="zarr",
+            path=str(zarr_path),
+            format="zarr",
+            metadata={"type_chain": ["DataObject", "Array", "Image"]},
+        ),
+        type_name="Image",
+    )
+
+    preview = client.get(f"/api/data/{record.id}/preview")
+    assert preview.status_code == 200
+    assert preview.json()["preview"]["kind"] == "image"
+    assert preview.json()["preview"]["src"].startswith("data:image/png;base64,")
+
+
 def test_preview_data_dispatches_plugin_spectrum_type_via_type_chain(
     client: TestClient,
     runtime: ApiRuntime,
