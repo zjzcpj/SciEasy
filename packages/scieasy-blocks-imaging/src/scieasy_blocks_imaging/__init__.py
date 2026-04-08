@@ -16,7 +16,18 @@ from scieasy_blocks_imaging.preprocess.denoise import Denoise
 from scieasy_blocks_imaging.preprocess.flat_field_correct import FlatFieldCorrect
 from scieasy_blocks_imaging.preprocess.geometry import Crop, Flip, Pad, Resize, Rotate
 from scieasy_blocks_imaging.preprocess.normalize import Normalize
+from scieasy_blocks_imaging.segmentation.blob_detect import BlobDetect
 from scieasy_blocks_imaging.segmentation.cellpose_segment import CellposeSegment
+from scieasy_blocks_imaging.segmentation.cleanup import (
+    ExpandLabels,
+    FillHoles,
+    RemoveBorderObjects,
+    RemoveSmallObjects,
+    ShrinkLabels,
+)
+from scieasy_blocks_imaging.segmentation.connected_components import ConnectedComponents
+from scieasy_blocks_imaging.segmentation.threshold import Threshold
+from scieasy_blocks_imaging.segmentation.watershed import Watershed
 from scieasy_blocks_imaging.types import Image, Label, Mask, Transform
 
 
@@ -47,7 +58,16 @@ def get_blocks() -> list[type]:
         RidgeFilter,
         Sharpen,
         FFTFilter,
+        Threshold,
+        Watershed,
         CellposeSegment,
+        BlobDetect,
+        ConnectedComponents,
+        RemoveSmallObjects,
+        RemoveBorderObjects,
+        FillHoles,
+        ExpandLabels,
+        ShrinkLabels,
     ]
 
 
@@ -55,12 +75,16 @@ __all__ = [
     "AxisMerge",
     "AxisSplit",
     "BackgroundSubtract",
+    "BlobDetect",
     "CellposeSegment",
+    "ConnectedComponents",
     "ConvertDType",
     "Crop",
     "Denoise",
     "EdgeDetect",
+    "ExpandLabels",
     "FFTFilter",
+    "FillHoles",
     "FlatFieldCorrect",
     "Flip",
     "Image",
@@ -70,12 +94,17 @@ __all__ = [
     "MorphologyOp",
     "Normalize",
     "Pad",
+    "RemoveBorderObjects",
+    "RemoveSmallObjects",
     "Resize",
     "RidgeFilter",
     "Rotate",
     "SaveImage",
     "Sharpen",
+    "ShrinkLabels",
+    "Threshold",
     "Transform",
+    "Watershed",
     "get_blocks",
     "get_types",
 ]
