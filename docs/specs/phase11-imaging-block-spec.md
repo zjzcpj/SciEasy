@@ -735,6 +735,14 @@ packages/scieasy-blocks-imaging/
 
 ### T-IMG-001 — Types module (Image / Mask / Label / Transform)
 
+**Status**: Implemented in PR #365. `Image`, `Mask`, `Label`, and
+`Transform` now enforce the typed metadata and validation contract on
+`main` (`PhysicalQuantity`, `ChannelInfo`, label-slot presence, and
+transform-matrix shape), with worker reconstruction coverage in
+`packages/scieasy-blocks-imaging/tests/test_types.py`. The same PR also
+aligns `T-IMG-008` / `T-IMG-010` compatibility tests with the typed
+metadata contract so downstream imaging validation stays green.
+
 **a. Ticket ID and name**: T-IMG-001 — `scieasy_blocks_imaging.types` module.
 
 **b. Source ADR sections**:
@@ -3480,6 +3488,13 @@ class Watershed(ProcessBlock):
 ---
 
 ### T-IMG-019 — CellposeSegment (FLAGSHIP)
+
+**Status**: Implemented in PR #370. `CellposeSegment` now uses the
+ADR-027 `setup()` / `teardown()` lifecycle to load a cellpose model once
+per run, emit `Collection[Label]` outputs with populated `n_objects`
+metadata, and keep the optional-dependency path friendly. The package
+tests exercise the contract with test doubles, while the imaging smoke
+test verifies the block is wired into the plugin surface.
 
 **a. Ticket ID and name**: T-IMG-019 — `CellposeSegment` (FLAGSHIP block).
 
