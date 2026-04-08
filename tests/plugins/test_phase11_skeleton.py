@@ -558,6 +558,29 @@ def test_imaging_cellpose_impl_smoke(monkeypatch: pytest.MonkeyPatch) -> None:
     assert isinstance(result["labels"][0], Label)
 
 
+def test_srs_types_impl_smoke() -> None:
+    """Smoke test that T-SRS-001 SRSImage is concrete."""
+    import numpy as np
+    from scieasy_blocks_srs import SRSImage, get_types
+
+    from scieasy.core.units import PhysicalQuantity
+
+    img = SRSImage(
+        axes=["lambda", "y", "x"],
+        shape=(3, 4, 4),
+        dtype=np.float32,
+        meta=SRSImage.Meta(
+            wavenumbers_cm1=[2850.0, 2880.0, 2930.0],
+            integration_time=PhysicalQuantity(5.0, "ms"),
+            laser_power=8.0,
+        ),
+    )
+
+    assert img.meta is not None
+    assert img.meta.wavenumbers_cm1 == [2850.0, 2880.0, 2930.0]
+    assert get_types() == [SRSImage]
+
+
 def test_imaging_segmentation_core_impl_smoke() -> None:
     """Smoke test that the segmentation core bundle is wired into the imaging plugin surface."""
     pytest.importorskip("skimage")
