@@ -1,0 +1,139 @@
+{
+  "task_id": "20260408-154724-fix-405-preview-runtime-drops-plugin-typ",
+  "title": "fix #405: preview runtime drops plugin type identity",
+  "status": "completed",
+  "created_at": "2026-04-08T19:47:24.021449+00:00",
+  "updated_at": "2026-04-08T20:00:00.377337+00:00",
+  "completed_stages": [
+    {
+      "stage_id": "create_issue",
+      "stage_name": "Create Issue",
+      "completed_at": "2026-04-08T19:48:07.880521+00:00",
+      "artifacts": {
+        "issue_number": 405,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/405"
+      }
+    },
+    {
+      "stage_id": "write_change_plan",
+      "stage_name": "Write Change Plan",
+      "completed_at": "2026-04-08T19:50:44.668819+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/405#issuecomment-4209170815",
+        "files_to_modify": [
+          "src/scieasy/api/runtime.py",
+          "tests/api/test_data.py"
+        ]
+      }
+    },
+    {
+      "stage_id": "create_branch",
+      "stage_name": "Create Branch & Implement",
+      "completed_at": "2026-04-08T19:59:45.917863+00:00",
+      "artifacts": {
+        "branch_name": "fix/issue-405/preview-type-identity",
+        "commit_shas": [
+          "fc34f7d"
+        ]
+      }
+    },
+    {
+      "stage_id": "submit_pr",
+      "stage_name": "Submit PR",
+      "completed_at": "2026-04-08T19:59:45.987234+00:00",
+      "artifacts": {
+        "pr_number": 412,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/412"
+      }
+    },
+    {
+      "stage_id": "update_docs",
+      "stage_name": "Update Documentation",
+      "completed_at": "2026-04-08T19:59:46.058397+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "N/A - internal API fix"
+        ]
+      }
+    },
+    {
+      "stage_id": "update_changelog",
+      "stage_name": "Update Changelog",
+      "completed_at": "2026-04-08T20:00:00.377324+00:00",
+      "artifacts": {
+        "changelog_entry": "[#405] Fix preview_data() to use TypeRegistry.resolve() + issubclass() for plugin type dispatch (@claude, 2026-04-08, branch: fix/issue-405/preview-type-identity, session: 20260408-154724-fix-405-preview-runtime-drops-plugin-typ)"
+      }
+    }
+  ],
+  "history": [
+    {
+      "event": "workflow_started",
+      "timestamp": "2026-04-08T19:47:24.021457+00:00",
+      "title": "fix #405: preview runtime drops plugin type identity"
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_issue",
+      "timestamp": "2026-04-08T19:48:07.880535+00:00",
+      "artifacts": {
+        "issue_number": 405,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/405"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "write_change_plan",
+      "timestamp": "2026-04-08T19:50:44.668834+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/405#issuecomment-4209170815",
+        "files_to_modify": [
+          "src/scieasy/api/runtime.py",
+          "tests/api/test_data.py"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_branch",
+      "timestamp": "2026-04-08T19:59:45.917877+00:00",
+      "artifacts": {
+        "branch_name": "fix/issue-405/preview-type-identity",
+        "commit_shas": [
+          "fc34f7d"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "submit_pr",
+      "timestamp": "2026-04-08T19:59:45.987251+00:00",
+      "artifacts": {
+        "pr_number": 412,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/412"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_docs",
+      "timestamp": "2026-04-08T19:59:46.058413+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "N/A - internal API fix"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_changelog",
+      "timestamp": "2026-04-08T20:00:00.377339+00:00",
+      "artifacts": {
+        "changelog_entry": "[#405] Fix preview_data() to use TypeRegistry.resolve() + issubclass() for plugin type dispatch (@claude, 2026-04-08, branch: fix/issue-405/preview-type-identity, session: 20260408-154724-fix-405-preview-runtime-drops-plugin-typ)"
+      }
+    },
+    {
+      "event": "workflow_completed",
+      "timestamp": "2026-04-08T20:00:00.377345+00:00"
+    }
+  ],
+  "completed_at": "2026-04-08T20:00:00.377343+00:00"
+}

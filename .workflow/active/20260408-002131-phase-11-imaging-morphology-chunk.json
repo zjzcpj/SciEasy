@@ -1,0 +1,163 @@
+{
+  "task_id": "20260408-002131-phase-11-imaging-morphology-chunk",
+  "title": "Phase 11 imaging morphology chunk",
+  "status": "completed",
+  "created_at": "2026-04-08T04:21:31.866698+00:00",
+  "updated_at": "2026-04-08T04:45:48.484205+00:00",
+  "completed_stages": [
+    {
+      "stage_id": "create_issue",
+      "stage_name": "Create Issue",
+      "completed_at": "2026-04-08T04:22:30.429935+00:00",
+      "artifacts": {
+        "issue_number": 360,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/360"
+      }
+    },
+    {
+      "stage_id": "write_change_plan",
+      "stage_name": "Write Change Plan",
+      "completed_at": "2026-04-08T04:24:01.424726+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/360#issuecomment-4203824556",
+        "files_to_modify": [
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/morphology/morphology_op.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/morphology/edge_detect.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/morphology/ridge_filter.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/morphology/sharpen.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/morphology/fft_filter.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/morphology/__init__.py",
+          "packages/scieasy-blocks-imaging/tests/test_morphology_op.py",
+          "packages/scieasy-blocks-imaging/tests/test_edge_detect.py",
+          "packages/scieasy-blocks-imaging/tests/test_ridge_filter.py",
+          "packages/scieasy-blocks-imaging/tests/test_sharpen.py",
+          "packages/scieasy-blocks-imaging/tests/test_fft_filter.py",
+          "tests/plugins/test_phase11_skeleton.py",
+          "docs/specs/phase11-imaging-block-spec.md",
+          "CHANGELOG.md"
+        ]
+      }
+    },
+    {
+      "stage_id": "create_branch",
+      "stage_name": "Create Branch & Implement",
+      "completed_at": "2026-04-08T04:42:59.842402+00:00",
+      "artifacts": {
+        "branch_name": "feat/sprint-c/imaging-morphology",
+        "commit_shas": [
+          "0a9acff"
+        ]
+      }
+    },
+    {
+      "stage_id": "submit_pr",
+      "stage_name": "Submit PR",
+      "completed_at": "2026-04-08T04:44:04.752591+00:00",
+      "artifacts": {
+        "pr_number": 361,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/361"
+      }
+    },
+    {
+      "stage_id": "update_docs",
+      "stage_name": "Update Documentation",
+      "completed_at": "2026-04-08T04:45:03.203741+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "docs/specs/phase11-imaging-block-spec.md"
+        ]
+      }
+    },
+    {
+      "stage_id": "update_changelog",
+      "stage_name": "Update Changelog",
+      "completed_at": "2026-04-08T04:45:48.484191+00:00",
+      "artifacts": {
+        "changelog_entry": "[#360] Sprint C imaging morphology chunk impl - replaces the T-IMG-012 `MorphologyOp`, T-IMG-013 `EdgeDetect`, T-IMG-014 `RidgeFilter`, T-IMG-015 `Sharpen`, and T-IMG-016 `FFTFilter` skeleton `NotImplementedError` bodies with concrete slice-wise implementations. (@claude, 2026-04-08, branch: feat/sprint-c/imaging-morphology, session: 20260408-002131-phase-11-imaging-morphology-chunk)"
+      }
+    }
+  ],
+  "history": [
+    {
+      "event": "workflow_started",
+      "timestamp": "2026-04-08T04:21:31.866708+00:00",
+      "title": "Phase 11 imaging morphology chunk"
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_issue",
+      "timestamp": "2026-04-08T04:22:30.429952+00:00",
+      "artifacts": {
+        "issue_number": 360,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/360"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "write_change_plan",
+      "timestamp": "2026-04-08T04:24:01.424742+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/360#issuecomment-4203824556",
+        "files_to_modify": [
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/morphology/morphology_op.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/morphology/edge_detect.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/morphology/ridge_filter.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/morphology/sharpen.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/morphology/fft_filter.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/morphology/__init__.py",
+          "packages/scieasy-blocks-imaging/tests/test_morphology_op.py",
+          "packages/scieasy-blocks-imaging/tests/test_edge_detect.py",
+          "packages/scieasy-blocks-imaging/tests/test_ridge_filter.py",
+          "packages/scieasy-blocks-imaging/tests/test_sharpen.py",
+          "packages/scieasy-blocks-imaging/tests/test_fft_filter.py",
+          "tests/plugins/test_phase11_skeleton.py",
+          "docs/specs/phase11-imaging-block-spec.md",
+          "CHANGELOG.md"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_branch",
+      "timestamp": "2026-04-08T04:42:59.842956+00:00",
+      "artifacts": {
+        "branch_name": "feat/sprint-c/imaging-morphology",
+        "commit_shas": [
+          "0a9acff"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "submit_pr",
+      "timestamp": "2026-04-08T04:44:04.752607+00:00",
+      "artifacts": {
+        "pr_number": 361,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/361"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_docs",
+      "timestamp": "2026-04-08T04:45:03.203758+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "docs/specs/phase11-imaging-block-spec.md"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_changelog",
+      "timestamp": "2026-04-08T04:45:48.484207+00:00",
+      "artifacts": {
+        "changelog_entry": "[#360] Sprint C imaging morphology chunk impl - replaces the T-IMG-012 `MorphologyOp`, T-IMG-013 `EdgeDetect`, T-IMG-014 `RidgeFilter`, T-IMG-015 `Sharpen`, and T-IMG-016 `FFTFilter` skeleton `NotImplementedError` bodies with concrete slice-wise implementations. (@claude, 2026-04-08, branch: feat/sprint-c/imaging-morphology, session: 20260408-002131-phase-11-imaging-morphology-chunk)"
+      }
+    },
+    {
+      "event": "workflow_completed",
+      "timestamp": "2026-04-08T04:45:48.484213+00:00"
+    }
+  ],
+  "completed_at": "2026-04-08T04:45:48.484211+00:00"
+}

@@ -1,0 +1,151 @@
+{
+  "task_id": "20260405-002441-issue-123-block-run-signature-dict-str-a",
+  "title": "Issue #123: Block.run() signature dict[str, Any] -> dict[str, Collection]",
+  "status": "completed",
+  "created_at": "2026-04-05T04:24:41.228772+00:00",
+  "updated_at": "2026-04-05T04:33:51.946032+00:00",
+  "completed_stages": [
+    {
+      "stage_id": "create_issue",
+      "stage_name": "Create Issue",
+      "completed_at": "2026-04-05T04:24:44.232179+00:00",
+      "artifacts": {
+        "issue_number": 123,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/123"
+      }
+    },
+    {
+      "stage_id": "write_change_plan",
+      "stage_name": "Write Change Plan",
+      "completed_at": "2026-04-05T04:24:59.826998+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/123#issuecomment-4188248078",
+        "files_to_modify": [
+          "src/scieasy/blocks/base/block.py",
+          "src/scieasy/blocks/io/io_block.py",
+          "src/scieasy/blocks/process/process_block.py",
+          "src/scieasy/blocks/code/code_block.py",
+          "src/scieasy/blocks/app/app_block.py",
+          "src/scieasy/blocks/ai/ai_block.py",
+          "src/scieasy/blocks/subworkflow/subworkflow_block.py",
+          "tests/architecture/test_block_system.py"
+        ]
+      }
+    },
+    {
+      "stage_id": "create_branch",
+      "stage_name": "Create Branch & Implement",
+      "completed_at": "2026-04-05T04:31:40.651331+00:00",
+      "artifacts": {
+        "branch_name": "fix/issue-123/block-run-collection-signature",
+        "commit_shas": [
+          "cfbae09"
+        ]
+      }
+    },
+    {
+      "stage_id": "submit_pr",
+      "stage_name": "Submit PR",
+      "completed_at": "2026-04-05T04:31:59.696070+00:00",
+      "artifacts": {
+        "pr_number": 134,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/134"
+      }
+    },
+    {
+      "stage_id": "update_docs",
+      "stage_name": "Update Documentation",
+      "completed_at": "2026-04-05T04:32:03.873621+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "N/A ¡ª annotation-only change, no new API or behavior change"
+        ]
+      }
+    },
+    {
+      "stage_id": "update_changelog",
+      "stage_name": "Update Changelog",
+      "completed_at": "2026-04-05T04:33:51.946032+00:00",
+      "artifacts": {
+        "changelog_entry": "[#123] Update Block.run() signature from dict[str, Any] to dict[str, Collection] across base + all subclasses, add architecture test (@claude, 2026-04-05, branch: fix/issue-123/block-run-collection-signature, session: 20260405-002441-issue-123-block-run-signature-dict-str-a)"
+      }
+    }
+  ],
+  "history": [
+    {
+      "event": "workflow_started",
+      "timestamp": "2026-04-05T04:24:41.228772+00:00",
+      "title": "Issue #123: Block.run() signature dict[str, Any] -> dict[str, Collection]"
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_issue",
+      "timestamp": "2026-04-05T04:24:44.232179+00:00",
+      "artifacts": {
+        "issue_number": 123,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/123"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "write_change_plan",
+      "timestamp": "2026-04-05T04:24:59.826998+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/123#issuecomment-4188248078",
+        "files_to_modify": [
+          "src/scieasy/blocks/base/block.py",
+          "src/scieasy/blocks/io/io_block.py",
+          "src/scieasy/blocks/process/process_block.py",
+          "src/scieasy/blocks/code/code_block.py",
+          "src/scieasy/blocks/app/app_block.py",
+          "src/scieasy/blocks/ai/ai_block.py",
+          "src/scieasy/blocks/subworkflow/subworkflow_block.py",
+          "tests/architecture/test_block_system.py"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_branch",
+      "timestamp": "2026-04-05T04:31:40.651331+00:00",
+      "artifacts": {
+        "branch_name": "fix/issue-123/block-run-collection-signature",
+        "commit_shas": [
+          "cfbae09"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "submit_pr",
+      "timestamp": "2026-04-05T04:31:59.696070+00:00",
+      "artifacts": {
+        "pr_number": 134,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/134"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_docs",
+      "timestamp": "2026-04-05T04:32:03.873621+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "N/A ¡ª annotation-only change, no new API or behavior change"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_changelog",
+      "timestamp": "2026-04-05T04:33:51.946032+00:00",
+      "artifacts": {
+        "changelog_entry": "[#123] Update Block.run() signature from dict[str, Any] to dict[str, Collection] across base + all subclasses, add architecture test (@claude, 2026-04-05, branch: fix/issue-123/block-run-collection-signature, session: 20260405-002441-issue-123-block-run-signature-dict-str-a)"
+      }
+    },
+    {
+      "event": "workflow_completed",
+      "timestamp": "2026-04-05T04:33:51.946032+00:00"
+    }
+  ],
+  "completed_at": "2026-04-05T04:33:51.946032+00:00"
+}

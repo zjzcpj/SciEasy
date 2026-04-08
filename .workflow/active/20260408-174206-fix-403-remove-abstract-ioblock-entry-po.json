@@ -1,0 +1,141 @@
+{
+  "task_id": "20260408-174206-fix-403-remove-abstract-ioblock-entry-po",
+  "title": "fix #403: remove abstract IOBlock entry-point warning",
+  "status": "completed",
+  "created_at": "2026-04-08T21:42:06.780649+00:00",
+  "updated_at": "2026-04-08T21:45:00.007148+00:00",
+  "completed_stages": [
+    {
+      "stage_id": "create_issue",
+      "stage_name": "Create Issue",
+      "completed_at": "2026-04-08T21:42:47.261331+00:00",
+      "artifacts": {
+        "issue_number": 403,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/403"
+      }
+    },
+    {
+      "stage_id": "write_change_plan",
+      "stage_name": "Write Change Plan",
+      "completed_at": "2026-04-08T21:42:57.347146+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/403#issuecomment-4209861663",
+        "files_to_modify": [
+          "pyproject.toml",
+          "src/scieasy/blocks/registry.py",
+          "tests/blocks/test_registry.py"
+        ]
+      }
+    },
+    {
+      "stage_id": "create_branch",
+      "stage_name": "Create Branch & Implement",
+      "completed_at": "2026-04-08T21:44:20.568155+00:00",
+      "artifacts": {
+        "branch_name": "codex/fix-403-406-gating",
+        "commit_shas": [
+          "7c43c60"
+        ]
+      }
+    },
+    {
+      "stage_id": "submit_pr",
+      "stage_name": "Submit PR",
+      "completed_at": "2026-04-08T21:44:41.471260+00:00",
+      "artifacts": {
+        "pr_number": 413,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/413"
+      }
+    },
+    {
+      "stage_id": "update_docs",
+      "stage_name": "Update Documentation",
+      "completed_at": "2026-04-08T21:44:59.893716+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "N/A - packaging and registry behavior fix"
+        ]
+      }
+    },
+    {
+      "stage_id": "update_changelog",
+      "stage_name": "Update Changelog",
+      "completed_at": "2026-04-08T21:45:00.007135+00:00",
+      "artifacts": {
+        "changelog_entry": "[#403] Stop advertising abstract IOBlock as a scieasy.blocks entry-point and report abstract entry-points precisely in registry logs (@codex, 2026-04-08, branch: codex/fix-403-406-gating, session: 20260408-174206-fix-403-remove-abstract-ioblock-entry-po)"
+      }
+    }
+  ],
+  "history": [
+    {
+      "event": "workflow_started",
+      "timestamp": "2026-04-08T21:42:06.780658+00:00",
+      "title": "fix #403: remove abstract IOBlock entry-point warning"
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_issue",
+      "timestamp": "2026-04-08T21:42:47.261345+00:00",
+      "artifacts": {
+        "issue_number": 403,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/403"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "write_change_plan",
+      "timestamp": "2026-04-08T21:42:57.347161+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/403#issuecomment-4209861663",
+        "files_to_modify": [
+          "pyproject.toml",
+          "src/scieasy/blocks/registry.py",
+          "tests/blocks/test_registry.py"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_branch",
+      "timestamp": "2026-04-08T21:44:20.568167+00:00",
+      "artifacts": {
+        "branch_name": "codex/fix-403-406-gating",
+        "commit_shas": [
+          "7c43c60"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "submit_pr",
+      "timestamp": "2026-04-08T21:44:41.471276+00:00",
+      "artifacts": {
+        "pr_number": 413,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/413"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_docs",
+      "timestamp": "2026-04-08T21:44:59.893730+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "N/A - packaging and registry behavior fix"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_changelog",
+      "timestamp": "2026-04-08T21:45:00.007151+00:00",
+      "artifacts": {
+        "changelog_entry": "[#403] Stop advertising abstract IOBlock as a scieasy.blocks entry-point and report abstract entry-points precisely in registry logs (@codex, 2026-04-08, branch: codex/fix-403-406-gating, session: 20260408-174206-fix-403-remove-abstract-ioblock-entry-po)"
+      }
+    },
+    {
+      "event": "workflow_completed",
+      "timestamp": "2026-04-08T21:45:00.007156+00:00"
+    }
+  ],
+  "completed_at": "2026-04-08T21:45:00.007155+00:00"
+}

@@ -1,0 +1,149 @@
+{
+  "task_id": "20260403-191229-wave-1-tests-achieve-85-coverage-for-pha",
+  "title": "Wave 1 tests: achieve >85% coverage for Phase 0-4 core and block modules",
+  "status": "completed",
+  "created_at": "2026-04-03T23:12:29.961950+00:00",
+  "updated_at": "2026-04-03T23:19:31.747992+00:00",
+  "completed_stages": [
+    {
+      "stage_id": "create_issue",
+      "stage_name": "Create Issue",
+      "completed_at": "2026-04-03T23:12:53.172647+00:00",
+      "artifacts": {
+        "issue_number": 38,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/38"
+      }
+    },
+    {
+      "stage_id": "write_change_plan",
+      "stage_name": "Write Change Plan",
+      "completed_at": "2026-04-03T23:13:18.108223+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/38#issuecomment-4185554758",
+        "files_to_modify": [
+          "tests/core/test_hashing.py",
+          "tests/blocks/test_block_base.py",
+          "tests/blocks/test_block_config.py",
+          "tests/blocks/test_state_enums.py",
+          "tests/blocks/test_runner_registry.py",
+          "tests/blocks/test_adapters.py",
+          "tests/blocks/test_process_utils.py"
+        ]
+      }
+    },
+    {
+      "stage_id": "create_branch",
+      "stage_name": "Create Branch & Implement",
+      "completed_at": "2026-04-03T23:18:13.833690+00:00",
+      "artifacts": {
+        "branch_name": "test/issue-38/wave1-core-block-coverage",
+        "commit_shas": [
+          "c874467"
+        ]
+      }
+    },
+    {
+      "stage_id": "submit_pr",
+      "stage_name": "Submit PR",
+      "completed_at": "2026-04-03T23:18:41.414909+00:00",
+      "artifacts": {
+        "pr_number": 39,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/39"
+      }
+    },
+    {
+      "stage_id": "update_docs",
+      "stage_name": "Update Documentation",
+      "completed_at": "2026-04-03T23:18:56.505221+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "N/A ¡ª test-only changes, no docs affected"
+        ]
+      }
+    },
+    {
+      "stage_id": "update_changelog",
+      "stage_name": "Update Changelog",
+      "completed_at": "2026-04-03T23:19:31.747980+00:00",
+      "artifacts": {
+        "changelog_entry": "[#38] Wave 1 tests: 7 new test files for core and block coverage (~65% -> ~76%) (@claude, 2026-04-03, branch: test/issue-38/wave1-core-block-coverage, session: 20260403-191229-wave-1-tests-achieve-85-coverage-for-pha)"
+      }
+    }
+  ],
+  "history": [
+    {
+      "event": "workflow_started",
+      "timestamp": "2026-04-03T23:12:29.961960+00:00",
+      "title": "Wave 1 tests: achieve >85% coverage for Phase 0-4 core and block modules"
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_issue",
+      "timestamp": "2026-04-03T23:12:53.172664+00:00",
+      "artifacts": {
+        "issue_number": 38,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/38"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "write_change_plan",
+      "timestamp": "2026-04-03T23:13:18.108240+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/38#issuecomment-4185554758",
+        "files_to_modify": [
+          "tests/core/test_hashing.py",
+          "tests/blocks/test_block_base.py",
+          "tests/blocks/test_block_config.py",
+          "tests/blocks/test_state_enums.py",
+          "tests/blocks/test_runner_registry.py",
+          "tests/blocks/test_adapters.py",
+          "tests/blocks/test_process_utils.py"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_branch",
+      "timestamp": "2026-04-03T23:18:13.833704+00:00",
+      "artifacts": {
+        "branch_name": "test/issue-38/wave1-core-block-coverage",
+        "commit_shas": [
+          "c874467"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "submit_pr",
+      "timestamp": "2026-04-03T23:18:41.414925+00:00",
+      "artifacts": {
+        "pr_number": 39,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/39"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_docs",
+      "timestamp": "2026-04-03T23:18:56.505236+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "N/A ¡ª test-only changes, no docs affected"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_changelog",
+      "timestamp": "2026-04-03T23:19:31.747994+00:00",
+      "artifacts": {
+        "changelog_entry": "[#38] Wave 1 tests: 7 new test files for core and block coverage (~65% -> ~76%) (@claude, 2026-04-03, branch: test/issue-38/wave1-core-block-coverage, session: 20260403-191229-wave-1-tests-achieve-85-coverage-for-pha)"
+      }
+    },
+    {
+      "event": "workflow_completed",
+      "timestamp": "2026-04-03T23:19:31.747999+00:00"
+    }
+  ],
+  "completed_at": "2026-04-03T23:19:31.747997+00:00"
+}

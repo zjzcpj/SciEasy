@@ -1,0 +1,139 @@
+{
+  "task_id": "20260408-181444-fix-416-worker-serialise-outputs-activat",
+  "title": "fix #416: worker serialise_outputs activates auto-flush context",
+  "status": "completed",
+  "created_at": "2026-04-08T22:14:44.988505+00:00",
+  "updated_at": "2026-04-08T22:19:02.679866+00:00",
+  "completed_stages": [
+    {
+      "stage_id": "create_issue",
+      "stage_name": "Create Issue",
+      "completed_at": "2026-04-08T22:14:54.074329+00:00",
+      "artifacts": {
+        "issue_number": 416,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/416"
+      }
+    },
+    {
+      "stage_id": "write_change_plan",
+      "stage_name": "Write Change Plan",
+      "completed_at": "2026-04-08T22:14:54.133547+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/416#issuecomment-4210041782",
+        "files_to_modify": [
+          "src/scieasy/engine/runners/worker.py",
+          "tests/engine/test_worker.py"
+        ]
+      }
+    },
+    {
+      "stage_id": "create_branch",
+      "stage_name": "Create Branch & Implement",
+      "completed_at": "2026-04-08T22:17:59.545011+00:00",
+      "artifacts": {
+        "branch_name": "codex/fix-416-worker-autoflush",
+        "commit_shas": [
+          "792e329a5de6c9f9261774240912b1605802d522"
+        ]
+      }
+    },
+    {
+      "stage_id": "submit_pr",
+      "stage_name": "Submit PR",
+      "completed_at": "2026-04-08T22:19:02.562110+00:00",
+      "artifacts": {
+        "pr_number": 417,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/417"
+      }
+    },
+    {
+      "stage_id": "update_docs",
+      "stage_name": "Update Documentation",
+      "completed_at": "2026-04-08T22:19:02.621245+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "N/A - worker serialization/runtime fix, no additional docs affected"
+        ]
+      }
+    },
+    {
+      "stage_id": "update_changelog",
+      "stage_name": "Update Changelog",
+      "completed_at": "2026-04-08T22:19:02.679853+00:00",
+      "artifacts": {
+        "changelog_entry": "[#416] Activate worker auto-flush context during output serialization so in-memory imaging outputs persist to storage before crossing subprocess boundaries, preventing downstream Image.to_memory() failures in interactive blocks like Fiji."
+      }
+    }
+  ],
+  "history": [
+    {
+      "event": "workflow_started",
+      "timestamp": "2026-04-08T22:14:44.988514+00:00",
+      "title": "fix #416: worker serialise_outputs activates auto-flush context"
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_issue",
+      "timestamp": "2026-04-08T22:14:54.074351+00:00",
+      "artifacts": {
+        "issue_number": 416,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/416"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "write_change_plan",
+      "timestamp": "2026-04-08T22:14:54.133564+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/416#issuecomment-4210041782",
+        "files_to_modify": [
+          "src/scieasy/engine/runners/worker.py",
+          "tests/engine/test_worker.py"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_branch",
+      "timestamp": "2026-04-08T22:17:59.545025+00:00",
+      "artifacts": {
+        "branch_name": "codex/fix-416-worker-autoflush",
+        "commit_shas": [
+          "792e329a5de6c9f9261774240912b1605802d522"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "submit_pr",
+      "timestamp": "2026-04-08T22:19:02.562125+00:00",
+      "artifacts": {
+        "pr_number": 417,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/417"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_docs",
+      "timestamp": "2026-04-08T22:19:02.621261+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "N/A - worker serialization/runtime fix, no additional docs affected"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_changelog",
+      "timestamp": "2026-04-08T22:19:02.679868+00:00",
+      "artifacts": {
+        "changelog_entry": "[#416] Activate worker auto-flush context during output serialization so in-memory imaging outputs persist to storage before crossing subprocess boundaries, preventing downstream Image.to_memory() failures in interactive blocks like Fiji."
+      }
+    },
+    {
+      "event": "workflow_completed",
+      "timestamp": "2026-04-08T22:19:02.679873+00:00"
+    }
+  ],
+  "completed_at": "2026-04-08T22:19:02.679872+00:00"
+}

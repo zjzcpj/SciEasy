@@ -1,0 +1,141 @@
+{
+  "task_id": "20260408-005855-phase-11-srs-foundation-t-srs-001-srsima",
+  "title": "Phase 11 SRS foundation T-SRS-001 SRSImage type",
+  "status": "completed",
+  "created_at": "2026-04-08T04:58:55.192756+00:00",
+  "updated_at": "2026-04-08T05:07:33.961496+00:00",
+  "completed_stages": [
+    {
+      "stage_id": "create_issue",
+      "stage_name": "Create Issue",
+      "completed_at": "2026-04-08T05:00:11.457610+00:00",
+      "artifacts": {
+        "issue_number": 364,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/364"
+      }
+    },
+    {
+      "stage_id": "write_change_plan",
+      "stage_name": "Write Change Plan",
+      "completed_at": "2026-04-08T05:00:38.172147+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/364#issuecomment-4203946506",
+        "files_to_modify": [
+          "packages/scieasy-blocks-srs/src/scieasy_blocks_srs/types.py",
+          "packages/scieasy-blocks-srs/tests/test_types.py",
+          "tests/plugins/test_phase11_skeleton.py",
+          "docs/specs/phase11-srs-block-spec.md",
+          "CHANGELOG.md"
+        ]
+      }
+    },
+    {
+      "stage_id": "create_branch",
+      "stage_name": "Create Branch & Implement",
+      "completed_at": "2026-04-08T05:05:56.545078+00:00",
+      "artifacts": {
+        "branch_name": "feat/issue-364/T-SRS-001-srsimage-type",
+        "commit_shas": [
+          "990f994"
+        ]
+      }
+    },
+    {
+      "stage_id": "submit_pr",
+      "stage_name": "Submit PR",
+      "completed_at": "2026-04-08T05:06:29.728189+00:00",
+      "artifacts": {
+        "pr_number": 367,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/367"
+      }
+    },
+    {
+      "stage_id": "update_docs",
+      "stage_name": "Update Documentation",
+      "completed_at": "2026-04-08T05:06:41.999514+00:00",
+      "artifacts": {
+        "docs_updated": []
+      }
+    },
+    {
+      "stage_id": "update_changelog",
+      "stage_name": "Update Changelog",
+      "completed_at": "2026-04-08T05:07:33.961482+00:00",
+      "artifacts": {
+        "changelog_entry": "[#364] Sprint D SRS foundation chunk impl - replaces the T-SRS-001 SRSImage skeleton with a concrete Image subclass that requires lambda/y/x, adds a frozen SRSImage.Meta model with the nine locked SRS metadata fields, validates wavenumbers_cm1 length against the lambda axis when shape is known, re-exports SRSImage from the package root, and enables get_types() to return [SRSImage]. The skipped SRS type stubs are replaced with concrete constructor / metadata / registry tests, and tests/plugins/test_phase11_skeleton.py gains test_srs_types_impl_smoke() so the workflow gate sees a top-level SRS implementation signal. (@claude, 2026-04-08, branch: feat/issue-364/T-SRS-001-srsimage-type, session: 20260408-005855-phase-11-srs-foundation-t-srs-001-srsima)"
+      }
+    }
+  ],
+  "history": [
+    {
+      "event": "workflow_started",
+      "timestamp": "2026-04-08T04:58:55.192766+00:00",
+      "title": "Phase 11 SRS foundation T-SRS-001 SRSImage type"
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_issue",
+      "timestamp": "2026-04-08T05:00:11.457625+00:00",
+      "artifacts": {
+        "issue_number": 364,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/364"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "write_change_plan",
+      "timestamp": "2026-04-08T05:00:38.172164+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/364#issuecomment-4203946506",
+        "files_to_modify": [
+          "packages/scieasy-blocks-srs/src/scieasy_blocks_srs/types.py",
+          "packages/scieasy-blocks-srs/tests/test_types.py",
+          "tests/plugins/test_phase11_skeleton.py",
+          "docs/specs/phase11-srs-block-spec.md",
+          "CHANGELOG.md"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_branch",
+      "timestamp": "2026-04-08T05:05:56.545094+00:00",
+      "artifacts": {
+        "branch_name": "feat/issue-364/T-SRS-001-srsimage-type",
+        "commit_shas": [
+          "990f994"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "submit_pr",
+      "timestamp": "2026-04-08T05:06:29.728207+00:00",
+      "artifacts": {
+        "pr_number": 367,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/367"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_docs",
+      "timestamp": "2026-04-08T05:06:41.999529+00:00",
+      "artifacts": {
+        "docs_updated": []
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_changelog",
+      "timestamp": "2026-04-08T05:07:33.961498+00:00",
+      "artifacts": {
+        "changelog_entry": "[#364] Sprint D SRS foundation chunk impl - replaces the T-SRS-001 SRSImage skeleton with a concrete Image subclass that requires lambda/y/x, adds a frozen SRSImage.Meta model with the nine locked SRS metadata fields, validates wavenumbers_cm1 length against the lambda axis when shape is known, re-exports SRSImage from the package root, and enables get_types() to return [SRSImage]. The skipped SRS type stubs are replaced with concrete constructor / metadata / registry tests, and tests/plugins/test_phase11_skeleton.py gains test_srs_types_impl_smoke() so the workflow gate sees a top-level SRS implementation signal. (@claude, 2026-04-08, branch: feat/issue-364/T-SRS-001-srsimage-type, session: 20260408-005855-phase-11-srs-foundation-t-srs-001-srsima)"
+      }
+    },
+    {
+      "event": "workflow_completed",
+      "timestamp": "2026-04-08T05:07:33.961503+00:00"
+    }
+  ],
+  "completed_at": "2026-04-08T05:07:33.961502+00:00"
+}

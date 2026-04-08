@@ -1,0 +1,147 @@
+{
+  "task_id": "20260404-041611-phase-5-6-collection-operation-blocks-ad",
+  "title": "Phase 5.6: Collection operation blocks (ADR-021)",
+  "status": "completed",
+  "created_at": "2026-04-04T08:16:11.871399+00:00",
+  "updated_at": "2026-04-04T08:33:26.961543+00:00",
+  "completed_stages": [
+    {
+      "stage_id": "create_issue",
+      "stage_name": "Create Issue",
+      "completed_at": "2026-04-04T08:16:27.189588+00:00",
+      "artifacts": {
+        "issue_number": 88,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/88"
+      }
+    },
+    {
+      "stage_id": "write_change_plan",
+      "stage_name": "Write Change Plan",
+      "completed_at": "2026-04-04T08:16:42.354339+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/88#issuecomment-4186744855",
+        "files_to_modify": [
+          "src/scieasy/blocks/process/builtins/merge_collection.py",
+          "src/scieasy/blocks/process/builtins/split_collection.py",
+          "src/scieasy/blocks/process/builtins/filter_collection.py",
+          "src/scieasy/blocks/process/builtins/slice_collection.py",
+          "tests/blocks/test_collection_blocks.py",
+          "CHANGELOG.md"
+        ]
+      }
+    },
+    {
+      "stage_id": "create_branch",
+      "stage_name": "Create Branch & Implement",
+      "completed_at": "2026-04-04T08:30:54.580306+00:00",
+      "artifacts": {
+        "branch_name": "feat/issue-88/collection-operation-blocks",
+        "commit_shas": [
+          "afc519c"
+        ]
+      }
+    },
+    {
+      "stage_id": "submit_pr",
+      "stage_name": "Submit PR",
+      "completed_at": "2026-04-04T08:31:45.382007+00:00",
+      "artifacts": {
+        "pr_number": 94,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/94"
+      }
+    },
+    {
+      "stage_id": "update_docs",
+      "stage_name": "Update Documentation",
+      "completed_at": "2026-04-04T08:32:29.887060+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "N/A -- no new public API; blocks implement existing ADR-021 scaffold"
+        ]
+      }
+    },
+    {
+      "stage_id": "update_changelog",
+      "stage_name": "Update Changelog",
+      "completed_at": "2026-04-04T08:33:26.961531+00:00",
+      "artifacts": {
+        "changelog_entry": "[#88] Phase 5.6: Collection operation blocks -- MergeCollection, SplitCollection, FilterCollection, SliceCollection (ADR-021) (@claude, 2026-04-04, branch: feat/issue-88/collection-operation-blocks, session: 20260404-041611-phase-5-6-collection-operation-blocks-ad)"
+      }
+    }
+  ],
+  "history": [
+    {
+      "event": "workflow_started",
+      "timestamp": "2026-04-04T08:16:11.871408+00:00",
+      "title": "Phase 5.6: Collection operation blocks (ADR-021)"
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_issue",
+      "timestamp": "2026-04-04T08:16:27.189603+00:00",
+      "artifacts": {
+        "issue_number": 88,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/88"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "write_change_plan",
+      "timestamp": "2026-04-04T08:16:42.354354+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/88#issuecomment-4186744855",
+        "files_to_modify": [
+          "src/scieasy/blocks/process/builtins/merge_collection.py",
+          "src/scieasy/blocks/process/builtins/split_collection.py",
+          "src/scieasy/blocks/process/builtins/filter_collection.py",
+          "src/scieasy/blocks/process/builtins/slice_collection.py",
+          "tests/blocks/test_collection_blocks.py",
+          "CHANGELOG.md"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_branch",
+      "timestamp": "2026-04-04T08:30:54.580319+00:00",
+      "artifacts": {
+        "branch_name": "feat/issue-88/collection-operation-blocks",
+        "commit_shas": [
+          "afc519c"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "submit_pr",
+      "timestamp": "2026-04-04T08:31:45.382022+00:00",
+      "artifacts": {
+        "pr_number": 94,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/94"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_docs",
+      "timestamp": "2026-04-04T08:32:29.887076+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "N/A -- no new public API; blocks implement existing ADR-021 scaffold"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_changelog",
+      "timestamp": "2026-04-04T08:33:26.961545+00:00",
+      "artifacts": {
+        "changelog_entry": "[#88] Phase 5.6: Collection operation blocks -- MergeCollection, SplitCollection, FilterCollection, SliceCollection (ADR-021) (@claude, 2026-04-04, branch: feat/issue-88/collection-operation-blocks, session: 20260404-041611-phase-5-6-collection-operation-blocks-ad)"
+      }
+    },
+    {
+      "event": "workflow_completed",
+      "timestamp": "2026-04-04T08:33:26.961550+00:00"
+    }
+  ],
+  "completed_at": "2026-04-04T08:33:26.961549+00:00"
+}

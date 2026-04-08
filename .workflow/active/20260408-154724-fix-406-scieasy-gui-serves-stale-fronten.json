@@ -1,0 +1,139 @@
+{
+  "task_id": "20260408-154724-fix-406-scieasy-gui-serves-stale-fronten",
+  "title": "fix #406: scieasy gui serves stale frontend dist",
+  "status": "completed",
+  "created_at": "2026-04-08T19:47:24.078905+00:00",
+  "updated_at": "2026-04-08T21:45:00.073929+00:00",
+  "completed_stages": [
+    {
+      "stage_id": "create_issue",
+      "stage_name": "Create Issue",
+      "completed_at": "2026-04-08T19:48:07.947629+00:00",
+      "artifacts": {
+        "issue_number": 406,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/406"
+      }
+    },
+    {
+      "stage_id": "write_change_plan",
+      "stage_name": "Write Change Plan",
+      "completed_at": "2026-04-08T19:50:57.189595+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/406#issuecomment-4209171910",
+        "files_to_modify": [
+          ".github/workflows/ci.yml",
+          "src/scieasy/api/app.py"
+        ]
+      }
+    },
+    {
+      "stage_id": "create_branch",
+      "stage_name": "Create Branch & Implement",
+      "completed_at": "2026-04-08T21:44:20.618859+00:00",
+      "artifacts": {
+        "branch_name": "codex/fix-403-406-gating",
+        "commit_shas": [
+          "7c43c60"
+        ]
+      }
+    },
+    {
+      "stage_id": "submit_pr",
+      "stage_name": "Submit PR",
+      "completed_at": "2026-04-08T21:44:41.528069+00:00",
+      "artifacts": {
+        "pr_number": 413,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/413"
+      }
+    },
+    {
+      "stage_id": "update_docs",
+      "stage_name": "Update Documentation",
+      "completed_at": "2026-04-08T21:44:59.946335+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "N/A - packaging and CI guard fix"
+        ]
+      }
+    },
+    {
+      "stage_id": "update_changelog",
+      "stage_name": "Update Changelog",
+      "completed_at": "2026-04-08T21:45:00.073901+00:00",
+      "artifacts": {
+        "changelog_entry": "[#406] Warn on stale editable-install frontend/dist bundles and fail CI when frontend/src is newer than the served SPA artifact (@codex, 2026-04-08, branch: codex/fix-403-406-gating, session: 20260408-154724-fix-406-scieasy-gui-serves-stale-fronten)"
+      }
+    }
+  ],
+  "history": [
+    {
+      "event": "workflow_started",
+      "timestamp": "2026-04-08T19:47:24.078915+00:00",
+      "title": "fix #406: scieasy gui serves stale frontend dist"
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_issue",
+      "timestamp": "2026-04-08T19:48:07.947645+00:00",
+      "artifacts": {
+        "issue_number": 406,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/406"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "write_change_plan",
+      "timestamp": "2026-04-08T19:50:57.189612+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/406#issuecomment-4209171910",
+        "files_to_modify": [
+          ".github/workflows/ci.yml",
+          "src/scieasy/api/app.py"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_branch",
+      "timestamp": "2026-04-08T21:44:20.618875+00:00",
+      "artifacts": {
+        "branch_name": "codex/fix-403-406-gating",
+        "commit_shas": [
+          "7c43c60"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "submit_pr",
+      "timestamp": "2026-04-08T21:44:41.528085+00:00",
+      "artifacts": {
+        "pr_number": 413,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/413"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_docs",
+      "timestamp": "2026-04-08T21:44:59.946351+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "N/A - packaging and CI guard fix"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_changelog",
+      "timestamp": "2026-04-08T21:45:00.073932+00:00",
+      "artifacts": {
+        "changelog_entry": "[#406] Warn on stale editable-install frontend/dist bundles and fail CI when frontend/src is newer than the served SPA artifact (@codex, 2026-04-08, branch: codex/fix-403-406-gating, session: 20260408-154724-fix-406-scieasy-gui-serves-stale-fronten)"
+      }
+    },
+    {
+      "event": "workflow_completed",
+      "timestamp": "2026-04-08T21:45:00.073942+00:00"
+    }
+  ],
+  "completed_at": "2026-04-08T21:45:00.073940+00:00"
+}

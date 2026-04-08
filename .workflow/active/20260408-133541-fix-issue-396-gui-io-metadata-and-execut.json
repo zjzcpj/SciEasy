@@ -1,0 +1,171 @@
+{
+  "task_id": "20260408-133541-fix-issue-396-gui-io-metadata-and-execut",
+  "title": "Fix issue #396 GUI IO metadata and execution regressions",
+  "status": "completed",
+  "created_at": "2026-04-08T17:35:41.169221+00:00",
+  "updated_at": "2026-04-08T17:39:18.458210+00:00",
+  "completed_stages": [
+    {
+      "stage_id": "create_issue",
+      "stage_name": "Create Issue",
+      "completed_at": "2026-04-08T17:36:49.983325+00:00",
+      "artifacts": {
+        "issue_number": 396,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/396"
+      }
+    },
+    {
+      "stage_id": "write_change_plan",
+      "stage_name": "Write Change Plan",
+      "completed_at": "2026-04-08T17:37:03.447962+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/396#issuecomment-4208203904",
+        "files_to_modify": [
+          "frontend/src/App.tsx",
+          "frontend/src/components/BlockPalette.tsx",
+          "frontend/src/components/BottomPanel.tsx",
+          "frontend/src/components/BottomPanel.test.tsx",
+          "frontend/src/types/api.ts",
+          "src/scieasy/api/routes/blocks.py",
+          "src/scieasy/api/runtime.py",
+          "src/scieasy/api/schemas.py",
+          "src/scieasy/blocks/base/ports.py",
+          "src/scieasy/blocks/registry.py",
+          "src/scieasy/core/types/registry.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/io/load_image.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/io/save_image.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/preprocess/axis_ops.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/segmentation/cellpose_segment.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/interactive/fiji_block.py",
+          "tests/api/test_blocks.py",
+          "CHANGELOG.md"
+        ]
+      }
+    },
+    {
+      "stage_id": "create_branch",
+      "stage_name": "Create Branch & Implement",
+      "completed_at": "2026-04-08T17:38:11.499378+00:00",
+      "artifacts": {
+        "branch_name": "fix/issue-396/gui-io-metadata",
+        "commit_shas": [
+          "ae1cee0"
+        ]
+      }
+    },
+    {
+      "stage_id": "submit_pr",
+      "stage_name": "Submit PR",
+      "completed_at": "2026-04-08T17:38:40.518326+00:00",
+      "artifacts": {
+        "pr_number": 397,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/397"
+      }
+    },
+    {
+      "stage_id": "update_docs",
+      "stage_name": "Update Documentation",
+      "completed_at": "2026-04-08T17:39:04.148991+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "N/A - no docs affected"
+        ]
+      }
+    },
+    {
+      "stage_id": "update_changelog",
+      "stage_name": "Update Changelog",
+      "completed_at": "2026-04-08T17:39:18.458198+00:00",
+      "artifacts": {
+        "changelog_entry": "[#396] Restore plugin IO execution/schema fidelity by surfacing block-run failures in the GUI, exposing `direction` and `is_collection` in block schemas, aligning imaging collection ports to item-type metadata, and adding monorepo plugin block/type discovery so local source checkouts still render correct colors and Browse actions (@Codex, 2026-04-08, branch: fix/issue-396/gui-io-metadata, session: 20260408-133541-fix-issue-396-gui-io-metadata-and-execut)"
+      }
+    }
+  ],
+  "history": [
+    {
+      "event": "workflow_started",
+      "timestamp": "2026-04-08T17:35:41.169232+00:00",
+      "title": "Fix issue #396 GUI IO metadata and execution regressions"
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_issue",
+      "timestamp": "2026-04-08T17:36:49.983340+00:00",
+      "artifacts": {
+        "issue_number": 396,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/396"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "write_change_plan",
+      "timestamp": "2026-04-08T17:37:03.447979+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/396#issuecomment-4208203904",
+        "files_to_modify": [
+          "frontend/src/App.tsx",
+          "frontend/src/components/BlockPalette.tsx",
+          "frontend/src/components/BottomPanel.tsx",
+          "frontend/src/components/BottomPanel.test.tsx",
+          "frontend/src/types/api.ts",
+          "src/scieasy/api/routes/blocks.py",
+          "src/scieasy/api/runtime.py",
+          "src/scieasy/api/schemas.py",
+          "src/scieasy/blocks/base/ports.py",
+          "src/scieasy/blocks/registry.py",
+          "src/scieasy/core/types/registry.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/io/load_image.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/io/save_image.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/preprocess/axis_ops.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/segmentation/cellpose_segment.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/interactive/fiji_block.py",
+          "tests/api/test_blocks.py",
+          "CHANGELOG.md"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_branch",
+      "timestamp": "2026-04-08T17:38:11.499394+00:00",
+      "artifacts": {
+        "branch_name": "fix/issue-396/gui-io-metadata",
+        "commit_shas": [
+          "ae1cee0"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "submit_pr",
+      "timestamp": "2026-04-08T17:38:40.518414+00:00",
+      "artifacts": {
+        "pr_number": 397,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/397"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_docs",
+      "timestamp": "2026-04-08T17:39:04.149010+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "N/A - no docs affected"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_changelog",
+      "timestamp": "2026-04-08T17:39:18.458212+00:00",
+      "artifacts": {
+        "changelog_entry": "[#396] Restore plugin IO execution/schema fidelity by surfacing block-run failures in the GUI, exposing `direction` and `is_collection` in block schemas, aligning imaging collection ports to item-type metadata, and adding monorepo plugin block/type discovery so local source checkouts still render correct colors and Browse actions (@Codex, 2026-04-08, branch: fix/issue-396/gui-io-metadata, session: 20260408-133541-fix-issue-396-gui-io-metadata-and-execut)"
+      }
+    },
+    {
+      "event": "workflow_completed",
+      "timestamp": "2026-04-08T17:39:18.458218+00:00"
+    }
+  ],
+  "completed_at": "2026-04-08T17:39:18.458217+00:00"
+}

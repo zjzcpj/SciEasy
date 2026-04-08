@@ -1,0 +1,195 @@
+{
+  "task_id": "20260408-080833-sprint-c-imaging-finish-t-img-008-038",
+  "title": "Sprint C imaging finish T-IMG-008..038",
+  "status": "completed",
+  "created_at": "2026-04-08T12:08:33.906463+00:00",
+  "updated_at": "2026-04-08T13:11:31.320705+00:00",
+  "completed_stages": [
+    {
+      "stage_id": "create_issue",
+      "stage_name": "Create Issue",
+      "completed_at": "2026-04-08T12:11:08.112979+00:00",
+      "artifacts": {
+        "issue_number": 386,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/386"
+      }
+    },
+    {
+      "stage_id": "write_change_plan",
+      "stage_name": "Write Change Plan",
+      "completed_at": "2026-04-08T12:12:22.961847+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/386#issuecomment-4206132304",
+        "files_to_modify": [
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/registration/__init__.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/registration/compute_registration.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/registration/apply_transform.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/registration/register_series.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/projection/__init__.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/projection/projection.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/math/__init__.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/math/scalar_ops.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/math/image_calculator.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/visualization/__init__.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/visualization/render.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/interactive/__init__.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/interactive/fiji_block.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/interactive/napari_block.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/interactive/cell_profiler_block.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/interactive/qupath_block.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/__init__.py",
+          "packages/scieasy-blocks-imaging/pyproject.toml",
+          "packages/scieasy-blocks-imaging/README.md",
+          "packages/scieasy-blocks-imaging/tests/test_continuation_b_skeletons.py",
+          "packages/scieasy-blocks-imaging/tests/test_registration.py",
+          "packages/scieasy-blocks-imaging/tests/test_projection.py",
+          "packages/scieasy-blocks-imaging/tests/test_scalar_ops.py",
+          "packages/scieasy-blocks-imaging/tests/test_image_calculator.py",
+          "packages/scieasy-blocks-imaging/tests/test_render.py",
+          "packages/scieasy-blocks-imaging/tests/test_interactive_blocks.py",
+          "packages/scieasy-blocks-imaging/tests/test_packaging.py",
+          "tests/plugins/test_phase11_skeleton.py",
+          "docs/specs/phase11-imaging-block-spec.md",
+          "CHANGELOG.md"
+        ]
+      }
+    },
+    {
+      "stage_id": "create_branch",
+      "stage_name": "Create Branch & Implement",
+      "completed_at": "2026-04-08T12:22:44.571498+00:00",
+      "artifacts": {
+        "branch_name": "feat/sprint-c/imaging-finish",
+        "commit_shas": [
+          "147ec86"
+        ]
+      }
+    },
+    {
+      "stage_id": "submit_pr",
+      "stage_name": "Submit PR",
+      "completed_at": "2026-04-08T12:23:48.362341+00:00",
+      "artifacts": {
+        "pr_number": 388,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/388"
+      }
+    },
+    {
+      "stage_id": "update_docs",
+      "stage_name": "Update Documentation",
+      "completed_at": "2026-04-08T13:10:52.920368+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "docs/specs/phase11-imaging-block-spec.md"
+        ]
+      }
+    },
+    {
+      "stage_id": "update_changelog",
+      "stage_name": "Update Changelog",
+      "completed_at": "2026-04-08T13:11:31.320680+00:00",
+      "artifacts": {
+        "changelog_entry": "[#386] Implement remaining imaging blocks: preprocess B + registration + projection + math + visualization + interactive AppBlocks + packaging (T-IMG-008..038) (@codex, 2026-04-08, branch: feat/sprint-c/imaging-finish, session: 20260408-080833-sprint-c-imaging-finish-t-img-008-038)"
+      }
+    }
+  ],
+  "history": [
+    {
+      "event": "workflow_started",
+      "timestamp": "2026-04-08T12:08:33.906473+00:00",
+      "title": "Sprint C imaging finish T-IMG-008..038"
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_issue",
+      "timestamp": "2026-04-08T12:11:08.112995+00:00",
+      "artifacts": {
+        "issue_number": 386,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/386"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "write_change_plan",
+      "timestamp": "2026-04-08T12:12:22.961862+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/386#issuecomment-4206132304",
+        "files_to_modify": [
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/registration/__init__.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/registration/compute_registration.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/registration/apply_transform.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/registration/register_series.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/projection/__init__.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/projection/projection.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/math/__init__.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/math/scalar_ops.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/math/image_calculator.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/visualization/__init__.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/visualization/render.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/interactive/__init__.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/interactive/fiji_block.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/interactive/napari_block.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/interactive/cell_profiler_block.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/interactive/qupath_block.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/__init__.py",
+          "packages/scieasy-blocks-imaging/pyproject.toml",
+          "packages/scieasy-blocks-imaging/README.md",
+          "packages/scieasy-blocks-imaging/tests/test_continuation_b_skeletons.py",
+          "packages/scieasy-blocks-imaging/tests/test_registration.py",
+          "packages/scieasy-blocks-imaging/tests/test_projection.py",
+          "packages/scieasy-blocks-imaging/tests/test_scalar_ops.py",
+          "packages/scieasy-blocks-imaging/tests/test_image_calculator.py",
+          "packages/scieasy-blocks-imaging/tests/test_render.py",
+          "packages/scieasy-blocks-imaging/tests/test_interactive_blocks.py",
+          "packages/scieasy-blocks-imaging/tests/test_packaging.py",
+          "tests/plugins/test_phase11_skeleton.py",
+          "docs/specs/phase11-imaging-block-spec.md",
+          "CHANGELOG.md"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_branch",
+      "timestamp": "2026-04-08T12:22:44.571532+00:00",
+      "artifacts": {
+        "branch_name": "feat/sprint-c/imaging-finish",
+        "commit_shas": [
+          "147ec86"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "submit_pr",
+      "timestamp": "2026-04-08T12:23:48.362356+00:00",
+      "artifacts": {
+        "pr_number": 388,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/388"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_docs",
+      "timestamp": "2026-04-08T13:10:52.920383+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "docs/specs/phase11-imaging-block-spec.md"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_changelog",
+      "timestamp": "2026-04-08T13:11:31.320709+00:00",
+      "artifacts": {
+        "changelog_entry": "[#386] Implement remaining imaging blocks: preprocess B + registration + projection + math + visualization + interactive AppBlocks + packaging (T-IMG-008..038) (@codex, 2026-04-08, branch: feat/sprint-c/imaging-finish, session: 20260408-080833-sprint-c-imaging-finish-t-img-008-038)"
+      }
+    },
+    {
+      "event": "workflow_completed",
+      "timestamp": "2026-04-08T13:11:31.320721+00:00"
+    }
+  ],
+  "completed_at": "2026-04-08T13:11:31.320718+00:00"
+}

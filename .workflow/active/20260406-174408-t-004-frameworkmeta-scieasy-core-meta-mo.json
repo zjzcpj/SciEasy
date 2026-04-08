@@ -1,0 +1,147 @@
+{
+  "task_id": "20260406-174408-t-004-frameworkmeta-scieasy-core-meta-mo",
+  "title": "T-004 FrameworkMeta + scieasy.core.meta module per ADR-027 D5",
+  "status": "completed",
+  "created_at": "2026-04-06T21:44:08.296232+00:00",
+  "updated_at": "2026-04-06T21:53:47.384501+00:00",
+  "completed_stages": [
+    {
+      "stage_id": "create_issue",
+      "stage_name": "Create Issue",
+      "completed_at": "2026-04-06T21:45:05.751505+00:00",
+      "artifacts": {
+        "issue_number": 269,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/269"
+      }
+    },
+    {
+      "stage_id": "write_change_plan",
+      "stage_name": "Write Change Plan",
+      "completed_at": "2026-04-06T21:45:58.217694+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/269#issuecomment-4195187038",
+        "files_to_modify": [
+          "src/scieasy/core/meta/framework.py",
+          "src/scieasy/core/meta/__init__.py",
+          "src/scieasy/core/meta/channel.py",
+          "src/scieasy/core/meta/_with_meta.py",
+          "tests/core/test_framework_meta.py",
+          "tests/core/test_phase10_skeleton.py",
+          "CHANGELOG.md"
+        ]
+      }
+    },
+    {
+      "stage_id": "create_branch",
+      "stage_name": "Create Branch & Implement",
+      "completed_at": "2026-04-06T21:52:18.051204+00:00",
+      "artifacts": {
+        "branch_name": "feat/issue-269/T-004-framework-meta",
+        "commit_shas": [
+          "60b4685"
+        ]
+      }
+    },
+    {
+      "stage_id": "submit_pr",
+      "stage_name": "Submit PR",
+      "completed_at": "2026-04-06T21:53:10.510466+00:00",
+      "artifacts": {
+        "pr_number": 270,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/270"
+      }
+    },
+    {
+      "stage_id": "update_docs",
+      "stage_name": "Update Documentation",
+      "completed_at": "2026-04-06T21:53:23.665927+00:00",
+      "artifacts": {
+        "docs_updated": [],
+        "rationale": "N/A ¡ª T-004 implements API per pre-existing ADR-027 D5 and docs/specs/phase10-implementation-standards.md. The skeleton modules already had docstrings; this PR replaces placeholder bodies with real ones and updates the affected docstrings inline. No spec/ADR/architecture docs need updating."
+      }
+    },
+    {
+      "stage_id": "update_changelog",
+      "stage_name": "Update Changelog",
+      "completed_at": "2026-04-06T21:53:47.384492+00:00",
+      "artifacts": {
+        "changelog_entry": "[#269] T-004: FrameworkMeta + scieasy.core.meta module per ADR-027 D5 (@claude, 2026-04-06, branch: feat/issue-269/T-004-framework-meta, session: 20260406-174408-t-004-frameworkmeta-scieasy-core-meta-mo)"
+      }
+    }
+  ],
+  "history": [
+    {
+      "event": "workflow_started",
+      "timestamp": "2026-04-06T21:44:08.296240+00:00",
+      "title": "T-004 FrameworkMeta + scieasy.core.meta module per ADR-027 D5"
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_issue",
+      "timestamp": "2026-04-06T21:45:05.751516+00:00",
+      "artifacts": {
+        "issue_number": 269,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/269"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "write_change_plan",
+      "timestamp": "2026-04-06T21:45:58.217706+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/269#issuecomment-4195187038",
+        "files_to_modify": [
+          "src/scieasy/core/meta/framework.py",
+          "src/scieasy/core/meta/__init__.py",
+          "src/scieasy/core/meta/channel.py",
+          "src/scieasy/core/meta/_with_meta.py",
+          "tests/core/test_framework_meta.py",
+          "tests/core/test_phase10_skeleton.py",
+          "CHANGELOG.md"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_branch",
+      "timestamp": "2026-04-06T21:52:18.051216+00:00",
+      "artifacts": {
+        "branch_name": "feat/issue-269/T-004-framework-meta",
+        "commit_shas": [
+          "60b4685"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "submit_pr",
+      "timestamp": "2026-04-06T21:53:10.510479+00:00",
+      "artifacts": {
+        "pr_number": 270,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/270"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_docs",
+      "timestamp": "2026-04-06T21:53:23.665937+00:00",
+      "artifacts": {
+        "docs_updated": [],
+        "rationale": "N/A ¡ª T-004 implements API per pre-existing ADR-027 D5 and docs/specs/phase10-implementation-standards.md. The skeleton modules already had docstrings; this PR replaces placeholder bodies with real ones and updates the affected docstrings inline. No spec/ADR/architecture docs need updating."
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_changelog",
+      "timestamp": "2026-04-06T21:53:47.384503+00:00",
+      "artifacts": {
+        "changelog_entry": "[#269] T-004: FrameworkMeta + scieasy.core.meta module per ADR-027 D5 (@claude, 2026-04-06, branch: feat/issue-269/T-004-framework-meta, session: 20260406-174408-t-004-frameworkmeta-scieasy-core-meta-mo)"
+      }
+    },
+    {
+      "event": "workflow_completed",
+      "timestamp": "2026-04-06T21:53:47.384509+00:00"
+    }
+  ],
+  "completed_at": "2026-04-06T21:53:47.384507+00:00"
+}

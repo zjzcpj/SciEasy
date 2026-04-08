@@ -1,0 +1,143 @@
+{
+  "task_id": "20260405-204954-fix-project-dialog-ux-remove-useless-fie",
+  "title": "Fix project dialog UX ！ remove useless fields, add Browse button (#194)",
+  "status": "completed",
+  "created_at": "2026-04-06T00:49:54.386573+00:00",
+  "updated_at": "2026-04-06T00:59:23.242371+00:00",
+  "completed_stages": [
+    {
+      "stage_id": "create_issue",
+      "stage_name": "Create Issue",
+      "completed_at": "2026-04-06T00:50:48.895803+00:00",
+      "artifacts": {
+        "issue_number": 194,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/194"
+      }
+    },
+    {
+      "stage_id": "write_change_plan",
+      "stage_name": "Write Change Plan",
+      "completed_at": "2026-04-06T00:51:13.314295+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/194#issuecomment-4189851359",
+        "files_to_modify": [
+          "frontend/src/components/ProjectDialog.tsx",
+          "frontend/src/lib/api.ts",
+          "src/scieasy/api/routes/projects.py"
+        ]
+      }
+    },
+    {
+      "stage_id": "create_branch",
+      "stage_name": "Create Branch & Implement",
+      "completed_at": "2026-04-06T00:59:23.028884+00:00",
+      "artifacts": {
+        "branch_name": "fix/issue-194/project-dialog-browse",
+        "commit_shas": [
+          "e8ed803",
+          "1e8c1e0"
+        ]
+      }
+    },
+    {
+      "stage_id": "submit_pr",
+      "stage_name": "Submit PR",
+      "completed_at": "2026-04-06T00:59:23.099469+00:00",
+      "artifacts": {
+        "pr_number": 196,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/196"
+      }
+    },
+    {
+      "stage_id": "update_docs",
+      "stage_name": "Update Documentation",
+      "completed_at": "2026-04-06T00:59:23.168792+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "N/A ！ UX bug fix, no docs affected"
+        ]
+      }
+    },
+    {
+      "stage_id": "update_changelog",
+      "stage_name": "Update Changelog",
+      "completed_at": "2026-04-06T00:59:23.242371+00:00",
+      "artifacts": {
+        "changelog_entry": "[#194] Improve project dialog UX ！ remove useless Optional note field, add Browse button (@claude, 2026-04-05, branch: fix/issue-194/project-dialog-browse)"
+      }
+    }
+  ],
+  "history": [
+    {
+      "event": "workflow_started",
+      "timestamp": "2026-04-06T00:49:54.386573+00:00",
+      "title": "Fix project dialog UX ！ remove useless fields, add Browse button (#194)"
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_issue",
+      "timestamp": "2026-04-06T00:50:48.895803+00:00",
+      "artifacts": {
+        "issue_number": 194,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/194"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "write_change_plan",
+      "timestamp": "2026-04-06T00:51:13.314295+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/194#issuecomment-4189851359",
+        "files_to_modify": [
+          "frontend/src/components/ProjectDialog.tsx",
+          "frontend/src/lib/api.ts",
+          "src/scieasy/api/routes/projects.py"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_branch",
+      "timestamp": "2026-04-06T00:59:23.028884+00:00",
+      "artifacts": {
+        "branch_name": "fix/issue-194/project-dialog-browse",
+        "commit_shas": [
+          "e8ed803",
+          "1e8c1e0"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "submit_pr",
+      "timestamp": "2026-04-06T00:59:23.099469+00:00",
+      "artifacts": {
+        "pr_number": 196,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/196"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_docs",
+      "timestamp": "2026-04-06T00:59:23.168792+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "N/A ！ UX bug fix, no docs affected"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_changelog",
+      "timestamp": "2026-04-06T00:59:23.242371+00:00",
+      "artifacts": {
+        "changelog_entry": "[#194] Improve project dialog UX ！ remove useless Optional note field, add Browse button (@claude, 2026-04-05, branch: fix/issue-194/project-dialog-browse)"
+      }
+    },
+    {
+      "event": "workflow_completed",
+      "timestamp": "2026-04-06T00:59:23.242371+00:00"
+    }
+  ],
+  "completed_at": "2026-04-06T00:59:23.242371+00:00"
+}

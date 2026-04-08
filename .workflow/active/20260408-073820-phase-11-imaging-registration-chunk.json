@@ -1,0 +1,72 @@
+{
+  "task_id": "20260408-073820-phase-11-imaging-registration-chunk",
+  "title": "Phase 11 imaging registration chunk",
+  "status": "active",
+  "created_at": "2026-04-08T11:38:20.549469+00:00",
+  "updated_at": "2026-04-08T11:41:10.348212+00:00",
+  "completed_stages": [
+    {
+      "stage_id": "create_issue",
+      "stage_name": "Create Issue",
+      "completed_at": "2026-04-08T11:38:46.207966+00:00",
+      "artifacts": {
+        "issue_number": 381,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/381"
+      }
+    },
+    {
+      "stage_id": "write_change_plan",
+      "stage_name": "Write Change Plan",
+      "completed_at": "2026-04-08T11:41:10.348198+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "PENDING",
+        "files_to_modify": [
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/registration/compute_registration.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/registration/apply_transform.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/registration/register_series.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/registration/__init__.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/__init__.py",
+          "packages/scieasy-blocks-imaging/tests/test_continuation_b_skeletons.py",
+          "tests/plugins/test_phase11_skeleton.py",
+          "docs/specs/phase11-imaging-block-spec.md",
+          "CHANGELOG.md"
+        ]
+      }
+    }
+  ],
+  "history": [
+    {
+      "event": "workflow_started",
+      "timestamp": "2026-04-08T11:38:20.549479+00:00",
+      "title": "Phase 11 imaging registration chunk"
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_issue",
+      "timestamp": "2026-04-08T11:38:46.207983+00:00",
+      "artifacts": {
+        "issue_number": 381,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/381"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "write_change_plan",
+      "timestamp": "2026-04-08T11:41:10.348214+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "PENDING",
+        "files_to_modify": [
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/registration/compute_registration.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/registration/apply_transform.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/registration/register_series.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/registration/__init__.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/__init__.py",
+          "packages/scieasy-blocks-imaging/tests/test_continuation_b_skeletons.py",
+          "tests/plugins/test_phase11_skeleton.py",
+          "docs/specs/phase11-imaging-block-spec.md",
+          "CHANGELOG.md"
+        ]
+      }
+    }
+  ]
+}

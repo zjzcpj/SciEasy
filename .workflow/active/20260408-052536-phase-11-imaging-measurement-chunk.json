@@ -1,0 +1,72 @@
+{
+  "task_id": "20260408-052536-phase-11-imaging-measurement-chunk",
+  "title": "Phase 11 imaging measurement chunk",
+  "status": "active",
+  "created_at": "2026-04-08T09:25:36.422317+00:00",
+  "updated_at": "2026-04-08T09:26:54.241277+00:00",
+  "completed_stages": [
+    {
+      "stage_id": "create_issue",
+      "stage_name": "Create Issue",
+      "completed_at": "2026-04-08T09:26:14.201768+00:00",
+      "artifacts": {
+        "issue_number": 376,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/376"
+      }
+    },
+    {
+      "stage_id": "write_change_plan",
+      "stage_name": "Write Change Plan",
+      "completed_at": "2026-04-08T09:26:54.241264+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/376#issuecomment-4205224111",
+        "files_to_modify": [
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/measurement/region_props.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/measurement/pairwise_distance.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/measurement/colocalization.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/measurement/__init__.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/__init__.py",
+          "packages/scieasy-blocks-imaging/tests/test_continuation_b_skeletons.py",
+          "tests/plugins/test_phase11_skeleton.py",
+          "docs/specs/phase11-imaging-block-spec.md",
+          "CHANGELOG.md"
+        ]
+      }
+    }
+  ],
+  "history": [
+    {
+      "event": "workflow_started",
+      "timestamp": "2026-04-08T09:25:36.422328+00:00",
+      "title": "Phase 11 imaging measurement chunk"
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_issue",
+      "timestamp": "2026-04-08T09:26:14.201782+00:00",
+      "artifacts": {
+        "issue_number": 376,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/376"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "write_change_plan",
+      "timestamp": "2026-04-08T09:26:54.241279+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/376#issuecomment-4205224111",
+        "files_to_modify": [
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/measurement/region_props.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/measurement/pairwise_distance.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/measurement/colocalization.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/measurement/__init__.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/__init__.py",
+          "packages/scieasy-blocks-imaging/tests/test_continuation_b_skeletons.py",
+          "tests/plugins/test_phase11_skeleton.py",
+          "docs/specs/phase11-imaging-block-spec.md",
+          "CHANGELOG.md"
+        ]
+      }
+    }
+  ]
+}

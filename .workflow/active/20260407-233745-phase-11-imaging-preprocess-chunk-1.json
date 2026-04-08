@@ -1,0 +1,155 @@
+{
+  "task_id": "20260407-233745-phase-11-imaging-preprocess-chunk-1",
+  "title": "Phase 11 imaging preprocess chunk 1",
+  "status": "completed",
+  "created_at": "2026-04-08T03:37:45.029687+00:00",
+  "updated_at": "2026-04-08T04:15:32.433733+00:00",
+  "completed_stages": [
+    {
+      "stage_id": "create_issue",
+      "stage_name": "Create Issue",
+      "completed_at": "2026-04-08T03:38:24.708881+00:00",
+      "artifacts": {
+        "issue_number": 358,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/358"
+      }
+    },
+    {
+      "stage_id": "write_change_plan",
+      "stage_name": "Write Change Plan",
+      "completed_at": "2026-04-08T03:43:04.782319+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/358#issuecomment-4203645704",
+        "files_to_modify": [
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/preprocess/geometry.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/preprocess/convert_dtype.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/preprocess/axis_ops.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/preprocess/__init__.py",
+          "packages/scieasy-blocks-imaging/tests/test_preprocess_geometry.py",
+          "packages/scieasy-blocks-imaging/tests/test_preprocess_convert_dtype.py",
+          "packages/scieasy-blocks-imaging/tests/test_preprocess_axis_ops.py",
+          "tests/plugins/test_phase11_skeleton.py",
+          "CHANGELOG.md",
+          "docs/specs/phase11-imaging-block-spec.md"
+        ]
+      }
+    },
+    {
+      "stage_id": "create_branch",
+      "stage_name": "Create Branch & Implement",
+      "completed_at": "2026-04-08T04:12:28.289148+00:00",
+      "artifacts": {
+        "branch_name": "feat/sprint-c/imaging-preprocess-b",
+        "commit_shas": [
+          "28aff2484e72ad42c1c2c61c1e71b5fe9af70488"
+        ]
+      }
+    },
+    {
+      "stage_id": "submit_pr",
+      "stage_name": "Submit PR",
+      "completed_at": "2026-04-08T04:14:07.103059+00:00",
+      "artifacts": {
+        "pr_number": 359,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/359"
+      }
+    },
+    {
+      "stage_id": "update_docs",
+      "stage_name": "Update Documentation",
+      "completed_at": "2026-04-08T04:15:32.162567+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "N/A - no spec or ADR update was required for this scoped preprocess implementation"
+        ]
+      }
+    },
+    {
+      "stage_id": "update_changelog",
+      "stage_name": "Update Changelog",
+      "completed_at": "2026-04-08T04:15:32.433720+00:00",
+      "artifacts": {
+        "changelog_entry": "[#358] Sprint C imaging preprocess subset B impl - replaces the T-IMG-008 `geometry.py`, T-IMG-009 `ConvertDType`, and T-IMG-010 `AxisSplit`/`AxisMerge` skeleton `NotImplementedError` bodies with narrow-scope implementations. Geometry: `Rotate`, `Flip`, `Crop`, `Pad`, and `Resize` now operate on `Image` inputs, use explicit ProcessBlock ClassVars, broadcast per-slice 2D work via `iterate_over_axes`, accept mask-driven crop boxes, and update `meta.pixel_size` proportionally on resize while preserving metadata/user lineage through the standard derived-object path. ConvertDType: supports `uint8`/`uint16`/`float32`/`float64`/`bool` targets with explicit `linear` and `clip` modes plus zero-threshold bool conversion. AxisSplit/AxisMerge: provide typed Collection-based split/merge over `t`/`z`/`c`/`lambda`, validate axis/order/shape consistency, append `meta.source_file` with `__axis=index`, and partition channel/wavelength metadata on split. Plugin tests replace the skipped stubs with deterministic behavioral coverage for the three files, and `tests/plugins/test_phase11_skeleton.py` gains `test_imaging_preprocess_b_impl_smoke()` so the workflow gate can detect the concrete implementation. (@Codex, 2026-04-07, branch: feat/sprint-c/imaging-preprocess-b, session: 20260407-233745-phase-11-imaging-preprocess-chunk-1)"
+      }
+    }
+  ],
+  "history": [
+    {
+      "event": "workflow_started",
+      "timestamp": "2026-04-08T03:37:45.029698+00:00",
+      "title": "Phase 11 imaging preprocess chunk 1"
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_issue",
+      "timestamp": "2026-04-08T03:38:24.708898+00:00",
+      "artifacts": {
+        "issue_number": 358,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/358"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "write_change_plan",
+      "timestamp": "2026-04-08T03:43:04.782335+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/358#issuecomment-4203645704",
+        "files_to_modify": [
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/preprocess/geometry.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/preprocess/convert_dtype.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/preprocess/axis_ops.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/preprocess/__init__.py",
+          "packages/scieasy-blocks-imaging/tests/test_preprocess_geometry.py",
+          "packages/scieasy-blocks-imaging/tests/test_preprocess_convert_dtype.py",
+          "packages/scieasy-blocks-imaging/tests/test_preprocess_axis_ops.py",
+          "tests/plugins/test_phase11_skeleton.py",
+          "CHANGELOG.md",
+          "docs/specs/phase11-imaging-block-spec.md"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_branch",
+      "timestamp": "2026-04-08T04:12:28.289164+00:00",
+      "artifacts": {
+        "branch_name": "feat/sprint-c/imaging-preprocess-b",
+        "commit_shas": [
+          "28aff2484e72ad42c1c2c61c1e71b5fe9af70488"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "submit_pr",
+      "timestamp": "2026-04-08T04:14:07.103074+00:00",
+      "artifacts": {
+        "pr_number": 359,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/359"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_docs",
+      "timestamp": "2026-04-08T04:15:32.162582+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "N/A - no spec or ADR update was required for this scoped preprocess implementation"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_changelog",
+      "timestamp": "2026-04-08T04:15:32.433735+00:00",
+      "artifacts": {
+        "changelog_entry": "[#358] Sprint C imaging preprocess subset B impl - replaces the T-IMG-008 `geometry.py`, T-IMG-009 `ConvertDType`, and T-IMG-010 `AxisSplit`/`AxisMerge` skeleton `NotImplementedError` bodies with narrow-scope implementations. Geometry: `Rotate`, `Flip`, `Crop`, `Pad`, and `Resize` now operate on `Image` inputs, use explicit ProcessBlock ClassVars, broadcast per-slice 2D work via `iterate_over_axes`, accept mask-driven crop boxes, and update `meta.pixel_size` proportionally on resize while preserving metadata/user lineage through the standard derived-object path. ConvertDType: supports `uint8`/`uint16`/`float32`/`float64`/`bool` targets with explicit `linear` and `clip` modes plus zero-threshold bool conversion. AxisSplit/AxisMerge: provide typed Collection-based split/merge over `t`/`z`/`c`/`lambda`, validate axis/order/shape consistency, append `meta.source_file` with `__axis=index`, and partition channel/wavelength metadata on split. Plugin tests replace the skipped stubs with deterministic behavioral coverage for the three files, and `tests/plugins/test_phase11_skeleton.py` gains `test_imaging_preprocess_b_impl_smoke()` so the workflow gate can detect the concrete implementation. (@Codex, 2026-04-07, branch: feat/sprint-c/imaging-preprocess-b, session: 20260407-233745-phase-11-imaging-preprocess-chunk-1)"
+      }
+    },
+    {
+      "event": "workflow_completed",
+      "timestamp": "2026-04-08T04:15:32.433741+00:00"
+    }
+  ],
+  "completed_at": "2026-04-08T04:15:32.433739+00:00"
+}

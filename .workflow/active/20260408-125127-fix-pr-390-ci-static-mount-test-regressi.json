@@ -1,0 +1,34 @@
+{
+  "task_id": "20260408-125127-fix-pr-390-ci-static-mount-test-regressi",
+  "title": "Fix PR #390 CI static mount test regression",
+  "status": "active",
+  "created_at": "2026-04-08T16:51:27.643102+00:00",
+  "updated_at": "2026-04-08T16:52:46.149186+00:00",
+  "completed_stages": [
+    {
+      "stage_id": "create_issue",
+      "stage_name": "Create Issue",
+      "completed_at": "2026-04-08T16:52:46.149175+00:00",
+      "artifacts": {
+        "issue_number": 393,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/393"
+      }
+    }
+  ],
+  "history": [
+    {
+      "event": "workflow_started",
+      "timestamp": "2026-04-08T16:51:27.643112+00:00",
+      "title": "Fix PR #390 CI static mount test regression"
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_issue",
+      "timestamp": "2026-04-08T16:52:46.149188+00:00",
+      "artifacts": {
+        "issue_number": 393,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/393"
+      }
+    }
+  ]
+}

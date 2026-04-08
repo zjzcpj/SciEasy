@@ -1,0 +1,139 @@
+{
+  "task_id": "20260406-165314-t-001-scheduler-concurrency-fix-per-adr",
+  "title": "T-001 scheduler concurrency fix per ADR-018 Addendum 1",
+  "status": "completed",
+  "created_at": "2026-04-06T20:53:14.301133+00:00",
+  "updated_at": "2026-04-06T21:08:32.949904+00:00",
+  "completed_stages": [
+    {
+      "stage_id": "create_issue",
+      "stage_name": "Create Issue",
+      "completed_at": "2026-04-06T20:53:50.271324+00:00",
+      "artifacts": {
+        "issue_number": 263,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/263"
+      }
+    },
+    {
+      "stage_id": "write_change_plan",
+      "stage_name": "Write Change Plan",
+      "completed_at": "2026-04-06T20:54:39.774184+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/263#issuecomment-4194940817",
+        "files_to_modify": [
+          "src/scieasy/engine/scheduler.py",
+          "tests/engine/test_scheduler_concurrency.py",
+          "CHANGELOG.md"
+        ]
+      }
+    },
+    {
+      "stage_id": "create_branch",
+      "stage_name": "Create Branch & Implement",
+      "completed_at": "2026-04-06T21:04:52.713399+00:00",
+      "artifacts": {
+        "branch_name": "feat/issue-263/T-001-scheduler-concurrency",
+        "commit_shas": [
+          "e7c97d0"
+        ]
+      }
+    },
+    {
+      "stage_id": "submit_pr",
+      "stage_name": "Submit PR",
+      "completed_at": "2026-04-06T21:07:11.804089+00:00",
+      "artifacts": {
+        "pr_number": 264,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/264"
+      }
+    },
+    {
+      "stage_id": "update_docs",
+      "stage_name": "Update Documentation",
+      "completed_at": "2026-04-06T21:08:28.796228+00:00",
+      "artifacts": {
+        "docs_updated": [],
+        "note": "T-001 is implementation only per the standards doc. All relevant doc updates (ARCHITECTURE.md scheduler concurrency model, ADR-018 Addendum 1) were delivered by upstream PRs #257 and #258 and the Phase 10 skeleton PR #262. No further documentation is required by this ticket."
+      }
+    },
+    {
+      "stage_id": "update_changelog",
+      "stage_name": "Update Changelog",
+      "completed_at": "2026-04-06T21:08:32.949894+00:00",
+      "artifacts": {
+        "changelog_entry": "[#263] T-001: Scheduler concurrency fix per ADR-018 Addendum 1 (@claude, 2026-04-06, branch: feat/issue-263/T-001-scheduler-concurrency, session: 20260406-165314-t-001-scheduler-concurrency-fix-per-adr)"
+      }
+    }
+  ],
+  "history": [
+    {
+      "event": "workflow_started",
+      "timestamp": "2026-04-06T20:53:14.301143+00:00",
+      "title": "T-001 scheduler concurrency fix per ADR-018 Addendum 1"
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_issue",
+      "timestamp": "2026-04-06T20:53:50.271336+00:00",
+      "artifacts": {
+        "issue_number": 263,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/263"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "write_change_plan",
+      "timestamp": "2026-04-06T20:54:39.774196+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/263#issuecomment-4194940817",
+        "files_to_modify": [
+          "src/scieasy/engine/scheduler.py",
+          "tests/engine/test_scheduler_concurrency.py",
+          "CHANGELOG.md"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_branch",
+      "timestamp": "2026-04-06T21:04:52.713411+00:00",
+      "artifacts": {
+        "branch_name": "feat/issue-263/T-001-scheduler-concurrency",
+        "commit_shas": [
+          "e7c97d0"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "submit_pr",
+      "timestamp": "2026-04-06T21:07:11.804100+00:00",
+      "artifacts": {
+        "pr_number": 264,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/264"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_docs",
+      "timestamp": "2026-04-06T21:08:28.796241+00:00",
+      "artifacts": {
+        "docs_updated": [],
+        "note": "T-001 is implementation only per the standards doc. All relevant doc updates (ARCHITECTURE.md scheduler concurrency model, ADR-018 Addendum 1) were delivered by upstream PRs #257 and #258 and the Phase 10 skeleton PR #262. No further documentation is required by this ticket."
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_changelog",
+      "timestamp": "2026-04-06T21:08:32.949907+00:00",
+      "artifacts": {
+        "changelog_entry": "[#263] T-001: Scheduler concurrency fix per ADR-018 Addendum 1 (@claude, 2026-04-06, branch: feat/issue-263/T-001-scheduler-concurrency, session: 20260406-165314-t-001-scheduler-concurrency-fix-per-adr)"
+      }
+    },
+    {
+      "event": "workflow_completed",
+      "timestamp": "2026-04-06T21:08:32.949911+00:00"
+    }
+  ],
+  "completed_at": "2026-04-06T21:08:32.949910+00:00"
+}

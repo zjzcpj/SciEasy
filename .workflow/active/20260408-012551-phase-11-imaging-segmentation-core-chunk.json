@@ -1,0 +1,78 @@
+{
+  "task_id": "20260408-012551-phase-11-imaging-segmentation-core-chunk",
+  "title": "Phase 11 imaging segmentation core chunk",
+  "status": "active",
+  "created_at": "2026-04-08T05:25:51.202182+00:00",
+  "updated_at": "2026-04-08T05:26:45.966077+00:00",
+  "completed_stages": [
+    {
+      "stage_id": "create_issue",
+      "stage_name": "Create Issue",
+      "completed_at": "2026-04-08T05:26:13.281895+00:00",
+      "artifacts": {
+        "issue_number": 372,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/372"
+      }
+    },
+    {
+      "stage_id": "write_change_plan",
+      "stage_name": "Write Change Plan",
+      "completed_at": "2026-04-08T05:26:45.966064+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/372#issuecomment-4204034503",
+        "files_to_modify": [
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/segmentation/threshold.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/segmentation/watershed.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/segmentation/blob_detect.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/segmentation/connected_components.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/segmentation/cleanup.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/segmentation/__init__.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/__init__.py",
+          "packages/scieasy-blocks-imaging/tests/test_threshold.py",
+          "packages/scieasy-blocks-imaging/tests/test_watershed.py",
+          "packages/scieasy-blocks-imaging/tests/test_blob_detect.py",
+          "packages/scieasy-blocks-imaging/tests/test_continuation_b_skeletons.py",
+          "tests/plugins/test_phase11_skeleton.py"
+        ]
+      }
+    }
+  ],
+  "history": [
+    {
+      "event": "workflow_started",
+      "timestamp": "2026-04-08T05:25:51.202192+00:00",
+      "title": "Phase 11 imaging segmentation core chunk"
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_issue",
+      "timestamp": "2026-04-08T05:26:13.281909+00:00",
+      "artifacts": {
+        "issue_number": 372,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/372"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "write_change_plan",
+      "timestamp": "2026-04-08T05:26:45.966079+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/372#issuecomment-4204034503",
+        "files_to_modify": [
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/segmentation/threshold.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/segmentation/watershed.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/segmentation/blob_detect.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/segmentation/connected_components.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/segmentation/cleanup.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/segmentation/__init__.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/__init__.py",
+          "packages/scieasy-blocks-imaging/tests/test_threshold.py",
+          "packages/scieasy-blocks-imaging/tests/test_watershed.py",
+          "packages/scieasy-blocks-imaging/tests/test_blob_detect.py",
+          "packages/scieasy-blocks-imaging/tests/test_continuation_b_skeletons.py",
+          "tests/plugins/test_phase11_skeleton.py"
+        ]
+      }
+    }
+  ]
+}

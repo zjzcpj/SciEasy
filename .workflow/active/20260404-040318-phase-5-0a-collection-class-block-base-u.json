@@ -1,0 +1,147 @@
+{
+  "task_id": "20260404-040318-phase-5-0a-collection-class-block-base-u",
+  "title": "Phase 5.0a: Collection class + Block base utilities (ADR-020)",
+  "status": "completed",
+  "created_at": "2026-04-04T08:03:18.708221+00:00",
+  "updated_at": "2026-04-04T08:09:43.156283+00:00",
+  "completed_stages": [
+    {
+      "stage_id": "create_issue",
+      "stage_name": "Create Issue",
+      "completed_at": "2026-04-04T08:03:44.951695+00:00",
+      "artifacts": {
+        "issue_number": 83,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/83"
+      }
+    },
+    {
+      "stage_id": "write_change_plan",
+      "stage_name": "Write Change Plan",
+      "completed_at": "2026-04-04T08:04:03.216222+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/83#issuecomment-4186725318",
+        "files_to_modify": [
+          "src/scieasy/core/types/collection.py",
+          "src/scieasy/blocks/base/block.py",
+          "src/scieasy/blocks/process/process_block.py",
+          "src/scieasy/blocks/base/ports.py",
+          "src/scieasy/core/storage/base.py",
+          "tests/core/test_collection.py"
+        ]
+      }
+    },
+    {
+      "stage_id": "create_branch",
+      "stage_name": "Create Branch & Implement",
+      "completed_at": "2026-04-04T08:08:40.094313+00:00",
+      "artifacts": {
+        "branch_name": "feat/issue-83/collection-block-utilities",
+        "commit_shas": [
+          "e597c25"
+        ]
+      }
+    },
+    {
+      "stage_id": "submit_pr",
+      "stage_name": "Submit PR",
+      "completed_at": "2026-04-04T08:09:09.949897+00:00",
+      "artifacts": {
+        "pr_number": 84,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/84"
+      }
+    },
+    {
+      "stage_id": "update_docs",
+      "stage_name": "Update Documentation",
+      "completed_at": "2026-04-04T08:09:18.749560+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "N/A ！ implementing existing ADR-020, no new docs needed"
+        ]
+      }
+    },
+    {
+      "stage_id": "update_changelog",
+      "stage_name": "Update Changelog",
+      "completed_at": "2026-04-04T08:09:43.156270+00:00",
+      "artifacts": {
+        "changelog_entry": "[#83] Phase 5.0a: Collection class + Block base utilities ！ ADR-020 Collection transport, pack/unpack/map_items/parallel_map, ProcessBlock Tier 1 process_item, port Collection transparency (@claude, 2026-04-04, branch: feat/issue-83/collection-block-utilities, session: 20260404-040318-phase-5-0a-collection-class-block-base-u)"
+      }
+    }
+  ],
+  "history": [
+    {
+      "event": "workflow_started",
+      "timestamp": "2026-04-04T08:03:18.708232+00:00",
+      "title": "Phase 5.0a: Collection class + Block base utilities (ADR-020)"
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_issue",
+      "timestamp": "2026-04-04T08:03:44.951710+00:00",
+      "artifacts": {
+        "issue_number": 83,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/83"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "write_change_plan",
+      "timestamp": "2026-04-04T08:04:03.216237+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/83#issuecomment-4186725318",
+        "files_to_modify": [
+          "src/scieasy/core/types/collection.py",
+          "src/scieasy/blocks/base/block.py",
+          "src/scieasy/blocks/process/process_block.py",
+          "src/scieasy/blocks/base/ports.py",
+          "src/scieasy/core/storage/base.py",
+          "tests/core/test_collection.py"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_branch",
+      "timestamp": "2026-04-04T08:08:40.094327+00:00",
+      "artifacts": {
+        "branch_name": "feat/issue-83/collection-block-utilities",
+        "commit_shas": [
+          "e597c25"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "submit_pr",
+      "timestamp": "2026-04-04T08:09:09.949913+00:00",
+      "artifacts": {
+        "pr_number": 84,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/84"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_docs",
+      "timestamp": "2026-04-04T08:09:18.749574+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "N/A ！ implementing existing ADR-020, no new docs needed"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_changelog",
+      "timestamp": "2026-04-04T08:09:43.156285+00:00",
+      "artifacts": {
+        "changelog_entry": "[#83] Phase 5.0a: Collection class + Block base utilities ！ ADR-020 Collection transport, pack/unpack/map_items/parallel_map, ProcessBlock Tier 1 process_item, port Collection transparency (@claude, 2026-04-04, branch: feat/issue-83/collection-block-utilities, session: 20260404-040318-phase-5-0a-collection-class-block-base-u)"
+      }
+    },
+    {
+      "event": "workflow_completed",
+      "timestamp": "2026-04-04T08:09:43.156291+00:00"
+    }
+  ],
+  "completed_at": "2026-04-04T08:09:43.156290+00:00"
+}

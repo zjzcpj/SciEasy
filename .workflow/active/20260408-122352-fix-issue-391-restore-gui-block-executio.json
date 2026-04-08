@@ -1,0 +1,161 @@
+{
+  "task_id": "20260408-122352-fix-issue-391-restore-gui-block-executio",
+  "title": "Fix issue 391: restore GUI block execution",
+  "status": "completed",
+  "created_at": "2026-04-08T16:23:52.443171+00:00",
+  "updated_at": "2026-04-08T16:44:50.993839+00:00",
+  "completed_stages": [
+    {
+      "stage_id": "create_issue",
+      "stage_name": "Create Issue",
+      "completed_at": "2026-04-08T16:25:11.908316+00:00",
+      "artifacts": {
+        "issue_number": 391,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/391"
+      }
+    },
+    {
+      "stage_id": "write_change_plan",
+      "stage_name": "Write Change Plan",
+      "completed_at": "2026-04-08T16:30:56.223902+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/391#issuecomment-4207830310",
+        "files_to_modify": [
+          "src/scieasy/blocks/registry.py",
+          "src/scieasy/api/runtime.py",
+          "src/scieasy/engine/events.py",
+          "src/scieasy/api/ws.py",
+          "pyproject.toml",
+          "frontend/src/App.tsx",
+          "frontend/src/App.test.tsx",
+          "tests/blocks/test_registry.py",
+          "tests/api/test_workflows.py",
+          "tests/api/test_ws.py",
+          "tests/api/test_blocks.py",
+          "docs/architecture/ARCHITECTURE.md",
+          "CHANGELOG.md"
+        ]
+      }
+    },
+    {
+      "stage_id": "create_branch",
+      "stage_name": "Create Branch & Implement",
+      "completed_at": "2026-04-08T16:41:39.613894+00:00",
+      "artifacts": {
+        "branch_name": "fix/issue-391/gui-block-execution",
+        "commit_shas": [
+          "014c9b0cf847b90ac470d4354582330241d4712d"
+        ]
+      }
+    },
+    {
+      "stage_id": "submit_pr",
+      "stage_name": "Submit PR",
+      "completed_at": "2026-04-08T16:42:38.422786+00:00",
+      "artifacts": {
+        "pr_number": 392,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/392"
+      }
+    },
+    {
+      "stage_id": "update_docs",
+      "stage_name": "Update Documentation",
+      "completed_at": "2026-04-08T16:43:38.836056+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "docs/architecture/ARCHITECTURE.md"
+        ]
+      }
+    },
+    {
+      "stage_id": "update_changelog",
+      "stage_name": "Update Changelog",
+      "completed_at": "2026-04-08T16:44:50.993825+00:00",
+      "artifacts": {
+        "changelog_entry": "[#391] Restore GUI block execution by rejecting invalid execute-from requests before background scheduling, surfacing unexpected workflow crashes as workflow_error, filtering abstract block specs out of the production registry, and falling back to full workflow execution when a per-block GUI run has no checkpoint yet (@Codex, 2026-04-08, branch: fix/issue-391/gui-block-execution, session: 20260408-122352-fix-issue-391-restore-gui-block-executio)"
+      }
+    }
+  ],
+  "history": [
+    {
+      "event": "workflow_started",
+      "timestamp": "2026-04-08T16:23:52.443180+00:00",
+      "title": "Fix issue 391: restore GUI block execution"
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_issue",
+      "timestamp": "2026-04-08T16:25:11.908331+00:00",
+      "artifacts": {
+        "issue_number": 391,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/391"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "write_change_plan",
+      "timestamp": "2026-04-08T16:30:56.224676+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/391#issuecomment-4207830310",
+        "files_to_modify": [
+          "src/scieasy/blocks/registry.py",
+          "src/scieasy/api/runtime.py",
+          "src/scieasy/engine/events.py",
+          "src/scieasy/api/ws.py",
+          "pyproject.toml",
+          "frontend/src/App.tsx",
+          "frontend/src/App.test.tsx",
+          "tests/blocks/test_registry.py",
+          "tests/api/test_workflows.py",
+          "tests/api/test_ws.py",
+          "tests/api/test_blocks.py",
+          "docs/architecture/ARCHITECTURE.md",
+          "CHANGELOG.md"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_branch",
+      "timestamp": "2026-04-08T16:41:39.613909+00:00",
+      "artifacts": {
+        "branch_name": "fix/issue-391/gui-block-execution",
+        "commit_shas": [
+          "014c9b0cf847b90ac470d4354582330241d4712d"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "submit_pr",
+      "timestamp": "2026-04-08T16:42:38.422800+00:00",
+      "artifacts": {
+        "pr_number": 392,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/392"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_docs",
+      "timestamp": "2026-04-08T16:43:38.836070+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "docs/architecture/ARCHITECTURE.md"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_changelog",
+      "timestamp": "2026-04-08T16:44:50.993841+00:00",
+      "artifacts": {
+        "changelog_entry": "[#391] Restore GUI block execution by rejecting invalid execute-from requests before background scheduling, surfacing unexpected workflow crashes as workflow_error, filtering abstract block specs out of the production registry, and falling back to full workflow execution when a per-block GUI run has no checkpoint yet (@Codex, 2026-04-08, branch: fix/issue-391/gui-block-execution, session: 20260408-122352-fix-issue-391-restore-gui-block-executio)"
+      }
+    },
+    {
+      "event": "workflow_completed",
+      "timestamp": "2026-04-08T16:44:50.993847+00:00"
+    }
+  ],
+  "completed_at": "2026-04-08T16:44:50.993846+00:00"
+}

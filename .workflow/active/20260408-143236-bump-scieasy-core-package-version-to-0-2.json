@@ -1,0 +1,147 @@
+{
+  "task_id": "20260408-143236-bump-scieasy-core-package-version-to-0-2",
+  "title": "Bump SciEasy core package version to 0.2.1 and align plugin constraints",
+  "status": "completed",
+  "created_at": "2026-04-08T18:32:36.208859+00:00",
+  "updated_at": "2026-04-08T18:36:47.658187+00:00",
+  "completed_stages": [
+    {
+      "stage_id": "create_issue",
+      "stage_name": "Create Issue",
+      "completed_at": "2026-04-08T18:33:33.898835+00:00",
+      "artifacts": {
+        "issue_number": 401,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/401"
+      }
+    },
+    {
+      "stage_id": "write_change_plan",
+      "stage_name": "Write Change Plan",
+      "completed_at": "2026-04-08T18:33:33.967988+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/401#issuecomment-4208595495",
+        "files_to_modify": [
+          "pyproject.toml",
+          "README.md",
+          "packages/scieasy-blocks-imaging/pyproject.toml",
+          "packages/scieasy-blocks-lcms/pyproject.toml",
+          "packages/scieasy-blocks-srs/pyproject.toml",
+          "CHANGELOG.md"
+        ]
+      }
+    },
+    {
+      "stage_id": "create_branch",
+      "stage_name": "Create Branch & Implement",
+      "completed_at": "2026-04-08T18:36:17.257367+00:00",
+      "artifacts": {
+        "branch_name": "fix/issue-401/bump-core-to-0.2.1",
+        "commit_shas": [
+          "8a28bed"
+        ]
+      }
+    },
+    {
+      "stage_id": "submit_pr",
+      "stage_name": "Submit PR",
+      "completed_at": "2026-04-08T18:36:47.512276+00:00",
+      "artifacts": {
+        "pr_number": 402,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/402"
+      }
+    },
+    {
+      "stage_id": "update_docs",
+      "stage_name": "Update Documentation",
+      "completed_at": "2026-04-08T18:36:47.582053+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "README.md"
+        ]
+      }
+    },
+    {
+      "stage_id": "update_changelog",
+      "stage_name": "Update Changelog",
+      "completed_at": "2026-04-08T18:36:47.658171+00:00",
+      "artifacts": {
+        "changelog_entry": "[#401] Bump the core scieasy package to 0.2.1 and align plugin dependency floors to scieasy>=0.2.1, fixing local editable-install failures caused by version drift between the root package metadata and Phase 11 plugin packaging metadata (@Codex, 2026-04-08, branch: fix/issue-401/bump-core-to-0.2.1, session: 20260408-143236-bump-scieasy-core-package-version-to-0-2)"
+      }
+    }
+  ],
+  "history": [
+    {
+      "event": "workflow_started",
+      "timestamp": "2026-04-08T18:32:36.208872+00:00",
+      "title": "Bump SciEasy core package version to 0.2.1 and align plugin constraints"
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_issue",
+      "timestamp": "2026-04-08T18:33:33.898851+00:00",
+      "artifacts": {
+        "issue_number": 401,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/401"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "write_change_plan",
+      "timestamp": "2026-04-08T18:33:33.968006+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/401#issuecomment-4208595495",
+        "files_to_modify": [
+          "pyproject.toml",
+          "README.md",
+          "packages/scieasy-blocks-imaging/pyproject.toml",
+          "packages/scieasy-blocks-lcms/pyproject.toml",
+          "packages/scieasy-blocks-srs/pyproject.toml",
+          "CHANGELOG.md"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_branch",
+      "timestamp": "2026-04-08T18:36:17.257383+00:00",
+      "artifacts": {
+        "branch_name": "fix/issue-401/bump-core-to-0.2.1",
+        "commit_shas": [
+          "8a28bed"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "submit_pr",
+      "timestamp": "2026-04-08T18:36:47.512293+00:00",
+      "artifacts": {
+        "pr_number": 402,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/402"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_docs",
+      "timestamp": "2026-04-08T18:36:47.582074+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "README.md"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_changelog",
+      "timestamp": "2026-04-08T18:36:47.658189+00:00",
+      "artifacts": {
+        "changelog_entry": "[#401] Bump the core scieasy package to 0.2.1 and align plugin dependency floors to scieasy>=0.2.1, fixing local editable-install failures caused by version drift between the root package metadata and Phase 11 plugin packaging metadata (@Codex, 2026-04-08, branch: fix/issue-401/bump-core-to-0.2.1, session: 20260408-143236-bump-scieasy-core-package-version-to-0-2)"
+      }
+    },
+    {
+      "event": "workflow_completed",
+      "timestamp": "2026-04-08T18:36:47.658194+00:00"
+    }
+  ],
+  "completed_at": "2026-04-08T18:36:47.658193+00:00"
+}

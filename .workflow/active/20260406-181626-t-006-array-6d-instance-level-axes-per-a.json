@@ -1,0 +1,149 @@
+{
+  "task_id": "20260406-181626-t-006-array-6d-instance-level-axes-per-a",
+  "title": "T-006 Array 6D instance-level axes per ADR-027 D1+D4",
+  "status": "completed",
+  "created_at": "2026-04-06T22:16:26.663982+00:00",
+  "updated_at": "2026-04-06T22:36:20.460317+00:00",
+  "completed_stages": [
+    {
+      "stage_id": "create_issue",
+      "stage_name": "Create Issue",
+      "completed_at": "2026-04-06T22:16:54.582731+00:00",
+      "artifacts": {
+        "issue_number": 273,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/273"
+      }
+    },
+    {
+      "stage_id": "write_change_plan",
+      "stage_name": "Write Change Plan",
+      "completed_at": "2026-04-06T22:18:12.976837+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/273#issuecomment-4195315529",
+        "files_to_modify": [
+          "src/scieasy/core/types/array.py",
+          "src/scieasy/core/types/base.py",
+          "src/scieasy/core/types/__init__.py",
+          "src/scieasy/core/types/registry.py",
+          "src/scieasy/blocks/io/adapters/tiff_adapter.py",
+          "src/scieasy/api/runtime.py",
+          "tests/core/test_array_axes.py",
+          "CHANGELOG.md"
+        ]
+      }
+    },
+    {
+      "stage_id": "create_branch",
+      "stage_name": "Create Branch & Implement",
+      "completed_at": "2026-04-06T22:33:57.243050+00:00",
+      "artifacts": {
+        "branch_name": "feat/issue-273/T-006-array-6d-axes",
+        "commit_shas": [
+          "1bf5b72"
+        ]
+      }
+    },
+    {
+      "stage_id": "submit_pr",
+      "stage_name": "Submit PR",
+      "completed_at": "2026-04-06T22:36:01.325653+00:00",
+      "artifacts": {
+        "pr_number": 274,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/274"
+      }
+    },
+    {
+      "stage_id": "update_docs",
+      "stage_name": "Update Documentation",
+      "completed_at": "2026-04-06T22:36:08.034914+00:00",
+      "artifacts": {
+        "docs_updated": [],
+        "rationale": "N/A ¡ª T-006 implements existing ADR-027 D1+D4 and the standards doc ¡ìT-006; no new spec or ADR required. The docstrings on Array.sel, Array.iter_over, Array.with_meta, and TypeSignature.required_axes describe the new behaviour in-code."
+      }
+    },
+    {
+      "stage_id": "update_changelog",
+      "stage_name": "Update Changelog",
+      "completed_at": "2026-04-06T22:36:20.460307+00:00",
+      "artifacts": {
+        "changelog_entry": "[#273] T-006: Array now uses instance-level axes per ADR-027 D1 (@claude, 2026-04-06, branch: feat/issue-273/T-006-array-6d-axes, session: 20260406-181626-t-006-array-6d-instance-level-axes-per-a)"
+      }
+    }
+  ],
+  "history": [
+    {
+      "event": "workflow_started",
+      "timestamp": "2026-04-06T22:16:26.663991+00:00",
+      "title": "T-006 Array 6D instance-level axes per ADR-027 D1+D4"
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_issue",
+      "timestamp": "2026-04-06T22:16:54.582743+00:00",
+      "artifacts": {
+        "issue_number": 273,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/273"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "write_change_plan",
+      "timestamp": "2026-04-06T22:18:12.976848+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/273#issuecomment-4195315529",
+        "files_to_modify": [
+          "src/scieasy/core/types/array.py",
+          "src/scieasy/core/types/base.py",
+          "src/scieasy/core/types/__init__.py",
+          "src/scieasy/core/types/registry.py",
+          "src/scieasy/blocks/io/adapters/tiff_adapter.py",
+          "src/scieasy/api/runtime.py",
+          "tests/core/test_array_axes.py",
+          "CHANGELOG.md"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_branch",
+      "timestamp": "2026-04-06T22:33:57.243062+00:00",
+      "artifacts": {
+        "branch_name": "feat/issue-273/T-006-array-6d-axes",
+        "commit_shas": [
+          "1bf5b72"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "submit_pr",
+      "timestamp": "2026-04-06T22:36:01.325664+00:00",
+      "artifacts": {
+        "pr_number": 274,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/274"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_docs",
+      "timestamp": "2026-04-06T22:36:08.034924+00:00",
+      "artifacts": {
+        "docs_updated": [],
+        "rationale": "N/A ¡ª T-006 implements existing ADR-027 D1+D4 and the standards doc ¡ìT-006; no new spec or ADR required. The docstrings on Array.sel, Array.iter_over, Array.with_meta, and TypeSignature.required_axes describe the new behaviour in-code."
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_changelog",
+      "timestamp": "2026-04-06T22:36:20.460319+00:00",
+      "artifacts": {
+        "changelog_entry": "[#273] T-006: Array now uses instance-level axes per ADR-027 D1 (@claude, 2026-04-06, branch: feat/issue-273/T-006-array-6d-axes, session: 20260406-181626-t-006-array-6d-instance-level-axes-per-a)"
+      }
+    },
+    {
+      "event": "workflow_completed",
+      "timestamp": "2026-04-06T22:36:20.460324+00:00"
+    }
+  ],
+  "completed_at": "2026-04-06T22:36:20.460323+00:00"
+}

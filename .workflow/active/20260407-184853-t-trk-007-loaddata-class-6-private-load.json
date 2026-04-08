@@ -1,0 +1,153 @@
+{
+  "task_id": "20260407-184853-t-trk-007-loaddata-class-6-private-load",
+  "title": "T-TRK-007: LoadData class + 6 private _load_* dispatch functions",
+  "status": "completed",
+  "created_at": "2026-04-07T22:48:53.593130+00:00",
+  "updated_at": "2026-04-07T23:02:42.379850+00:00",
+  "completed_stages": [
+    {
+      "stage_id": "create_issue",
+      "stage_name": "Create Issue",
+      "completed_at": "2026-04-07T22:49:16.339029+00:00",
+      "artifacts": {
+        "issue_number": 322,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/322"
+      }
+    },
+    {
+      "stage_id": "write_change_plan",
+      "stage_name": "Write Change Plan",
+      "completed_at": "2026-04-07T22:49:50.889344+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/322#issuecomment-4202664676",
+        "files_to_modify": [
+          "src/scieasy/blocks/io/loaders/__init__.py",
+          "src/scieasy/blocks/io/loaders/load_data.py",
+          "src/scieasy/blocks/io/__init__.py",
+          "pyproject.toml",
+          "tests/blocks/io/test_load_data.py",
+          "CHANGELOG.md"
+        ]
+      }
+    },
+    {
+      "stage_id": "create_branch",
+      "stage_name": "Create Branch & Implement",
+      "completed_at": "2026-04-07T23:01:11.197626+00:00",
+      "artifacts": {
+        "branch_name": "feat/issue-322/T-TRK-007-load-data-class",
+        "commit_shas": [
+          "c2b0fb9",
+          "2e0de72",
+          "53422d9",
+          "fa4b452"
+        ]
+      }
+    },
+    {
+      "stage_id": "submit_pr",
+      "stage_name": "Submit PR",
+      "completed_at": "2026-04-07T23:01:59.993278+00:00",
+      "artifacts": {
+        "pr_number": 324,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/324"
+      }
+    },
+    {
+      "stage_id": "update_docs",
+      "stage_name": "Update Documentation",
+      "completed_at": "2026-04-07T23:02:02.832797+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "N/A ¡ª deferred to T-TRK-010 (architecture doc refresh)"
+        ]
+      }
+    },
+    {
+      "stage_id": "update_changelog",
+      "stage_name": "Update Changelog",
+      "completed_at": "2026-04-07T23:02:42.379850+00:00",
+      "artifacts": {
+        "changelog_entry": "[#322] LoadData class + 6 private _load_* dispatch functions for core type IO (T-TRK-007) (@claude, 2026-04-07, branch: feat/issue-322/T-TRK-007-load-data-class, session: 20260407-184853-t-trk-007-loaddata-class-6-private-load)"
+      }
+    }
+  ],
+  "history": [
+    {
+      "event": "workflow_started",
+      "timestamp": "2026-04-07T22:48:53.593130+00:00",
+      "title": "T-TRK-007: LoadData class + 6 private _load_* dispatch functions"
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_issue",
+      "timestamp": "2026-04-07T22:49:16.339029+00:00",
+      "artifacts": {
+        "issue_number": 322,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/322"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "write_change_plan",
+      "timestamp": "2026-04-07T22:49:50.889344+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/322#issuecomment-4202664676",
+        "files_to_modify": [
+          "src/scieasy/blocks/io/loaders/__init__.py",
+          "src/scieasy/blocks/io/loaders/load_data.py",
+          "src/scieasy/blocks/io/__init__.py",
+          "pyproject.toml",
+          "tests/blocks/io/test_load_data.py",
+          "CHANGELOG.md"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_branch",
+      "timestamp": "2026-04-07T23:01:11.197626+00:00",
+      "artifacts": {
+        "branch_name": "feat/issue-322/T-TRK-007-load-data-class",
+        "commit_shas": [
+          "c2b0fb9",
+          "2e0de72",
+          "53422d9",
+          "fa4b452"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "submit_pr",
+      "timestamp": "2026-04-07T23:01:59.993278+00:00",
+      "artifacts": {
+        "pr_number": 324,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/324"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_docs",
+      "timestamp": "2026-04-07T23:02:02.832797+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "N/A ¡ª deferred to T-TRK-010 (architecture doc refresh)"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_changelog",
+      "timestamp": "2026-04-07T23:02:42.379850+00:00",
+      "artifacts": {
+        "changelog_entry": "[#322] LoadData class + 6 private _load_* dispatch functions for core type IO (T-TRK-007) (@claude, 2026-04-07, branch: feat/issue-322/T-TRK-007-load-data-class, session: 20260407-184853-t-trk-007-loaddata-class-6-private-load)"
+      }
+    },
+    {
+      "event": "workflow_completed",
+      "timestamp": "2026-04-07T23:02:42.379850+00:00"
+    }
+  ],
+  "completed_at": "2026-04-07T23:02:42.379850+00:00"
+}

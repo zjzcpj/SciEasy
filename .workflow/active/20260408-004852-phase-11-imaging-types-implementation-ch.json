@@ -1,0 +1,147 @@
+{
+  "task_id": "20260408-004852-phase-11-imaging-types-implementation-ch",
+  "title": "Phase 11 imaging types implementation chunk",
+  "status": "completed",
+  "created_at": "2026-04-08T04:48:52.558243+00:00",
+  "updated_at": "2026-04-08T05:05:59.541026+00:00",
+  "completed_stages": [
+    {
+      "stage_id": "create_issue",
+      "stage_name": "Create Issue",
+      "completed_at": "2026-04-08T04:49:29.300746+00:00",
+      "artifacts": {
+        "issue_number": 362,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/362"
+      }
+    },
+    {
+      "stage_id": "write_change_plan",
+      "stage_name": "Write Change Plan",
+      "completed_at": "2026-04-08T04:49:29.391744+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/362#issuecomment-3701808308",
+        "files_to_modify": [
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/types.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/__init__.py",
+          "packages/scieasy-blocks-imaging/tests/test_types.py",
+          "tests/plugins/test_phase11_skeleton.py",
+          "docs/specs/phase11-imaging-block-spec.md",
+          "CHANGELOG.md"
+        ]
+      }
+    },
+    {
+      "stage_id": "create_branch",
+      "stage_name": "Create Branch & Implement",
+      "completed_at": "2026-04-08T05:03:15.402213+00:00",
+      "artifacts": {
+        "branch_name": "feat/issue-362/T-IMG-001-imaging-types",
+        "commit_shas": [
+          "b01f1f05abca05900b2b5b04786fecfe57fba268"
+        ]
+      }
+    },
+    {
+      "stage_id": "submit_pr",
+      "stage_name": "Submit PR",
+      "completed_at": "2026-04-08T05:03:46.622934+00:00",
+      "artifacts": {
+        "pr_number": 365,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/365"
+      }
+    },
+    {
+      "stage_id": "update_docs",
+      "stage_name": "Update Documentation",
+      "completed_at": "2026-04-08T05:05:23.455144+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "docs/specs/phase11-imaging-block-spec.md"
+        ]
+      }
+    },
+    {
+      "stage_id": "update_changelog",
+      "stage_name": "Update Changelog",
+      "completed_at": "2026-04-08T05:05:59.541011+00:00",
+      "artifacts": {
+        "changelog_entry": "[#362] T-IMG-001 imaging types prerequisite impl - replaces the `scieasy_blocks_imaging.types` skeleton contract with concrete `Image`, `Mask`, `Label`, and `Transform` implementations. `Image.Meta` now uses typed `PhysicalQuantity` and `ChannelInfo` metadata with JSON round-trip and worker reconstruction coverage; `Mask` enforces boolean dtype; `Label` validates that at least one of `raster` or `polygons` is present and exposes the expected slots contract; `Transform` validates affine-matrix shapes and typed metadata. Imaging smoke coverage moved from the top-level skeleton placeholder into real package tests, and compatibility assertions in the geometry and axis-split suites were updated so already-landed imaging blocks validate against the new typed metadata contract. (@Codex, 2026-04-08, branch: feat/issue-362/T-IMG-001-imaging-types, session: 20260408-004852-phase-11-imaging-types-implementation-ch)"
+      }
+    }
+  ],
+  "history": [
+    {
+      "event": "workflow_started",
+      "timestamp": "2026-04-08T04:48:52.558253+00:00",
+      "title": "Phase 11 imaging types implementation chunk"
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_issue",
+      "timestamp": "2026-04-08T04:49:29.300760+00:00",
+      "artifacts": {
+        "issue_number": 362,
+        "issue_url": "https://github.com/zjzcpj/SciEasy/issues/362"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "write_change_plan",
+      "timestamp": "2026-04-08T04:49:29.391771+00:00",
+      "artifacts": {
+        "change_plan_comment_url": "https://github.com/zjzcpj/SciEasy/issues/362#issuecomment-3701808308",
+        "files_to_modify": [
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/types.py",
+          "packages/scieasy-blocks-imaging/src/scieasy_blocks_imaging/__init__.py",
+          "packages/scieasy-blocks-imaging/tests/test_types.py",
+          "tests/plugins/test_phase11_skeleton.py",
+          "docs/specs/phase11-imaging-block-spec.md",
+          "CHANGELOG.md"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "create_branch",
+      "timestamp": "2026-04-08T05:03:15.402229+00:00",
+      "artifacts": {
+        "branch_name": "feat/issue-362/T-IMG-001-imaging-types",
+        "commit_shas": [
+          "b01f1f05abca05900b2b5b04786fecfe57fba268"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "submit_pr",
+      "timestamp": "2026-04-08T05:03:46.622948+00:00",
+      "artifacts": {
+        "pr_number": 365,
+        "pr_url": "https://github.com/zjzcpj/SciEasy/pull/365"
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_docs",
+      "timestamp": "2026-04-08T05:05:23.455161+00:00",
+      "artifacts": {
+        "docs_updated": [
+          "docs/specs/phase11-imaging-block-spec.md"
+        ]
+      }
+    },
+    {
+      "event": "stage_completed",
+      "stage_id": "update_changelog",
+      "timestamp": "2026-04-08T05:05:59.541028+00:00",
+      "artifacts": {
+        "changelog_entry": "[#362] T-IMG-001 imaging types prerequisite impl - replaces the `scieasy_blocks_imaging.types` skeleton contract with concrete `Image`, `Mask`, `Label`, and `Transform` implementations. `Image.Meta` now uses typed `PhysicalQuantity` and `ChannelInfo` metadata with JSON round-trip and worker reconstruction coverage; `Mask` enforces boolean dtype; `Label` validates that at least one of `raster` or `polygons` is present and exposes the expected slots contract; `Transform` validates affine-matrix shapes and typed metadata. Imaging smoke coverage moved from the top-level skeleton placeholder into real package tests, and compatibility assertions in the geometry and axis-split suites were updated so already-landed imaging blocks validate against the new typed metadata contract. (@Codex, 2026-04-08, branch: feat/issue-362/T-IMG-001-imaging-types, session: 20260408-004852-phase-11-imaging-types-implementation-ch)"
+      }
+    },
+    {
+      "event": "workflow_completed",
+      "timestamp": "2026-04-08T05:05:59.541035+00:00"
+    }
+  ],
+  "completed_at": "2026-04-08T05:05:59.541033+00:00"
+}
