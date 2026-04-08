@@ -249,6 +249,26 @@ function InlineConfigField({
 }
 
 // ---------------------------------------------------------------------------
+// Error message inline display
+// ---------------------------------------------------------------------------
+const MAX_INLINE_ERROR_LEN = 80;
+
+function ErrorMessage({ message }: { message: string }) {
+  const truncated =
+    message.length > MAX_INLINE_ERROR_LEN
+      ? `${message.slice(0, MAX_INLINE_ERROR_LEN)}…`
+      : message;
+  return (
+    <span
+      className="ml-2 min-w-0 flex-1 truncate text-[10px] leading-tight text-red-500"
+      title={message}
+    >
+      {truncated}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // BlockNode component
 // ---------------------------------------------------------------------------
 export function BlockNode({ data, selected }: NodeProps<Node<BlockNodeData>>) {
@@ -424,8 +444,11 @@ export function BlockNode({ data, selected }: NodeProps<Node<BlockNodeData>>) {
       {/* ----------------------------------------------------------------- */}
       {/* Footer                                                            */}
       {/* ----------------------------------------------------------------- */}
-      <div className="flex items-center border-t border-stone-100 px-3 py-2">
+      <div className="flex min-w-0 items-center border-t border-stone-100 px-3 py-2">
         <StatusBadge status={data.status} onErrorClick={data.onErrorClick} />
+        {data.status === "error" && data.errorMessage ? (
+          <ErrorMessage message={data.errorMessage} />
+        ) : null}
       </div>
     </div>
   );

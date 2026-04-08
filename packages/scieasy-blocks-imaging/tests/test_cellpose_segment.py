@@ -100,6 +100,26 @@ def _patch_fake_models(monkeypatch: pytest.MonkeyPatch, **kwargs: Any) -> _FakeM
     return factory
 
 
+def _patch_fake_models_no_cellpose_wrapper(monkeypatch: pytest.MonkeyPatch, **kwargs: Any) -> _FakeModelsFactory:
+    """Simulate cellpose v3+ where models.Cellpose is absent.
+
+    Only ``CellposeModel`` is exposed on the namespace so ``hasattr(models, 'Cellpose')``
+    returns False and the fallback branch in ``setup()`` is exercised.
+    """
+    factory = _FakeModelsFactory(**kwargs)
+
+    def _build_model_from_type(*, model_type: str, gpu: bool) -> _FakeCellposeModel:
+        return factory.build_default(model_type=model_type, gpu=gpu)
+
+    # Intentionally omit 'Cellpose' to exercise the v3+ fallback path.
+    models = SimpleNamespace(CellposeModel=_build_model_from_type)
+    monkeypatch.setattr(
+        "scieasy_blocks_imaging.segmentation.cellpose_segment._import_cellpose_models",
+        lambda: models,
+    )
+    return factory
+
+
 def test_t_img_019_module_importable() -> None:
     importlib.import_module("scieasy_blocks_imaging.segmentation.cellpose_segment")
 
@@ -313,3 +333,82 @@ def test_cellpose_round_trip_serialise(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.requires_cellpose
 def test_cellpose_optional_dependency_marker_smoke() -> None:
     pytest.importorskip("cellpose")
+
+
+# ---------------------------------------------------------------------------
+# Fallback path tests (#419): cellpose v3+ API where models.Cellpose is absent
+# ---------------------------------------------------------------------------
+
+
+def test_cellpose_setup_falls_back_to_cellpose_model_when_wrapper_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """setup() must use CellposeModel when models.Cellpose is not available (v3+ API)."""
+    factory = _patch_fake_models_no_cellpose_wrapper(monkeypatch)
+
+    state = CellposeSegment().setup(BlockConfig(params={"model": "cyto3"}))
+
+    assert len(factory.created) == 1
+    assert state is factory.created[0]
+    assert state.model_type == "cyto3"
+
+
+def test_cellpose_setup_fallback_respects_model_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fallback path passes the configured model_type to CellposeModel."""
+    factory = _patch_fake_models_no_cellpose_wrapper(monkeypatch)
+
+    CellposeSegment().setup(BlockConfig(params={"model": "nuclei"}))
+
+    assert factory.created[0].model_type == "nuclei"
+
+
+def test_cellpose_setup_fallback_respects_gpu_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fallback path forwards use_gpu=True to CellposeModel."""
+    factory = _patch_fake_models_no_cellpose_wrapper(monkeypatch)
+
+    CellposeSegment().setup(BlockConfig(params={"model": "cyto2", "use_gpu": True}))
+
+    assert factory.created[0].gpu is True
+
+
+def test_cellpose_setup_fallback_emits_debug_log(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Fallback path emits a DEBUG log to make the API detection visible."""
+    import logging
+
+    _patch_fake_models_no_cellpose_wrapper(monkeypatch)
+
+    with caplog.at_level(logging.DEBUG, logger="scieasy_blocks_imaging.segmentation.cellpose_segment"):
+        CellposeSegment().setup(BlockConfig(params={"model": "cyto3"}))
+
+    debug_messages = [r.message for r in caplog.records if r.levelno == logging.DEBUG]
+    assert any("CellposeModel" in msg for msg in debug_messages), (
+        f"Expected a DEBUG log mentioning CellposeModel, got: {debug_messages}"
+    )
+
+
+def test_cellpose_setup_uses_wrapper_when_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When models.Cellpose is present, setup() must use it (legacy v2 path unchanged)."""
+    factory = _patch_fake_models(monkeypatch)
+
+    state = CellposeSegment().setup(BlockConfig(params={"model": "cyto2"}))
+
+    # The wrapper was called, not CellposeModel (build_custom was NOT called)
+    assert len(factory.created) == 1
+    assert state.model_type == "cyto2"
+
+
+def test_cellpose_run_works_end_to_end_with_fallback_api(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Full run() succeeds when the cellpose v3+ fallback path is active."""
+    _patch_fake_models_no_cellpose_wrapper(monkeypatch)
+    block = CellposeSegment()
+    images = Collection(
+        items=[_make_image(np.ones((4, 4), dtype=np.float32), ["y", "x"])],
+        item_type=Image,
+    )
+
+    result = block.run({"images": images}, BlockConfig(params={"model": "cyto3"}))
+
+    assert "labels" in result
+    assert isinstance(result["labels"][0], Label)
