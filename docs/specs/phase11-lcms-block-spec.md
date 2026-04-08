@@ -2905,6 +2905,10 @@ available), saved as PNG via `matplotlib.pyplot.savefig`, wrapped in an
 
 **j. Dependencies on other tickets**: T-LCMS-001, T-LCMS-002, T-LCMS-013.
 
+**Implementation note**: PR #379 lands PCA and PLSDA. OPLSDA remains
+intentionally deferred behind a `NotImplementedError` until the follow-up
+ticket is scheduled.
+
 **k. Estimated diff size**: ~280 lines source + ~350 lines test.
 Total ~630 lines.
 
