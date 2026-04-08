@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any, ClassVar, cast
 
 import numpy as np
-from sklearn.decomposition import PCA
 
 from scieasy.blocks.base.block import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
@@ -96,6 +95,8 @@ class SRSDenoise(ProcessBlock):
 
 def _denoise_pca(spec: np.ndarray, *, n_components: int) -> np.ndarray:
     flat = spec.reshape(-1, spec.shape[-1])
+    from sklearn.decomposition import PCA
+
     pca = PCA(n_components=n_components, random_state=42)
     transformed = pca.fit_transform(flat)
     recon = pca.inverse_transform(transformed)

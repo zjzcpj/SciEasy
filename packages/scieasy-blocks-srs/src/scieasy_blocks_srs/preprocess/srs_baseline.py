@@ -137,6 +137,7 @@ def _baseline_rolling_ball(spec: np.ndarray, *, window: int) -> np.ndarray:
     size = [1] * spec.ndim
     size[-1] = window
     from scipy import ndimage
+
     baseline = ndimage.grey_opening(spec, size=tuple(size))
     return cast(np.ndarray, spec - baseline)
 
