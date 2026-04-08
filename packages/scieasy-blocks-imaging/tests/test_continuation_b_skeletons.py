@@ -398,11 +398,29 @@ def test_t_img_030_projection_classes() -> None:
 
 
 def test_t_img_030_axis_projection_max() -> None:
-    pytest.skip("T-IMG-030 impl pending")
+    from scieasy_blocks_imaging.projection.projection import AxisProjection
+    from scieasy_blocks_imaging.types import Image
+
+    image = Image(axes=["z", "y", "x"], shape=(2, 4, 4), dtype=np.float32)
+    image._data = np.arange(2 * 4 * 4, dtype=np.float32).reshape(2, 4, 4)  # type: ignore[attr-defined]
+
+    projected = AxisProjection().process_item(image, BlockConfig(params={"axis": "z", "method": "max"}))
+
+    assert projected.axes == ["y", "x"]
+    assert projected.shape == (4, 4)
 
 
 def test_t_img_030_select_slice_index() -> None:
-    pytest.skip("T-IMG-030 impl pending")
+    from scieasy_blocks_imaging.projection.projection import SelectSlice
+    from scieasy_blocks_imaging.types import Image
+
+    image = Image(axes=["c", "y", "x"], shape=(2, 4, 4), dtype=np.float32)
+    image._data = np.arange(2 * 4 * 4, dtype=np.float32).reshape(2, 4, 4)  # type: ignore[attr-defined]
+
+    selected = SelectSlice().process_item(image, BlockConfig(params={"axis": "c", "index": 1}))
+
+    assert selected.axes == ["y", "x"]
+    assert selected.shape == (4, 4)
 
 
 # ── T-IMG-031 ──────────────────────────────────────────────────────────

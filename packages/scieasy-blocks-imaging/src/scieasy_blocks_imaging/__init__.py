@@ -19,6 +19,7 @@ from scieasy_blocks_imaging.preprocess.denoise import Denoise
 from scieasy_blocks_imaging.preprocess.flat_field_correct import FlatFieldCorrect
 from scieasy_blocks_imaging.preprocess.geometry import Crop, Flip, Pad, Resize, Rotate
 from scieasy_blocks_imaging.preprocess.normalize import Normalize
+from scieasy_blocks_imaging.projection.projection import AxisProjection, SelectSlice
 from scieasy_blocks_imaging.registration.apply_transform import ApplyTransform
 from scieasy_blocks_imaging.registration.compute_registration import ComputeRegistration
 from scieasy_blocks_imaging.registration.register_series import RegisterSeries
@@ -67,6 +68,8 @@ def get_blocks() -> list[type]:
         ComputeRegistration,
         ApplyTransform,
         RegisterSeries,
+        AxisProjection,
+        SelectSlice,
         RegionProps,
         PairwiseDistance,
         Colocalization,
@@ -86,6 +89,7 @@ def get_blocks() -> list[type]:
 __all__ = [
     "ApplyTransform",
     "AxisMerge",
+    "AxisProjection",
     "AxisSplit",
     "BackgroundSubtract",
     "BlobDetect",
@@ -118,6 +122,7 @@ __all__ = [
     "RidgeFilter",
     "Rotate",
     "SaveImage",
+    "SelectSlice",
     "Sharpen",
     "ShrinkLabels",
     "Threshold",
