@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- [#401] Bump the core `scieasy` package to 0.2.1 and align plugin dependency floors to `scieasy>=0.2.1`, fixing local editable-install failures caused by version drift between the root package metadata and Phase 11 plugin packaging metadata (@Codex, 2026-04-08, branch: fix/issue-401/bump-core-to-0.2.1, session: 20260408-143236-bump-scieasy-core-package-version-to-0-2)
 - [#398] Add `docs/testing/AI_AGENT_SYSTEM_TESTING_GUIDE.md`, a formal English system-test playbook for AI agents covering the fixed K562 imaging dataset, CLI runtime validation, browser-tool-driven GUI execution from `pip install`, hyperspectral/SRS coverage, pause/resume/checkpoint verification, and required Windows/macOS parity (@Codex, 2026-04-08, branch: docs/issue-398/ai-agent-system-testing-guide, session: 20260408-140515-formalize-ai-agent-system-testing-guide)
 - [#389] Auto-bundle frontend SPA on `pip install` via setuptools `build_py` hook + dev-mode fallback in `api/app.py` so `scieasy gui` serves the React workflow editor instead of the FastAPI /docs panel (@claude, 2026-04-08, branch: feat/issue-389/bundle-frontend-spa, session: 20260408-113948-serve-frontend-spa-automatically-on-pip)
 - [#386] Implement remaining imaging blocks: preprocess B + registration + projection + math + visualization + interactive AppBlocks + packaging (T-IMG-008..038) (@codex, 2026-04-08, branch: feat/sprint-c/imaging-finish, session: 20260408-080833-sprint-c-imaging-finish-t-img-008-038)
