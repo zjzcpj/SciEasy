@@ -166,8 +166,80 @@ def test_srs_image_placeholder_raises() -> None:
 
 
 def test_lcms_types_placeholder_raises() -> None:
-    """Representative: instantiating T-LCMS-002 MSRawFile raises NotImplementedError."""
-    from scieasy_blocks_lcms.types import MSRawFile
+    """Representative: T-LCMS-002 ``get_types`` registration helper raises.
+
+    The four LC-MS type classes themselves (``MSRawFile``, ``PeakTable``,
+    ``MIDTable``, ``SampleMetadata``) are spec-final after the #345
+    skeleton drop and instantiate cleanly as ``Artifact`` /
+    ``DataFrame`` subclasses. Only the entry-point registration helper
+    ``get_types()`` is still skeleton — the impl agent wires it up
+    once the plugin is registered via ``pyproject.toml`` entry_points
+    in T-LCMS-021.
+    """
+    from scieasy_blocks_lcms.types import get_types
 
     with pytest.raises(NotImplementedError, match="T-LCMS-002"):
-        MSRawFile()
+        get_types()
+
+
+def test_lcms_block_skeletons_inherit_real_bases() -> None:
+    """Sanity-check #345: every LC-MS skeleton block subclasses a real base class.
+
+    This guards against the regression where a placeholder file gets
+    written but the class signature drifts away from the spec
+    (e.g. forgetting to inherit from ``IOBlock`` / ``ProcessBlock`` /
+    ``AppBlock`` / ``CodeBlock``). Each entry below pairs a block
+    class with the lowest-level real base it must subclass.
+    """
+    from scieasy_blocks_lcms.analysis import (
+        ConsumptionSecretionAnalysis,
+        MatrixPreprocess,
+        MetaboliteMatrix,
+        MultivariateAnalysis,
+        PathwayEnrichment,
+        UnivariateStats,
+    )
+    from scieasy_blocks_lcms.external import AccuCorR, ElMAVENBlock, GraphPadBlock
+    from scieasy_blocks_lcms.io import (
+        LoadMIDTable,
+        LoadMSRawFiles,
+        LoadPeakTable,
+        LoadSampleMetadata,
+        SaveTable,
+    )
+    from scieasy_blocks_lcms.isotope_tracing import (
+        Calculate13CEnrichment,
+        CompareGroupMID,
+        FluxEstimate,
+        FractionalLabeling,
+        PoolSizeNormalize,
+    )
+
+    from scieasy.blocks.app.app_block import AppBlock
+    from scieasy.blocks.code.code_block import CodeBlock
+    from scieasy.blocks.io.io_block import IOBlock
+    from scieasy.blocks.process.process_block import ProcessBlock
+
+    expected: list[tuple[type, type]] = [
+        (LoadMSRawFiles, IOBlock),
+        (LoadPeakTable, IOBlock),
+        (LoadMIDTable, IOBlock),
+        (LoadSampleMetadata, IOBlock),
+        (SaveTable, IOBlock),
+        (ElMAVENBlock, AppBlock),
+        (AccuCorR, CodeBlock),
+        (GraphPadBlock, AppBlock),
+        (Calculate13CEnrichment, ProcessBlock),
+        (FractionalLabeling, ProcessBlock),
+        (CompareGroupMID, ProcessBlock),
+        (FluxEstimate, ProcessBlock),
+        (PoolSizeNormalize, ProcessBlock),
+        (MetaboliteMatrix, ProcessBlock),
+        (MatrixPreprocess, ProcessBlock),
+        (UnivariateStats, ProcessBlock),
+        (MultivariateAnalysis, ProcessBlock),
+        (PathwayEnrichment, ProcessBlock),
+        (ConsumptionSecretionAnalysis, ProcessBlock),
+    ]
+    for cls, base in expected:
+        assert issubclass(cls, base), f"{cls.__name__} must subclass {base.__name__}"
