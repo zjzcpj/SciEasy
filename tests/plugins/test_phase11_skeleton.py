@@ -645,3 +645,41 @@ def test_imaging_segmentation_core_impl_smoke() -> None:
     assert isinstance(mask, Mask)
     assert isinstance(cleaned, Label)
     assert isinstance(watershed["label"][0], Label)
+
+
+def test_imaging_measurement_impl_smoke() -> None:
+    """Smoke test that the measurement bundle is wired into the imaging plugin surface."""
+    import numpy as np
+    from scieasy_blocks_imaging import Colocalization, PairwiseDistance, RegionProps, get_blocks
+    from scieasy_blocks_imaging.types import Image, Label
+
+    from scieasy.blocks.base.config import BlockConfig
+    from scieasy.core.types.array import Array
+
+    label_arr = np.zeros((4, 4), dtype=np.int32)
+    label_arr[1:3, 1:3] = 1
+    raster = Array(axes=["y", "x"], shape=label_arr.shape, dtype=label_arr.dtype)
+    raster._data = label_arr  # type: ignore[attr-defined]
+    label = Label(slots={"raster": raster}, meta=Label.Meta(source_file="smoke.tif", n_objects=1))
+
+    image_a = Image(axes=["y", "x"], shape=label_arr.shape, dtype=np.float32)
+    image_a._data = label_arr.astype(np.float32)  # type: ignore[attr-defined]
+    image_b = Image(axes=["y", "x"], shape=label_arr.shape, dtype=np.float32)
+    image_b._data = label_arr.astype(np.float32) * 2.0  # type: ignore[attr-defined]
+
+    props = RegionProps().run(
+        {"label": label, "intensity_image": image_a},
+        BlockConfig(params={"properties": ["area", "mean_intensity"]}),
+    )["properties"]
+    distances = PairwiseDistance().process_item(label, BlockConfig(params={"metric": "centroid"}))
+    coloc = Colocalization().run(
+        {"channel_a": image_a, "channel_b": image_b},
+        BlockConfig(params={"metrics": ["pearson"]}),
+    )["metrics"]
+
+    assert RegionProps in get_blocks()
+    assert PairwiseDistance in get_blocks()
+    assert Colocalization in get_blocks()
+    assert props.row_count == 1
+    assert distances.row_count == 0
+    assert coloc.row_count == 1
