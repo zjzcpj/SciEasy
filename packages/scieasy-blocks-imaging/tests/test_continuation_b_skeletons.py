@@ -8,12 +8,14 @@ marked via ``pytest.skip``.
 from __future__ import annotations
 
 import numpy as np
+import pyarrow as pa
 import pytest
 
 from scieasy.blocks.app.app_block import AppBlock
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.process.process_block import ProcessBlock
 from scieasy.core.types.array import Array
+from scieasy.core.types.collection import Collection
 
 
 # ── T-IMG-021 ──────────────────────────────────────────────────────────
@@ -168,11 +170,65 @@ def test_t_img_024_region_props_class() -> None:
 
 
 def test_t_img_024_area_basic() -> None:
-    pytest.skip("T-IMG-024 impl pending")
+    pytest.importorskip("skimage")
+    from scieasy_blocks_imaging.measurement.region_props import RegionProps
+    from scieasy_blocks_imaging.types import Label
+
+    arr = np.zeros((6, 6), dtype=np.int32)
+    arr[1:3, 1:4] = 1
+    arr[3:5, 4:6] = 2
+
+    raster = Array(axes=["y", "x"], shape=arr.shape, dtype=arr.dtype)
+    raster._data = arr  # type: ignore[attr-defined]
+    label = Label(slots={"raster": raster}, meta=Label.Meta(source_file="cells.tif", n_objects=2))
+
+    result = RegionProps().process_item(label, BlockConfig(params={"properties": ["area", "centroid"]}))
+    table = result._arrow_table  # type: ignore[attr-defined]
+    assert isinstance(table, pa.Table)
+
+    rows = table.to_pylist()
+    assert [row["label_id"] for row in rows] == [1, 2]
+    assert [row["area"] for row in rows] == [6.0, 4.0]
+    assert result.columns == ["label_id", "area", "centroid-0", "centroid-1"]
 
 
 def test_t_img_024_intensity_image() -> None:
-    pytest.skip("T-IMG-024 impl pending")
+    pytest.importorskip("skimage")
+    from scieasy_blocks_imaging.measurement.region_props import RegionProps
+    from scieasy_blocks_imaging.types import Image, Label
+
+    label_a_arr = np.zeros((4, 4), dtype=np.int32)
+    label_a_arr[1:3, 1:3] = 1
+    label_b_arr = np.zeros((4, 4), dtype=np.int32)
+    label_b_arr[0:2, 0:2] = 2
+    intensity_a_arr = np.zeros((4, 4), dtype=np.float32)
+    intensity_a_arr[1:3, 1:3] = 5.0
+    intensity_b_arr = np.zeros((4, 4), dtype=np.float32)
+    intensity_b_arr[0:2, 0:2] = 9.0
+
+    def _label(data: np.ndarray, source: str, n_objects: int) -> Label:
+        raster = Array(axes=["y", "x"], shape=data.shape, dtype=data.dtype)
+        raster._data = data  # type: ignore[attr-defined]
+        return Label(slots={"raster": raster}, meta=Label.Meta(source_file=source, n_objects=n_objects))
+
+    def _image(data: np.ndarray) -> Image:
+        image = Image(axes=["y", "x"], shape=data.shape, dtype=data.dtype)
+        image._data = data  # type: ignore[attr-defined]
+        return image
+
+    labels = Collection([_label(label_a_arr, "a.tif", 1), _label(label_b_arr, "b.tif", 1)], item_type=Label)
+    intensities = Collection([_image(intensity_a_arr), _image(intensity_b_arr)], item_type=Image)
+
+    result = RegionProps().run(
+        {"label": labels, "intensity_image": intensities},
+        BlockConfig(params={"properties": ["area", "mean_intensity"]}),
+    )["properties"]
+    rows = result._arrow_table.to_pylist()  # type: ignore[attr-defined]
+
+    assert rows == [
+        {"image_index": 0, "label_id": 1, "area": 4.0, "mean_intensity": 5.0},
+        {"image_index": 1, "label_id": 2, "area": 4.0, "mean_intensity": 9.0},
+    ]
 
 
 # ── T-IMG-025 ──────────────────────────────────────────────────────────
@@ -185,7 +241,22 @@ def test_t_img_025_pairwise_distance_class() -> None:
 
 
 def test_t_img_025_centroid_metric() -> None:
-    pytest.skip("T-IMG-025 impl pending")
+    pytest.importorskip("skimage")
+    from scieasy_blocks_imaging.measurement.pairwise_distance import PairwiseDistance
+    from scieasy_blocks_imaging.types import Label
+
+    arr = np.zeros((6, 6), dtype=np.int32)
+    arr[0, 0] = 1
+    arr[3, 4] = 2
+
+    raster = Array(axes=["y", "x"], shape=arr.shape, dtype=arr.dtype)
+    raster._data = arr  # type: ignore[attr-defined]
+    label = Label(slots={"raster": raster}, meta=Label.Meta(source_file="dist.tif", n_objects=2))
+
+    result = PairwiseDistance().process_item(label, BlockConfig(params={"metric": "centroid"}))
+    rows = result._arrow_table.to_pylist()  # type: ignore[attr-defined]
+
+    assert rows == [{"label_id_a": 1, "label_id_b": 2, "distance": 5.0}]
 
 
 # ── T-IMG-026 ──────────────────────────────────────────────────────────
@@ -196,7 +267,31 @@ def test_t_img_026_colocalization_class() -> None:
 
 
 def test_t_img_026_pearson_basic() -> None:
-    pytest.skip("T-IMG-026 impl pending")
+    from scieasy_blocks_imaging.measurement.colocalization import Colocalization
+    from scieasy_blocks_imaging.types import Image, Mask
+
+    a_arr = np.array([[0.0, 1.0], [2.0, 3.0]], dtype=np.float32)
+    b_arr = np.array([[0.0, 2.0], [4.0, 6.0]], dtype=np.float32)
+    mask_arr = np.array([[False, True], [True, True]], dtype=bool)
+
+    def _image(data: np.ndarray) -> Image:
+        image = Image(axes=["y", "x"], shape=data.shape, dtype=data.dtype)
+        image._data = data  # type: ignore[attr-defined]
+        return image
+
+    mask = Mask(axes=["y", "x"], shape=mask_arr.shape, dtype=bool)
+    mask._data = mask_arr  # type: ignore[attr-defined]
+
+    result = Colocalization().run(
+        {"channel_a": _image(a_arr), "channel_b": _image(b_arr), "mask": mask},
+        BlockConfig(params={"metrics": ["pearson", "manders"]}),
+    )["metrics"]
+    rows = result._arrow_table.to_pylist()  # type: ignore[attr-defined]
+
+    assert len(rows) == 1
+    assert rows[0]["pearson_r"] == pytest.approx(1.0)
+    assert rows[0]["manders_m1"] == pytest.approx(1.0)
+    assert rows[0]["manders_m2"] == pytest.approx(1.0)
 
 
 # ── T-IMG-027 ──────────────────────────────────────────────────────────
