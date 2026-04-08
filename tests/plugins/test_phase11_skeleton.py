@@ -341,3 +341,59 @@ def test_imaging_io_impl_smoke(tmp_path: Path) -> None:
     assert len(loaded) == 1
     assert loaded[0].axes == ["y", "x"]
     assert np.array_equal(loaded[0]._data, arr)
+
+
+def test_imaging_preprocess_a_impl_smoke() -> None:
+    """Smoke test that T-IMG-004..007 preprocess subset A bodies are concrete.
+
+    Runs one minimal call per block to prove the skeleton
+    ``NotImplementedError`` stubs have been replaced. Gated on
+    ``skimage`` because the runtime denoise/background-subtract paths
+    depend on it.
+    """
+    pytest.importorskip("skimage")
+    import numpy as np
+    from scieasy_blocks_imaging.preprocess.background_subtract import BackgroundSubtract
+    from scieasy_blocks_imaging.preprocess.denoise import Denoise
+    from scieasy_blocks_imaging.preprocess.flat_field_correct import FlatFieldCorrect
+    from scieasy_blocks_imaging.preprocess.normalize import Normalize
+    from scieasy_blocks_imaging.types import Image
+
+    from scieasy.blocks.base.config import BlockConfig
+    from scieasy.core.types.collection import Collection
+
+    def _img(arr: np.ndarray) -> Image:
+        out = Image(axes=["y", "x"], shape=arr.shape, dtype=arr.dtype)
+        out._data = arr
+        return out
+
+    base = np.arange(16, dtype=np.float64).reshape(4, 4)
+
+    # Denoise gaussian.
+    d_out = Denoise().process_item(_img(base), BlockConfig(params={"method": "gaussian", "sigma": 0.5}))
+    assert d_out.shape == (4, 4)
+
+    # BackgroundSubtract constant.
+    b_out = BackgroundSubtract().process_item(
+        _img(base),
+        BlockConfig(params={"method": "constant", "value": 1.0, "clip_to_zero": False}),
+    )
+    assert b_out.shape == (4, 4)
+
+    # Normalize minmax.
+    n_out = Normalize().process_item(_img(base), BlockConfig(params={"method": "minmax"}))
+    n_arr = np.asarray(n_out._data)
+    assert float(n_arr.min()) == 0.0
+    assert float(n_arr.max()) == 1.0
+
+    # FlatFieldCorrect basic.
+    flat = _img(np.full((4, 4), 2.0, dtype=np.float64))
+    ff_result = FlatFieldCorrect().run(
+        {
+            "image": Collection(items=[_img(np.full((4, 4), 10.0))], item_type=Image),
+            "flat_field": Collection(items=[flat], item_type=Image),
+        },
+        BlockConfig(params={"method": "basic"}),
+    )
+    ff_out = ff_result["image"][0]
+    assert np.allclose(np.asarray(ff_out._data), 10.0)
