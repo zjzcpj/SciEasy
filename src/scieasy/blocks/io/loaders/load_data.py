@@ -29,6 +29,7 @@ from scieasy.blocks.io.io_block import IOBlock
 from scieasy.core.types.array import Array
 from scieasy.core.types.artifact import Artifact
 from scieasy.core.types.base import DataObject
+from scieasy.core.types.collection import Collection
 from scieasy.core.types.composite import CompositeData
 from scieasy.core.types.dataframe import DataFrame
 from scieasy.core.types.series import Series
@@ -97,7 +98,11 @@ class LoadData(IOBlock):
                 "default": "DataFrame",
                 "ui_priority": 0,
             },
-            "path": {"type": "string", "ui_priority": 1},
+            "path": {
+                "type": ["string", "array"],
+                "items": {"type": "string"},
+                "ui_priority": 1,
+            },
             "allow_pickle": {
                 "type": "boolean",
                 "default": False,
@@ -116,17 +121,31 @@ class LoadData(IOBlock):
         ``DataFrame`` so the validator never sees a malformed port; the
         run-time ``load()`` call still raises ``ValueError`` for unknown
         enum values, so the frontend can show the error path.
+
+        When ``config["path"]`` is a list, the output port is annotated with
+        ``is_collection=True`` to signal to the frontend and runtime that the
+        block produces a Collection rather than a bare DataObject.
         """
         type_name = self.config.get("core_type", "DataFrame")
         cls = _CORE_TYPE_MAP.get(type_name, DataFrame)
-        return [OutputPort(name="data", accepted_types=[cls])]
+        is_multi = isinstance(self.config.get("path"), list)
+        return [OutputPort(name="data", accepted_types=[cls], is_collection=is_multi)]
 
-    def load(self, config: BlockConfig) -> DataObject:
+    def load(self, config: BlockConfig) -> DataObject | Collection:
         """Dispatch to one of the six private ``_load_*`` functions.
 
         The selected function is determined by ``config["core_type"]``;
         unknown values raise ``ValueError`` rather than silently picking
         a default.
+
+        When ``config["path"]`` is a list of strings, each file is loaded
+        individually and the results are packed into a homogeneous
+        :class:`Collection`. All files in a multi-path list must produce the
+        same ``core_type``; the Collection ``item_type`` is derived from the
+        configured ``core_type``.
+
+        When ``config["path"]`` is a single string, the pre-existing single-
+        object return behavior is preserved.
         """
         type_name = config.get("core_type", "DataFrame")
         dispatch: dict[str, Any] = {
@@ -139,6 +158,22 @@ class LoadData(IOBlock):
         }
         if type_name not in dispatch:
             raise ValueError(f"Unknown core_type: {type_name}")
+
+        raw_path = config.get("path")
+        if isinstance(raw_path, list):
+            # Multi-path: load each file and return a Collection.
+            loader = dispatch[type_name]
+            item_cls = _CORE_TYPE_MAP[type_name]
+            shared_params: dict[str, Any] = {"core_type": type_name}
+            allow_pickle = config.get("allow_pickle")
+            if allow_pickle is not None:
+                shared_params["allow_pickle"] = allow_pickle
+            items: list[DataObject] = []
+            for single_path in raw_path:
+                single_config = BlockConfig(params={**shared_params, "path": str(single_path)})
+                items.append(loader(single_config))
+            return Collection(items=items, item_type=item_cls)
+
         result: DataObject = dispatch[type_name](config)
         return result
 
