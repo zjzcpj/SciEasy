@@ -649,6 +649,7 @@ def test_imaging_segmentation_core_impl_smoke() -> None:
 
 def test_imaging_measurement_impl_smoke() -> None:
     """Smoke test that the measurement bundle is wired into the imaging plugin surface."""
+    pytest.importorskip("skimage")
     import numpy as np
     from scieasy_blocks_imaging import Colocalization, PairwiseDistance, RegionProps, get_blocks
     from scieasy_blocks_imaging.types import Image, Label
