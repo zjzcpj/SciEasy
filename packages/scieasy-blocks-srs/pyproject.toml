@@ -8,9 +8,16 @@ version = "0.1.0.dev0"
 description = "SciEasy SRS plugin — placeholder skeleton (Phase 11)."
 requires-python = ">=3.11"
 dependencies = [
+    "numpy>=1.26",
     "scieasy>=0.2",
     "scieasy-blocks-imaging>=0.1.0.dev0",
+    "scikit-learn>=1.5",
+    "scipy>=1.11",
 ]
+
+[project.optional-dependencies]
+pywt = ["PyWavelets>=1.6"]
+bm4d = ["bm4d>=4.2"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

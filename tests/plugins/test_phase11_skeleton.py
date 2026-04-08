@@ -685,6 +685,34 @@ def test_srs_types_impl_smoke() -> None:
     assert get_types() == [SRSImage]
 
 
+def test_srs_preprocess_impl_smoke() -> None:
+    """Smoke test that T-SRS-002..005 preprocess bodies are concrete."""
+    pytest.importorskip("sklearn")
+    pytest.importorskip("scipy")
+    import numpy as np
+    from scieasy_blocks_imaging.types import Image
+    from scieasy_blocks_srs import SRSBaseline, SRSCalibrate, SRSDenoise, SRSImage, SRSNormalize
+
+    from scieasy.blocks.base.config import BlockConfig
+
+    raw_arr = np.arange(2 * 2 * 6, dtype=np.uint16).reshape(2, 2, 6)
+    raw = Image(axes=["y", "x", "lambda"], shape=raw_arr.shape, dtype=raw_arr.dtype)
+    raw._data = raw_arr
+
+    calibrated = SRSCalibrate().process_item(
+        raw,
+        BlockConfig(params={"wavenumbers_cm1": [2850.0, 2865.0, 2880.0, 2895.0, 2910.0, 2930.0]}),
+    )
+    baseline = SRSBaseline().process_item(calibrated, BlockConfig(params={"method": "polynomial", "order": 2}))
+    denoised = SRSDenoise().process_item(baseline, BlockConfig(params={"method": "PCA_denoise", "n_components": 2}))
+    normalized = SRSNormalize().process_item(denoised, BlockConfig(params={"method": "SNV"}))
+
+    assert isinstance(calibrated, SRSImage)
+    assert baseline.shape == calibrated.shape
+    assert denoised.shape == calibrated.shape
+    assert normalized.dtype == np.dtype(np.float32)
+
+
 def test_imaging_segmentation_core_impl_smoke() -> None:
     """Smoke test that the segmentation core bundle is wired into the imaging plugin surface."""
     pytest.importorskip("skimage")
@@ -800,3 +828,40 @@ def test_imaging_finish_impl_smoke() -> None:
     ):
         block = block_cls()
         assert block.type_name
+def test_srs_component_analysis_impl_smoke() -> None:
+    """Smoke test that SRS component_analysis bundle (T-SRS-006..010) is concrete."""
+    pytest.importorskip("sklearn")
+    pytest.importorskip("scipy")
+    import numpy as np
+    from scieasy_blocks_srs.component_analysis.srs_ica import SRSICA
+    from scieasy_blocks_srs.component_analysis.srs_kmeans import SRSKMeansCluster
+    from scieasy_blocks_srs.component_analysis.srs_pca import SRSPCA
+    from scieasy_blocks_srs.component_analysis.srs_unmix import SRSUnmix
+    from scieasy_blocks_srs.component_analysis.srs_vca import SRSVCA
+    from scieasy_blocks_srs.types import SRSImage
+
+    from scieasy.blocks.base.config import BlockConfig
+    from scieasy.core.types.collection import Collection
+    from scieasy.core.types.dataframe import DataFrame
+
+    rng = np.random.default_rng(0)
+    cube = rng.random((6, 6, 8)).astype(np.float64)
+    item = SRSImage(axes=["y", "x", "lambda"], shape=cube.shape, dtype=cube.dtype)
+    item._data = cube  # type: ignore[attr-defined]
+
+    vca_df = SRSVCA().process_item(item, BlockConfig(params={"n_components": 2}))
+    assert isinstance(vca_df, DataFrame) and vca_df.row_count == 2
+
+    unmix_out = SRSUnmix().run({"image": item}, BlockConfig(params={"auto_vca_n_components": 2}))
+    assert isinstance(unmix_out["abundance_maps"], Collection)
+    assert isinstance(unmix_out["endmembers"], DataFrame)
+
+    pca_out = SRSPCA().run({"image": item}, BlockConfig(params={"n_components": 2, "scale": False}))
+    assert len(list(pca_out["pc_maps"])) == 2
+
+    ica_out = SRSICA().run({"image": item}, BlockConfig(params={"n_components": 2}))
+    assert len(list(ica_out["ic_maps"])) == 2
+
+    km_out = SRSKMeansCluster().run({"image": item}, BlockConfig(params={"n_clusters": 2, "n_init": 3}))
+    km_centroids = km_out["centroids"]
+    assert isinstance(km_centroids, DataFrame) and km_centroids.row_count == 2
