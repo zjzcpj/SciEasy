@@ -152,7 +152,8 @@ def test_image_placeholder_raises() -> None:
 
 def test_srs_image_placeholder_raises() -> None:
     """Representative: instantiating T-SRS-001 SRSImage raises NotImplementedError."""
-    from scieasy_blocks_srs.types import SRSImage
+    pytest.skip("T-SRS-001 skeleton landed; coverage moved to packages/scieasy-blocks-srs/tests/test_types.py")
+    from scieasy_blocks_srs.types import SRSImage  # noqa: F401  (kept for unreachable type-check coverage)
 
     with pytest.raises(NotImplementedError, match="T-SRS-001"):
         SRSImage()
