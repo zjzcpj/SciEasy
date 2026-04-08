@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- [#398] Add `docs/testing/AI_AGENT_SYSTEM_TESTING_GUIDE.md`, a formal English system-test playbook for AI agents covering the fixed K562 imaging dataset, CLI runtime validation, browser-tool-driven GUI execution from `pip install`, hyperspectral/SRS coverage, pause/resume/checkpoint verification, and required Windows/macOS parity (@Codex, 2026-04-08, branch: docs/issue-398/ai-agent-system-testing-guide, session: 20260408-140515-formalize-ai-agent-system-testing-guide)
 - [#389] Auto-bundle frontend SPA on `pip install` via setuptools `build_py` hook + dev-mode fallback in `api/app.py` so `scieasy gui` serves the React workflow editor instead of the FastAPI /docs panel (@claude, 2026-04-08, branch: feat/issue-389/bundle-frontend-spa, session: 20260408-113948-serve-frontend-spa-automatically-on-pip)
 - [#386] Implement remaining imaging blocks: preprocess B + registration + projection + math + visualization + interactive AppBlocks + packaging (T-IMG-008..038) (@codex, 2026-04-08, branch: feat/sprint-c/imaging-finish, session: 20260408-080833-sprint-c-imaging-finish-t-img-008-038)
 - [#385] Implement SRS component_analysis blocks (T-SRS-006..010) (@claude, 2026-04-08, branch: feat/sprint-d/srs-component-analysis, session: 20260408-080859-sprint-d-srs-component-analysis-t-srs-00)
