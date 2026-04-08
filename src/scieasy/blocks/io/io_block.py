@@ -135,6 +135,4 @@ class IOBlock(Block):
             # restores strict typing across the IO surface. See
             # ``project_phase11_ttrk007_008_bookkeeping.md`` Item 1.
             path_receipt = Text(content=str(config.get("path")), format="plain")
-            return {
-                self._resolved_save_receipt_port_name(): Collection(items=[path_receipt], item_type=Text)
-            }
+            return {self._resolved_save_receipt_port_name(): Collection(items=[path_receipt], item_type=Text)}
