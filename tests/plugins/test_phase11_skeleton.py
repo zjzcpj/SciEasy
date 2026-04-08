@@ -142,6 +142,40 @@ def test_skeleton_module_importable(module_name: str) -> None:
     importlib.import_module(module_name)
 
 
+# ── Sprint C imaging continuation A (T-IMG-002..020) — issue #350 ────────
+# These 19 modules are upgraded from one-line placeholders to full
+# skeleton classes (ClassVars + method signatures + NotImplementedError
+# bodies). The parametrized test below pins the contract: every module
+# must remain importable after the impl agent fills the bodies in.
+_CONTINUATION_A_MODULES: list[str] = [
+    "scieasy_blocks_imaging.io.load_image",
+    "scieasy_blocks_imaging.io.save_image",
+    "scieasy_blocks_imaging.preprocess.denoise",
+    "scieasy_blocks_imaging.preprocess.background_subtract",
+    "scieasy_blocks_imaging.preprocess.normalize",
+    "scieasy_blocks_imaging.preprocess.flat_field_correct",
+    "scieasy_blocks_imaging.preprocess.geometry",
+    "scieasy_blocks_imaging.preprocess.convert_dtype",
+    "scieasy_blocks_imaging.preprocess.axis_ops",
+    "scieasy_blocks_imaging.preprocess.deconvolve",
+    "scieasy_blocks_imaging.morphology.morphology_op",
+    "scieasy_blocks_imaging.morphology.edge_detect",
+    "scieasy_blocks_imaging.morphology.ridge_filter",
+    "scieasy_blocks_imaging.morphology.sharpen",
+    "scieasy_blocks_imaging.morphology.fft_filter",
+    "scieasy_blocks_imaging.segmentation.threshold",
+    "scieasy_blocks_imaging.segmentation.watershed",
+    "scieasy_blocks_imaging.segmentation.cellpose_segment",
+    "scieasy_blocks_imaging.segmentation.blob_detect",
+]
+
+
+@pytest.mark.parametrize("module_name", _CONTINUATION_A_MODULES)
+def test_continuation_a_modules_importable(module_name: str) -> None:
+    """Sprint C continuation A skeletons (T-IMG-002..020) importable."""
+    importlib.import_module(module_name)
+
+
 def test_image_placeholder_raises() -> None:
     """T-IMG-001 has landed (Sprint C imaging skeleton, PR #346).
 
