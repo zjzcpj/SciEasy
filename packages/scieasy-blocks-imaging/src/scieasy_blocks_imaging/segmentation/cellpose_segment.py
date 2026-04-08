@@ -61,7 +61,14 @@ class CellposeSegment(ProcessBlock):
     }
 
     def setup(self, config: BlockConfig) -> Any:
-        """Load the cellpose model once per run (ADR-027 D7)."""
+        """Load the cellpose model once per run (ADR-027 D7).
+
+        Supports both the legacy cellpose v2 API (``models.Cellpose``) and the
+        newer v3+ API where only ``models.CellposeModel`` is available.  When
+        ``models.Cellpose`` is absent the block falls back to
+        ``CellposeModel(model_type=...)`` which provides an identical
+        ``eval()`` interface.
+        """
         models = _import_cellpose_models()
         model_name = str(config.get("model", "cyto3"))
         use_gpu = bool(config.get("use_gpu", False))
@@ -70,7 +77,15 @@ class CellposeSegment(ProcessBlock):
             if not path:
                 raise ValueError("model=custom requires custom_model_path")
             return models.CellposeModel(pretrained_model=path, gpu=use_gpu)
-        return models.Cellpose(model_type=model_name, gpu=use_gpu)
+        if hasattr(models, "Cellpose"):
+            return models.Cellpose(model_type=model_name, gpu=use_gpu)
+        # cellpose v3+: Cellpose wrapper removed; CellposeModel accepts model_type directly.
+        logger.debug(
+            "cellpose.models.Cellpose not found; falling back to CellposeModel(model_type=%r) "
+            "(cellpose v3+ API detected)",
+            model_name,
+        )
+        return models.CellposeModel(model_type=model_name, gpu=use_gpu)
 
     def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, Collection]:
         """Override Tier 1 run so the output collection carries ``Label`` items."""
