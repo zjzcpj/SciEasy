@@ -131,3 +131,80 @@ def test_load_axes_override_wrong_length_raises(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="ndim"):
         LoadImage().load(BlockConfig(params={"path": str(out_path), "axes": "cyx"}))
+
+
+# ---------------------------------------------------------------------------
+# Multi-file Collection support (#421)
+# ---------------------------------------------------------------------------
+
+
+def test_load_multi_path_returns_collection(tmp_path: Path) -> None:
+    """A list of paths in config['path'] must return a Collection of Images."""
+    arr = np.arange(6, dtype=np.uint8).reshape(2, 3)
+    img = _make_image(arr, ["y", "x"])
+    col = Collection(items=[img], item_type=Image)
+
+    p1 = tmp_path / "img1.tif"
+    p2 = tmp_path / "img2.tif"
+    SaveImage().save(col, BlockConfig(params={"path": str(p1)}))
+    SaveImage().save(col, BlockConfig(params={"path": str(p2)}))
+
+    result = LoadImage().load(BlockConfig(params={"path": [str(p1), str(p2)]}))
+
+    assert isinstance(result, Collection)
+    assert result.item_type is Image
+    assert len(result) == 2
+    assert all(isinstance(item, Image) for item in result)
+
+
+def test_load_multi_path_contents_match_sources(tmp_path: Path) -> None:
+    """Each Image in the Collection must reflect its source file."""
+    arr1 = np.zeros((2, 3), dtype=np.uint8)
+    arr2 = np.ones((4, 5), dtype=np.uint8)
+    img1 = _make_image(arr1, ["y", "x"])
+    img2 = _make_image(arr2, ["y", "x"])
+
+    p1 = tmp_path / "src1.tif"
+    p2 = tmp_path / "src2.tif"
+    SaveImage().save(Collection(items=[img1], item_type=Image), BlockConfig(params={"path": str(p1)}))
+    SaveImage().save(Collection(items=[img2], item_type=Image), BlockConfig(params={"path": str(p2)}))
+
+    result = LoadImage().load(BlockConfig(params={"path": [str(p1), str(p2)]}))
+
+    assert result[0].shape == (2, 3)
+    assert result[1].shape == (4, 5)
+    assert np.array_equal(result[0]._data, arr1)
+    assert np.array_equal(result[1]._data, arr2)
+
+
+def test_load_multi_path_single_element_list(tmp_path: Path) -> None:
+    """A single-element list returns a Collection (not a bare Image)."""
+    arr = np.zeros((2, 3), dtype=np.uint8)
+    img = _make_image(arr, ["y", "x"])
+    p = tmp_path / "only.tif"
+    SaveImage().save(Collection(items=[img], item_type=Image), BlockConfig(params={"path": str(p)}))
+
+    result = LoadImage().load(BlockConfig(params={"path": [str(p)]}))
+
+    assert isinstance(result, Collection)
+    assert len(result) == 1
+
+
+def test_load_multi_path_missing_file_raises(tmp_path: Path) -> None:
+    """If any path in the list is missing, FileNotFoundError is raised."""
+    arr = np.zeros((2, 3), dtype=np.uint8)
+    img = _make_image(arr, ["y", "x"])
+    p1 = tmp_path / "exists.tif"
+    SaveImage().save(Collection(items=[img], item_type=Image), BlockConfig(params={"path": str(p1)}))
+
+    missing = tmp_path / "missing.tif"
+    with pytest.raises(FileNotFoundError):
+        LoadImage().load(BlockConfig(params={"path": [str(p1), str(missing)]}))
+
+
+def test_load_multi_path_unsupported_extension_raises(tmp_path: Path) -> None:
+    """An unsupported extension in the path list raises ValueError."""
+    bogus = tmp_path / "bad.xyz"
+    bogus.write_bytes(b"not an image")
+    with pytest.raises(ValueError, match="unsupported image format"):
+        LoadImage().load(BlockConfig(params={"path": [str(bogus)]}))

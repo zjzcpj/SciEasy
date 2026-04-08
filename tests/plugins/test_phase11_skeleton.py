@@ -662,6 +662,44 @@ def test_imaging_cellpose_impl_smoke(monkeypatch: pytest.MonkeyPatch) -> None:
     assert isinstance(result["labels"][0], Label)
 
 
+def test_imaging_cellpose_v3_api_fallback_smoke(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression test: CellposeSegment.setup() falls back to CellposeModel when models.Cellpose absent (#419)."""
+    from types import SimpleNamespace
+
+    import numpy as np
+    from scieasy_blocks_imaging import CellposeSegment
+    from scieasy_blocks_imaging.types import Image, Label
+
+    from scieasy.blocks.base.config import BlockConfig
+    from scieasy.core.types.collection import Collection
+
+    class _FakeModel:
+        def __init__(self, *, model_type: str, gpu: bool = False) -> None:
+            self.model_type = model_type
+            self.gpu = gpu
+
+        def eval(self, data: np.ndarray, **kwargs: object) -> tuple[np.ndarray, None, None, None]:
+            labels = np.zeros(np.asarray(data).shape, dtype=np.int32)
+            return labels, None, None, None
+
+    # Simulate cellpose v3+: no Cellpose wrapper, only CellposeModel.
+    monkeypatch.setattr(
+        "scieasy_blocks_imaging.segmentation.cellpose_segment._import_cellpose_models",
+        lambda: SimpleNamespace(
+            CellposeModel=lambda *, model_type, gpu: _FakeModel(model_type=model_type, gpu=gpu),
+        ),
+    )
+
+    image = Image(axes=["y", "x"], shape=(4, 4), dtype=np.float32)
+    image._data = np.ones((4, 4), dtype=np.float32)  # type: ignore[attr-defined]
+    result = CellposeSegment().run(
+        {"images": Collection(items=[image], item_type=Image)},
+        BlockConfig(params={"model": "cyto3"}),
+    )
+
+    assert isinstance(result["labels"][0], Label)
+
+
 def test_srs_types_impl_smoke() -> None:
     """Smoke test that T-SRS-001 SRSImage is concrete."""
     import numpy as np

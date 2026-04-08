@@ -72,7 +72,7 @@ class FijiBlock(AppBlock):
     def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, Collection]:
         images = _input_images(inputs, "image", "FijiBlock")
         exchange_dir = _resolve_exchange_dir(config, prefix="scieasy_fiji_")
-        _prepare_image_exchange(images, exchange_dir, tool_name=self.type_name, config=config)
+        staged_paths = _prepare_image_exchange(images, exchange_dir, tool_name=self.type_name, config=config)
 
         extra_args: list[str] = []
         macro_path = config.get("macro_path")
@@ -81,8 +81,21 @@ class FijiBlock(AppBlock):
         command = _resolve_command(
             config, app_command=self.app_command, override_key="fiji_path", extra_args=extra_args
         )
+
+        # When no macro is provided Fiji opens images from its native file-opener.
+        # Pass the staged TIFF paths directly so Fiji receives individual file paths
+        # rather than the exchange directory root, which it cannot open (#420).
+        launch_args: list[str] | None = None
+        if not macro_path:
+            launch_args = [str(p) for p in staged_paths]
+
         output_files = _run_external_app(
-            self, command=command, exchange_dir=exchange_dir, patterns=self.output_patterns, config=config
+            self,
+            command=command,
+            exchange_dir=exchange_dir,
+            patterns=self.output_patterns,
+            config=config,
+            launch_args=launch_args,
         )
         return _collect_outputs(
             output_files, template_image=images[0] if images else None, allowed_ports={"image", "mask", "label"}

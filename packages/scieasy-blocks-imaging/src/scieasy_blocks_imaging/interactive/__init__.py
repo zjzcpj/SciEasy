@@ -113,7 +113,19 @@ def _run_external_app(
     exchange_dir: Path,
     patterns: list[str],
     config: BlockConfig,
+    launch_args: list[str] | None = None,
 ) -> list[Path]:
+    """Launch an external application and wait for output files.
+
+    Parameters
+    ----------
+    launch_args:
+        When provided, these strings are appended to the validated command
+        instead of the default ``str(exchange_dir)`` suffix.  Pass the staged
+        TIFF file paths here for applications (e.g. Fiji native opener) that
+        expect individual file paths rather than the exchange directory root
+        (see issue #420).
+    """
     bridge = FileExchangeBridge()
     timeout = int(config.get("watch_timeout", getattr(block, "watch_timeout", 300)))
     stability_period = float(config.get("stability_period", 0.5))
@@ -122,7 +134,7 @@ def _run_external_app(
     if block.state == BlockState.RUNNING:
         block.transition(BlockState.PAUSED)
 
-    proc = bridge.launch(command, exchange_dir)
+    proc = bridge.launch(command, exchange_dir, argv_override=launch_args)
     watcher = FileWatcher(
         directory=exchange_dir / "outputs",
         patterns=patterns,

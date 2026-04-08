@@ -60,6 +60,7 @@ export default function App() {
 
   const blockStates = useAppStore((state) => state.blockStates);
   const blockOutputs = useAppStore((state) => state.blockOutputs);
+  const blockErrors = useAppStore((state) => state.blockErrors);
   const logEntries = useAppStore((state) => state.logEntries);
   const resetExecution = useAppStore((state) => state.resetExecution);
 
@@ -576,6 +577,7 @@ export default function App() {
                   <ResizablePanel defaultSize="70%" minSize="20%">
                     <WorkflowCanvas
                       blockStates={blockStates}
+                      blockErrors={blockErrors}
                       blocks={blocks.filter((block) => {
                         const value = `${block.name} ${block.description} ${block.category}`.toLowerCase();
                         return value.includes(paletteSearch.toLowerCase());
