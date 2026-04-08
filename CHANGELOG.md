@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#408] Deprecate `deserialize_intermediate_refs()` and `_deserialize_value()` in `checkpoint.py` with detailed docstrings explaining the execute-from wire-format pass-through contract; add explanatory comment in `execute_from()` in `scheduler.py` (@claude, 2026-04-08, branch: fix/issue-408/deprecate-dead-deserialize, session: 20260408-154723-chore-deprecate-dead-deserialize-interme)
 - [#396] Restore plugin IO execution/schema fidelity by surfacing block-run failures in the GUI, exposing `direction` and `is_collection` in block schemas, aligning imaging collection ports to item-type metadata, and adding monorepo plugin block/type discovery so local source checkouts still render correct colors and Browse actions (@Codex, 2026-04-08, branch: fix/issue-396/gui-io-metadata, session: 20260408-133541-fix-issue-396-gui-io-metadata-and-execut)
 
 ### Added
