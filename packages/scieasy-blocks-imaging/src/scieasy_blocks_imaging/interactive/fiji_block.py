@@ -42,7 +42,11 @@ class FijiBlock(AppBlock):
     ]
     output_ports: ClassVar[list[OutputPort]] = [
         OutputPort(
-            name="image", accepted_types=[Image], is_collection=True, required=False, description="Image(s) edited / re-saved by the user."
+            name="image",
+            accepted_types=[Image],
+            is_collection=True,
+            required=False,
+            description="Image(s) edited / re-saved by the user.",
         )
     ]
 
