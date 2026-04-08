@@ -27,7 +27,7 @@ from scieasy.core.types.registry import TypeRegistry
 from scieasy.core.types.series import Series
 from scieasy.core.types.text import Text
 from scieasy.engine.checkpoint import CheckpointManager
-from scieasy.engine.events import WORKFLOW_ERROR, EngineEvent, EventBus
+from scieasy.engine.events import EventBus
 from scieasy.engine.resources import ResourceManager
 from scieasy.engine.runners.local import LocalRunner
 from scieasy.engine.runners.process_handle import ProcessRegistry
@@ -36,8 +36,6 @@ from scieasy.workflow.definition import EdgeDef, NodeDef, WorkflowDefinition
 from scieasy.workflow.serializer import load_yaml, save_yaml
 
 logger = logging.getLogger(__name__)
-
-UI_ONLY_BLOCK_TYPES = frozenset({"_annotation", "_group"})
 
 
 def _now_iso() -> str:
@@ -182,7 +180,6 @@ class ApiRuntime:
         self.active_project: KnownProject | None = None
         self.data_catalog: dict[str, DataRecord] = {}
         self.workflow_runs: dict[str, WorkflowRun] = {}
-        self._background_tasks: set[asyncio.Task[Any]] = set()
 
         self.event_bus = EventBus()
         self.resource_manager = ResourceManager(event_bus=self.event_bus)
@@ -429,14 +426,6 @@ class ApiRuntime:
         if errors:
             raise ValueError(f"Workflow validation failed: {'; '.join(str(e) for e in errors)}")
 
-        unknown_block_errors = [
-            f"Node '{node.id}' references unknown block type '{node.block_type}'"
-            for node in definition.nodes
-            if node.block_type not in UI_ONLY_BLOCK_TYPES and self.block_registry.get_spec(node.block_type) is None
-        ]
-        if unknown_block_errors:
-            raise ValueError(f"Workflow validation failed: {'; '.join(unknown_block_errors)}")
-
         save_yaml(definition, self.workflow_path(definition.id))
         return definition
 
@@ -653,69 +642,12 @@ class ApiRuntime:
         project = self.require_active_project()
         return Path(project.path) / "checkpoints" / workflow_id
 
-    async def _publish_workflow_error(self, workflow_id: str, error: str) -> None:
-        await self.log_broadcaster.publish(
-            level="error",
-            message=error,
-            workflow_id=workflow_id,
-        )
-        await self.event_bus.emit(
-            EngineEvent(
-                event_type=WORKFLOW_ERROR,
-                data={"workflow_id": workflow_id, "error": error},
-            )
-        )
-
-    def _attach_workflow_task_error_handler(self, workflow_id: str, task: asyncio.Task[None]) -> None:
-        def _on_done(done_task: asyncio.Task[None]) -> None:
-            try:
-                exc = done_task.exception()
-            except asyncio.CancelledError:
-                return
-            if exc is None:
-                return
-
-            logger.error(
-                "Workflow %s failed in background task",
-                workflow_id,
-                exc_info=(type(exc), exc, exc.__traceback__),
-            )
-            error_task = asyncio.create_task(
-                self._publish_workflow_error(
-                    workflow_id,
-                    f"Workflow execution failed: {exc}",
-                )
-            )
-            self._background_tasks.add(error_task)
-            error_task.add_done_callback(self._background_tasks.discard)
-
-        task.add_done_callback(_on_done)
-
-    def _validate_execute_from_request(
-        self,
-        workflow: WorkflowDefinition,
-        checkpoint_manager: CheckpointManager,
-        block_id: str,
-    ) -> None:
-        node_ids = {node.id for node in workflow.nodes if node.block_type not in UI_ONLY_BLOCK_TYPES}
-        if block_id not in node_ids:
-            raise ValueError(f"Unknown block: {block_id}")
-
-        checkpoint = checkpoint_manager.load(workflow.id)
-        if checkpoint is None:
-            raise FileNotFoundError("No checkpoint exists for execute-from")
-
-        ancestors = self._ancestors_of(workflow, block_id)
-        missing = [ancestor for ancestor in ancestors if ancestor not in checkpoint.intermediate_refs]
-        if missing:
-            joined = ", ".join(sorted(missing))
-            raise ValueError(f"Cannot execute from block without cached upstream outputs: {joined}")
-
     def start_workflow(self, workflow_id: str, *, execute_from: str | None = None) -> dict[str, Any]:
         workflow = self.load_workflow(workflow_id)
         checkpoint_manager = CheckpointManager(self.checkpoint_dir_for(workflow_id))
-        if execute_from is not None:
-            self._validate_execute_from_request(workflow, checkpoint_manager, execute_from)
+        checkpoint = checkpoint_manager.load(workflow_id) if execute_from is not None else None
+        if execute_from is not None and checkpoint is None:
+            raise FileNotFoundError("No checkpoint exists for execute-from")
 
         scheduler = DAGScheduler(
             workflow=workflow,
@@ -744,7 +676,6 @@ class ApiRuntime:
                 await scheduler.execute()
 
         task = asyncio.create_task(_run())
-        self._attach_workflow_task_error_handler(workflow_id, task)
         self.workflow_runs[workflow_id] = WorkflowRun(
             scheduler=scheduler,
             task=task,

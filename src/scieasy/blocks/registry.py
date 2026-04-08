@@ -228,8 +228,6 @@ class BlockRegistry:
             AIBlock,
             SubWorkflowBlock,
         ):
-            if inspect.isabstract(cls):
-                continue
             self._register_spec(_spec_from_class(cls, source="builtin"))
 
     def _scan_tier1(self) -> None:
@@ -308,9 +306,7 @@ class BlockRegistry:
 
             try:
                 # Invoke the callable to get blocks (and optionally PackageInfo).
-                result = loaded
-                if callable(loaded) and not (isinstance(loaded, type) and issubclass(loaded, Block)):
-                    result = loaded()
+                result = loaded() if callable(loaded) else loaded
 
                 info: PackageInfo | None = None
                 block_classes: list[type] = []
@@ -351,12 +347,6 @@ class BlockRegistry:
                         block_spec.class_name = cls.__name__
                         block_spec.package_name = pkg_name
                         self._register_spec(block_spec)
-                    elif isinstance(cls, type) and issubclass(cls, Block) and inspect.isabstract(cls):
-                        logger.warning(
-                            "Entry-point '%s' contained abstract Block class: %s",
-                            ep.name,
-                            cls.__name__,
-                        )
                     else:
                         logger.warning(
                             "Entry-point '%s' contained non-Block item: %s",
