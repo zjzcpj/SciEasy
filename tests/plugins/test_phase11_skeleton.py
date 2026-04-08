@@ -785,3 +785,42 @@ def test_imaging_measurement_impl_smoke() -> None:
     assert props.row_count == 1
     assert distances.row_count == 0
     assert coloc.row_count == 1
+
+
+def test_srs_component_analysis_impl_smoke() -> None:
+    """Smoke test that SRS component_analysis bundle (T-SRS-006..010) is concrete."""
+    pytest.importorskip("sklearn")
+    pytest.importorskip("scipy")
+    import numpy as np
+    from scieasy_blocks_srs.component_analysis.srs_ica import SRSICA
+    from scieasy_blocks_srs.component_analysis.srs_kmeans import SRSKMeansCluster
+    from scieasy_blocks_srs.component_analysis.srs_pca import SRSPCA
+    from scieasy_blocks_srs.component_analysis.srs_unmix import SRSUnmix
+    from scieasy_blocks_srs.component_analysis.srs_vca import SRSVCA
+    from scieasy_blocks_srs.types import SRSImage
+
+    from scieasy.blocks.base.config import BlockConfig
+    from scieasy.core.types.collection import Collection
+    from scieasy.core.types.dataframe import DataFrame
+
+    rng = np.random.default_rng(0)
+    cube = rng.random((6, 6, 8)).astype(np.float64)
+    item = SRSImage(axes=["y", "x", "lambda"], shape=cube.shape, dtype=cube.dtype)
+    item._data = cube  # type: ignore[attr-defined]
+
+    vca_df = SRSVCA().process_item(item, BlockConfig(params={"n_components": 2}))
+    assert isinstance(vca_df, DataFrame) and vca_df.row_count == 2
+
+    unmix_out = SRSUnmix().run({"image": item}, BlockConfig(params={"auto_vca_n_components": 2}))
+    assert isinstance(unmix_out["abundance_maps"], Collection)
+    assert isinstance(unmix_out["endmembers"], DataFrame)
+
+    pca_out = SRSPCA().run({"image": item}, BlockConfig(params={"n_components": 2, "scale": False}))
+    assert len(list(pca_out["pc_maps"])) == 2
+
+    ica_out = SRSICA().run({"image": item}, BlockConfig(params={"n_components": 2}))
+    assert len(list(ica_out["ic_maps"])) == 2
+
+    km_out = SRSKMeansCluster().run({"image": item}, BlockConfig(params={"n_clusters": 2, "n_init": 3}))
+    km_centroids = km_out["centroids"]
+    assert isinstance(km_centroids, DataFrame) and km_centroids.row_count == 2
