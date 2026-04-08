@@ -304,7 +304,27 @@ def test_t_img_027_compute_registration_class() -> None:
 
 
 def test_t_img_027_phase_correlation() -> None:
-    pytest.skip("T-IMG-027 impl pending")
+    pytest.importorskip("skimage")
+    from scieasy_blocks_imaging.registration.compute_registration import (
+        ComputeRegistration,
+    )
+    from scieasy_blocks_imaging.types import Image
+
+    arr = np.zeros((16, 16), dtype=np.float32)
+    arr[4:8, 4:8] = 1.0
+    moving = np.roll(arr, shift=(2, -1), axis=(0, 1))
+    moving_image = Image(axes=["y", "x"], shape=moving.shape, dtype=moving.dtype)
+    moving_image._data = moving  # type: ignore[attr-defined]
+    fixed_image = Image(axes=["y", "x"], shape=arr.shape, dtype=arr.dtype)
+    fixed_image._data = arr  # type: ignore[attr-defined]
+    result = ComputeRegistration().run(
+        {
+            "moving": Collection(items=[moving_image], item_type=Image),
+            "fixed": Collection(items=[fixed_image], item_type=Image),
+        },
+        BlockConfig(params={"method": "phase_correlation"}),
+    )
+    assert result["transform"][0].shape == (2, 3)
 
 
 # ── T-IMG-028 ──────────────────────────────────────────────────────────
@@ -315,7 +335,30 @@ def test_t_img_028_apply_transform_class() -> None:
 
 
 def test_t_img_028_warp_basic() -> None:
-    pytest.skip("T-IMG-028 impl pending")
+    pytest.importorskip("skimage")
+    from scieasy_blocks_imaging.registration.apply_transform import ApplyTransform
+    from scieasy_blocks_imaging.types import Image, Transform
+
+    arr = np.zeros((10, 10), dtype=np.float32)
+    arr[3:5, 3:5] = 1.0
+    image = Image(axes=["y", "x"], shape=arr.shape, dtype=arr.dtype)
+    image._data = arr  # type: ignore[attr-defined]
+    transform = Transform(
+        axes=["row", "col"],
+        shape=(2, 3),
+        dtype=np.float64,
+        meta=Transform.Meta(transform_type="affine"),
+    )
+    transform._data = np.asarray([[1.0, 0.0, 1.0], [0.0, 1.0, 0.0]], dtype=np.float64)  # type: ignore[attr-defined]
+
+    result = ApplyTransform().run(
+        {
+            "image": Collection(items=[image], item_type=Image),
+            "transform": Collection(items=[transform], item_type=Transform),
+        },
+        BlockConfig(params={"interpolation": "nearest"}),
+    )
+    assert result["warped"][0].shape == (10, 10)
 
 
 # ── T-IMG-029 ──────────────────────────────────────────────────────────
@@ -326,7 +369,21 @@ def test_t_img_029_register_series_class() -> None:
 
 
 def test_t_img_029_align_to_reference() -> None:
-    pytest.skip("T-IMG-029 impl pending")
+    pytest.importorskip("skimage")
+    from scieasy_blocks_imaging.registration.register_series import RegisterSeries
+    from scieasy_blocks_imaging.types import Image
+
+    base = np.zeros((12, 12), dtype=np.float32)
+    base[4:8, 4:8] = 1.0
+    shifted = np.roll(base, shift=(1, 2), axis=(0, 1))
+    series = Image(axes=["t", "y", "x"], shape=(2, 12, 12), dtype=np.float32)
+    series._data = np.stack([base, shifted], axis=0)  # type: ignore[attr-defined]
+
+    result = RegisterSeries().run(
+        {"series": Collection(items=[series], item_type=Image)},
+        BlockConfig(params={"axis": "t", "reference_frame": 0}),
+    )
+    assert result["registered"][0].shape == (2, 12, 12)
 
 
 # ── T-IMG-030 ──────────────────────────────────────────────────────────

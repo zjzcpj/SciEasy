@@ -19,6 +19,9 @@ from scieasy_blocks_imaging.preprocess.denoise import Denoise
 from scieasy_blocks_imaging.preprocess.flat_field_correct import FlatFieldCorrect
 from scieasy_blocks_imaging.preprocess.geometry import Crop, Flip, Pad, Resize, Rotate
 from scieasy_blocks_imaging.preprocess.normalize import Normalize
+from scieasy_blocks_imaging.registration.apply_transform import ApplyTransform
+from scieasy_blocks_imaging.registration.compute_registration import ComputeRegistration
+from scieasy_blocks_imaging.registration.register_series import RegisterSeries
 from scieasy_blocks_imaging.segmentation.blob_detect import BlobDetect
 from scieasy_blocks_imaging.segmentation.cellpose_segment import CellposeSegment
 from scieasy_blocks_imaging.segmentation.cleanup import (
@@ -61,6 +64,9 @@ def get_blocks() -> list[type]:
         RidgeFilter,
         Sharpen,
         FFTFilter,
+        ComputeRegistration,
+        ApplyTransform,
+        RegisterSeries,
         RegionProps,
         PairwiseDistance,
         Colocalization,
@@ -78,12 +84,14 @@ def get_blocks() -> list[type]:
 
 
 __all__ = [
+    "ApplyTransform",
     "AxisMerge",
     "AxisSplit",
     "BackgroundSubtract",
     "BlobDetect",
     "CellposeSegment",
     "Colocalization",
+    "ComputeRegistration",
     "ConnectedComponents",
     "ConvertDType",
     "Crop",
@@ -103,6 +111,7 @@ __all__ = [
     "Pad",
     "PairwiseDistance",
     "RegionProps",
+    "RegisterSeries",
     "RemoveBorderObjects",
     "RemoveSmallObjects",
     "Resize",
