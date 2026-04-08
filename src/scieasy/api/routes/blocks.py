@@ -54,7 +54,7 @@ def _summary(spec: Any) -> BlockSummary:
         version=spec.version,
         input_ports=[_port_response(port, direction="input") for port in spec.input_ports],
         output_ports=[_port_response(port, direction="output") for port in spec.output_ports],
-        direction=spec.direction or "",
+        direction=spec.direction or None,
     )
 
 
