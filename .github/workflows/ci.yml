@@ -121,7 +121,7 @@ jobs:
   #   # Enable this job when frontend development begins.
   #   steps:
   #     - uses: actions/checkout@v6
-  #     - uses: actions/setup-node@v4
+  #     - uses: actions/setup-node@v6
   #       with:
   #         node-version: "20"
   #     - run: cd frontend && npm ci && npm run build
@@ -131,7 +131,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "20"
           cache: "npm"
@@ -168,7 +168,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "20"
           cache: "npm"
