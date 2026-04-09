@@ -1,6 +1,5 @@
 import { type Node, Handle, Position, type NodeProps } from "@xyflow/react";
 
-import { api } from "../../lib/api";
 import { resolveTypeColor, resolveRingColor, isAnyType, primaryTypeName } from "../../config/typeColorMap";
 import type { BlockNodeData } from "../../types/ui";
 import { computeEffectivePorts } from "../../utils/computeEffectivePorts";
@@ -109,26 +108,10 @@ function InlineConfigField({
   prop,
   value,
   onChange,
-  category,
-  ioDirection,
 }: {
   prop: ConfigProperty;
   value: unknown;
   onChange: (key: string, val: unknown) => void;
-  /**
-   * Block category from ``BlockSchemaResponse.category`` (e.g. ``"io"``,
-   * ``"process"``). Used to gate IO-specific UI affordances like the
-   * Browse button on the ``path`` field. Replaces the pre-ADR-028
-   * legacy ``blockType`` string discriminator (ADR-028 Addendum 1 §C11).
-   */
-  category?: string;
-  /**
-   * IO direction from ``BlockSchemaResponse.direction`` (``"input"`` for
-   * loaders, ``"output"`` for savers, ``undefined`` for non-IO blocks).
-   * Read from the schema (class-level ClassVar) — not from
-   * ``data.config?.direction`` — per ADR-028 Addendum 1 §C8.
-   */
-  ioDirection?: string;
 }) {
   const { key, schema } = prop;
   const label = (schema.title as string) ?? key;
@@ -187,58 +170,19 @@ function InlineConfigField({
     );
   }
 
-  // Show Browse button for the ``path`` field on any IO block (ADR-028
-  // Addendum 1 §B fix #1 / §C11). The discriminator is the category, not
-  // the legacy abstract-base type_name string, because after ADR-028
-  // ``IOBlock`` is an abstract base with multiple concrete subclasses
-  // (``LoadData``, ``SaveData``, plugin loaders, ...).
-  const showBrowse = category === "io" && key === "path";
-
-  // Default: text input
+  // Default: text input (Browse buttons removed — tkinter native dialogs
+  // crash on macOS; users type/paste paths directly, see #467).
   return (
     <label className="flex items-center justify-between gap-2 text-xs">
       <span className="shrink-0 text-stone-500">{label}</span>
-      <div className={`flex min-w-0 ${showBrowse ? "flex-1 gap-1" : "flex-1"}`}>
+      <div className="flex min-w-0 flex-1">
         <input
           type="text"
           className="nodrag nowheel min-w-0 flex-1 rounded border border-stone-200 bg-white px-2 py-1 text-xs text-ink focus:border-sea focus:outline-none"
+          placeholder={key === "path" ? "Type or paste path" : undefined}
           value={String(value ?? schema.default ?? "")}
           onChange={(e) => onChange(key, e.target.value)}
         />
-        {showBrowse && (
-          <button
-            type="button"
-            className="nodrag shrink-0 rounded border border-stone-200 bg-white px-1.5 py-1 text-[10px] font-medium text-stone-600 transition hover:border-pine hover:bg-pine/5"
-            title={ioDirection === "output" ? "Browse for directory" : "Browse for files"}
-            onClick={async () => {
-              try {
-                if (ioDirection === "output") {
-                  // Save Block: pick a directory
-                  const result = await api.browseDirectory();
-                  if (result.path) {
-                    onChange(key, result.path);
-                  }
-                } else {
-                  // Load Block: pick files (multi-select)
-                  const result = await api.browseFiles();
-                  if (result.paths && result.paths.length > 0) {
-                    // If a single file is selected, use its path directly.
-                    // If multiple files are selected, use their common parent directory.
-                    if (result.paths.length === 1) {
-                      onChange(key, result.paths[0]);
-                    } else {
-                      onChange(key, result.paths);
-                    }
-                  }
-                }
-              } catch {
-                // User cancelled or backend unavailable
-              }
-            }}
-          >
-            Browse
-          </button>
-        )}
       </div>
     </label>
   );
@@ -283,8 +227,6 @@ export function BlockNode({ data, selected }: NodeProps<Node<BlockNodeData>>) {
   // of from ``data.config?.direction``. After ADR-028 there is no runtime
   // ``direction`` config value — reading the old path always returned
   // undefined, breaking the Save Block directory picker.
-  const ioDirection = data.schema?.direction ?? undefined;
-
   // ADR-028 Addendum 1 §D4 / spec §d step 4: compute effective ports from
   // the dynamic-port descriptor + driving config value. Static blocks pay
   // zero cost (the helper returns ``basePorts`` by reference). Dynamic
@@ -375,8 +317,6 @@ export function BlockNode({ data, selected }: NodeProps<Node<BlockNodeData>>) {
               prop={prop}
               value={data.config?.[prop.key]}
               onChange={handleConfigChange}
-              category={data.category}
-              ioDirection={ioDirection}
             />
           ))
         ) : (

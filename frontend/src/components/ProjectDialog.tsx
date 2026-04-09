@@ -1,5 +1,4 @@
 import type { ProjectResponse } from "../types/api";
-import { api } from "../lib/api";
 
 interface ProjectDialogProps {
   open: boolean;
@@ -12,17 +11,6 @@ interface ProjectDialogProps {
   onChange: (patch: Partial<{ name: string; description: string; path: string }>) => void;
   onSubmit: () => void;
   onOpenRecent: (projectIdOrPath: string) => void;
-}
-
-async function handleBrowse(onChange: ProjectDialogProps["onChange"]) {
-  try {
-    const result = await api.browseDirectory();
-    if (result.path) {
-      onChange({ path: result.path });
-    }
-  } catch {
-    // User cancelled or backend unavailable — ignore silently
-  }
 }
 
 export function ProjectDialog({
@@ -60,21 +48,12 @@ export function ProjectDialog({
           <label className="grid gap-2 text-sm text-stone-700">
             <span className="font-medium">{mode === "new" ? "Project name" : "Project ID or path"}</span>
             {mode === "open" ? (
-              <div className="flex gap-2">
-                <input
-                  className="min-w-0 flex-1 rounded-2xl border border-stone-300 bg-white px-4 py-3 outline-none transition focus:border-ember"
-                  onChange={(event) => onChange({ path: event.target.value })}
-                  placeholder="C:\\research\\atlas-project"
-                  value={path}
-                />
-                <button
-                  className="shrink-0 rounded-2xl border border-stone-300 bg-white px-4 py-3 text-sm font-medium text-stone-700 transition hover:border-pine hover:bg-pine/5"
-                  onClick={() => void handleBrowse(onChange)}
-                  type="button"
-                >
-                  Browse...
-                </button>
-              </div>
+              <input
+                className="min-w-0 flex-1 rounded-2xl border border-stone-300 bg-white px-4 py-3 outline-none transition focus:border-ember"
+                onChange={(event) => onChange({ path: event.target.value })}
+                placeholder="C:\\research\\atlas-project"
+                value={path}
+              />
             ) : (
               <input
                 className="rounded-2xl border border-stone-300 bg-white px-4 py-3 outline-none transition focus:border-ember"
@@ -87,21 +66,12 @@ export function ProjectDialog({
           {mode === "new" ? (
             <label className="grid gap-2 text-sm text-stone-700">
               <span className="font-medium">Parent directory</span>
-              <div className="flex gap-2">
-                <input
-                  className="min-w-0 flex-1 rounded-2xl border border-stone-300 bg-white px-4 py-3 outline-none transition focus:border-ember"
-                  onChange={(event) => onChange({ path: event.target.value })}
-                  placeholder="C:\\projects"
-                  value={path}
-                />
-                <button
-                  className="shrink-0 rounded-2xl border border-stone-300 bg-white px-4 py-3 text-sm font-medium text-stone-700 transition hover:border-pine hover:bg-pine/5"
-                  onClick={() => void handleBrowse(onChange)}
-                  type="button"
-                >
-                  Browse...
-                </button>
-              </div>
+              <input
+                className="min-w-0 flex-1 rounded-2xl border border-stone-300 bg-white px-4 py-3 outline-none transition focus:border-ember"
+                onChange={(event) => onChange({ path: event.target.value })}
+                placeholder="C:\\projects"
+                value={path}
+              />
             </label>
           ) : null}
           {mode === "new" ? (

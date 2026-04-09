@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 
-import { api } from "../lib/api";
 import type { BlockSchemaResponse, ChatMessage, LogEntry, WorkflowNode } from "../types/api";
 import type { BottomTab } from "../types/ui";
 import { AIChat } from "./AIChat";
@@ -78,47 +77,20 @@ function ConfigPanel({
             </label>
           );
         }
-        const showBrowse = value.ui_widget === "file_browser" || (schema?.category === "io" && key === "path");
         return (
           <label className="grid gap-2 text-sm" key={key}>
             <span className="font-medium text-ink">{String(value.title ?? key)}</span>
-            <div className={`flex min-w-0 ${showBrowse ? "gap-2" : ""}`}>
-              <input
-                className="min-w-0 flex-1 rounded-2xl border border-stone-300 bg-white px-4 py-3"
-                onChange={(event) =>
-                  onUpdateConfig({
-                    [key]: value.type === "number" ? Number(event.target.value) : event.target.value,
-                  })
-                }
-                type={value.type === "number" ? "number" : "text"}
-                value={String(currentValue)}
-              />
-              {showBrowse ? (
-                <button
-                  className="shrink-0 rounded-2xl border border-stone-300 bg-white px-4 py-3 text-sm font-medium text-stone-700 transition hover:border-pine hover:bg-pine/5"
-                  onClick={async () => {
-                    try {
-                      if (schema?.direction === "output") {
-                        const result = await api.browseDirectory();
-                        if (result.path) {
-                          onUpdateConfig({ [key]: result.path });
-                        }
-                        return;
-                      }
-                      const result = await api.browseFiles();
-                      if (result.paths.length > 0) {
-                        onUpdateConfig({ [key]: result.paths[0] });
-                      }
-                    } catch {
-                      // user cancelled or backend unavailable
-                    }
-                  }}
-                  type="button"
-                >
-                  Browse
-                </button>
-              ) : null}
-            </div>
+            <input
+              className="min-w-0 flex-1 rounded-2xl border border-stone-300 bg-white px-4 py-3"
+              onChange={(event) =>
+                onUpdateConfig({
+                  [key]: value.type === "number" ? Number(event.target.value) : event.target.value,
+                })
+              }
+              placeholder={key === "path" ? "Type or paste file/directory path" : undefined}
+              type={value.type === "number" ? "number" : "text"}
+              value={String(currentValue)}
+            />
           </label>
         );
       })}

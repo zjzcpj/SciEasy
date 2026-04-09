@@ -51,6 +51,7 @@ def save_yaml(workflow: WorkflowDefinition, path: str | Path) -> None:
     model = WorkflowModel.from_definition(workflow)
     file_model = WorkflowFileModel(workflow=model)
     data = file_model.model_dump(exclude_none=True)
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_text(
         yaml.safe_dump(data, default_flow_style=False, sort_keys=False),
         encoding="utf-8",
