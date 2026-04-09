@@ -279,10 +279,23 @@ def gui(
     no_browser: bool = typer.Option(False, "--no-browser", help="Do not open browser automatically"),
 ) -> None:
     """Launch SciEasy GUI in your default browser."""
+    import logging
+    import os
     import threading
     import webbrowser
 
     import uvicorn
+
+    # Configure root logger so all getLogger(__name__) calls produce output.
+    # ``force=True`` ensures this works even if a library or framework has
+    # already attached a handler (e.g. uvicorn).
+    log_level = os.environ.get("SCIEASY_LOG_LEVEL", "INFO").upper()
+    logging.basicConfig(
+        level=getattr(logging, log_level, logging.INFO),
+        format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
+        datefmt="%H:%M:%S",
+        force=True,
+    )
 
     url = f"http://localhost:{port}"
     typer.echo(f"Starting SciEasy GUI on {url} ...")

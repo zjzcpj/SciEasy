@@ -36,6 +36,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
+    import logging
+
+    # Ensure a SciEasy-specific handler exists so logger calls are not
+    # silently discarded.  When invoked via ``scieasy gui`` the CLI already
+    # configures logging with ``force=True``; this fallback only fires for
+    # standalone API usage (e.g. ``uvicorn scieasy.api.app:create_app``).
+    log_level = os.environ.get("SCIEASY_LOG_LEVEL", "INFO").upper()
+    if not logging.getLogger().handlers:
+        logging.basicConfig(
+            level=getattr(logging, log_level, logging.INFO),
+            format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
+            datefmt="%H:%M:%S",
+        )
+
     app = FastAPI(title="SciEasy API", version="0.1.0", lifespan=lifespan)
     cors_origins_raw = os.getenv("SCIEASY_CORS_ORIGINS", "").strip()
     if cors_origins_raw == "*":
