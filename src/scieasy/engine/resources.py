@@ -175,14 +175,21 @@ class ResourceManager:
             event_bus.subscribe(BLOCK_CANCELLED, self._on_block_terminal)
             event_bus.subscribe(PROCESS_EXITED, self._on_block_terminal)
 
-    def can_dispatch(self, request: ResourceRequest) -> bool:
+    def can_dispatch(self, request: ResourceRequest, active_count: int = 0) -> bool:
         """Check if resources are available AND system memory is below watermark.
 
         Returns False if:
         - GPU is required but all GPU slots are in use
         - Requested CPU cores would exceed the pool
         - System memory percent >= memory_critical (always blocked)
-        - System memory percent > memory_high_watermark (paused)
+        - System memory percent > memory_high_watermark (paused) — but only
+          when ``active_count > 0``
+
+        Deadlock prevention (#495): when ``active_count == 0`` (nothing is
+        currently executing), the high watermark is bypassed.  Only the
+        critical threshold (0.95) acts as a hard cap.  Without this, a
+        system whose baseline memory exceeds the watermark would refuse to
+        dispatch any block, guaranteeing deadlock.
 
         ADR-027 D10: when ``request.requires_gpu`` and ``self.gpu_slots == 0``,
         a single WARNING is logged (per ResourceManager instance) explaining
@@ -212,6 +219,11 @@ class ResourceManager:
         mem_percent = psutil.virtual_memory().percent / 100.0
         if mem_percent >= self.memory_critical:
             return False
+        # Deadlock prevention (#495): when nothing is running, skip the high
+        # watermark so at least one block can start.  The critical threshold
+        # above still acts as a hard cap.
+        if active_count == 0:
+            return True
         return not mem_percent > self.memory_high_watermark
 
     async def acquire(self, request: ResourceRequest, block_id: str = "") -> bool:

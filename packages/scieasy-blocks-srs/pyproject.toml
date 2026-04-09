@@ -15,6 +15,12 @@ dependencies = [
     "scipy>=1.11",
 ]
 
+[project.entry-points."scieasy.blocks"]
+srs = "scieasy_blocks_srs:get_block_package"
+
+[project.entry-points."scieasy.types"]
+srs = "scieasy_blocks_srs:get_types"
+
 [project.optional-dependencies]
 pywt = ["PyWavelets>=1.6"]
 bm4d = ["bm4d>=4.2"]
