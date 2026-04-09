@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- [#468] Optimize CI: parallel jobs, single-version coverage, pytest-xdist (@claude, 2026-04-09, branch: perf/issue-468/ci-speedup, session: wave2-ci-perf)
+
 ### Added
 
 - [#452] Implement AIBlock MVP: functional `run()` with LLM provider integration, input serialization, prompt templating, and Text output (@claude, 2026-04-08, branch: feat/issue-452/ai-block-mvp, session: 20260408-224820-feat-ai-aiblock-mvp-implementation)
