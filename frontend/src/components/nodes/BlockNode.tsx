@@ -1,7 +1,7 @@
 import { type Node, Handle, Position, type NodeProps } from "@xyflow/react";
 
 import { api } from "../../lib/api";
-import { resolveTypeColor } from "../../config/typeColorMap";
+import { resolveTypeColor, resolveRingColor, isAnyType, primaryTypeName } from "../../config/typeColorMap";
 import type { BlockNodeData } from "../../types/ui";
 import { computeEffectivePorts } from "../../utils/computeEffectivePorts";
 
@@ -393,45 +393,59 @@ export function BlockNode({ data, selected }: NodeProps<Node<BlockNodeData>>) {
       {/* per-instance accepted_types resolved from data.schema?.dynamic_ports */}
       {/* + the current driving config value (ADR-028 Addendum 1 §D4).      */}
       {effectiveInputPorts.map((port, index) => {
-        const color = resolveTypeColor(port.accepted_types, typeHierarchy);
-        const collectionShadow = port.is_collection
-          ? `0 0 0 2px white, 0 0 0 4px ${color}`
-          : undefined;
+        const fillColor = resolveTypeColor(port.accepted_types, typeHierarchy);
+        const ringColor = resolveRingColor(port.accepted_types, typeHierarchy);
+        const anyType = isAnyType(port.accepted_types);
+        const typeName = primaryTypeName(port.accepted_types);
+        const borderColor = ringColor ?? (anyType ? "#d1d5db" : fillColor);
+        const shadows: string[] = [];
+        if (port.is_collection) {
+          shadows.push(`0 0 0 2px white`, `0 0 0 4px ${fillColor}`);
+        }
         return (
           <Handle
             key={port.name}
             id={port.name}
             type="target"
             position={Position.Left}
-            className="!h-3.5 !w-3.5 !border-2 !bg-white"
-            title={`${port.name}: ${port.accepted_types.join(", ")}${port.description ? " \u2014 " + port.description : ""}`}
+            className="!h-3.5 !w-3.5 !border-2"
+            title={`${typeName}${port.description ? " \u2014 " + port.description : ""}`}
             style={{
-              borderColor: color,
+              backgroundColor: anyType ? "#ffffff" : fillColor,
+              borderColor,
+              borderStyle: anyType ? "dashed" : "solid",
               left: -7,
               top: 80 + index * 20,
-              boxShadow: collectionShadow,
+              boxShadow: shadows.length > 0 ? shadows.join(", ") : undefined,
             }}
           />
         );
       })}
       {effectiveOutputPorts.map((port, index) => {
-        const color = resolveTypeColor(port.accepted_types, typeHierarchy);
-        const collectionShadow = port.is_collection
-          ? `0 0 0 2px white, 0 0 0 4px ${color}`
-          : undefined;
+        const fillColor = resolveTypeColor(port.accepted_types, typeHierarchy);
+        const ringColor = resolveRingColor(port.accepted_types, typeHierarchy);
+        const anyType = isAnyType(port.accepted_types);
+        const typeName = primaryTypeName(port.accepted_types);
+        const borderColor = ringColor ?? (anyType ? "#d1d5db" : fillColor);
+        const shadows: string[] = [];
+        if (port.is_collection) {
+          shadows.push(`0 0 0 2px white`, `0 0 0 4px ${fillColor}`);
+        }
         return (
           <Handle
             key={port.name}
             id={port.name}
             type="source"
             position={Position.Right}
-            className="!h-3.5 !w-3.5 !border-2 !bg-white"
-            title={`${port.name}: ${port.accepted_types.join(", ")}${port.description ? " \u2014 " + port.description : ""}`}
+            className="!h-3.5 !w-3.5 !border-2"
+            title={`${typeName}${port.description ? " \u2014 " + port.description : ""}`}
             style={{
-              borderColor: color,
+              backgroundColor: anyType ? "#ffffff" : fillColor,
+              borderColor,
+              borderStyle: anyType ? "dashed" : "solid",
               right: -7,
               top: 80 + index * 20,
-              boxShadow: collectionShadow,
+              boxShadow: shadows.length > 0 ? shadows.join(", ") : undefined,
             }}
           />
         );
