@@ -28,8 +28,8 @@ class PathwayEnrichment(_LCMSBlockMixin, ProcessBlock):
     """
 
     name: ClassVar[str] = "Pathway Enrichment"
-    type_name: ClassVar[str] = "pathway_enrichment"
-    category: ClassVar[str] = "process"
+    type_name: ClassVar[str] = "lcms.pathway_enrichment"
+    category: ClassVar[str] = "analysis"
     description: ClassVar[str] = (
         "Pathway enrichment analysis via KEGG REST and Fisher's exact "
         "test, with FDR correction. Python-native; no R dependency."

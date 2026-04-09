@@ -28,8 +28,8 @@ class ConsumptionSecretionAnalysis(_LCMSBlockMixin, ProcessBlock):
     """
 
     name: ClassVar[str] = "Consumption / Secretion Analysis"
-    type_name: ClassVar[str] = "consumption_secretion_analysis"
-    category: ClassVar[str] = "process"
+    type_name: ClassVar[str] = "lcms.consumption_secretion_analysis"
+    category: ClassVar[str] = "analysis"
     description: ClassVar[str] = (
         "Compute per-compound delta concentration between spent media and "
         "averaged fresh media. Optional cell-count + time normalization "

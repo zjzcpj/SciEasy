@@ -1,6 +1,9 @@
 import { type Node, Handle, Position, type NodeProps } from "@xyflow/react";
+import { useState, useEffect, useCallback } from "react";
 
 import { resolveTypeColor, resolveRingColor, isAnyType, primaryTypeName } from "../../config/typeColorMap";
+import { api } from "../../lib/api";
+import type { FilesystemEntry } from "../../types/api";
 import type { BlockNodeData } from "../../types/ui";
 import { computeEffectivePorts } from "../../utils/computeEffectivePorts";
 
@@ -79,6 +82,232 @@ function StatusBadge({
   }
 
   return inner;
+}
+
+// ---------------------------------------------------------------------------
+// FileBrowserModal — lazy-loading filesystem picker for ui_widget fields
+// ---------------------------------------------------------------------------
+function FileBrowserModal({
+  mode,
+  initialPath,
+  onSelect,
+  onCancel,
+}: {
+  mode: "file_browser" | "directory_browser";
+  initialPath: string;
+  onSelect: (path: string) => void;
+  onCancel: () => void;
+}) {
+  const [currentPath, setCurrentPath] = useState("");
+  const [entries, setEntries] = useState<FilesystemEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedEntry, setSelectedEntry] = useState<string | null>(null);
+
+  const loadDirectory = useCallback(async (dirPath: string) => {
+    setLoading(true);
+    setError(null);
+    setSelectedEntry(null);
+    try {
+      const resp = await api.browseFilesystem(dirPath);
+      setCurrentPath(resp.path);
+      setEntries(resp.entries);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to browse");
+      setEntries([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Try to start from the current value's directory
+    const startPath = initialPath || "";
+    loadDirectory(startPath);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const breadcrumbs = currentPath
+    ? currentPath.replace(/\\/g, "/").split("/").filter(Boolean)
+    : [];
+
+  const handleNavigate = (dirName: string) => {
+    const sep = currentPath.includes("\\") ? "\\" : "/";
+    const newPath = currentPath ? `${currentPath}${sep}${dirName}` : dirName;
+    loadDirectory(newPath);
+  };
+
+  const handleBreadcrumbClick = (index: number) => {
+    if (index < 0) {
+      // Go to roots
+      loadDirectory("");
+      return;
+    }
+    const parts = currentPath.replace(/\\/g, "/").split("/").filter(Boolean);
+    // On Windows paths like "C:/" we need to preserve the drive letter
+    const isWindows = currentPath.includes("\\") || (/^[A-Z]:/.test(currentPath));
+    let newPath: string;
+    if (isWindows) {
+      newPath = parts.slice(0, index + 1).join("\\");
+      if (/^[A-Z]:$/.test(newPath)) newPath += "\\";
+    } else {
+      newPath = "/" + parts.slice(0, index + 1).join("/");
+    }
+    loadDirectory(newPath);
+  };
+
+  const handleSelect = () => {
+    if (mode === "directory_browser") {
+      // Select the current directory or a selected sub-directory
+      if (selectedEntry) {
+        const sep = currentPath.includes("\\") ? "\\" : "/";
+        onSelect(`${currentPath}${sep}${selectedEntry}`);
+      } else {
+        onSelect(currentPath);
+      }
+    } else {
+      // file_browser: must have a selected file
+      if (selectedEntry) {
+        const sep = currentPath.includes("\\") ? "\\" : "/";
+        onSelect(`${currentPath}${sep}${selectedEntry}`);
+      }
+    }
+  };
+
+  const formatSize = (size: number | null | undefined): string => {
+    if (size == null) return "";
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const canSelect =
+    mode === "directory_browser"
+      ? currentPath !== "" || selectedEntry != null
+      : selectedEntry != null &&
+        entries.some((e) => e.name === selectedEntry && e.type === "file");
+
+  return (
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40"
+      onClick={onCancel}
+    >
+      <div
+        className="flex max-h-[70vh] w-[500px] flex-col rounded-xl border border-stone-200 bg-white shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="border-b border-stone-100 px-4 py-3">
+          <div className="text-sm font-semibold text-ink">
+            {mode === "file_browser" ? "Select File" : "Select Directory"}
+          </div>
+          {/* Breadcrumbs */}
+          <div className="mt-1 flex flex-wrap items-center gap-1 text-xs text-stone-500">
+            <button
+              type="button"
+              className="hover:text-sea"
+              onClick={() => handleBreadcrumbClick(-1)}
+            >
+              Root
+            </button>
+            {breadcrumbs.map((part, i) => (
+              <span key={i} className="flex items-center gap-1">
+                <span>/</span>
+                <button
+                  type="button"
+                  className="hover:text-sea"
+                  onClick={() => handleBreadcrumbClick(i)}
+                >
+                  {part}
+                </button>
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* File list */}
+        <div className="min-h-[200px] flex-1 overflow-y-auto px-2 py-1">
+          {loading && (
+            <p className="py-4 text-center text-xs text-stone-400">Loading...</p>
+          )}
+          {error && (
+            <p className="py-4 text-center text-xs text-red-500">{error}</p>
+          )}
+          {!loading && !error && entries.length === 0 && (
+            <p className="py-4 text-center text-xs text-stone-400">
+              Empty directory
+            </p>
+          )}
+          {!loading &&
+            !error &&
+            entries.map((entry) => {
+              const isDir = entry.type === "directory";
+              const isSelected = selectedEntry === entry.name;
+              const isSelectable =
+                mode === "directory_browser" ? isDir : true;
+              return (
+                <div
+                  key={entry.name}
+                  className={`flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs ${
+                    isSelected
+                      ? "bg-blue-50 text-sea"
+                      : "text-ink hover:bg-stone-50"
+                  } ${!isSelectable && mode === "file_browser" && !isDir ? "opacity-50" : ""}`}
+                  onClick={() => {
+                    if (isDir) {
+                      // Double-click navigates; single click selects for directory_browser
+                      if (mode === "directory_browser") {
+                        setSelectedEntry(isSelected ? null : entry.name);
+                      }
+                    } else {
+                      if (mode === "file_browser") {
+                        setSelectedEntry(isSelected ? null : entry.name);
+                      }
+                    }
+                  }}
+                  onDoubleClick={() => {
+                    if (isDir) {
+                      handleNavigate(entry.name);
+                    } else if (mode === "file_browser") {
+                      const sep = currentPath.includes("\\") ? "\\" : "/";
+                      onSelect(`${currentPath}${sep}${entry.name}`);
+                    }
+                  }}
+                >
+                  <span className="shrink-0 text-sm">
+                    {isDir ? "\uD83D\uDCC1" : "\uD83D\uDCC4"}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">{entry.name}</span>
+                  {!isDir && entry.size != null && (
+                    <span className="shrink-0 text-stone-400">
+                      {formatSize(entry.size)}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-2 border-t border-stone-100 px-4 py-2">
+          <button
+            type="button"
+            className="rounded border border-stone-200 px-3 py-1.5 text-xs text-stone-600 hover:bg-stone-50"
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="rounded bg-blue-500 px-3 py-1.5 text-xs text-white hover:bg-blue-600 disabled:opacity-40"
+            disabled={!canSelect}
+            onClick={handleSelect}
+          >
+            Select
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -170,21 +399,63 @@ function InlineConfigField({
     );
   }
 
-  // Default: text input (Browse buttons removed — tkinter native dialogs
-  // crash on macOS; users type/paste paths directly, see #467).
+  // Default: text input. When ui_widget is "file_browser" or
+  // "directory_browser", render a "..." browse button next to the input
+  // that opens the FileBrowserModal (#484).
+  const uiWidget = schema.ui_widget as string | undefined;
+  const hasBrowse =
+    uiWidget === "file_browser" || uiWidget === "directory_browser";
+  const [browseOpen, setBrowseOpen] = useState(false);
+
   return (
     <label className="flex items-center justify-between gap-2 text-xs">
       <span className="shrink-0 text-stone-500">{label}</span>
-      <div className="flex min-w-0 flex-1">
+      <div className="flex min-w-0 flex-1 gap-1">
         <input
           type="text"
           className="nodrag nowheel min-w-0 flex-1 truncate rounded border border-stone-200 bg-white px-2 py-1 text-xs text-ink focus:border-sea focus:outline-none"
-          placeholder={key === "path" ? "Type or paste path" : undefined}
+          placeholder={key === "path" || key === "script_path" ? "Type or paste path" : undefined}
           title={String(value ?? schema.default ?? "")}
           value={String(value ?? schema.default ?? "")}
           onChange={(e) => onChange(key, e.target.value)}
         />
+        {hasBrowse && (
+          <button
+            type="button"
+            className="nodrag shrink-0 rounded border border-stone-200 bg-white px-1.5 py-1 text-xs text-stone-600 hover:bg-stone-50"
+            title="Browse filesystem"
+            onClick={() => setBrowseOpen(true)}
+          >
+            ...
+          </button>
+        )}
       </div>
+      {browseOpen && hasBrowse && (
+        <FileBrowserModal
+          mode={uiWidget as "file_browser" | "directory_browser"}
+          initialPath={(() => {
+            // Try to extract the parent directory from the current value
+            const val = String(value ?? schema.default ?? "");
+            if (!val) return "";
+            // If it looks like a file path, use its parent directory
+            const sep = val.includes("\\") ? "\\" : "/";
+            const parts = val.split(sep);
+            if (parts.length > 1) {
+              // Could be a file — check if last part has an extension
+              const last = parts[parts.length - 1];
+              if (uiWidget === "file_browser" && last.includes(".")) {
+                return parts.slice(0, -1).join(sep);
+              }
+            }
+            return val;
+          })()}
+          onSelect={(selectedPath) => {
+            onChange(key, selectedPath);
+            setBrowseOpen(false);
+          }}
+          onCancel={() => setBrowseOpen(false)}
+        />
+      )}
     </label>
   );
 }

@@ -144,6 +144,7 @@ class SaveImage(IOBlock):
                     "For batch save (multi-item Collection), treated as a directory."
                 ),
                 "ui_priority": 0,
+                "ui_widget": "directory_browser",
             },
             "format": {
                 "type": "string",

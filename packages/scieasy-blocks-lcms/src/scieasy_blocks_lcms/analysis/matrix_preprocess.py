@@ -15,8 +15,8 @@ class MatrixPreprocess(_LCMSBlockMixin, ProcessBlock):
     """Consolidated impute / log / scale pipeline for metabolite matrices."""
 
     name: ClassVar[str] = "Matrix Preprocess"
-    type_name: ClassVar[str] = "matrix_preprocess"
-    category: ClassVar[str] = "process"
+    type_name: ClassVar[str] = "lcms.matrix_preprocess"
+    category: ClassVar[str] = "analysis"
     description: ClassVar[str] = "Consolidated impute -> log -> scale preprocessing pipeline for metabolite matrices."
 
     input_ports: ClassVar[list[InputPort]] = [

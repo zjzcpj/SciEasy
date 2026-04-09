@@ -17,8 +17,8 @@ class MetaboliteMatrix(_LCMSBlockMixin, ProcessBlock):
     """Pivot a long-format PeakTable to a wide compound x sample matrix."""
 
     name: ClassVar[str] = "Metabolite Matrix"
-    type_name: ClassVar[str] = "metabolite_matrix"
-    category: ClassVar[str] = "process"
+    type_name: ClassVar[str] = "lcms.metabolite_matrix"
+    category: ClassVar[str] = "analysis"
     description: ClassVar[str] = (
         "Pivot a long-format PeakTable into a wide compound x sample matrix. "
         "Missing combinations become NaN; imputation is the caller's responsibility."

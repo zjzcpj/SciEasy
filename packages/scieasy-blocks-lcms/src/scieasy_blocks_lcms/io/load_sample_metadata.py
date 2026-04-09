@@ -32,7 +32,7 @@ class LoadSampleMetadata(_LCMSBlockMixin, IOBlock):
     """
 
     direction: ClassVar[str] = "input"
-    type_name: ClassVar[str] = "load_sample_metadata"
+    type_name: ClassVar[str] = "lcms.load_sample_metadata"
     name: ClassVar[str] = "Load Sample Metadata"
     category: ClassVar[str] = "io"
     description: ClassVar[str] = (

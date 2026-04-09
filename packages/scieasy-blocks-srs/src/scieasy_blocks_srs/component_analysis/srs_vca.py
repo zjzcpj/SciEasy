@@ -92,6 +92,7 @@ class SRSVCA(ProcessBlock):
     """Endmember extraction via Vertex Component Analysis."""
 
     name: ClassVar[str] = "SRS VCA"
+    type_name: ClassVar[str] = "srs.vca"
     description: ClassVar[str] = "Vertex Component Analysis endmember extraction."
     version: ClassVar[str] = "0.1.0"
     category: ClassVar[str] = "component_analysis"

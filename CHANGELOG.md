@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- [#484] Add universal filesystem browse button for all path config fields via ui_widget schema annotation (@claude, 2026-04-09, branch: feat/issue-484/universal-browse, session: 20260409-154209-universal-filesystem-browse-button-484)
 - [#465] Add project tree tab in left sidebar with lazy-loading file browser, right-click menu, and reveal-in-explorer (@claude, 2026-04-09, branch: feat/issue-465/project-tree, session: 20260409-150547-project-tree-tab-in-left-sidebar-465)
 - [#452] Implement AIBlock MVP: functional `run()` with LLM provider integration, input serialization, prompt templating, and Text output (@claude, 2026-04-08, branch: feat/issue-452/ai-block-mvp, session: 20260408-224820-feat-ai-aiblock-mvp-implementation)
 - [#446] Add workflow management toolbar: New, Save, Save As, Import buttons replace Export; backend endpoints for YAML workflow import and file browsing (@claude, 2026-04-08, branch: feat/issue-446/workflow-management, session: 20260408-220724-feat-gui-workflow-management-save-new-im)
@@ -23,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#461] Fix palette categorization: add type_name prefixes to LCMS/SRS blocks, refine subcategories, populate source/package_name for Custom group (@claude, 2026-04-09, branch: fix/issue-461/palette-categorization, session: 20260409-124810-fix-block-palette-categorization-461)
 - [#483] Fix macOS workflow execution: async subprocess, .app bundle support, checkpoint error message (@claude, 2026-04-09, branch: fix/issue-483/macos-execution, session: 20260409-151529-fix-macos-workflow-execution-483)
 - [#467] Fix macOS crash: ensure workflow dir exists + remove tkinter file dialogs (@claude, 2026-04-09, branch: fix/issue-467/macos-crash, session: wave2-macos-fix)
 - [#457] Fix toolbar button shift on dirty state toggle and block node config overflow with ellipsis truncation (@claude, 2026-04-09, branch: fix/issue-457/toolbar-node-overflow, session: wave1-gui-fixes)

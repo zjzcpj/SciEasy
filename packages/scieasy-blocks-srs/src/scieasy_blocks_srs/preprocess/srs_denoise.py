@@ -19,6 +19,7 @@ class SRSDenoise(ProcessBlock):
     """Denoise an :class:`SRSImage` along the spectral and spatial axes."""
 
     name: ClassVar[str] = "SRS Denoise"
+    type_name: ClassVar[str] = "srs.denoise"
     description: ClassVar[str] = "Spatio-spectral denoising via PCA/SVD/wavelet/BM4D."
     version: ClassVar[str] = "0.1.0"
     category: ClassVar[str] = "preprocessing"
