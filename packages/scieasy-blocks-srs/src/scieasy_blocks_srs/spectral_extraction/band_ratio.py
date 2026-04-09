@@ -29,6 +29,7 @@ class BandRatio(ProcessBlock):
     """
 
     name: ClassVar[str] = "Band Ratio"
+    type_name: ClassVar[str] = "srs.band_ratio"
     description: ClassVar[str] = "Compute intensity ratio between two spectral bands → 2D Image."
     version: ClassVar[str] = "0.1.0"
     category: ClassVar[str] = "spectral"

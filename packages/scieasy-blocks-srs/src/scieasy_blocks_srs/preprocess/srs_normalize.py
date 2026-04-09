@@ -19,6 +19,7 @@ class SRSNormalize(ProcessBlock):
     """Normalize each per-pixel spectrum."""
 
     name: ClassVar[str] = "SRS Normalize"
+    type_name: ClassVar[str] = "srs.normalize"
     description: ClassVar[str] = "Per-spectrum intensity normalization (SNV/MSC/vector/area/peak_area)."
     version: ClassVar[str] = "0.1.0"
     category: ClassVar[str] = "preprocessing"

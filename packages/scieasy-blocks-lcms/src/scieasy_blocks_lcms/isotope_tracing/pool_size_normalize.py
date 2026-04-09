@@ -19,8 +19,8 @@ class PoolSizeNormalize(_LCMSBlockMixin, ProcessBlock):
     """Normalize a :class:`PeakTable` by IS / TIC / median."""
 
     name: ClassVar[str] = "Pool Size Normalize"
-    type_name: ClassVar[str] = "pool_size_normalize"
-    category: ClassVar[str] = "process"
+    type_name: ClassVar[str] = "lcms.pool_size_normalize"
+    category: ClassVar[str] = "isotope_tracing"
     description: ClassVar[str] = (
         "Normalize a PeakTable by internal standard, total ion current, "
         "or per-sample median. Output is a PeakTable with preserved Meta."

@@ -39,13 +39,23 @@ def _config_schema_for_block(spec: Any) -> dict[str, Any]:
     return spec.config_schema or {"type": "object", "properties": {}}
 
 
+def _map_source(raw: str) -> str:
+    """Map internal source labels to palette-friendly values.
+
+    tier1 -> "custom" (project-local hot-loaded blocks)
+    entry_point / monorepo -> "package" (installed plugin blocks)
+    builtin -> "builtin" (core blocks)
+    """
+    if raw == "tier1":
+        return "custom"
+    if raw in ("entry_point", "monorepo"):
+        return "package"
+    if raw == "builtin":
+        return "builtin"
+    return raw
+
+
 def _summary(spec: Any) -> BlockSummary:
-    # TODO(agent-b, stage-10.1): populate ``source`` and ``package_name`` from
-    # ``spec``. After the BlockSpec.source value rename lands (tier1 -> custom,
-    # entry_point -> package), pass ``source=spec.source`` and
-    # ``package_name=spec.package_name`` below. Agent A left the call
-    # unchanged to preserve existing behavior.
-    # See docs/design/stage-10-1-palette.md §3.1.4 and §3.2.4.
     return BlockSummary(
         name=spec.name,
         type_name=spec.type_name,
@@ -55,6 +65,8 @@ def _summary(spec: Any) -> BlockSummary:
         input_ports=[_port_response(port, direction="input") for port in spec.input_ports],
         output_ports=[_port_response(port, direction="output") for port in spec.output_ports],
         direction=spec.direction or None,
+        source=_map_source(getattr(spec, "source", "") or ""),
+        package_name=getattr(spec, "package_name", "") or "",
     )
 
 

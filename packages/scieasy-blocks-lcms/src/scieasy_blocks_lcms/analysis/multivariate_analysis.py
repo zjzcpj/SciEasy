@@ -20,8 +20,8 @@ class MultivariateAnalysis(_LCMSBlockMixin, ProcessBlock):
     """Consolidated PCA / PLSDA / OPLSDA with scores, loadings, and scatter plot."""
 
     name: ClassVar[str] = "Multivariate Analysis"
-    type_name: ClassVar[str] = "multivariate_analysis"
-    category: ClassVar[str] = "process"
+    type_name: ClassVar[str] = "lcms.multivariate_analysis"
+    category: ClassVar[str] = "analysis"
     description: ClassVar[str] = (
         "PCA / PLSDA / OPLSDA on a metabolite matrix. Outputs scores "
         "DataFrame, loadings DataFrame, and a PNG scatter-plot Artifact."

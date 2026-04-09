@@ -20,8 +20,8 @@ class Calculate13CEnrichment(_LCMSBlockMixin, ProcessBlock):
     """Average tracer enrichment per compound per sample."""
 
     name: ClassVar[str] = "Calculate 13C Enrichment"
-    type_name: ClassVar[str] = "calculate_13c_enrichment"
-    category: ClassVar[str] = "process"
+    type_name: ClassVar[str] = "lcms.calculate_13c_enrichment"
+    category: ClassVar[str] = "isotope_tracing"
     description: ClassVar[str] = (
         "Average 13C (or other tracer) enrichment per compound per sample, "
         "computed as the weighted sum of M+n fractional abundances divided "
