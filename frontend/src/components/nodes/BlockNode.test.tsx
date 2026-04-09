@@ -1,5 +1,4 @@
 import { cleanup, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReactFlowProvider } from "@xyflow/react";
 
@@ -11,13 +10,9 @@ import type {
 } from "../../types/api";
 import type { BlockNodeData } from "../../types/ui";
 
-// Mock the api module so the Browse button click handler does not try to
-// hit the real backend during tests.
+// api module mock — browse endpoints removed (#467), stub for remaining tests.
 vi.mock("../../lib/api", () => ({
-  api: {
-    browseDirectory: vi.fn().mockResolvedValue({ path: "/tmp/out" }),
-    browseFiles: vi.fn().mockResolvedValue({ paths: ["/tmp/file.csv"] }),
-  },
+  api: {},
 }));
 
 afterEach(() => cleanup());
@@ -139,8 +134,8 @@ const SAVE_DATA_DYNAMIC: DynamicPortsConfig = {
 // Discriminator behavior #1: Browse button on category === "io" path field
 // ---------------------------------------------------------------------------
 
-describe("BlockNode — Browse button discriminator (ADR-028 Addendum 1 §B fix #1)", () => {
-  it("renders Browse button for category=io with a path config field", () => {
+describe("BlockNode — Browse buttons removed (#467, tkinter crash on macOS)", () => {
+  it("does NOT render Browse button for category=io with a path config field", () => {
     renderNode({
       category: "io",
       blockType: "load_data",
@@ -154,13 +149,10 @@ describe("BlockNode — Browse button discriminator (ADR-028 Addendum 1 §B fix 
         },
       }),
     });
-    expect(screen.getByRole("button", { name: /Browse/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Browse/i })).toBeNull();
   });
 
-  it("renders Browse button for any io block, not just the legacy abstract-base type_name", () => {
-    // A plugin-supplied loader with a totally different type_name still gets
-    // the Browse button as long as category=io and key=path. This is the
-    // central reason for replacing the discriminator.
+  it("renders a text input with placeholder for IO path fields", () => {
     renderNode({
       category: "io",
       blockType: "load_image",
@@ -174,36 +166,8 @@ describe("BlockNode — Browse button discriminator (ADR-028 Addendum 1 §B fix 
         },
       }),
     });
-    expect(screen.getByRole("button", { name: /Browse/i })).toBeInTheDocument();
-  });
-
-  it("does NOT render Browse button when category is not io", () => {
-    renderNode({
-      category: "process",
-      schema: makeSchema({
-        category: "process",
-        config_schema: {
-          type: "object",
-          properties: { path: { type: "string" } },
-        },
-      }),
-    });
     expect(screen.queryByRole("button", { name: /Browse/i })).toBeNull();
-  });
-
-  it("does NOT render Browse button when category is io but the key is not path", () => {
-    renderNode({
-      category: "io",
-      schema: makeSchema({
-        category: "io",
-        direction: "input",
-        config_schema: {
-          type: "object",
-          properties: { other_field: { type: "string" } },
-        },
-      }),
-    });
-    expect(screen.queryByRole("button", { name: /Browse/i })).toBeNull();
+    expect(screen.getByPlaceholderText("Type or paste path")).toBeDefined();
   });
 });
 
@@ -267,16 +231,11 @@ describe("BlockNode — hidden direction field (ADR-028 Addendum 1 §B fix #2)",
 // Discriminator behavior #3: Browse uses schema.direction, not config.direction
 // ---------------------------------------------------------------------------
 
-describe("BlockNode — Browse file vs directory (ADR-028 Addendum 1 §B fix #3)", () => {
-  it("opens directory picker for save (schema.direction = 'output')", async () => {
-    const user = userEvent.setup();
-    const onUpdateConfig = vi.fn();
-    const apiModule = await import("../../lib/api");
-
+describe("BlockNode — Browse buttons removed (#467, tkinter crash on macOS)", () => {
+  it("does not render Browse button for IO blocks", () => {
     renderNode({
       category: "io",
       blockType: "save_data",
-      onUpdateConfig,
       schema: makeSchema({
         category: "io",
         type_name: "save_data",
@@ -288,22 +247,13 @@ describe("BlockNode — Browse file vs directory (ADR-028 Addendum 1 §B fix #3)
       }),
     });
 
-    await user.click(screen.getByRole("button", { name: /Browse/i }));
-    expect(apiModule.api.browseDirectory).toHaveBeenCalled();
-    expect(apiModule.api.browseFiles).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /Browse/i })).toBeNull();
   });
 
-  it("opens file picker for load (schema.direction = 'input')", async () => {
-    const user = userEvent.setup();
-    const onUpdateConfig = vi.fn();
-    const apiModule = await import("../../lib/api");
-    vi.mocked(apiModule.api.browseDirectory).mockClear();
-    vi.mocked(apiModule.api.browseFiles).mockClear();
-
+  it("renders a text input for the path field instead", () => {
     renderNode({
       category: "io",
       blockType: "load_data",
-      onUpdateConfig,
       schema: makeSchema({
         category: "io",
         type_name: "load_data",
@@ -315,36 +265,9 @@ describe("BlockNode — Browse file vs directory (ADR-028 Addendum 1 §B fix #3)
       }),
     });
 
-    await user.click(screen.getByRole("button", { name: /Browse/i }));
-    expect(apiModule.api.browseFiles).toHaveBeenCalled();
-    expect(apiModule.api.browseDirectory).not.toHaveBeenCalled();
-  });
-
-  it("ignores stale data.config?.direction when schema.direction is set", async () => {
-    // Confirms that the Browse button reads schema.direction and not
-    // config.direction. config.direction = "input" is intentionally wrong;
-    // schema.direction = "output" must win.
-    const user = userEvent.setup();
-    const apiModule = await import("../../lib/api");
-    vi.mocked(apiModule.api.browseDirectory).mockClear();
-    vi.mocked(apiModule.api.browseFiles).mockClear();
-
-    renderNode({
-      category: "io",
-      config: { direction: "input" }, // intentionally stale / wrong
-      schema: makeSchema({
-        category: "io",
-        direction: "output", // schema is the source of truth
-        config_schema: {
-          type: "object",
-          properties: { path: { type: "string", ui_priority: 0 } },
-        },
-      }),
-    });
-
-    await user.click(screen.getByRole("button", { name: /Browse/i }));
-    expect(apiModule.api.browseDirectory).toHaveBeenCalled();
-    expect(apiModule.api.browseFiles).not.toHaveBeenCalled();
+    // The path field should have a text input with placeholder
+    const input = screen.getByPlaceholderText("Type or paste path");
+    expect(input).toBeDefined();
   });
 });
 

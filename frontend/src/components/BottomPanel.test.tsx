@@ -1,14 +1,10 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { api } from "../lib/api";
 import { BottomPanel } from "./BottomPanel";
 
 vi.mock("../lib/api", () => ({
-  api: {
-    browseDirectory: vi.fn(),
-    browseFiles: vi.fn(),
-  },
+  api: {},
 }));
 
 describe("BottomPanel", () => {
@@ -63,10 +59,7 @@ describe("BottomPanel", () => {
     expect(onUpdateConfig).toHaveBeenCalledWith({ sleep_seconds: 4 });
   });
 
-  it("shows a browse button for IO path fields and uses file browsing for loaders", async () => {
-    const onUpdateConfig = vi.fn();
-    vi.mocked(api.browseFiles).mockResolvedValue({ paths: ["/tmp/sample.tiff"] });
-
+  it("does not render browse buttons for IO path fields (tkinter removed, #467)", () => {
     render(
       <BottomPanel
         activeTab="config"
@@ -76,7 +69,7 @@ describe("BottomPanel", () => {
         logEntries={[]}
         onSendChat={() => {}}
         onTabChange={() => {}}
-        onUpdateConfig={onUpdateConfig}
+        onUpdateConfig={() => {}}
         selectedNode={{
           id: "load-1",
           block_type: "imaging.load_image",
@@ -105,59 +98,6 @@ describe("BottomPanel", () => {
       />,
     );
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Browse" })[0]);
-    await waitFor(() => {
-      expect(api.browseFiles).toHaveBeenCalledTimes(1);
-      expect(onUpdateConfig).toHaveBeenCalledWith({ path: "/tmp/sample.tiff" });
-    });
-  });
-
-  it("uses directory browsing for IO output blocks", async () => {
-    const onUpdateConfig = vi.fn();
-    vi.mocked(api.browseDirectory).mockResolvedValue({ path: "/tmp/output" });
-
-    render(
-      <BottomPanel
-        activeTab="config"
-        aiError={null}
-        aiLoading={false}
-        chatMessages={[]}
-        logEntries={[]}
-        onSendChat={() => {}}
-        onTabChange={() => {}}
-        onUpdateConfig={onUpdateConfig}
-        selectedNode={{
-          id: "save-1",
-          block_type: "imaging.save_image",
-          config: { params: { path: "" } },
-        }}
-        selectedSchema={{
-          name: "Save Image",
-          type_name: "imaging.save_image",
-          category: "io",
-          description: "",
-          version: "0.1.0",
-          input_ports: [],
-          output_ports: [],
-          direction: "output",
-          config_schema: {
-            properties: {
-              path: {
-                type: "string",
-                title: "Path",
-                ui_priority: 0,
-              },
-            },
-          },
-          type_hierarchy: [],
-        }}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Browse" }));
-    await waitFor(() => {
-      expect(api.browseDirectory).toHaveBeenCalledTimes(1);
-      expect(onUpdateConfig).toHaveBeenCalledWith({ path: "/tmp/output" });
-    });
+    expect(screen.queryByRole("button", { name: "Browse" })).toBeNull();
   });
 });

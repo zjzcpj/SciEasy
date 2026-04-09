@@ -226,28 +226,32 @@ export default function App() {
 
   async function importWorkflow() {
     if (!currentProject) return;
-    try {
-      // Open a native file picker for YAML files
-      const result = await api.browseWorkflowFile();
-      if (!result.path) return; // user cancelled
+    // Use an HTML file input to pick a YAML file, then upload via multipart
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".yaml,.yml";
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const workflow = await api.importWorkflowFile(file);
+        startTransition(() => setWorkflow(workflow));
+        resetExecution();
+        setLastError(null);
 
-      // Import the workflow from the selected path
-      const workflow = await api.importWorkflowFromPath(result.path);
-      startTransition(() => setWorkflow(workflow));
-      resetExecution();
-      setLastError(null);
-
-      // Update project's workflow list
-      setCurrentProject({
-        ...currentProject,
-        current_workflow_id: workflow.id,
-        workflows: currentProject.workflows.includes(workflow.id)
-          ? currentProject.workflows
-          : [...currentProject.workflows, workflow.id],
-      });
-    } catch (error) {
-      setLastError((error as Error).message);
-    }
+        // Update project's workflow list
+        setCurrentProject({
+          ...currentProject,
+          current_workflow_id: workflow.id,
+          workflows: currentProject.workflows.includes(workflow.id)
+            ? currentProject.workflows
+            : [...currentProject.workflows, workflow.id],
+        });
+      } catch (error) {
+        setLastError((error as Error).message);
+      }
+    };
+    input.click();
   }
 
   async function saveWorkflowAs() {

@@ -134,6 +134,28 @@ class TestLoadErrors:
             load_yaml(bad)
 
 
+class TestSaveCreatesParentDirs:
+    """Regression tests for #467 — save_yaml must create parent dirs."""
+
+    def test_save_creates_missing_parent_dirs(self, tmp_path: Path) -> None:
+        """save_yaml creates intermediate directories that do not exist."""
+        wf = WorkflowDefinition(id="nested-wf")
+        nested = tmp_path / "a" / "b" / "c" / "wf.yaml"
+        # Parent dirs do not exist yet
+        assert not nested.parent.exists()
+        save_yaml(wf, nested)
+        assert nested.exists()
+        loaded = load_yaml(nested)
+        assert loaded.id == "nested-wf"
+
+    def test_save_works_when_parent_already_exists(self, tmp_path: Path) -> None:
+        """save_yaml still works when the parent directory already exists."""
+        wf = WorkflowDefinition(id="existing-parent")
+        path = tmp_path / "wf.yaml"
+        save_yaml(wf, path)
+        assert path.exists()
+
+
 class TestSaveOutput:
     """Tests for the YAML output content."""
 
