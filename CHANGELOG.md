@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#433] Allow dragging block nodes from any position, not just the title bar (@claude, 2026-04-08, branch: fix/frontend-fixes-433-434-438, session: 20260408-211501-fix-gui-frontend-ux-fixes-for-433-434-43)
+- [#434] Multi-file selection now sends full paths array instead of collapsing to parent directory (@claude, 2026-04-08, branch: fix/frontend-fixes-433-434-438, session: 20260408-211501-fix-gui-frontend-ux-fixes-for-433-434-43)
+- [#438] Image preview uses 256px downsampling instead of 64x64 crop; Label/CompositeData raster slot renders as image preview (@claude, 2026-04-08, branch: fix/frontend-fixes-433-434-438, session: 20260408-211501-fix-gui-frontend-ux-fixes-for-433-434-43)
 - [#424] Add `_cancel_if_active()` and `rerun_block()` to `DAGScheduler`; update `reset_block` and `execute_from` to cancel active tasks/subprocesses before resetting state, preventing orphan processes on rerun (@claude, 2026-04-08, branch: fix/engine-core-fixes-424-435-436-437, session: 20260408-211448-fix-engine-core-engine-fixes-for-424-435)
 - [#435] Remove unsafe fallback in `_gather_inputs()` that passed entire upstream output dict when port key was missing; log warning and skip instead (@claude, 2026-04-08, branch: fix/engine-core-fixes-424-435-436-437, session: 20260408-211448-fix-engine-core-engine-fixes-for-424-435)
 - [#436] Add recursive CompositeData slot flushing in `_auto_flush()` so child DataObjects persist to storage before crossing subprocess boundary (@claude, 2026-04-08, branch: fix/engine-core-fixes-424-435-436-437, session: 20260408-211448-fix-engine-core-engine-fixes-for-424-435)
