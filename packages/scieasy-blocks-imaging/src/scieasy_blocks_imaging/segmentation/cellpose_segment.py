@@ -36,6 +36,7 @@ class CellposeSegment(ProcessBlock):
     ]
     output_ports: ClassVar[list[OutputPort]] = [
         OutputPort(name="labels", accepted_types=[Label], is_collection=True),
+        OutputPort(name="masks", accepted_types=[Image], is_collection=True),
     ]
 
     config_schema: ClassVar[dict[str, Any]] = {
@@ -88,15 +89,34 @@ class CellposeSegment(ProcessBlock):
         return models.CellposeModel(model_type=model_name, gpu=use_gpu)
 
     def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, Collection]:
-        """Override Tier 1 run so the output collection carries ``Label`` items."""
+        """Override Tier 1 run so the output collection carries ``Label`` items
+        and a parallel ``masks`` collection of raw integer-label images."""
         images = _coerce_images(inputs.get("images"))
         state = self.setup(config)
         try:
-            labels: list[Label] = []
+            labels_list: list[Label] = []
+            masks_list: list[Image] = []
             for image in images:
-                label = cast(Label, self._auto_flush(self.process_item(image, config, state)))
-                labels.append(label)
-            return {"labels": Collection(items=cast(list[DataObject], labels), item_type=Label)}
+                label = self.process_item(image, config, state)
+                labels_list.append(cast(Label, self._auto_flush(label)))
+
+                # Extract raster data as standalone Image for masks port
+                raster_data = label.slots["raster"]._data  # type: ignore[attr-defined]
+                mask_img = Image(
+                    axes=["y", "x"],
+                    shape=tuple(raster_data.shape),
+                    dtype=raster_data.dtype,
+                    framework=image.framework.derive(),
+                    meta=Image.Meta(source_file=getattr(image.meta, "source_file", None)),
+                    user=dict(image.user),
+                )
+                mask_img._data = raster_data  # type: ignore[attr-defined]
+                masks_list.append(cast(Image, self._auto_flush(mask_img)))
+
+            return {
+                "labels": Collection(items=cast(list[DataObject], labels_list), item_type=Label),
+                "masks": Collection(items=cast(list[DataObject], masks_list), item_type=Image),
+            }
         finally:
             self.teardown(state)
 

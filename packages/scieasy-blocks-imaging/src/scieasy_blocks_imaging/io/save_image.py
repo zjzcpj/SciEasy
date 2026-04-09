@@ -56,12 +56,12 @@ def _unwrap_image(obj: DataObject | Collection) -> Image:
     if isinstance(obj, Collection):
         if len(obj) == 0:
             raise ValueError("SaveImage: received an empty Collection")
-        if len(obj) != 1:
-            raise ValueError(f"SaveImage (pilot scope) only supports length-1 Collections; received length {len(obj)}")
-        item = obj[0]
-        if not isinstance(item, Image):
-            raise ValueError(f"SaveImage: collection item is {type(item).__name__}, expected Image")
-        return item
+        if len(obj) == 1:
+            item = obj[0]
+            if not isinstance(item, Image):
+                raise ValueError(f"SaveImage: collection item is {type(item).__name__}, expected Image")
+            return item
+        raise ValueError("SaveImage: multi-item Collection; use save() which handles batch mode")
     raise ValueError(f"SaveImage: expected Image or Collection[Image], got {type(obj).__name__}")
 
 
@@ -116,10 +116,12 @@ def _write_zarr(image: Image, path: Path) -> None:
 
 
 class SaveImage(IOBlock):
-    """TIFF/Zarr image writer (pilot scope).
+    """TIFF/Zarr image writer.
 
-    Accepts a single :class:`Image` or a length-1
-    :class:`Collection[Image]` and writes it to the configured path.
+    Accepts a single :class:`Image`, a length-1 :class:`Collection[Image]`,
+    or a multi-item :class:`Collection[Image]` (batch mode) and writes to
+    the configured path.  For batch mode the path is treated as a directory
+    and files are auto-numbered (``image_0000.tif``, etc.).
     """
 
     direction: ClassVar[str] = "output"
@@ -135,7 +137,14 @@ class SaveImage(IOBlock):
     config_schema: ClassVar[dict[str, Any]] = {
         "type": "object",
         "properties": {
-            "path": {"type": "string", "ui_priority": 0},
+            "path": {
+                "type": "string",
+                "description": (
+                    "Output file path for single images. "
+                    "For batch save (multi-item Collection), treated as a directory."
+                ),
+                "ui_priority": 0,
+            },
             "format": {
                 "type": "string",
                 "enum": ["tiff", "zarr"],
@@ -149,16 +158,26 @@ class SaveImage(IOBlock):
         """Direction is ``output``; ``load`` is unreachable via dispatch."""
         raise NotImplementedError("SaveImage is an output block; use save()")
 
+    def _write_single(self, image: Image, path: Path, fmt: str) -> None:
+        """Write a single :class:`Image` to *path* in the given format."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if fmt == _TIFF_FORMAT:
+            _write_tiff(image, path)
+        else:
+            _write_zarr(image, path)
+
     def save(self, obj: DataObject | Collection, config: BlockConfig) -> None:
         """Write *obj* to the configured path.
 
         Args:
-            obj: An :class:`Image` or a length-1 :class:`Collection`.
+            obj: An :class:`Image` or a :class:`Collection[Image]`.
+                 Multi-item collections are saved in batch mode with
+                 auto-numbered filenames.
             config: BlockConfig with ``path`` and optional ``format``.
 
         Raises:
-            ValueError: If the collection is empty, longer than 1 item,
-                or the format cannot be resolved.
+            ValueError: If the collection is empty, contains non-Image
+                items, or the format cannot be resolved.
         """
         raw_path = config.get("path")
         if not isinstance(raw_path, str) or not raw_path:
@@ -168,12 +187,32 @@ class SaveImage(IOBlock):
         fmt_cfg = config.get("format")
         if fmt_cfg is not None and not isinstance(fmt_cfg, str):
             raise ValueError(f"SaveImage: config['format'] must be a string or omitted, got {type(fmt_cfg).__name__}")
-        fmt = _resolve_format(path, fmt_cfg)
 
+        # Handle Collection: save each item with auto-numbered filename
+        if isinstance(obj, Collection):
+            if len(obj) == 0:
+                raise ValueError("SaveImage: empty Collection")
+            if len(obj) == 1:
+                # Single-item collection: use path as-is
+                image = _unwrap_image(obj)
+                fmt = _resolve_format(path, fmt_cfg)
+                self._write_single(image, path, fmt)
+                return
+
+            # Multi-item collection: path is treated as directory
+            out_dir = path if path.suffix == "" else path.parent
+            out_dir.mkdir(parents=True, exist_ok=True)
+            ext = f".{fmt_cfg}" if fmt_cfg else ".tif"
+            fmt = _resolve_format(Path(f"dummy{ext}"), fmt_cfg)
+            for i, item in enumerate(obj):
+                if not isinstance(item, Image):
+                    raise ValueError(f"SaveImage: Collection item {i} is not an Image")
+                item_path = out_dir / f"image_{i:04d}{ext}"
+                self._write_single(item, item_path, fmt)
+            return
+
+        # Single image (not in Collection)
         image = _unwrap_image(obj)
+        fmt = _resolve_format(path, fmt_cfg)
         path.parent.mkdir(parents=True, exist_ok=True)
-
-        if fmt == _TIFF_FORMAT:
-            _write_tiff(image, path)
-        else:
-            _write_zarr(image, path)
+        self._write_single(image, path, fmt)
