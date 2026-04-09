@@ -8,7 +8,7 @@ import shutil
 from pathlib import Path
 
 # Shell metacharacters that indicate injection attempts.
-_SHELL_META = re.compile(r"[;|&$`><(){}\n\r]")
+_SHELL_META = re.compile(r"[;|&$`><{}\n\r]")
 
 
 def validate_app_command(command: str | list[str]) -> list[str]:
