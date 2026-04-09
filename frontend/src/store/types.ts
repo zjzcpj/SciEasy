@@ -105,10 +105,42 @@ export interface ChatSlice {
   clearChatMessages: () => void;
 }
 
+/** Per-tab snapshot of workflow + UI state. */
+export interface TabState {
+  id: string;
+  workflowId: string;
+  workflowName: string;
+  workflowDescription: string;
+  workflowVersion: string;
+  workflowMetadata: Record<string, unknown>;
+  workflowNodes: WorkflowNode[];
+  workflowEdges: WorkflowEdge[];
+  workflowDirty: boolean;
+  workflowHistory: WorkflowHistoryEntry[];
+  workflowFuture: WorkflowHistoryEntry[];
+  selectedNodeId: string | null;
+}
+
+export interface TabSlice {
+  /** All open tabs (order = display order). */
+  tabs: TabState[];
+  /** ID of the currently active tab. */
+  activeTabId: string | null;
+  /** Open (or switch to) a workflow in a tab. */
+  openTab: (workflow: WorkflowResponse) => void;
+  /** Switch to an existing tab. */
+  switchTab: (tabId: string) => void;
+  /** Close a tab by ID. Returns true if closed, false if cancelled. */
+  closeTab: (tabId: string) => boolean;
+  /** Sync the active tab's snapshot from current workflow state. */
+  syncActiveTab: () => void;
+}
+
 export type AppStore = ProjectSlice &
   WorkflowSlice &
   ExecutionSlice &
   UISlice &
   PreviewSlice &
   PaletteSlice &
-  ChatSlice;
+  ChatSlice &
+  TabSlice;
