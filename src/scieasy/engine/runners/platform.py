@@ -164,7 +164,17 @@ class PosixOps:
         )
 
     def is_alive(self, pid: int) -> bool:
-        """Check if process is alive using ``os.kill(pid, 0)``."""
+        """Check if process is alive using ``os.kill(pid, 0)``.
+
+        Guard (#495): ``pid <= 0`` is never valid for a single-process
+        alive check.  In particular ``os.kill(-1, 0)`` signals **all**
+        user processes and always succeeds, giving a false-positive.
+        ``pid == 0`` targets the caller's own process group.  Both are
+        rejected early.
+        """
+        if pid <= 0:
+            return False
+
         import os
 
         try:
