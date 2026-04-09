@@ -137,7 +137,7 @@ class TestResourceThrottlingRetry:
         running_events: list[str] = []
         finish_order: list[str] = []
 
-        def can_dispatch(_request: Any) -> bool:
+        def can_dispatch(_request: Any, active_count: int = 0) -> bool:
             return not state["slot_in_use"]
 
         async def gated_run(block: Any, inputs: dict, config: dict) -> dict:
