@@ -120,13 +120,27 @@ def test_save_invalid_format_value_raises(tmp_path: Path) -> None:
         )
 
 
-def test_save_length_n_collection_raises(tmp_path: Path) -> None:
-    """Pilot scope rejects length>1 collections with a clear error."""
+def test_save_batch_collection_to_directory(tmp_path: Path) -> None:
+    """Multi-item Collection is saved as auto-numbered files in a directory."""
     arr = np.zeros((2, 2), dtype=np.uint8)
     imgs = [_make_image(arr.copy(), ["y", "x"]) for _ in range(2)]
     col = Collection(items=imgs, item_type=Image)
-    with pytest.raises(ValueError, match="length-1"):
-        SaveImage().save(col, BlockConfig(params={"path": str(tmp_path / "multi.tif")}))
+    out_dir = tmp_path / "batch_out"
+    SaveImage().save(col, BlockConfig(params={"path": str(out_dir)}))
+    assert (out_dir / "image_0000.tif").exists()
+    assert (out_dir / "image_0001.tif").exists()
+
+
+def test_save_batch_collection_with_format_override(tmp_path: Path) -> None:
+    """Multi-item Collection respects explicit format config."""
+    arr = np.zeros((2, 2), dtype=np.uint8)
+    imgs = [_make_image(arr.copy(), ["y", "x"]) for _ in range(3)]
+    col = Collection(items=imgs, item_type=Image)
+    out_dir = tmp_path / "batch_zarr"
+    SaveImage().save(col, BlockConfig(params={"path": str(out_dir), "format": "zarr"}))
+    assert (out_dir / "image_0000.zarr").exists()
+    assert (out_dir / "image_0001.zarr").exists()
+    assert (out_dir / "image_0002.zarr").exists()
 
 
 def test_save_empty_collection_raises(tmp_path: Path) -> None:

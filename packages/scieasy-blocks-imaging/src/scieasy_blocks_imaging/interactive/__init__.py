@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
+import platform
 import subprocess
 import tempfile
 from collections.abc import Mapping
@@ -24,6 +26,8 @@ from scieasy.core.types.collection import Collection
 from scieasy.core.types.dataframe import DataFrame
 from scieasy_blocks_imaging.io.load_image import _default_axes_for_ndim, _load_tiff, _load_zarr
 from scieasy_blocks_imaging.types import Image, Label, Mask
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from scieasy_blocks_imaging.interactive.cell_profiler_block import CellProfilerBlock
@@ -106,6 +110,22 @@ def _resolve_command(
     return [executable, *(extra_args or [])]
 
 
+def _open_file_manager(path: Path) -> None:
+    """Best-effort: open the OS file manager at *path*."""
+    try:
+        system = platform.system()
+        if system == "Windows":
+            import os
+
+            os.startfile(str(path))  # type: ignore[attr-defined]
+        elif system == "Darwin":
+            subprocess.Popen(["open", str(path)])
+        else:
+            subprocess.Popen(["xdg-open", str(path)])
+    except Exception:
+        pass  # best-effort, never block the workflow
+
+
 def _run_external_app(
     block: AppBlock,
     *,
@@ -133,6 +153,10 @@ def _run_external_app(
 
     if block.state == BlockState.RUNNING:
         block.transition(BlockState.PAUSED)
+
+    output_dir = exchange_dir / "outputs"
+    logger.info("Waiting for external application output. Save files to: %s", output_dir)
+    _open_file_manager(output_dir)
 
     proc = bridge.launch(command, exchange_dir, argv_override=launch_args)
     watcher = FileWatcher(
