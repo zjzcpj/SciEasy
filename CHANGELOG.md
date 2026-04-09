@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- [#446] Add workflow management toolbar: New, Save, Save As, Import buttons replace Export; backend endpoints for YAML workflow import and file browsing (@claude, 2026-04-08, branch: feat/issue-446/workflow-management, session: 20260408-220724-feat-gui-workflow-management-save-new-im)
 - [#445] Visual polish: solid colored port handles by data type with subtype ring colors, solid edge lines, higher-contrast palette tags, collapsible type legend, updated landing tagline (@claude, 2026-04-08, branch: feat/visual-polish-445, session: 20260408-220708-feat-gui-visual-polish-445)
 
 ### Fixed

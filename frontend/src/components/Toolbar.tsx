@@ -8,12 +8,13 @@ import {
   FolderOpen,
   Save,
   Import,
-  Download,
   ChevronDown,
   Plus,
   X,
   StickyNote,
   BoxSelect,
+  FilePlus2,
+  SaveAll,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,8 @@ import type { ProjectResponse } from "../types/api";
 interface ToolbarProps {
   currentProject: ProjectResponse | null;
   workflowId: string | null;
+  workflowName: string;
+  workflowDirty: boolean;
   selectedNodeId: string | null;
   wsConnected: boolean;
   sseConnected: boolean;
@@ -45,9 +48,10 @@ interface ToolbarProps {
   onNewProject: () => void;
   onOpenProject: () => void;
   onCloseProject: () => void;
+  onNewWorkflow: () => void;
   onSave: () => void;
+  onSaveAs: () => void;
   onImport: () => void;
-  onExport: () => void;
   onRun: () => void;
   onPause: () => void;
   onResume: () => void;
@@ -130,6 +134,8 @@ export function Toolbar(props: ToolbarProps) {
   const {
     currentProject,
     workflowId,
+    workflowName,
+    workflowDirty,
     selectedNodeId,
     wsConnected,
     sseConnected,
@@ -137,9 +143,10 @@ export function Toolbar(props: ToolbarProps) {
     onNewProject,
     onOpenProject,
     onCloseProject,
+    onNewWorkflow,
     onSave,
+    onSaveAs,
     onImport,
-    onExport,
     onRun,
     onPause,
     onResume,
@@ -165,8 +172,8 @@ export function Toolbar(props: ToolbarProps) {
               {currentProject?.name ?? "No project open"}
             </p>
             <p className="truncate text-xs text-stone-500">
-              {workflowId
-                ? `Workflow: ${workflowId}`
+              {currentProject
+                ? `${workflowName}${workflowDirty ? " *" : ""}`
                 : "Open or create a project"}
             </p>
           </div>
@@ -228,12 +235,18 @@ export function Toolbar(props: ToolbarProps) {
 
         <Separator orientation="vertical" className="mx-1 h-8" />
 
-        {/* Group 2: File Operations */}
+        {/* Group 2: Workflow File Operations */}
         <div className="flex items-center gap-1">
+          <ToolbarButton
+            icon={FilePlus2}
+            label="New"
+            disabled={!currentProject}
+            onClick={onNewWorkflow}
+          />
           <ToolbarButton
             icon={Import}
             label="Import"
-            shortcut="Ctrl+O"
+            disabled={!currentProject}
             onClick={onImport}
           />
           <ToolbarButton
@@ -243,13 +256,29 @@ export function Toolbar(props: ToolbarProps) {
             disabled={!currentProject}
             onClick={onSave}
           />
-          <ToolbarButton
-            icon={Download}
-            label="Export"
-            shortcut="Ctrl+Shift+S"
-            disabled={!currentProject}
-            onClick={onExport}
-          />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="toolbar"
+                size="toolbar"
+                disabled={!currentProject}
+                type="button"
+                className="px-1"
+              >
+                <ChevronDown className="size-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem onClick={onSave}>
+                <Save className="size-4" />
+                Save
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onSaveAs}>
+                <SaveAll className="size-4" />
+                Save As...
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         <Separator orientation="vertical" className="mx-1 h-8" />
