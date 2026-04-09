@@ -307,6 +307,30 @@ class TestCommandValidator:
         with pytest.raises(ValueError, match="Empty command"):
             validate_app_command("")
 
+    def test_validate_command_accepts_parentheses_in_path(self, tmp_path: Path) -> None:
+        """Parentheses in Windows-style paths like 'Program Files (x86)' are safe (#463)."""
+        # Create a fake executable inside a path containing parentheses
+        exe_dir = tmp_path / "Program Files (x86)" / "MyApp"
+        exe_dir.mkdir(parents=True)
+        exe_file = exe_dir / "myapp.exe"
+        exe_file.write_text("fake")
+        exe_file.chmod(0o755)
+
+        result = validate_app_command([str(exe_file)])
+        assert result == [str(exe_file)]
+
+    def test_validate_command_accepts_parentheses_in_string(self, tmp_path: Path) -> None:
+        """Parentheses in a string command path are not rejected as metacharacters (#463)."""
+        exe_dir = tmp_path / "Program Files (x86)" / "Tool"
+        exe_dir.mkdir(parents=True)
+        exe_file = exe_dir / "tool.exe"
+        exe_file.write_text("fake")
+        exe_file.chmod(0o755)
+
+        # shlex.split will handle the quoted path
+        result = validate_app_command(f'"{exe_file}"')
+        assert result == [str(exe_file)]
+
 
 # ---------------------------------------------------------------------------
 # Issue #70: FileWatcher TOCTOU / stability tests

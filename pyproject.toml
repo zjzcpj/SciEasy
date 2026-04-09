@@ -37,6 +37,7 @@ ai = [
 dev = [
     "pytest>=8.0",
     "pytest-cov>=6.0",
+    "pytest-xdist>=3.5",
     "ruff>=0.11",
     "mypy>=1.15",
     "types-PyYAML>=6.0",

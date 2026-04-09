@@ -122,7 +122,7 @@ function InlineConfigField({
       <label className="flex items-center justify-between gap-2 text-xs">
         <span className="shrink-0 text-stone-500">{label}</span>
         <select
-          className="nodrag nowheel min-w-0 flex-1 rounded border border-stone-200 bg-white px-2 py-1 text-xs text-ink focus:border-sea focus:outline-none"
+          className="nodrag nowheel min-w-0 flex-1 truncate rounded border border-stone-200 bg-white px-2 py-1 text-xs text-ink focus:border-sea focus:outline-none"
           value={String(value ?? schema.default ?? "")}
           onChange={(e) => onChange(key, e.target.value)}
         >
@@ -178,8 +178,9 @@ function InlineConfigField({
       <div className="flex min-w-0 flex-1">
         <input
           type="text"
-          className="nodrag nowheel min-w-0 flex-1 rounded border border-stone-200 bg-white px-2 py-1 text-xs text-ink focus:border-sea focus:outline-none"
+          className="nodrag nowheel min-w-0 flex-1 truncate rounded border border-stone-200 bg-white px-2 py-1 text-xs text-ink focus:border-sea focus:outline-none"
           placeholder={key === "path" ? "Type or paste path" : undefined}
+          title={String(value ?? schema.default ?? "")}
           value={String(value ?? schema.default ?? "")}
           onChange={(e) => onChange(key, e.target.value)}
         />
@@ -309,7 +310,7 @@ export function BlockNode({ data, selected }: NodeProps<Node<BlockNodeData>>) {
       {/* ----------------------------------------------------------------- */}
       {/* Inline config                                                     */}
       {/* ----------------------------------------------------------------- */}
-      <div className="nodrag nowheel space-y-2 border-b border-stone-100 px-3 py-2">
+      <div className="nodrag nowheel space-y-2 overflow-hidden border-b border-stone-100 px-3 py-2">
         {configProps.length > 0 ? (
           configProps.map((prop) => (
             <InlineConfigField

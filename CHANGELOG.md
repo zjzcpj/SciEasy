@@ -7,14 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- [#468] Optimize CI: parallel jobs, single-version coverage, pytest-xdist (@claude, 2026-04-09, branch: perf/issue-468/ci-speedup, session: wave2-ci-perf)
+
 ### Added
 
+- [#452] Implement AIBlock MVP: functional `run()` with LLM provider integration, input serialization, prompt templating, and Text output (@claude, 2026-04-08, branch: feat/issue-452/ai-block-mvp, session: 20260408-224820-feat-ai-aiblock-mvp-implementation)
 - [#446] Add workflow management toolbar: New, Save, Save As, Import buttons replace Export; backend endpoints for YAML workflow import and file browsing (@claude, 2026-04-08, branch: feat/issue-446/workflow-management, session: 20260408-220724-feat-gui-workflow-management-save-new-im)
 - [#445] Visual polish: solid colored port handles by data type with subtype ring colors, solid edge lines, higher-contrast palette tags, collapsible type legend, updated landing tagline (@claude, 2026-04-08, branch: feat/visual-polish-445, session: 20260408-220708-feat-gui-visual-polish-445)
 
 ### Fixed
 
 - [#467] Fix macOS crash: ensure workflow dir exists + remove tkinter file dialogs (@claude, 2026-04-09, branch: fix/issue-467/macos-crash, session: wave2-macos-fix)
+- [#457] Fix toolbar button shift on dirty state toggle and block node config overflow with ellipsis truncation (@claude, 2026-04-09, branch: fix/issue-457/toolbar-node-overflow, session: wave1-gui-fixes)
+- [#463] Allow parentheses in command validator for Windows paths like `Program Files (x86)` (@claude, 2026-04-09, branch: fix/issue-463/command-validator-parens, session: wave1-gui-fixes)
+- [#466] Fix MiniMap rendering blank white by setting visible maskColor, background, and darker node color fallback (@claude, 2026-04-09, branch: fix/issue-466/minimap-blank, session: wave1-gui-fixes)
+- [#463] Allow parentheses in AppBlock command validator for Windows paths like `C:\Program Files (x86)\` (@claude, 2026-04-09, branch: fix/issue-463/command-validator-parens, session: wave1-gui-fixes)
 - [#433] Allow dragging block nodes from any position, not just the title bar (@claude, 2026-04-08, branch: fix/frontend-fixes-433-434-438, session: 20260408-211501-fix-gui-frontend-ux-fixes-for-433-434-43)
 - [#434] Multi-file selection now sends full paths array instead of collapsing to parent directory (@claude, 2026-04-08, branch: fix/frontend-fixes-433-434-438, session: 20260408-211501-fix-gui-frontend-ux-fixes-for-433-434-43)
 - [#438] Image preview uses 256px downsampling instead of 64x64 crop; Label/CompositeData raster slot renders as image preview (@claude, 2026-04-08, branch: fix/frontend-fixes-433-434-438, session: 20260408-211501-fix-gui-frontend-ux-fixes-for-433-434-43)
