@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#520] Fix block error messages truncated — add expandable error display with tooltip, Problems tab, and copy button (@claude, 2026-04-09, branch: fix/issue-507/expandable-block-errors, session: 20260409-192041-block-error-messages-truncated-need-expa)
 - [#488] Fix block palette: group core blocks under SciEasy Core, register LCMS/SRS plugins with entry-points (@claude, 2026-04-09, branch: fix/issue-488/palette-categorization, session: 20260409-180931-fix-block-palette-core-blocks-scattered)
 - [#495] Fix ResourceManager memory watermark deadlock on macOS and PosixOps pid=-1 alive check bug (@claude, 2026-04-09, branch: fix/issue-495/memory-watermark-deadlock, session: 20260409-180231-fix-resourcemanager-memory-watermark-dea)
 - [#461] Fix palette categorization: add type_name prefixes to LCMS/SRS blocks, refine subcategories, populate source/package_name for Custom group (@claude, 2026-04-09, branch: fix/issue-461/palette-categorization, session: 20260409-124810-fix-block-palette-categorization-461)
