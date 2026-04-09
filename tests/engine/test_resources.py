@@ -145,29 +145,29 @@ class TestCanDispatchMemory:
     def test_below_watermark(self):
         rm = ResourceManager(gpu_slots=0, memory_high_watermark=0.80)
         with patch("psutil.virtual_memory", return_value=_mock_vm(50.0)):
-            assert rm.can_dispatch(ResourceRequest())
+            assert rm.can_dispatch(ResourceRequest(), active_count=1)
 
     def test_above_high_watermark(self):
         rm = ResourceManager(gpu_slots=0, memory_high_watermark=0.80)
         with patch("psutil.virtual_memory", return_value=_mock_vm(85.0)):
-            assert not rm.can_dispatch(ResourceRequest())
+            assert not rm.can_dispatch(ResourceRequest(), active_count=1)
 
     def test_at_high_watermark_boundary(self):
         """Exactly at watermark should still dispatch (> not >=)."""
         rm = ResourceManager(gpu_slots=0, memory_high_watermark=0.80)
         with patch("psutil.virtual_memory", return_value=_mock_vm(80.0)):
-            assert rm.can_dispatch(ResourceRequest())
+            assert rm.can_dispatch(ResourceRequest(), active_count=1)
 
     def test_above_critical(self):
         rm = ResourceManager(gpu_slots=0, memory_critical=0.95)
         with patch("psutil.virtual_memory", return_value=_mock_vm(96.0)):
-            assert not rm.can_dispatch(ResourceRequest())
+            assert not rm.can_dispatch(ResourceRequest(), active_count=1)
 
     def test_at_critical_boundary(self):
         """At exactly critical should block (>= check)."""
         rm = ResourceManager(gpu_slots=0, memory_critical=0.95)
         with patch("psutil.virtual_memory", return_value=_mock_vm(95.0)):
-            assert not rm.can_dispatch(ResourceRequest())
+            assert not rm.can_dispatch(ResourceRequest(), active_count=1)
 
 
 # ---------------------------------------------------------------------------
@@ -407,3 +407,44 @@ class TestMaxInternalWorkers:
         mgr = ResourceManager(gpu_slots=0, cpu_workers=4)
         req = ResourceRequest(cpu_cores=2)
         assert mgr.can_dispatch(req)  # 2 effective < 4 pool
+
+
+# ---------------------------------------------------------------------------
+# can_dispatch -- deadlock prevention (#495)
+# ---------------------------------------------------------------------------
+
+
+class TestCanDispatchDeadlockPrevention:
+    """When active_count == 0, the high watermark must be bypassed so that
+    at least one block can start.  Only the critical threshold blocks.
+    """
+
+    def test_active_count_zero_bypasses_watermark(self):
+        """Memory above watermark but below critical: allow when nothing running."""
+        rm = ResourceManager(gpu_slots=0, memory_high_watermark=0.80, memory_critical=0.95)
+        with patch("psutil.virtual_memory", return_value=_mock_vm(85.0)):
+            assert rm.can_dispatch(ResourceRequest(), active_count=0)
+
+    def test_active_count_zero_blocked_by_critical(self):
+        """Memory above critical: block even when nothing running."""
+        rm = ResourceManager(gpu_slots=0, memory_high_watermark=0.80, memory_critical=0.95)
+        with patch("psutil.virtual_memory", return_value=_mock_vm(96.0)):
+            assert not rm.can_dispatch(ResourceRequest(), active_count=0)
+
+    def test_active_count_zero_at_critical_boundary(self):
+        """Exactly at critical: block even when nothing running (>= check)."""
+        rm = ResourceManager(gpu_slots=0, memory_high_watermark=0.80, memory_critical=0.95)
+        with patch("psutil.virtual_memory", return_value=_mock_vm(95.0)):
+            assert not rm.can_dispatch(ResourceRequest(), active_count=0)
+
+    def test_active_count_nonzero_watermark_enforced(self):
+        """Memory above watermark with tasks running: still blocked."""
+        rm = ResourceManager(gpu_slots=0, memory_high_watermark=0.80, memory_critical=0.95)
+        with patch("psutil.virtual_memory", return_value=_mock_vm(85.0)):
+            assert not rm.can_dispatch(ResourceRequest(), active_count=1)
+
+    def test_default_active_count_is_zero(self):
+        """Default active_count=0 bypasses watermark (backward compat)."""
+        rm = ResourceManager(gpu_slots=0, memory_high_watermark=0.80, memory_critical=0.95)
+        with patch("psutil.virtual_memory", return_value=_mock_vm(85.0)):
+            assert rm.can_dispatch(ResourceRequest())

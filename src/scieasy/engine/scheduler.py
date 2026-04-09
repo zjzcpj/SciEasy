@@ -169,7 +169,7 @@ class DAGScheduler:
         if self._paused:
             return
 
-        if not self._resource_manager.can_dispatch(ResourceRequest()):
+        if not self._resource_manager.can_dispatch(ResourceRequest(), active_count=len(self._active_tasks)):
             # Stay READY; retried by _dispatch_newly_ready on the next
             # resource-freeing event (BLOCK_DONE / PROCESS_EXITED).
             return
