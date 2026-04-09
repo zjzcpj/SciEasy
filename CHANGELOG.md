@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#510] Fix ElMAVEN block to pass raw file paths as CLI arguments so data is pre-loaded (@claude, 2026-04-09, branch: fix/issue-510/elmaven-data-injection, session: 20260409-192253-elmaven-block-opens-without-input-data-5)
 - [#499] Configure Python logging handlers so logger output is not silently discarded (@claude, 2026-04-09, branch: fix/issue-499/configure-logging, session: 20260409-180335-configure-logging-handlers-for-the-codeb)
 - [#488] Fix block palette: group core blocks under SciEasy Core, register LCMS/SRS plugins with entry-points (@claude, 2026-04-09, branch: fix/issue-488/palette-categorization, session: 20260409-180931-fix-block-palette-core-blocks-scattered)
 - [#495] Fix ResourceManager memory watermark deadlock on macOS and PosixOps pid=-1 alive check bug (@claude, 2026-04-09, branch: fix/issue-495/memory-watermark-deadlock, session: 20260409-180231-fix-resourcemanager-memory-watermark-dea)
