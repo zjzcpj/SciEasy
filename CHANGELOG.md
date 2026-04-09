@@ -27,6 +27,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - [#520] Fix block error messages truncated — add expandable error display with tooltip, Problems tab, and copy button (@claude, 2026-04-09, branch: fix/issue-507/expandable-block-errors, session: 20260409-192041-block-error-messages-truncated-need-expa)
+- [#510] Fix ElMAVEN block to pass raw file paths as CLI arguments so data is pre-loaded (@claude, 2026-04-09, branch: fix/issue-510/elmaven-data-injection, session: 20260409-192253-elmaven-block-opens-without-input-data-5)
+- [#506] Store relative paths in workflow YAML for cross-machine portability (@claude, 2026-04-09, branch: fix/issue-506/relative-paths, session: 20260409-191659-store-relative-paths-in-workflow-yaml-50)
+- [#509] Disable monorepo scanner for end users — gate behind SCIEASY_DEV=1 env var (@claude, 2026-04-09, branch: fix/issue-509/disable-monorepo-scanner, session: 20260409-191427-disable-monorepo-scanner-for-end-users-5)
+- [#499] Configure Python logging handlers so logger output is not silently discarded (@claude, 2026-04-09, branch: fix/issue-499/configure-logging, session: 20260409-180335-configure-logging-handlers-for-the-codeb)
+- [#511] Fix toolbar layout shift caused by long workflow names — add max-width truncation with tooltip (@claude, 2026-04-09, branch: fix/issue-508/toolbar-name-truncation, session: 20260409-191332-fix-toolbar-shifts-when-workflow-filenam)
 - [#488] Fix block palette: group core blocks under SciEasy Core, register LCMS/SRS plugins with entry-points (@claude, 2026-04-09, branch: fix/issue-488/palette-categorization, session: 20260409-180931-fix-block-palette-core-blocks-scattered)
 - [#495] Fix ResourceManager memory watermark deadlock on macOS and PosixOps pid=-1 alive check bug (@claude, 2026-04-09, branch: fix/issue-495/memory-watermark-deadlock, session: 20260409-180231-fix-resourcemanager-memory-watermark-dea)
 - [#461] Fix palette categorization: add type_name prefixes to LCMS/SRS blocks, refine subcategories, populate source/package_name for Custom group (@claude, 2026-04-09, branch: fix/issue-461/palette-categorization, session: 20260409-124810-fix-block-palette-categorization-461)
