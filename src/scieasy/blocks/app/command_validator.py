@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import shlex
 import shutil
+import sys
 from pathlib import Path
 
 # Shell metacharacters that indicate injection attempts.
@@ -52,7 +53,11 @@ def validate_app_command(command: str | list[str]) -> list[str]:
     # Resolve the executable.
     exe = parts[0]
     resolved = shutil.which(exe)
-    if resolved is None and not Path(exe).is_file():
+    is_valid = resolved is not None or Path(exe).is_file()
+    # macOS .app bundles are directories, not files (#483).
+    if not is_valid and sys.platform == "darwin" and exe.endswith(".app"):
+        is_valid = Path(exe).is_dir()
+    if not is_valid:
         raise ValueError(f"Command executable not found: {exe!r}. Ensure it is on PATH or provide an absolute path.")
 
     return parts

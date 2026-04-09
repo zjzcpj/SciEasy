@@ -6,6 +6,7 @@ import os
 import time
 from pathlib import Path
 from threading import Thread
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -330,6 +331,93 @@ class TestCommandValidator:
         # shlex.split will handle the quoted path
         result = validate_app_command(f'"{exe_file}"')
         assert result == [str(exe_file)]
+
+    def test_validate_command_accepts_macos_app_bundle(self, tmp_path: Path) -> None:
+        """macOS .app bundles (directories) should be accepted on darwin (#483)."""
+        from unittest.mock import patch
+
+        app_bundle = tmp_path / "Fiji.app"
+        app_bundle.mkdir()
+
+        with patch("scieasy.blocks.app.command_validator.sys") as mock_sys:
+            mock_sys.platform = "darwin"
+            result = validate_app_command([str(app_bundle)])
+            assert result == [str(app_bundle)]
+
+    def test_validate_command_rejects_app_bundle_on_non_darwin(self, tmp_path: Path) -> None:
+        """A .app directory should NOT be accepted on non-darwin platforms (#483)."""
+        from unittest.mock import patch
+
+        app_bundle = tmp_path / "Fiji.app"
+        app_bundle.mkdir()
+
+        with patch("scieasy.blocks.app.command_validator.sys") as mock_sys:
+            mock_sys.platform = "linux"
+            with pytest.raises(ValueError, match="not found"):
+                validate_app_command([str(app_bundle)])
+
+
+class TestBridgeMacOSAppBundle:
+    """#483: .app bundle launch rewriting on macOS."""
+
+    def test_launch_rewrites_app_bundle_on_darwin(self, tmp_path: Path) -> None:
+        """On macOS, .app bundles should be launched via 'open -a'."""
+        from unittest.mock import patch
+
+        bridge = FileExchangeBridge()
+        exchange_dir = tmp_path / "exchange"
+        exchange_dir.mkdir()
+
+        app_bundle = tmp_path / "Fiji.app"
+        app_bundle.mkdir()
+
+        with (
+            patch("scieasy.blocks.app.bridge.sys") as mock_sys,
+            patch("scieasy.blocks.app.command_validator.sys") as mock_val_sys,
+            patch("scieasy.blocks.app.bridge.subprocess.Popen") as mock_popen,
+        ):
+            mock_sys.platform = "darwin"
+            mock_val_sys.platform = "darwin"
+            mock_proc = MagicMock()
+            mock_proc.pid = 999
+            mock_popen.return_value = mock_proc
+
+            bridge.launch([str(app_bundle)], exchange_dir)
+
+            call_args = mock_popen.call_args
+            cmd = call_args[0][0]
+            assert cmd[0] == "open"
+            assert cmd[1] == "-a"
+            assert cmd[2] == str(app_bundle)
+            assert cmd[3] == "--args"
+
+    def test_launch_does_not_rewrite_on_non_darwin(self, tmp_path: Path) -> None:
+        """On non-macOS, .app paths should NOT be rewritten."""
+        from unittest.mock import patch
+
+        bridge = FileExchangeBridge()
+        exchange_dir = tmp_path / "exchange"
+        exchange_dir.mkdir()
+
+        exe = tmp_path / "myapp.exe"
+        exe.write_text("fake")
+        exe.chmod(0o755)
+
+        with (
+            patch("scieasy.blocks.app.bridge.sys") as mock_sys,
+            patch("scieasy.blocks.app.bridge.subprocess.Popen") as mock_popen,
+        ):
+            mock_sys.platform = "win32"
+            mock_proc = MagicMock()
+            mock_proc.pid = 999
+            mock_popen.return_value = mock_proc
+
+            bridge.launch([str(exe)], exchange_dir)
+
+            call_args = mock_popen.call_args
+            cmd = call_args[0][0]
+            assert cmd[0] == str(exe)
+            assert "open" not in cmd
 
 
 # ---------------------------------------------------------------------------
