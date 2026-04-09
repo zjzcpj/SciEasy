@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- [#446] Add workflow management toolbar: New, Save, Save As, Import buttons replace Export; backend endpoints for YAML workflow import and file browsing (@claude, 2026-04-08, branch: feat/issue-446/workflow-management, session: 20260408-220724-feat-gui-workflow-management-save-new-im)
+
 ### Fixed
 
 - [#433] Allow dragging block nodes from any position, not just the title bar (@claude, 2026-04-08, branch: fix/frontend-fixes-433-434-438, session: 20260408-211501-fix-gui-frontend-ux-fixes-for-433-434-43)
