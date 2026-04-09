@@ -138,7 +138,7 @@ def _load_preview_matrix(ref: StorageReference) -> Any:
     raise ValueError(f"Unsupported raster preview format for {path}")
 
 
-def _downsample_matrix(matrix: Any, max_dim: int = 256) -> list[list[float]]:
+def _downsample_matrix(matrix: Any, max_dim: int = 256) -> Any:
     """Downsample a 2-D matrix to at most *max_dim* on the longest side.
 
     Uses nearest-neighbour sampling via ``numpy.linspace`` indices so the
