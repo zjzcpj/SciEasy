@@ -43,6 +43,8 @@ Desktop.ini
 .codex/
 auth.json
 
+.claude/
+
 # Data (local working data, not tracked)
 data/local/
 data/cache/
