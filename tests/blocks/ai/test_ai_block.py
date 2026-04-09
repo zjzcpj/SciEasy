@@ -23,7 +23,7 @@ def ai_block() -> AIBlock:
 
 @pytest.fixture()
 def mock_provider(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    """Monkeypatch ``get_provider`` to return a mock LLM provider.
+    """Monkeypatch provider constructors to return a mock LLM provider.
 
     The mock's ``generate()`` returns a fixed string so tests can assert
     on the output without making real API calls.
@@ -31,12 +31,14 @@ def mock_provider(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     provider = MagicMock()
     provider.generate.return_value = "LLM response text"
 
-    def _fake_get_provider(config=None):
-        return provider
-
-    monkeypatch.setattr("scieasy.blocks.ai.ai_block.get_provider", _fake_get_provider, raising=False)
-    # The import happens inside run(), so we also patch the module it imports from.
-    monkeypatch.setattr("scieasy.ai.config.get_provider", _fake_get_provider)
+    monkeypatch.setattr(
+        "scieasy.blocks.ai.providers.AnthropicProvider",
+        lambda **kwargs: provider,
+    )
+    monkeypatch.setattr(
+        "scieasy.blocks.ai.providers.OpenAIProvider",
+        lambda **kwargs: provider,
+    )
     return provider
 
 
@@ -195,5 +197,5 @@ class TestAIBlockRun:
         call_args = mock_provider.generate.call_args
         ai_config = call_args.kwargs.get("config")
         assert ai_config is not None
-        assert ai_config.temperature == 0.8
-        assert ai_config.max_tokens == 2048
+        assert ai_config["temperature"] == 0.8
+        assert ai_config["max_tokens"] == 2048

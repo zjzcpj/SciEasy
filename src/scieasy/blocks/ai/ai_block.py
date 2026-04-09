@@ -108,7 +108,7 @@ class AIBlock(Block):
         3. Configure and call the LLM via the provider infrastructure.
         4. Return the response wrapped as ``Text``.
         """
-        from scieasy.ai.config import AIConfig, get_provider
+        from scieasy.blocks.ai.providers import AnthropicProvider, OpenAIProvider
 
         # 1. Serialize input data to text representation.
         raw_data = inputs.get("data")
@@ -123,20 +123,24 @@ class AIBlock(Block):
         prompt = prompt_template.replace("{data}", data_text)
 
         # 3. Configure and call LLM.
-        ai_config = AIConfig(
-            provider=str(config.get("provider", "anthropic")),
-            model=config.get("model") or "",
-            temperature=float(config.get("temperature", 0.2)),
-            max_tokens=int(config.get("max_tokens", 4096)),
-            api_key="",  # Falls back to env var
-        )
-        provider = get_provider(ai_config)
+        provider_name = str(config.get("provider", "anthropic"))
+        model = config.get("model") or ""
+        temperature = float(config.get("temperature", 0.2))
+        max_tokens = int(config.get("max_tokens", 4096))
+        api_key = ""  # Falls back to provider-specific env var
+
+        if provider_name == "anthropic":
+            provider = AnthropicProvider(api_key=api_key, model=model, max_tokens=max_tokens)
+        elif provider_name == "openai":
+            provider = OpenAIProvider(api_key=api_key, model=model, max_tokens=max_tokens)
+        else:
+            raise ValueError(f"AIBlock: unknown provider {provider_name!r}. Use 'anthropic' or 'openai'.")
 
         system_prompt = config.get("system_prompt")
         response = provider.generate(
             prompt=prompt,
             system=str(system_prompt) if system_prompt else "",
-            config=ai_config,
+            config={"temperature": temperature, "max_tokens": max_tokens},
         )
 
         # 4. Wrap response as Text.
