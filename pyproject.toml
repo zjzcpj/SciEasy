@@ -149,6 +149,7 @@ name = "Blocks must not depend on engine, api, or ai services"
 type = "forbidden"
 source_modules = ["scieasy.blocks"]
 forbidden_modules = ["scieasy.engine", "scieasy.api", "scieasy.ai"]
+ignore_imports = ["scieasy.blocks.ai.ai_block -> scieasy.ai.config"]  # #455: temporary until provider injection
 
 [[tool.importlinter.contracts]]
 name = "Engine must not depend on api or ai services"
