@@ -98,26 +98,23 @@ def create_app() -> FastAPI:
 
 
 def _resolve_spa_static_dir() -> Path | None:
-    """Locate the built SPA assets, preferring packaged over dev layout.
+    """Locate the built SPA assets.
 
-    Returns the first directory that contains an ``index.html``, or ``None``
-    if no built SPA is available. See ``create_app`` for the resolution
-    order and rationale.
+    For editable installs (development), ``frontend/dist/`` is preferred
+    because it reflects the latest ``npm run build``.  The packaged copy
+    at ``src/scieasy/api/static/`` is only used as a fallback — it is
+    written once during ``pip install`` and quickly becomes stale when
+    the developer rebuilds the frontend.
+
+    Returns the first directory that contains an ``index.html``, or
+    ``None`` if no built SPA is available.
     """
-    packaged = Path(__file__).parent / "static"
-    if (packaged / "index.html").is_file():
-        return packaged
-
-    # Walk up from ``src/scieasy/api/app.py`` to the repo root and look for
-    # ``frontend/dist/``. Only used for editable installs where ``__file__``
-    # is still inside the source tree.
+    # 1. Prefer frontend/dist/ (fresh dev build).
+    #    Walk up from ``src/scieasy/api/app.py`` to the repo root.
     for parent in Path(__file__).resolve().parents:
         candidate = parent / "frontend" / "dist"
         if (candidate / "index.html").is_file():
-            # #406: Warn developers when frontend/src has files newer than
-            # dist/index.html — the built SPA may be stale.  This check is
-            # best-effort (errors are silently swallowed) and emits a warning
-            # only; it never blocks startup.
+            # #406: Warn when frontend/src is newer than the build.
             src_dir = parent / "frontend" / "src"
             if src_dir.exists():
                 try:
@@ -139,4 +136,10 @@ def _resolve_spa_static_dir() -> Path | None:
         if (parent / "pyproject.toml").is_file():
             # Reached the repo root without finding frontend/dist/
             break
+
+    # 2. Fall back to packaged static/ (wheel installs).
+    packaged = Path(__file__).parent / "static"
+    if (packaged / "index.html").is_file():
+        return packaged
+
     return None
