@@ -221,6 +221,17 @@ export interface AIOptimizeParamsResponse {
   explanation: string;
 }
 
+export interface FilesystemEntry {
+  name: string;
+  type: "file" | "directory";
+  size?: number | null;
+}
+
+export interface FilesystemBrowseResponse {
+  path: string;
+  entries: FilesystemEntry[];
+}
+
 export interface TreeEntry {
   name: string;
   type: "file" | "directory";

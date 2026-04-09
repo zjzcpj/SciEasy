@@ -1,0 +1,91 @@
+"""Tests for the filesystem browse endpoint (GET /api/filesystem/browse)."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+
+
+@pytest.fixture()
+def browse_dir(tmp_path: Path) -> Path:
+    """Create a small directory tree for testing."""
+    (tmp_path / "alpha").mkdir()
+    (tmp_path / "beta").mkdir()
+    (tmp_path / "file_a.txt").write_text("hello")
+    (tmp_path / "file_b.csv").write_text("a,b\n1,2")
+    return tmp_path
+
+
+class TestBrowseFilesystem:
+    """GET /api/filesystem/browse?path=..."""
+
+    def test_empty_path_returns_roots(self, client: TestClient) -> None:
+        resp = client.get("/api/filesystem/browse", params={"path": ""})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "entries" in data
+        # Should return at least one root entry
+        assert len(data["entries"]) >= 1
+        # All entries should be directories
+        for entry in data["entries"]:
+            assert entry["type"] == "directory"
+
+    def test_list_directory(self, client: TestClient, browse_dir: Path) -> None:
+        resp = client.get(
+            "/api/filesystem/browse",
+            params={"path": str(browse_dir)},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        names = [e["name"] for e in data["entries"]]
+        # Directories first, then files
+        assert "alpha" in names
+        assert "beta" in names
+        assert "file_a.txt" in names
+        assert "file_b.csv" in names
+        # Verify ordering: directories before files
+        dir_indices = [i for i, e in enumerate(data["entries"]) if e["type"] == "directory"]
+        file_indices = [i for i, e in enumerate(data["entries"]) if e["type"] == "file"]
+        if dir_indices and file_indices:
+            assert max(dir_indices) < min(file_indices)
+
+    def test_file_entries_have_size(self, client: TestClient, browse_dir: Path) -> None:
+        resp = client.get(
+            "/api/filesystem/browse",
+            params={"path": str(browse_dir)},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        file_entries = [e for e in data["entries"] if e["type"] == "file"]
+        for entry in file_entries:
+            assert entry["size"] is not None
+            assert entry["size"] >= 0
+
+    def test_nonexistent_path_returns_404(self, client: TestClient) -> None:
+        resp = client.get(
+            "/api/filesystem/browse",
+            params={"path": "/nonexistent/path/abc123"},
+        )
+        assert resp.status_code == 404
+
+    def test_file_path_returns_400(self, client: TestClient, browse_dir: Path) -> None:
+        file_path = browse_dir / "file_a.txt"
+        resp = client.get(
+            "/api/filesystem/browse",
+            params={"path": str(file_path)},
+        )
+        assert resp.status_code == 400
+
+    def test_entries_sorted_alphabetically(self, client: TestClient, browse_dir: Path) -> None:
+        resp = client.get(
+            "/api/filesystem/browse",
+            params={"path": str(browse_dir)},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        dirs = [e["name"] for e in data["entries"] if e["type"] == "directory"]
+        files = [e["name"] for e in data["entries"] if e["type"] == "file"]
+        assert dirs == sorted(dirs, key=str.lower)
+        assert files == sorted(files, key=str.lower)
