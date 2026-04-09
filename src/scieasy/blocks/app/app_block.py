@@ -36,6 +36,12 @@ class _PopenProcessAdapter:
     def is_alive(self) -> bool:
         return self._proc.poll() is None
 
+    def exit_info(self) -> Any:
+        class ExitInfo:
+            def __init__(self, code: int | None) -> None:
+                self.exit_code = code
+        return ExitInfo(self._proc.poll())
+
 
 class AppBlock(Block):
     """Block that delegates work to an external GUI application.

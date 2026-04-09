@@ -112,6 +112,19 @@ class FileWatcher:
                 # Give one last chance — return any candidates even if not fully stable.
                 if candidates:
                     return sorted(candidates.keys())
+
+                # Issue #4XX: Handle launchers (like macOS `open` or Fiji wrapper) that exit 0
+                # successfully but delegate to a background process. If exit code is 0, we assume
+                # the background process is running and continue polling until timeout.
+                exit_info = None
+                if hasattr(self._process_handle, "exit_info"):
+                    exit_info = self._process_handle.exit_info()
+
+                if exit_info and hasattr(exit_info, "exit_code") and exit_info.exit_code == 0:
+                    # It's a successful launcher. Detach the process handle and keep polling.
+                    self._process_handle = None
+                    continue
+
                 raise ProcessExitedWithoutOutputError(
                     f"External process (pid={self._process_handle.pid}) exited without producing output"
                 )
