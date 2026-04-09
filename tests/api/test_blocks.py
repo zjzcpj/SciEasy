@@ -2,7 +2,26 @@
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
+
+from scieasy.api.routes.blocks import _is_plugin_package
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("scieasy-blocks-imaging", True),
+        ("scieasy-blocks-lcms", True),
+        ("scieasy-blocks-srs", True),
+        ("ai_block", False),
+        ("code_block", False),
+        ("load_data", False),
+        ("", False),
+    ],
+)
+def test_is_plugin_package(name: str, expected: bool) -> None:
+    assert _is_plugin_package(name) is expected
 
 
 def test_list_blocks_and_schema_alias_endpoints(client: TestClient) -> None:
@@ -108,6 +127,32 @@ def test_list_blocks_source_values_enumerated(client: TestClient) -> None:
         assert block["source"] not in ("tier1", "entry_point", "monorepo"), (
             f"Block {block['type_name']} leaks raw source={block['source']!r}"
         )
+
+
+def test_core_blocks_have_empty_package_name(client: TestClient) -> None:
+    """Core/builtin blocks must have package_name='' so the frontend groups them together."""
+    response = client.get("/api/blocks/")
+    assert response.status_code == 200
+    blocks = response.json()["blocks"]
+    # Blocks with source "builtin" should have empty package_name
+    builtin_blocks = [b for b in blocks if b["source"] == "builtin"]
+    for block in builtin_blocks:
+        assert block["package_name"] == "", (
+            f"Core block {block['type_name']} should have empty package_name, "
+            f"got {block['package_name']!r}"
+        )
+
+
+def test_plugin_blocks_retain_package_name(client: TestClient) -> None:
+    """Plugin blocks (scieasy-blocks-*) should retain their package_name."""
+    response = client.get("/api/blocks/")
+    assert response.status_code == 200
+    blocks = response.json()["blocks"]
+    pkg_blocks = [b for b in blocks if b["package_name"].startswith("scieasy-blocks-")]
+    # The imaging package is always installed in tests
+    assert any(b["package_name"] == "scieasy-blocks-imaging" for b in pkg_blocks), (
+        "Expected at least one block from scieasy-blocks-imaging"
+    )
 
 
 def test_lcms_srs_blocks_have_domain_prefix(client: TestClient) -> None:

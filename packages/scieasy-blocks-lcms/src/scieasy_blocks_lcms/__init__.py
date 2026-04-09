@@ -1,18 +1,36 @@
-"""SciEasy LC-MS plugin — Phase 11 skeleton (skeleton @ c08a885).
+"""SciEasy LC-MS plugin — Phase 11 skeleton.
 
 User-facing entry surface for ``scieasy-blocks-lcms``. Re-exports the
-four LC-MS types defined in T-LCMS-002 plus the public block classes
-across the four sub-packages (``io``, ``external``,
-``isotope_tracing``, ``analysis``). Per master plan §2.4 the LC-MS
-plugin's USP is stable-isotope tracing — the ``isotope_tracing``
-sub-package is the flagship surface.
-
-Block classes are imported lazily-by-name only to surface them in
-``__all__``; entry-point registration into the BlockRegistry is the
-responsibility of the T-LCMS-021 impl agent (it edits
-``pyproject.toml`` ``[project.entry-points."scieasy.blocks"]``).
+four LC-MS types plus public block classes across the four sub-packages
+(``io``, ``external``, ``isotope_tracing``, ``analysis``).
 """
 
+from __future__ import annotations
+
+from scieasy.blocks.base.package_info import PackageInfo
+from scieasy_blocks_lcms.analysis import (
+    ConsumptionSecretionAnalysis,
+    MatrixPreprocess,
+    MetaboliteMatrix,
+    MultivariateAnalysis,
+    PathwayEnrichment,
+    UnivariateStats,
+)
+from scieasy_blocks_lcms.external import AccuCorR, ElMAVENBlock, GraphPadBlock
+from scieasy_blocks_lcms.io import (
+    LoadMIDTable,
+    LoadMSRawFiles,
+    LoadPeakTable,
+    LoadSampleMetadata,
+    SaveTable,
+)
+from scieasy_blocks_lcms.isotope_tracing import (
+    Calculate13CEnrichment,
+    CompareGroupMID,
+    FluxEstimate,
+    FractionalLabeling,
+    PoolSizeNormalize,
+)
 from scieasy_blocks_lcms.types import (
     MIDTable,
     MSRawFile,
@@ -21,10 +39,81 @@ from scieasy_blocks_lcms.types import (
     get_types,
 )
 
+__version__ = "0.1.0.dev0"
+
+_LCMS_BLOCKS: tuple[type, ...] = (
+    # IO
+    LoadMSRawFiles,
+    LoadPeakTable,
+    LoadMIDTable,
+    LoadSampleMetadata,
+    SaveTable,
+    # External
+    ElMAVENBlock,
+    AccuCorR,
+    GraphPadBlock,
+    # Isotope tracing
+    Calculate13CEnrichment,
+    FractionalLabeling,
+    CompareGroupMID,
+    FluxEstimate,
+    PoolSizeNormalize,
+    # Analysis
+    MetaboliteMatrix,
+    MatrixPreprocess,
+    UnivariateStats,
+    MultivariateAnalysis,
+    PathwayEnrichment,
+    ConsumptionSecretionAnalysis,
+)
+
+
+def get_package_info() -> PackageInfo:
+    """Return package metadata for the ``scieasy.blocks`` registry."""
+    return PackageInfo(
+        name="scieasy-blocks-lcms",
+        description="LC-MS / stable-isotope tracing blocks for SciEasy workflows.",
+        author="SciEasy Contributors",
+        version=__version__,
+    )
+
+
+def get_blocks() -> list[type]:
+    """Return the LC-MS plugin's exported concrete block classes."""
+    return list(_LCMS_BLOCKS)
+
+
+def get_block_package() -> tuple[PackageInfo, list[type]]:
+    """Return package metadata and block classes for ``scieasy.blocks``."""
+    return get_package_info(), get_blocks()
+
+
 __all__ = [
+    "AccuCorR",
+    "Calculate13CEnrichment",
+    "CompareGroupMID",
+    "ConsumptionSecretionAnalysis",
+    "ElMAVENBlock",
+    "FluxEstimate",
+    "FractionalLabeling",
+    "GraphPadBlock",
+    "LoadMIDTable",
+    "LoadMSRawFiles",
+    "LoadPeakTable",
+    "LoadSampleMetadata",
     "MIDTable",
     "MSRawFile",
+    "MatrixPreprocess",
+    "MetaboliteMatrix",
+    "MultivariateAnalysis",
+    "PathwayEnrichment",
     "PeakTable",
+    "PoolSizeNormalize",
     "SampleMetadata",
+    "SaveTable",
+    "UnivariateStats",
+    "get_block_package",
+    "get_blocks",
+    "get_package_info",
     "get_types",
 ]

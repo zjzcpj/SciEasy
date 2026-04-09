@@ -11,5 +11,11 @@ dependencies = [
     "scieasy>=0.2.1",
 ]
 
+[project.entry-points."scieasy.blocks"]
+lcms = "scieasy_blocks_lcms:get_block_package"
+
+[project.entry-points."scieasy.types"]
+lcms = "scieasy_blocks_lcms:get_types"
+
 [tool.setuptools.packages.find]
 where = ["src"]
