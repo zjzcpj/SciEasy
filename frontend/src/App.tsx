@@ -417,7 +417,7 @@ export default function App() {
   const handleErrorClick = useCallback(
     (blockId: string) => {
       setSelectedNodeId(blockId);
-      setActiveBottomTab("logs");
+      setActiveBottomTab("problems");
     },
     [setSelectedNodeId, setActiveBottomTab],
   );
@@ -773,6 +773,7 @@ export default function App() {
                       activeTab={activeBottomTab}
                       aiError={aiError}
                       aiLoading={aiLoading}
+                      blockErrors={blockErrors}
                       chatMessages={chatMessages}
                       logEntries={logEntries}
                       onSendChat={onSendChat}
