@@ -24,6 +24,7 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           cache: true
+          cache-dependency-path: pyproject.toml
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
@@ -39,9 +40,15 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           cache: true
+          cache-dependency-path: pyproject.toml
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
+      - name: Cache site-packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.pythonLocation }}/lib/python*/site-packages
+          key: site-packages-3.13-${{ hashFiles('pyproject.toml') }}
       - run: uv pip install --system -e ".[dev]"
       - name: Run mypy
         run: |
@@ -59,9 +66,15 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           cache: true
+          cache-dependency-path: pyproject.toml
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
+      - name: Cache site-packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.pythonLocation }}/lib/python*/site-packages
+          key: site-packages-3.13-${{ hashFiles('pyproject.toml') }}
       - run: uv pip install --system -e ".[dev]"
       - name: Run architecture tests
         run: pytest tests/architecture/ -v --no-cov
@@ -78,9 +91,15 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           cache: true
+          cache-dependency-path: pyproject.toml
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Cache site-packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.pythonLocation }}/lib/python*/site-packages
+          key: site-packages-${{ matrix.python-version }}-${{ hashFiles('pyproject.toml') }}
       - run: uv pip install --system -e ".[dev]"
       - name: Run tests
         shell: bash {0}
@@ -105,9 +124,15 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           cache: true
+          cache-dependency-path: pyproject.toml
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
+      - name: Cache site-packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.pythonLocation }}/lib/python*/site-packages
+          key: site-packages-3.13-${{ hashFiles('pyproject.toml') }}
       - run: uv pip install --system -e ".[dev]"
       - name: Run import linter
         run: |
