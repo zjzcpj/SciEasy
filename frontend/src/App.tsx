@@ -45,6 +45,8 @@ export default function App() {
   const workflowNodes = useAppStore((state) => state.workflowNodes);
   const workflowEdges = useAppStore((state) => state.workflowEdges);
   const workflowDirty = useAppStore((state) => state.workflowDirty);
+  const workflowName = useAppStore((state) => state.workflowName);
+  const setWorkflowName = useAppStore((state) => state.setWorkflowName);
   const setWorkflow = useAppStore((state) => state.setWorkflow);
   const addNode = useAppStore((state) => state.addNode);
   const updateNodeConfig = useAppStore((state) => state.updateNodeConfig);
@@ -198,6 +200,72 @@ export default function App() {
       }
       markWorkflowSaved();
       await refreshProjects();
+      setCurrentProject({
+        ...currentProject,
+        current_workflow_id: saved.id,
+        workflows: currentProject.workflows.includes(saved.id)
+          ? currentProject.workflows
+          : [...currentProject.workflows, saved.id],
+      });
+    } catch (error) {
+      setLastError((error as Error).message);
+    }
+  }
+
+  function newWorkflow() {
+    if (workflowDirty) {
+      const confirmed = window.confirm("You have unsaved changes. Discard them and create a new workflow?");
+      if (!confirmed) return;
+    }
+    const name = window.prompt("Workflow name:", "Untitled");
+    if (name === null) return; // cancelled
+    const id = name.trim() || "Untitled";
+    setWorkflow(emptyWorkflow(id));
+    resetExecution();
+  }
+
+  async function importWorkflow() {
+    if (!currentProject) return;
+    try {
+      // Open a native file picker for YAML files
+      const result = await api.browseWorkflowFile();
+      if (!result.path) return; // user cancelled
+
+      // Import the workflow from the selected path
+      const workflow = await api.importWorkflowFromPath(result.path);
+      startTransition(() => setWorkflow(workflow));
+      resetExecution();
+      setLastError(null);
+
+      // Update project's workflow list
+      setCurrentProject({
+        ...currentProject,
+        current_workflow_id: workflow.id,
+        workflows: currentProject.workflows.includes(workflow.id)
+          ? currentProject.workflows
+          : [...currentProject.workflows, workflow.id],
+      });
+    } catch (error) {
+      setLastError((error as Error).message);
+    }
+  }
+
+  async function saveWorkflowAs() {
+    if (!currentProject) return;
+    const name = window.prompt("Save workflow as:", workflowId ?? "Untitled");
+    if (name === null) return; // cancelled
+    const id = name.trim() || "Untitled";
+
+    // Build payload with the new name/id
+    const payload: WorkflowResponse = {
+      ...workflowPayload,
+      id,
+    };
+
+    try {
+      const saved = await api.createWorkflow(payload);
+      startTransition(() => setWorkflow(saved));
+      markWorkflowSaved();
       setCurrentProject({
         ...currentProject,
         current_workflow_id: saved.id,
@@ -381,10 +449,10 @@ export default function App() {
         return;
       }
 
-      // Ctrl+Shift+S: Export
+      // Ctrl+Shift+S: Save As
       if (ctrl && key === "s" && event.shiftKey) {
         event.preventDefault();
-        void saveWorkflow();
+        void saveWorkflowAs();
         return;
       }
 
@@ -434,6 +502,7 @@ export default function App() {
     removeNode,
     runWorkflow,
     saveWorkflow,
+    saveWorkflowAs,
     selectedNodeId,
     setSelectedNodeId,
     toggleBottomPanel,
@@ -502,6 +571,8 @@ export default function App() {
           <Toolbar
             currentProject={currentProject}
             workflowId={workflowId}
+            workflowName={workflowName}
+            workflowDirty={workflowDirty}
             selectedNodeId={selectedNodeId}
             wsConnected={wsConnected}
             sseConnected={sseConnected}
@@ -513,9 +584,10 @@ export default function App() {
               setWorkflow(emptyWorkflow());
               resetExecution();
             }}
+            onNewWorkflow={() => newWorkflow()}
             onSave={() => void saveWorkflow()}
-            onImport={() => openProjectDialog("open")}
-            onExport={() => void saveWorkflow()}
+            onSaveAs={() => void saveWorkflowAs()}
+            onImport={() => void importWorkflow()}
             onRun={() => void runWorkflow()}
             onPause={() => void pauseWorkflow()}
             onResume={() => void resumeWorkflow()}
