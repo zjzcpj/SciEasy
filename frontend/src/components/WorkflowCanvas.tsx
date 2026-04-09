@@ -19,6 +19,7 @@ import { AnnotationNode } from "./nodes/AnnotationNode";
 import { BlockNode } from "./nodes/BlockNode";
 import { GroupNode } from "./nodes/GroupNode";
 import { TypedEdge } from "./TypedEdge";
+import { TypeLegend } from "./TypeLegend";
 
 const nodeTypes = {
   block: BlockNode,
@@ -75,6 +76,26 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
     onUpdateNodePosition,
     selectedNodeId,
   } = props;
+
+  // Collect the set of type names present across all ports in the workflow
+  // for the TypeLegend component.
+  const activeTypes = useMemo<Set<string>>(() => {
+    const types = new Set<string>();
+    for (const node of nodes) {
+      const schema = schemas[node.block_type];
+      if (!schema) continue;
+      for (const port of [...(schema.input_ports ?? []), ...(schema.output_ports ?? [])]) {
+        if (port.accepted_types.length === 0) {
+          types.add("Any");
+        } else {
+          for (const t of port.accepted_types) {
+            types.add(t);
+          }
+        }
+      }
+    }
+    return types;
+  }, [nodes, schemas]);
 
   // Track positions locally during drag so nodes follow the cursor smoothly.
   // ReactFlow is in controlled mode (nodes prop), so without this the node
@@ -201,7 +222,7 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
 
   return (
     <div
-      className="h-full"
+      className="relative h-full"
       onDragOver={(event) => {
         event.preventDefault();
         event.dataTransfer.dropEffect = "copy";
@@ -289,6 +310,7 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
         <Controls />
         <Background color="#d8d2c4" gap={20} size={1.2} />
       </ReactFlow>
+      <TypeLegend activeTypes={activeTypes} />
     </div>
   );
 }
