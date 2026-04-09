@@ -23,12 +23,12 @@ class TestFileWatcher:
         output_dir = tmp_path / "outputs"
         output_dir.mkdir()
 
-        watcher = FileWatcher(directory=output_dir, patterns=["*.csv"], timeout=5, poll_interval=0.1)
+        watcher = FileWatcher(directory=output_dir, patterns=["*.csv"], timeout=5, poll_interval=0.05)
         watcher.start()
 
         # Write a file in a background thread.
         def write_file() -> None:
-            time.sleep(0.3)
+            time.sleep(0.05)
             (output_dir / "result.csv").write_text("a,b\n1,2\n")
 
         t = Thread(target=write_file)
@@ -46,7 +46,7 @@ class TestFileWatcher:
         output_dir = tmp_path / "outputs"
         output_dir.mkdir()
 
-        watcher = FileWatcher(directory=output_dir, patterns=["*.csv"], timeout=1, poll_interval=0.1)
+        watcher = FileWatcher(directory=output_dir, patterns=["*.csv"], timeout=0.3, poll_interval=0.05)
         watcher.start()
 
         with pytest.raises(TimeoutError):
@@ -58,13 +58,13 @@ class TestFileWatcher:
         output_dir = tmp_path / "outputs"
         output_dir.mkdir()
 
-        watcher = FileWatcher(directory=output_dir, patterns=["*.txt"], timeout=5, poll_interval=0.1)
+        watcher = FileWatcher(directory=output_dir, patterns=["*.txt"], timeout=5, poll_interval=0.05)
         watcher.start()
 
         def write_files() -> None:
-            time.sleep(0.2)
+            time.sleep(0.05)
             (output_dir / "data.csv").write_text("ignored")
-            time.sleep(0.1)
+            time.sleep(0.05)
             (output_dir / "result.txt").write_text("found")
 
         t = Thread(target=write_files)
@@ -345,12 +345,12 @@ class TestFileWatcherStability:
         output_dir = tmp_path / "outputs"
         output_dir.mkdir()
 
-        stability = 1.0
+        stability = 0.2
         watcher = FileWatcher(
             directory=output_dir,
             patterns=["*.csv"],
             timeout=10,
-            poll_interval=0.1,
+            poll_interval=0.05,
             stability_period=stability,
         )
         watcher.start()
@@ -377,14 +377,14 @@ class TestFileWatcherStability:
             directory=output_dir,
             patterns=["*"],
             timeout=10,
-            poll_interval=0.1,
+            poll_interval=0.05,
             stability_period=60.0,  # Very high — would block without marker.
             done_marker="*.done",
         )
         watcher.start()
 
         def write_files() -> None:
-            time.sleep(0.3)
+            time.sleep(0.05)
             (output_dir / "result.csv").write_text("a,b\n1,2\n")
             (output_dir / "output.done").write_text("")
 
@@ -409,12 +409,12 @@ class TestFileWatcherStability:
         output_dir = tmp_path / "outputs"
         output_dir.mkdir()
 
-        stability = 1.5
+        stability = 0.2
         watcher = FileWatcher(
             directory=output_dir,
             patterns=["*.csv"],
             timeout=15,
-            poll_interval=0.1,
+            poll_interval=0.05,
             stability_period=stability,
         )
         watcher.start()
@@ -423,9 +423,9 @@ class TestFileWatcherStability:
         fpath.write_text("partial")
         t0 = time.monotonic()
 
-        # Modify the file 0.5s later — should reset the stability clock.
+        # Modify the file 0.1s later — should reset the stability clock.
         def modify_file() -> None:
-            time.sleep(0.5)
+            time.sleep(0.1)
             fpath.write_text("complete data\n")
             # Touch to update mtime.
             os.utime(fpath, None)
@@ -439,5 +439,5 @@ class TestFileWatcherStability:
         watcher.stop()
 
         assert len(files) == 1
-        # Total elapsed should be at least 0.5 (delay) + stability_period.
-        assert elapsed >= 0.5 + stability - 0.2  # tolerance
+        # Total elapsed should be at least 0.1 (delay) + stability_period.
+        assert elapsed >= 0.1 + stability - 0.15  # tolerance

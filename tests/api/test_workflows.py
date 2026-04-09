@@ -77,7 +77,7 @@ def test_workflow_pause_and_resume_keeps_downstream_block_ready(
     payload = build_linear_workflow(
         opened_project,
         workflow_id="pause-flow",
-        middle_sleep_seconds=0.8,
+        middle_sleep_seconds=0.2,
     )
     assert client.post("/api/workflows/", json=payload).status_code == 200
 
@@ -106,7 +106,7 @@ def test_cancel_block_and_cancel_workflow_propagate_terminal_states(
     cancel_block_payload = build_linear_workflow(
         opened_project,
         workflow_id="cancel-block-flow",
-        middle_sleep_seconds=2.0,
+        middle_sleep_seconds=0.3,
     )
     assert client.post("/api/workflows/", json=cancel_block_payload).status_code == 200
     assert client.post("/api/workflows/cancel-block-flow/execute").status_code == 200
@@ -122,7 +122,7 @@ def test_cancel_block_and_cancel_workflow_propagate_terminal_states(
     cancel_workflow_payload = build_linear_workflow(
         opened_project,
         workflow_id="cancel-workflow-flow",
-        middle_sleep_seconds=2.0,
+        middle_sleep_seconds=0.3,
     )
     assert client.post("/api/workflows/", json=cancel_workflow_payload).status_code == 200
     assert client.post("/api/workflows/cancel-workflow-flow/execute").status_code == 200
