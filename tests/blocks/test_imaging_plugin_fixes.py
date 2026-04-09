@@ -33,7 +33,7 @@ def test_open_file_manager_is_importable() -> None:
 def test_cellpose_segment_has_masks_output_port() -> None:
     """#439: CellposeSegment declares both 'labels' and 'masks' output ports."""
     mod = importlib.import_module("scieasy_blocks_imaging.segmentation.cellpose_segment")
-    CellposeSegment = mod.CellposeSegment
-    port_names = [p.name for p in CellposeSegment.output_ports]
+    cellpose_cls = mod.CellposeSegment
+    port_names = [p.name for p in cellpose_cls.output_ports]
     assert "labels" in port_names
     assert "masks" in port_names
