@@ -88,6 +88,8 @@ jobs:
       - run: uv pip install --system -e ".[dev]"
       - name: Run tests
         shell: bash {0}
+        env:
+          SCIEASY_DEV: "1"
         run: |
           if [ "${{ matrix.python-version }}" = "3.13" ]; then
             pytest -n auto

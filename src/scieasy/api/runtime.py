@@ -6,6 +6,7 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import shutil
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -251,7 +252,10 @@ class ApiRuntime:
         self._bind_event_logging()
 
     def _configure_static_registries(self) -> None:
-        self.type_registry.scan_all(include_monorepo=True)
+        include_monorepo = os.environ.get("SCIEASY_DEV") == "1"
+        if include_monorepo:
+            logger.info("SCIEASY_DEV=1: monorepo package scan enabled")
+        self.type_registry.scan_all(include_monorepo=include_monorepo)
         self.refresh_block_registry()
 
     def _bind_event_logging(self) -> None:
@@ -305,7 +309,7 @@ class ApiRuntime:
         if self.active_project is not None:
             registry.add_scan_dir(Path(self.active_project.path) / "blocks")
             registry.add_scan_dir(Path.home() / ".scieasy" / "blocks")
-        registry.scan(include_monorepo=True)
+        registry.scan(include_monorepo=os.environ.get("SCIEASY_DEV") == "1")
         self.block_registry = registry
 
     def create_project(self, name: str, description: str = "", parent_path: str | None = None) -> KnownProject:
