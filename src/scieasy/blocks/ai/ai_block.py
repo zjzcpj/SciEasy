@@ -129,6 +129,7 @@ class AIBlock(Block):
         max_tokens = int(config.get("max_tokens", 4096))
         api_key = ""  # Falls back to provider-specific env var
 
+        provider: AnthropicProvider | OpenAIProvider
         if provider_name == "anthropic":
             provider = AnthropicProvider(api_key=api_key, model=model, max_tokens=max_tokens)
         elif provider_name == "openai":
