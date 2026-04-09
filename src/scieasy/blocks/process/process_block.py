@@ -149,6 +149,11 @@ class ProcessBlock(Block):
         # are called with the shared ``state``.
         takes_state = self._process_item_takes_state()
 
+        # ADR-028 Addendum 1 D5: read the per-instance effective output ports
+        # so dynamic blocks (e.g. ``LoadData``) get their config-driven port
+        # name instead of the static ClassVar declaration.
+        effective_output_ports = self.get_effective_output_ports()
+
         try:
             # If primary is a Collection, iterate and process each item.
             if isinstance(primary, Collection):
@@ -157,12 +162,12 @@ class ProcessBlock(Block):
                     result = self.process_item(item, config, state) if takes_state else self.process_item(item, config)
                     result = self._auto_flush(result)
                     results.append(result)
-                output_name = self.output_ports[0].name if self.output_ports else "output"
+                output_name = effective_output_ports[0].name if effective_output_ports else "output"
                 return {output_name: Collection(results, item_type=primary.item_type)}
 
             # Fallback for non-Collection inputs (backward compatibility).
             result = self.process_item(primary, config, state) if takes_state else self.process_item(primary, config)
-            output_name = self.output_ports[0].name if self.output_ports else "output"
+            output_name = effective_output_ports[0].name if effective_output_ports else "output"
             return {output_name: result}
         finally:
             # ADR-027 D7: teardown always runs, even on exception.

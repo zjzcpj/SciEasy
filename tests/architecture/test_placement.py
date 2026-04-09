@@ -4,10 +4,11 @@ Validates that:
 
 * No stray ``.py`` files exist in the package root.
 * Every ``.py`` file has a module-level docstring.
-* Format adapters (``FormatAdapter`` implementations) are only in
-  ``blocks/io/adapters/``.
 * Code runners (``CodeRunner`` implementations) are only in
   ``blocks/code/runners/``.
+* Phase 11 deletions are not silently re-introduced (T-TRK-001
+  ``process/contrib/``, T-TRK-004 ``blocks/io/adapters/`` and
+  ``adapter_registry.py``).
 """
 
 from __future__ import annotations
@@ -85,12 +86,21 @@ def _find_classes_referencing(base_name: str, search_dir: Path) -> list[tuple[Pa
     return hits
 
 
-def test_adapters_in_correct_directory() -> None:
-    """Classes inheriting from ``FormatAdapter`` should only live in ``blocks/io/adapters/``."""
-    canonical = SRC_ROOT / "blocks" / "io" / "adapters"
-    misplaced = _find_classes_referencing("FormatAdapter", canonical)
+def test_no_format_adapter_subclasses_remain() -> None:
+    """No ``FormatAdapter`` subclass should exist anywhere in core (T-TRK-004).
+
+    The ``FormatAdapter`` protocol and every concrete adapter under
+    ``blocks/io/adapters/`` were deleted in T-TRK-004 per ADR-028 §D2.
+    The replacement contract is the abstract :class:`IOBlock` (with
+    ``load`` / ``save`` abstractmethods) and the upcoming
+    ``LoadData`` / ``SaveData`` classes from T-TRK-007 / T-TRK-008.
+    """
+    # ``search_dir`` does not need to exist; if it doesn't (post-T-TRK-004
+    # state), every ``.py`` file is scanned and the assertion passes only
+    # when no class declares ``FormatAdapter`` as a base.
+    misplaced = _find_classes_referencing("FormatAdapter", SRC_ROOT / "blocks" / "io" / "adapters")
     violations = [f"  {fp.relative_to(SRC_ROOT)}: class {cls_name}" for fp, cls_name in misplaced]
-    assert not violations, "FormatAdapter subclasses found outside blocks/io/adapters/:\n" + "\n".join(violations)
+    assert not violations, "FormatAdapter subclasses found in core after T-TRK-004 deletion:\n" + "\n".join(violations)
 
 
 def test_runners_in_correct_directory() -> None:
@@ -125,3 +135,60 @@ def test_no_py_files_outside_known_packages() -> None:
         if top_package not in known_packages:
             stray.append(str(relative))
     assert not stray, f"Found .py files outside known packages: {stray}"
+
+
+def test_process_contrib_directory_removed() -> None:
+    """``blocks/process/contrib/`` must not exist (T-TRK-001).
+
+    Phase 11 abandons the ``contrib`` pattern in favour of the plugin
+    package pattern. The four 1-line stub modules and their parent
+    directory were deleted by T-TRK-001 (Phase 11 master plan §2.5
+    sub-1a). The real ``CellposeSegment`` implementation lives in
+    ``packages/scieasy-blocks-imaging/`` per T-IMG-019. This regression
+    test prevents the directory from being silently re-introduced.
+    """
+    contrib_dir = SRC_ROOT / "blocks" / "process" / "contrib"
+    assert not contrib_dir.exists(), (
+        f"{contrib_dir.relative_to(SRC_ROOT)} must not exist — the contrib "
+        "pattern was deleted in T-TRK-001 (Phase 11). Add new process "
+        "blocks to scieasy/blocks/process/builtins/ or to a plugin "
+        "package under packages/scieasy-blocks-*/."
+    )
+
+
+def test_adapters_directory_removed() -> None:
+    """``blocks/io/adapters/`` must not exist (T-TRK-004).
+
+    ADR-028 §D2 deletes the entire bundled adapter layer
+    (``__init__.py``, ``base.py`` + 8 ``*_adapter.py`` modules) in
+    favour of plugin-owned ``IOBlock`` subclasses. The TIFF and mzXML
+    adapter logic moves to the imaging and LCMS plugins via
+    T-IMG-002 and T-LCMS-002 respectively, sourced from the deleted
+    files' git history rather than from a re-introduced ``adapters/``
+    directory in core. This regression test prevents the directory
+    from being silently re-introduced.
+    """
+    adapters_dir = SRC_ROOT / "blocks" / "io" / "adapters"
+    assert not adapters_dir.exists(), (
+        f"{adapters_dir.relative_to(SRC_ROOT)} must not exist — the bundled "
+        "adapter layer was deleted in T-TRK-004 (Phase 11). Plugin IO "
+        "blocks subclass scieasy.blocks.io.io_block.IOBlock and register "
+        "via the scieasy.blocks entry-point group per ADR-028 §D1/§D4."
+    )
+
+
+def test_adapter_registry_removed() -> None:
+    """``blocks/io/adapter_registry.py`` must not exist (T-TRK-004).
+
+    ADR-028 §D2 deletes the ``AdapterRegistry`` extension dispatch
+    layer. Concrete core loaders (``LoadData`` / ``SaveData``) replace
+    this in T-TRK-007 / T-TRK-008 with private ``_load_*`` / ``_save_*``
+    dispatch functions, not a runtime registry. This regression test
+    prevents the file from being silently re-introduced.
+    """
+    registry_path = SRC_ROOT / "blocks" / "io" / "adapter_registry.py"
+    assert not registry_path.exists(), (
+        f"{registry_path.relative_to(SRC_ROOT)} must not exist — the "
+        "AdapterRegistry was deleted in T-TRK-004 (Phase 11). Replacement "
+        "dispatch lives in LoadData/SaveData per ADR-028 §D1 + Addendum 1."
+    )

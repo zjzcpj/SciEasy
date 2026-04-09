@@ -15,6 +15,7 @@ class Port:
 
     name: str
     accepted_types: list[type]
+    is_collection: bool = False
     description: str = ""
     required: bool = True
 

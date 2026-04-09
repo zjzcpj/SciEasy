@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from scieasy.blocks.base.ports import InputPort, OutputPort, validate_connection
 from scieasy.blocks.registry import BlockRegistry, BlockSpec
 from scieasy.engine.dag import CycleError, build_dag, topological_sort
-from scieasy.workflow.definition import WorkflowDefinition
+from scieasy.workflow.definition import NodeDef, WorkflowDefinition
 
 
 def _parse_port_ref(ref: str) -> tuple[str, str] | None:
@@ -29,6 +31,39 @@ def _find_port(
         if isinstance(port, (InputPort, OutputPort)) and port.name == name:
             return port
     return None
+
+
+def _effective_ports_for_node(
+    registry: BlockRegistry,
+    node: NodeDef,
+    spec: BlockSpec,
+) -> tuple[list[Any], list[Any]]:
+    """Return ``(effective_input_ports, effective_output_ports)`` for *node*.
+
+    ADR-028 Addendum 1 D6: when the registry can construct a real block
+    instance from the node's config, the validator must use that instance's
+    :meth:`Block.get_effective_input_ports` /
+    :meth:`Block.get_effective_output_ports` so dynamic blocks (e.g.
+    ``LoadData``) get their config-driven ports instead of the static
+    ClassVar declaration.
+
+    Spec-only registry entries (e.g. tests that inject a bare
+    :class:`BlockSpec` without registering an importable class) cannot be
+    instantiated; for those we fall back to the spec's static ports. This
+    fallback is **explicit and load-bearing**: it preserves backward
+    compatibility for both production registry entries that point at real
+    classes (where instantiation succeeds and effective ports drive the
+    check) and test fixtures that bypass the import path entirely.
+    """
+    try:
+        instance = registry.instantiate(node.block_type, config=dict(node.config))
+    except Exception:
+        # Spec-only registry entry, missing module, broken construction —
+        # fall back to the static spec ports so the rest of the validator
+        # checks (Check 5 & 6) still run.
+        return list(spec.input_ports), list(spec.output_ports)
+
+    return list(instance.get_effective_input_ports()), list(instance.get_effective_output_ports())
 
 
 def validate_workflow(
@@ -122,6 +157,18 @@ def validate_workflow(
 
     node_map = {node.id: node for node in workflow.nodes}
 
+    # ADR-028 Addendum 1 D6: cache effective ports per node so we only
+    # instantiate each block once across both Check 5 and Check 6.
+    effective_ports_cache: dict[str, tuple[list[Any], list[Any]]] = {}
+
+    def _ports_for(node: NodeDef, spec: BlockSpec) -> tuple[list[Any], list[Any]]:
+        cached = effective_ports_cache.get(node.id)
+        if cached is not None:
+            return cached
+        result = _effective_ports_for_node(registry, node, spec)
+        effective_ports_cache[node.id] = result
+        return result
+
     # ------------------------------------------------------------------
     # Check 5: Type compatibility on edges
     # ------------------------------------------------------------------
@@ -155,12 +202,18 @@ def validate_workflow(
             )
             continue
 
-        src_port = _find_port(src_spec.output_ports, src_port_name)
+        # ADR-028 Addendum 1 D6: use effective ports from a per-node block
+        # instance when available; fall back to the static spec ports for
+        # spec-only registry entries (see ``_effective_ports_for_node``).
+        _, src_output_ports = _ports_for(src_node, src_spec)
+        tgt_input_ports, _ = _ports_for(tgt_node, tgt_spec)
+
+        src_port = _find_port(src_output_ports, src_port_name)
         if src_port is None:
             errors.append(f"Warning: port '{src_port_name}' not found on block '{src_node.block_type}'")
             continue
 
-        tgt_port = _find_port(tgt_spec.input_ports, tgt_port_name)
+        tgt_port = _find_port(tgt_input_ports, tgt_port_name)
         if tgt_port is None:
             errors.append(f"Warning: port '{tgt_port_name}' not found on block '{tgt_node.block_type}'")
             continue
@@ -187,7 +240,11 @@ def validate_workflow(
         if spec is None:
             continue  # unknown block type — already warned in Check 5
 
-        for port in spec.input_ports:
+        # ADR-028 Addendum 1 D6: dangling-port check uses effective ports
+        # so dynamic blocks aren't flagged for static-but-unused declarations.
+        node_input_ports, _ = _ports_for(node, spec)
+
+        for port in node_input_ports:
             if isinstance(port, InputPort) and port.required and port.name not in connected_inputs[node.id]:
                 errors.append(f"Node '{node.id}': required input port '{port.name}' has no incoming connection")
 

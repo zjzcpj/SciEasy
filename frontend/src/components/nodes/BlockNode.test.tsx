@@ -1,0 +1,519 @@
+import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ReactFlowProvider } from "@xyflow/react";
+
+import { BlockNode } from "./BlockNode";
+import type {
+  BlockPortResponse,
+  BlockSchemaResponse,
+  DynamicPortsConfig,
+} from "../../types/api";
+import type { BlockNodeData } from "../../types/ui";
+
+// Mock the api module so the Browse button click handler does not try to
+// hit the real backend during tests.
+vi.mock("../../lib/api", () => ({
+  api: {
+    browseDirectory: vi.fn().mockResolvedValue({ path: "/tmp/out" }),
+    browseFiles: vi.fn().mockResolvedValue({ paths: ["/tmp/file.csv"] }),
+  },
+}));
+
+afterEach(() => cleanup());
+
+// ---------------------------------------------------------------------------
+// Test fixtures
+// ---------------------------------------------------------------------------
+
+function makePort(
+  name: string,
+  direction: "input" | "output",
+  accepted: string[] = ["DataObject"],
+): BlockPortResponse {
+  return {
+    name,
+    direction,
+    accepted_types: accepted,
+    required: true,
+    description: "",
+    constraint_description: "",
+    is_collection: false,
+  };
+}
+
+function makeSchema(
+  overrides: Partial<BlockSchemaResponse> = {},
+): BlockSchemaResponse {
+  return {
+    name: "Test Block",
+    type_name: "test_block",
+    category: "process",
+    description: "",
+    version: "1.0",
+    input_ports: [],
+    output_ports: [],
+    config_schema: { type: "object", properties: {} },
+    type_hierarchy: [],
+    dynamic_ports: null,
+    direction: null,
+    ...overrides,
+  };
+}
+
+function renderNode(
+  dataOverrides: Partial<BlockNodeData> = {},
+  selected = false,
+) {
+  const baseData: BlockNodeData = {
+    label: "Test Block",
+    blockType: "test_block",
+    category: "process",
+    inputPorts: [],
+    outputPorts: [],
+    config: {},
+    schema: makeSchema(),
+  };
+  const props = {
+    id: "node-1",
+    type: "block",
+    data: { ...baseData, ...dataOverrides },
+    selected,
+    isConnectable: false,
+    positionAbsoluteX: 0,
+    positionAbsoluteY: 0,
+    zIndex: 0,
+  } as Parameters<typeof BlockNode>[0];
+
+  return render(
+    <ReactFlowProvider>
+      <BlockNode {...props} />
+    </ReactFlowProvider>,
+  );
+}
+
+// LoadData-style dynamic descriptor mirrored from src/scieasy/blocks/io/loaders/load_data.py
+const LOAD_DATA_DYNAMIC: DynamicPortsConfig = {
+  source_config_key: "core_type",
+  output_port_mapping: {
+    data: {
+      Array: ["Array"],
+      DataFrame: ["DataFrame"],
+      Series: ["Series"],
+      Text: ["Text"],
+      Artifact: ["Artifact"],
+      CompositeData: ["CompositeData"],
+    },
+  },
+};
+
+const LOAD_DATA_CONFIG_SCHEMA = {
+  type: "object",
+  properties: {
+    core_type: {
+      type: "string",
+      enum: ["Array", "DataFrame", "Series", "Text", "Artifact", "CompositeData"],
+      default: "DataFrame",
+      ui_priority: 0,
+    },
+    path: { type: "string", ui_priority: 1 },
+  },
+};
+
+// SaveData-style dynamic descriptor (input_port_mapping + direction="output")
+const SAVE_DATA_DYNAMIC: DynamicPortsConfig = {
+  source_config_key: "core_type",
+  input_port_mapping: {
+    data: {
+      Array: ["Array"],
+      DataFrame: ["DataFrame"],
+      Series: ["Series"],
+      Text: ["Text"],
+      Artifact: ["Artifact"],
+      CompositeData: ["CompositeData"],
+    },
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Discriminator behavior #1: Browse button on category === "io" path field
+// ---------------------------------------------------------------------------
+
+describe("BlockNode — Browse button discriminator (ADR-028 Addendum 1 §B fix #1)", () => {
+  it("renders Browse button for category=io with a path config field", () => {
+    renderNode({
+      category: "io",
+      blockType: "load_data",
+      schema: makeSchema({
+        category: "io",
+        type_name: "load_data",
+        direction: "input",
+        config_schema: {
+          type: "object",
+          properties: { path: { type: "string", ui_priority: 0 } },
+        },
+      }),
+    });
+    expect(screen.getByRole("button", { name: /Browse/i })).toBeInTheDocument();
+  });
+
+  it("renders Browse button for any io block, not just the legacy abstract-base type_name", () => {
+    // A plugin-supplied loader with a totally different type_name still gets
+    // the Browse button as long as category=io and key=path. This is the
+    // central reason for replacing the discriminator.
+    renderNode({
+      category: "io",
+      blockType: "load_image",
+      schema: makeSchema({
+        category: "io",
+        type_name: "load_image",
+        direction: "input",
+        config_schema: {
+          type: "object",
+          properties: { path: { type: "string" } },
+        },
+      }),
+    });
+    expect(screen.getByRole("button", { name: /Browse/i })).toBeInTheDocument();
+  });
+
+  it("does NOT render Browse button when category is not io", () => {
+    renderNode({
+      category: "process",
+      schema: makeSchema({
+        category: "process",
+        config_schema: {
+          type: "object",
+          properties: { path: { type: "string" } },
+        },
+      }),
+    });
+    expect(screen.queryByRole("button", { name: /Browse/i })).toBeNull();
+  });
+
+  it("does NOT render Browse button when category is io but the key is not path", () => {
+    renderNode({
+      category: "io",
+      schema: makeSchema({
+        category: "io",
+        direction: "input",
+        config_schema: {
+          type: "object",
+          properties: { other_field: { type: "string" } },
+        },
+      }),
+    });
+    expect(screen.queryByRole("button", { name: /Browse/i })).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Discriminator behavior #2: hidden direction field on category === "io"
+// ---------------------------------------------------------------------------
+
+describe("BlockNode — hidden direction field (ADR-028 Addendum 1 §B fix #2)", () => {
+  it("hides the direction config field for IO blocks", () => {
+    renderNode({
+      category: "io",
+      schema: makeSchema({
+        category: "io",
+        direction: "input",
+        config_schema: {
+          type: "object",
+          properties: {
+            direction: {
+              type: "string",
+              enum: ["input", "output"],
+              ui_priority: 0,
+            },
+            path: { type: "string", title: "Path", ui_priority: 1 },
+          },
+        },
+      }),
+    });
+    // The direction <select> must NOT be rendered.
+    expect(screen.queryByRole("combobox")).toBeNull();
+    // The path field must still be rendered.
+    expect(screen.getByText("Path")).toBeInTheDocument();
+  });
+
+  it("does NOT hide the direction field on non-IO blocks", () => {
+    // A hypothetical process block that happens to have a 'direction' config
+    // field. The hide-direction filter must scope to category=io, not match
+    // the field name globally.
+    renderNode({
+      category: "process",
+      schema: makeSchema({
+        category: "process",
+        config_schema: {
+          type: "object",
+          properties: {
+            direction: {
+              type: "string",
+              enum: ["forward", "reverse"],
+              title: "Direction",
+              ui_priority: 0,
+            },
+          },
+        },
+      }),
+    });
+    expect(screen.getByText("Direction")).toBeInTheDocument();
+    expect(screen.getByRole("combobox")).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Discriminator behavior #3: Browse uses schema.direction, not config.direction
+// ---------------------------------------------------------------------------
+
+describe("BlockNode — Browse file vs directory (ADR-028 Addendum 1 §B fix #3)", () => {
+  it("opens directory picker for save (schema.direction = 'output')", async () => {
+    const user = userEvent.setup();
+    const onUpdateConfig = vi.fn();
+    const apiModule = await import("../../lib/api");
+
+    renderNode({
+      category: "io",
+      blockType: "save_data",
+      onUpdateConfig,
+      schema: makeSchema({
+        category: "io",
+        type_name: "save_data",
+        direction: "output",
+        config_schema: {
+          type: "object",
+          properties: { path: { type: "string", ui_priority: 0 } },
+        },
+      }),
+    });
+
+    await user.click(screen.getByRole("button", { name: /Browse/i }));
+    expect(apiModule.api.browseDirectory).toHaveBeenCalled();
+    expect(apiModule.api.browseFiles).not.toHaveBeenCalled();
+  });
+
+  it("opens file picker for load (schema.direction = 'input')", async () => {
+    const user = userEvent.setup();
+    const onUpdateConfig = vi.fn();
+    const apiModule = await import("../../lib/api");
+    vi.mocked(apiModule.api.browseDirectory).mockClear();
+    vi.mocked(apiModule.api.browseFiles).mockClear();
+
+    renderNode({
+      category: "io",
+      blockType: "load_data",
+      onUpdateConfig,
+      schema: makeSchema({
+        category: "io",
+        type_name: "load_data",
+        direction: "input",
+        config_schema: {
+          type: "object",
+          properties: { path: { type: "string", ui_priority: 0 } },
+        },
+      }),
+    });
+
+    await user.click(screen.getByRole("button", { name: /Browse/i }));
+    expect(apiModule.api.browseFiles).toHaveBeenCalled();
+    expect(apiModule.api.browseDirectory).not.toHaveBeenCalled();
+  });
+
+  it("ignores stale data.config?.direction when schema.direction is set", async () => {
+    // Confirms that the Browse button reads schema.direction and not
+    // config.direction. config.direction = "input" is intentionally wrong;
+    // schema.direction = "output" must win.
+    const user = userEvent.setup();
+    const apiModule = await import("../../lib/api");
+    vi.mocked(apiModule.api.browseDirectory).mockClear();
+    vi.mocked(apiModule.api.browseFiles).mockClear();
+
+    renderNode({
+      category: "io",
+      config: { direction: "input" }, // intentionally stale / wrong
+      schema: makeSchema({
+        category: "io",
+        direction: "output", // schema is the source of truth
+        config_schema: {
+          type: "object",
+          properties: { path: { type: "string", ui_priority: 0 } },
+        },
+      }),
+    });
+
+    await user.click(screen.getByRole("button", { name: /Browse/i }));
+    expect(apiModule.api.browseDirectory).toHaveBeenCalled();
+    expect(apiModule.api.browseFiles).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bonus: port live-update via computeEffectivePorts
+// ---------------------------------------------------------------------------
+
+describe("BlockNode — dynamic port live-update (ADR-028 Addendum 1 §D4)", () => {
+  function renderLoadData(coreType: string) {
+    return renderNode({
+      category: "io",
+      blockType: "load_data",
+      config: { core_type: coreType },
+      inputPorts: [],
+      outputPorts: [makePort("data", "output", ["DataObject"])],
+      schema: makeSchema({
+        category: "io",
+        type_name: "load_data",
+        direction: "input",
+        input_ports: [],
+        output_ports: [makePort("data", "output", ["DataObject"])],
+        dynamic_ports: LOAD_DATA_DYNAMIC,
+        config_schema: LOAD_DATA_CONFIG_SCHEMA,
+      }),
+    });
+  }
+
+  it("renders the LoadData output port with accepted_types=['Array'] when core_type=Array", () => {
+    const { container } = renderLoadData("Array");
+    // The Handle's title attribute embeds the accepted_types list — that is
+    // the load-bearing piece of information for the audit agent here.
+    const handles = container.querySelectorAll('[data-handleid="data"]');
+    expect(handles.length).toBeGreaterThan(0);
+    const titles = Array.from(handles).map((h) => h.getAttribute("title") ?? "");
+    expect(titles.some((t) => t.includes("Array"))).toBe(true);
+    // The placeholder DataObject type must NOT be visible — the dynamic
+    // override has replaced it.
+    expect(titles.some((t) => t.includes("DataObject"))).toBe(false);
+  });
+
+  it("renders the LoadData output port with accepted_types=['DataFrame'] when core_type=DataFrame", () => {
+    const { container } = renderLoadData("DataFrame");
+    const handles = container.querySelectorAll('[data-handleid="data"]');
+    const titles = Array.from(handles).map((h) => h.getAttribute("title") ?? "");
+    expect(titles.some((t) => t.includes("DataFrame"))).toBe(true);
+    expect(titles.some((t) => t.includes("DataObject"))).toBe(false);
+  });
+
+  it("falls back to the placeholder type when core_type is unset", () => {
+    // Static block path: no core_type in config means no override applies.
+    const { container } = renderNode({
+      category: "io",
+      blockType: "load_data",
+      config: {}, // no core_type
+      outputPorts: [makePort("data", "output", ["DataObject"])],
+      schema: makeSchema({
+        category: "io",
+        direction: "input",
+        output_ports: [makePort("data", "output", ["DataObject"])],
+        dynamic_ports: LOAD_DATA_DYNAMIC,
+      }),
+    });
+    const handles = container.querySelectorAll('[data-handleid="data"]');
+    const titles = Array.from(handles).map((h) => h.getAttribute("title") ?? "");
+    // Title format changed in #445: now shows primary type name, not "portName: typeList"
+    expect(titles.some((t) => t.includes("DataObject"))).toBe(true);
+  });
+
+  it("renders the SaveData input port with accepted_types=['Series'] when core_type=Series", () => {
+    const { container } = renderNode({
+      category: "io",
+      blockType: "save_data",
+      config: { core_type: "Series" },
+      inputPorts: [makePort("data", "input", ["DataObject"])],
+      outputPorts: [],
+      schema: makeSchema({
+        category: "io",
+        type_name: "save_data",
+        direction: "output",
+        input_ports: [makePort("data", "input", ["DataObject"])],
+        dynamic_ports: SAVE_DATA_DYNAMIC,
+      }),
+    });
+    const handles = container.querySelectorAll('[data-handleid="data"]');
+    expect(handles.length).toBeGreaterThan(0);
+    const titles = Array.from(handles).map((h) => h.getAttribute("title") ?? "");
+    expect(titles.some((t) => t.includes("Series"))).toBe(true);
+  });
+
+  it("static (non-dynamic) blocks render their ClassVar ports unchanged", () => {
+    const { container } = renderNode({
+      category: "process",
+      outputPorts: [makePort("result", "output", ["Image"])],
+      schema: makeSchema({
+        category: "process",
+        output_ports: [makePort("result", "output", ["Image"])],
+        dynamic_ports: null,
+      }),
+    });
+    const handles = container.querySelectorAll('[data-handleid="result"]');
+    const titles = Array.from(handles).map((h) => h.getAttribute("title") ?? "");
+    expect(titles.some((t) => t.includes("Image"))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Error message inline display (#422)
+// ---------------------------------------------------------------------------
+
+describe("BlockNode — inline error message (issue #422)", () => {
+  it("renders inline error message when status=error and errorMessage is set", () => {
+    renderNode({
+      status: "error",
+      errorMessage: "Division by zero",
+    });
+    expect(screen.getByText("Division by zero")).toBeInTheDocument();
+  });
+
+  it("truncates long error messages to 80 chars with ellipsis", () => {
+    const longMsg = "A".repeat(100);
+    renderNode({
+      status: "error",
+      errorMessage: longMsg,
+    });
+    // The truncated text is the first 80 chars followed by an ellipsis char.
+    const expected = `${"A".repeat(80)}\u2026`;
+    expect(screen.getByText(expected)).toBeInTheDocument();
+  });
+
+  it("shows full error text in title attribute for long messages", () => {
+    const longMsg = "B".repeat(100);
+    renderNode({
+      status: "error",
+      errorMessage: longMsg,
+    });
+    const el = screen.getByTitle(longMsg);
+    expect(el).toBeInTheDocument();
+  });
+
+  it("does NOT render error message element when status is not error", () => {
+    renderNode({
+      status: "done",
+      errorMessage: "this should not appear",
+    });
+    expect(screen.queryByText("this should not appear")).toBeNull();
+  });
+
+  it("does NOT render error message element when errorMessage is absent", () => {
+    renderNode({ status: "error" });
+    // Only the status badge should be present; no extra text element.
+    // 'Error' is the badge label text — confirm it exists but no extra message.
+    expect(screen.getByText("Error")).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sanity smoke: header label still renders
+// ---------------------------------------------------------------------------
+
+describe("BlockNode — sanity smoke", () => {
+  it("renders the block label in the header", () => {
+    renderNode({ label: "My Test Block" });
+    expect(screen.getByText("My Test Block")).toBeInTheDocument();
+  });
+
+  it("renders the io category icon for io blocks", () => {
+    const { container } = renderNode({ category: "io" });
+    // Icon is the folder emoji \uD83D\uDCC1 — check it appears somewhere.
+    expect(container.textContent).toContain("\uD83D\uDCC1");
+  });
+});
+

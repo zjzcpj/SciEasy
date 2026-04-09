@@ -12,7 +12,11 @@ def test_list_blocks_and_schema_alias_endpoints(client: TestClient) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert "blocks" in payload
-    assert any(block["type_name"] == "process_block" for block in payload["blocks"])
+    # T-TRK-003: TransformBlock was relocated to tests/fixtures/noop_block.py
+    # as NoopBlock with type_name="noop". The conftest hook re-registers it
+    # under the legacy "process_block" alias for backward compatibility, but
+    # the canonical type_name reported by the palette endpoint is now "noop".
+    assert any(block["type_name"] == "noop" for block in payload["blocks"])
 
     schema = client.get("/api/blocks/process_block/schema")
     assert schema.status_code == 200
@@ -53,6 +57,25 @@ def test_validate_connection_endpoint_uses_registry_type_information(client: Tes
     assert incompatible.status_code == 200
     assert incompatible.json()["compatible"] is False
     assert incompatible.json()["reason"]
+
+
+def test_imaging_io_schema_exposes_item_types_and_collection_flags(client: TestClient) -> None:
+    """Imaging IO blocks should expose concrete item types and collection metadata."""
+    load_schema = client.get("/api/blocks/imaging.load_image/schema")
+    assert load_schema.status_code == 200
+    load_payload = load_schema.json()
+    assert load_payload["direction"] == "input"
+    assert load_payload["output_ports"][0]["accepted_types"] == ["Image"]
+    assert load_payload["output_ports"][0]["is_collection"] is True
+    assert any(entry["name"] == "Mask" for entry in load_payload["type_hierarchy"])
+    assert any(entry["name"] == "Label" for entry in load_payload["type_hierarchy"])
+
+    save_schema = client.get("/api/blocks/imaging.save_image/schema")
+    assert save_schema.status_code == 200
+    save_payload = save_schema.json()
+    assert save_payload["direction"] == "output"
+    assert save_payload["input_ports"][0]["accepted_types"] == ["Image"]
+    assert save_payload["input_ports"][0]["is_collection"] is True
 
 
 # ----------------------------------------------------------------------------

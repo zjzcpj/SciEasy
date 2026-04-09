@@ -10,6 +10,8 @@ writes the full typed metadata sidecar via
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from scieasy.engine.runners.worker import (
     main,
     reconstruct_inputs,
@@ -137,6 +139,24 @@ class TestSerialiseOutputs:
         assert result["data"]["path"] is None
         assert result["data"]["metadata"]["type_chain"] == ["DataObject", "Array"]
         assert result["data"]["metadata"]["axes"] == ["y", "x"]
+
+    def test_serialises_dataobject_without_storage_ref_auto_flushes_when_output_dir_present(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """An output_dir should activate auto-flush and produce a persisted ref."""
+        from scieasy.core.types.array import Array
+
+        arr = Array(axes=["y", "x"], shape=(2, 2), dtype="uint8")
+        arr._data = [[1, 2], [3, 4]]  # type: ignore[attr-defined]
+
+        result = serialise_outputs({"data": arr}, str(tmp_path))
+
+        assert result["data"]["backend"] == "zarr"
+        assert result["data"]["path"] is not None
+        assert result["data"]["metadata"]["axes"] == ["y", "x"]
+        assert str(result["data"]["path"]).endswith(".zarr")
+        assert Path(result["data"]["path"]).exists()
 
     def test_serialise_collection_with_none_item_type(self) -> None:
         """Collection with item_type=None should not crash the worker (#168)."""

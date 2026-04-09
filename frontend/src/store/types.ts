@@ -54,6 +54,7 @@ export interface WorkflowSlice {
 export interface ExecutionSlice {
   blockStates: Record<string, string>;
   blockOutputs: Record<string, Record<string, unknown>>;
+  blockErrors: Record<string, string>;
   executionMessages: string[];
   logEntries: LogEntry[];
   consumeEvent: (event: WorkflowEventMessage) => void;

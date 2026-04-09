@@ -17,12 +17,17 @@ class TestBlockConfigSchema:
         assert Block.config_schema == {"type": "object", "properties": {}}
 
     def test_io_block_schema_contains_path(self) -> None:
+        # T-TRK-004 / ADR-028 §D1: the new IOBlock config_schema is
+        # intentionally minimal — only ``path`` survives. The legacy
+        # ``direction`` and ``format`` properties were removed when the
+        # adapter dispatch layer was deleted. ``direction`` is now a
+        # ClassVar on subclasses (``input`` / ``output``), not user
+        # config.
         from scieasy.blocks.io.io_block import IOBlock
 
         schema = IOBlock.config_schema
         assert schema["type"] == "object"
         assert "path" in schema["properties"]
-        assert "direction" in schema["properties"]
         assert "path" in schema.get("required", [])
 
     def test_code_block_schema_contains_language(self) -> None:

@@ -25,7 +25,7 @@ SciEasy is a **modality-agnostic, building-block workflow framework** where:
 - Multiple data modalities coexist in a **single workflow graph**, enabling true cross-modal fusion analysis.
 - The framework is **AI-native**: AI can generate blocks, synthesize workflows, and optimize parameters at runtime.
 
-> **Status**: SciEasy is in **pre-alpha** (v0.1.0-dev). The core runtime, block system, execution engine, API layer, and frontend workflow editor are implemented and under active development. See [Current Status](#current-status) for details.
+> **Status**: SciEasy is in **pre-alpha** (v0.2.1). The core runtime, block system, execution engine, API layer, and frontend workflow editor are implemented and under active development. See [Current Status](#current-status) for details.
 
 ---
 
@@ -143,14 +143,34 @@ For the full architecture document, see [`docs/architecture/ARCHITECTURE.md`](do
 
 ### Installation
 
+**End users** — one command from PyPI:
+
 ```bash
-# Clone the repository
+pip install scieasy
+scieasy gui
+```
+
+The wheel ships with the prebuilt React SPA, so `scieasy gui` opens the full
+workflow editor directly. No Node.js required at install time.
+
+**Developers** — clone and install editable:
+
+```bash
 git clone https://github.com/zjzcpj/SciEasy.git
 cd SciEasy
-
-# Install in development mode with dev dependencies
 pip install -e ".[dev]"
+(cd frontend && npm install && npm run build)   # one-time SPA build
+scieasy gui
 ```
+
+The dev path serves the SPA from `frontend/dist/` automatically, so you can
+iterate on Python + SPA without reinstalling. For hot-reload frontend dev,
+run `(cd frontend && npm run dev)` against a separate `scieasy serve`
+backend — Vite proxies `/api/*` to `http://localhost:8000`.
+
+> If `scieasy gui` lands on the FastAPI `/docs` page instead of the workflow
+> editor, the SPA bundle is missing. Run `(cd frontend && npm run build)` in
+> your dev checkout, or reinstall from a wheel that includes `scieasy/api/static/index.html`.
 
 ### Launch the GUI
 
@@ -369,7 +389,7 @@ Significant design decisions are documented as ADRs in [`docs/adr/ADR.md`](docs/
 
 ## Current Status
 
-SciEasy is in **pre-alpha** (v0.1.0-dev). The following is implemented and under active development:
+SciEasy is in **pre-alpha** (v0.2.1). The following is implemented and under active development:
 
 **Implemented:**
 - Core data type hierarchy with six base types and domain-specific subtypes

@@ -298,7 +298,17 @@ class DAGScheduler:
             if isinstance(upstream_outputs, dict) and src_port in upstream_outputs:
                 inputs[tgt_port] = upstream_outputs[src_port]
             elif isinstance(upstream_outputs, dict):
-                inputs[tgt_port] = upstream_outputs
+                # #435: src_port not found in upstream outputs — skip rather
+                # than passing the entire dict, which would violate the port
+                # contract and confuse downstream blocks.
+                logger.warning(
+                    "Port '%s' not found in outputs of block '%s' (available: %s); skipping input '%s' for block '%s'",
+                    src_port,
+                    src_node,
+                    list(upstream_outputs.keys()),
+                    tgt_port,
+                    node_id,
+                )
         return inputs
 
     async def _dispatch_newly_ready(self) -> None:
@@ -666,11 +676,102 @@ class DAGScheduler:
         """
         self._block_states[block_id] = state
 
+    async def rerun_block(self, block_id: str) -> None:
+        """Re-run a block, terminating any active subprocess first.
+
+        If *block_id* is currently RUNNING, the existing task and subprocess
+        are cancelled via ``_cancel_if_active`` before the block is
+        re-dispatched.  This prevents orphan processes and duplicate block
+        executions that would otherwise arise when a caller re-dispatches a
+        block while the old run is still alive (bug #424).
+
+        Unlike ``reset_block``, ``rerun_block`` does **not** walk the upstream
+        or downstream dependency chain — it only resets and re-dispatches the
+        target block itself.
+
+        Parameters
+        ----------
+        block_id:
+            The block to re-run.
+
+        Raises
+        ------
+        ValueError
+            If *block_id* is not part of the current workflow.
+        """
+        if block_id not in self._block_states:
+            raise ValueError(f"Unknown block: {block_id}")
+
+        # Step 2: cancel any active run, waiting for it to exit fully.
+        await self._cancel_if_active(block_id)
+
+        # Step 3: reset to IDLE so the block can be re-dispatched.
+        self._block_states[block_id] = BlockState.IDLE
+        self._block_outputs.pop(block_id, None)
+        self.skip_reasons.pop(block_id, None)
+
+        # Step 4: dispatch if ready.
+        if self._check_readiness(block_id):
+            self._block_states[block_id] = BlockState.READY
+            await self._dispatch(block_id)
+
+        await self._drain_active_tasks()
+
+    async def _cancel_if_active(self, block_id: str) -> None:
+        """Cancel the active task/subprocess for *block_id* if one exists.
+
+        This is the pre-reset counterpart of ``_on_cancel_block``: it
+        terminates the subprocess handle (when present) or cancels the
+        asyncio task, then awaits its completion so the task entry is
+        removed from ``_active_tasks`` before the caller re-dispatches
+        the block.  Introduced to fix #424 — rerunning a RUNNING block
+        must kill the previous subprocess first.
+        """
+        if self._block_states.get(block_id) != BlockState.RUNNING:
+            return
+        task = self._active_tasks.get(block_id)
+        if task is None:
+            return
+
+        # Terminate subprocess if one is tracked.
+        handle = None
+        if self._process_registry is not None:
+            handle = self._process_registry.get_handle(block_id)
+        if handle is not None:
+            try:
+                handle.terminate()
+            except Exception:
+                logger.exception("Failed to terminate subprocess for block %s during rerun", block_id)
+
+        # Always cancel the asyncio task so _run_and_finalize can unwind.
+        # When a subprocess handle is present, terminate() sends SIGTERM to
+        # the worker but the wrapping asyncio task still needs cancellation
+        # to stop awaiting the (now-dead) process (#424).
+        if not task.done():
+            task.cancel()
+
+        if hasattr(self._runner, "cancel"):
+            try:
+                await self._runner.cancel(block_id)
+            except Exception:
+                logger.exception("Failed to cancel block %s via runner during rerun", block_id)
+
+        # Yield once so the event loop can deliver the CancelledError into
+        # the task coroutine, then await completion.
+        await asyncio.sleep(0)
+        with contextlib.suppress(asyncio.CancelledError, TimeoutError, Exception):
+            await task
+        # Ensure the task entry is removed (normally done by _run_and_finalize).
+        self._active_tasks.pop(block_id, None)
+
+        logger.info("Cancelled active block %s before rerun", block_id)
+
     async def reset_block(self, block_id: str) -> None:
         """Reset a block and its dependency chain for selective re-run.
 
         Algorithm (ADR-018):
             1. Validate block exists.
+            1b. Cancel active task/subprocess if the block is RUNNING (#424).
             2. Set target block to IDLE, clear cached outputs and skip reasons.
             3. Walk upstream: recursively reset non-DONE predecessors to IDLE.
             4. Walk downstream: reset SKIPPED blocks to IDLE.
@@ -679,6 +780,9 @@ class DAGScheduler:
         async with self._reset_lock:
             if block_id not in self._block_states:
                 raise ValueError(f"Unknown block: {block_id}")
+
+            # Step 1b: Cancel active task/subprocess before resetting (#424).
+            await self._cancel_if_active(block_id)
 
             # Step 2: Reset target block.
             self._block_states[block_id] = BlockState.IDLE
@@ -781,8 +885,38 @@ class DAGScheduler:
             raise ValueError("Cannot execute from block without cached upstream outputs: " + ", ".join(sorted(missing)))
 
         descendants = set(get_downstream_blocks(self._dag, block_id)) | {block_id}
+
+        # Cancel any active tasks for the target block and its descendants
+        # before resetting them (#424).
+        for node_id in descendants:
+            await self._cancel_if_active(node_id)
+
         self._completed_event = asyncio.Event()
 
+        # ADR-027 Addendum 1 / #408: Wire-format dicts ({"backend": ...,
+        # "path": ..., "format": ..., "metadata": {"type_chain": [...], ...}})
+        # are assigned directly to _block_outputs WITHOUT calling
+        # deserialize_intermediate_refs().  This is intentional:
+        #
+        #   1. Wire-format dicts are already JSON-serialisable and can be
+        #      shipped to a worker subprocess via spawn_block_process() / stdin.
+        #   2. The worker's _reconstruct_one() reads metadata.type_chain and
+        #      reconstructs the correct typed DataObject instance inside the
+        #      sandboxed subprocess, preserving plugin type identity.
+        #   3. Calling deserialize_intermediate_refs() here would produce
+        #      ViewProxy objects that are NOT JSON-serialisable and would break
+        #      spawn_block_process().
+        #
+        # See checkpoint.py for the deprecated deserialize_intermediate_refs()
+        # function and the full rationale.
+        # #404 / #408 / ADR-027 Addendum 1: Wire-format dicts from the
+        # checkpoint are assigned directly to _block_outputs WITHOUT calling
+        # deserialize_intermediate_refs().  The wire-format dict carries a
+        # metadata.type_chain field that _reconstruct_one() inside the worker
+        # subprocess uses to instantiate the correct typed DataObject.
+        # Calling deserialize_intermediate_refs() here would produce ViewProxy
+        # objects that are not JSON-serialisable and would break
+        # spawn_block_process().
         for node_id in self._order:
             if node_id in ancestors:
                 self._block_states[node_id] = BlockState.DONE

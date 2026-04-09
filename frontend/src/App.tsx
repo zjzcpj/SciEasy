@@ -60,6 +60,7 @@ export default function App() {
 
   const blockStates = useAppStore((state) => state.blockStates);
   const blockOutputs = useAppStore((state) => state.blockOutputs);
+  const blockErrors = useAppStore((state) => state.blockErrors);
   const logEntries = useAppStore((state) => state.logEntries);
   const resetExecution = useAppStore((state) => state.resetExecution);
 
@@ -224,10 +225,16 @@ export default function App() {
     if (!currentProject) {
       return;
     }
-    await saveWorkflow();
-    const targetWorkflowId = workflowPayload.id;
-    await api.executeWorkflow(targetWorkflowId);
-    setActiveBottomTab("logs");
+    try {
+      await saveWorkflow();
+      const targetWorkflowId = workflowPayload.id;
+      await api.executeWorkflow(targetWorkflowId);
+      setLastError(null);
+      setActiveBottomTab("logs");
+    } catch (error) {
+      setLastError((error as Error).message);
+      setActiveBottomTab("problems");
+    }
   }
 
   async function pauseWorkflow() {
@@ -255,9 +262,15 @@ export default function App() {
     if (!workflowId || !selectedNodeId) {
       return;
     }
-    await saveWorkflow();
-    await api.executeFrom(workflowId, selectedNodeId);
-    setActiveBottomTab("logs");
+    try {
+      await saveWorkflow();
+      await api.executeFrom(workflowId, selectedNodeId);
+      setLastError(null);
+      setActiveBottomTab("logs");
+    } catch (error) {
+      setLastError((error as Error).message);
+      setActiveBottomTab("problems");
+    }
   }
 
   async function cancelSelectedBlock() {
@@ -270,21 +283,33 @@ export default function App() {
   const handleRunBlock = useCallback(
     async (blockId: string) => {
       if (!workflowId) return;
-      await saveWorkflow();
-      await api.executeFrom(workflowId, blockId);
-      setActiveBottomTab("logs");
+      try {
+        await saveWorkflow();
+        await api.executeFrom(workflowId, blockId);
+        setLastError(null);
+        setActiveBottomTab("logs");
+      } catch (error) {
+        setLastError((error as Error).message);
+        setActiveBottomTab("problems");
+      }
     },
-    [workflowId],
+    [saveWorkflow, setActiveBottomTab, setLastError, workflowId],
   );
 
   const handleRestartBlock = useCallback(
     async (blockId: string) => {
       if (!workflowId) return;
-      await saveWorkflow();
-      await api.executeFrom(workflowId, blockId);
-      setActiveBottomTab("logs");
+      try {
+        await saveWorkflow();
+        await api.executeFrom(workflowId, blockId);
+        setLastError(null);
+        setActiveBottomTab("logs");
+      } catch (error) {
+        setLastError((error as Error).message);
+        setActiveBottomTab("problems");
+      }
     },
-    [workflowId],
+    [saveWorkflow, setActiveBottomTab, setLastError, workflowId],
   );
 
   const handleNodeSelect = useCallback(
@@ -525,8 +550,9 @@ export default function App() {
                   blocks={blocks}
                   collapsed={false}
                   onAddBlock={(block) => {
-                    const defaultParams: Record<string, unknown> | undefined =
-                      block.type_name === "io_block"
+                    const defaultParams: Record<string, unknown> | undefined = block.direction
+                      ? { direction: block.direction }
+                      : block.type_name === "io_block"
                         ? { direction: block.name === "Load Block" ? "input" : "output" }
                         : undefined;
                     addNode(block, { x: 160, y: 160 }, defaultParams);
@@ -551,6 +577,7 @@ export default function App() {
                   <ResizablePanel defaultSize="70%" minSize="20%">
                     <WorkflowCanvas
                       blockStates={blockStates}
+                      blockErrors={blockErrors}
                       blocks={blocks.filter((block) => {
                         const value = `${block.name} ${block.description} ${block.category}`.toLowerCase();
                         return value.includes(paletteSearch.toLowerCase());

@@ -40,7 +40,9 @@ from __future__ import annotations
 import importlib
 import importlib.metadata
 import logging
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, overload
 
 if TYPE_CHECKING:
@@ -421,10 +423,65 @@ class TypeRegistry:
                 )
                 logger.info("Registered external type '%s' from entry-point '%s'", cls.__name__, ep.name)
 
-    def scan_all(self) -> None:
+    def scan_all(self, *, include_monorepo: bool = False) -> None:
         """Register built-in types and then scan entry-points for external types."""
         self.scan_builtins()
         self._scan_entrypoint_types()
+        if include_monorepo:
+            self._scan_monorepo_types()
+
+    def _scan_monorepo_types(self) -> None:
+        """Development fallback for plugin type discovery in the monorepo.
+
+        Mirrors the plugin skeleton smoke tests: when plugin packages live in
+        ``packages/*/src`` but have not been installed in editable mode yet,
+        import them directly from source and register any types returned by a
+        conventional ``get_types()`` callable.
+        """
+        repo_root = Path(__file__).resolve().parents[4]
+        packages_dir = repo_root / "packages"
+        if not packages_dir.is_dir():
+            return
+
+        for pkg_dir in packages_dir.glob("scieasy-blocks-*"):
+            src_dir = pkg_dir / "src"
+            if not src_dir.is_dir():
+                continue
+
+            src_dir_str = str(src_dir)
+            if src_dir_str not in sys.path:
+                sys.path.insert(0, src_dir_str)
+
+            module_name = pkg_dir.name.replace("-", "_")
+            try:
+                module = importlib.import_module(module_name)
+            except Exception:
+                logger.warning("Failed to import monorepo plugin types from '%s'", module_name, exc_info=True)
+                continue
+
+            get_types = getattr(module, "get_types", None)
+            if not callable(get_types):
+                continue
+
+            try:
+                type_classes = get_types()
+            except Exception:
+                logger.warning("Monorepo plugin '%s' get_types() raised", module_name, exc_info=True)
+                continue
+
+            if not isinstance(type_classes, (list, tuple)):
+                continue
+
+            for cls in type_classes:
+                try:
+                    self.register_class(cls)
+                except Exception:
+                    logger.warning(
+                        "Failed to register monorepo plugin type %r from '%s'",
+                        cls,
+                        module_name,
+                        exc_info=True,
+                    )
 
 
 def _looks_like_missing_required_field(exc: BaseException) -> bool:

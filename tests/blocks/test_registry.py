@@ -10,7 +10,6 @@ import pytest
 
 from scieasy.blocks.base.package_info import PackageInfo
 from scieasy.blocks.base.state import BlockState
-from scieasy.blocks.io.adapter_registry import AdapterRegistry
 from scieasy.blocks.registry import BlockRegistry, BlockSpec
 
 
@@ -26,6 +25,7 @@ class TestBlockRegistryTier2:
         names = list(specs.keys())
         assert "Merge" in names
         assert "Split" in names
+        assert "IOBlock" not in names
 
     def test_instantiate_by_name(self) -> None:
         reg = BlockRegistry()
@@ -180,41 +180,6 @@ class TestInferCategory:
         assert _infer_category(MyAIBlock) == "ai"
 
 
-class TestAdapterRegistry:
-    """AdapterRegistry — extension-to-adapter mapping."""
-
-    def test_register_defaults(self) -> None:
-        reg = AdapterRegistry()
-        reg.register_defaults()
-        adapters = reg.all_adapters()
-        assert ".csv" in adapters
-        assert ".parquet" in adapters
-        assert ".tif" in adapters
-
-    def test_get_for_extension(self) -> None:
-        from scieasy.blocks.io.adapters.csv_adapter import CSVAdapter
-
-        reg = AdapterRegistry()
-        reg.register_defaults()
-        cls = reg.get_for_extension(".csv")
-        assert cls is CSVAdapter
-
-    def test_normalisation(self) -> None:
-        from scieasy.blocks.io.adapters.csv_adapter import CSVAdapter
-
-        reg = AdapterRegistry()
-        reg.register_defaults()
-        assert reg.get_for_extension("CSV") is CSVAdapter
-        assert reg.get_for_extension(".CSV") is CSVAdapter
-        assert reg.get_for_extension("csv") is CSVAdapter
-
-    def test_unknown_extension_raises(self) -> None:
-        reg = AdapterRegistry()
-        reg.register_defaults()
-        with pytest.raises(KeyError, match="xyz"):
-            reg.get_for_extension(".xyz")
-
-
 class TestPackageInfo:
     """Tests for the PackageInfo dataclass (ADR-025 Phase 2.1)."""
 
@@ -363,6 +328,39 @@ class TestScanTier2CallableProtocol:
         pkgs = reg.packages()
         assert "SRS Imaging" in pkgs
         assert pkgs["SRS Imaging"].author == "Dr. Wang"
+
+    def test_abstract_block_entry_point_logs_precise_warning(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Abstract Block entry-points should not be reported as non-Block items."""
+        from abc import ABC, abstractmethod
+
+        from scieasy.blocks.base.block import Block
+
+        abstract_block = type(
+            "AbstractMockBlock",
+            (Block, ABC),
+            {
+                "name": "Abstract Mock",
+                "description": "abstract",
+                "version": "0.1.0",
+                "input_ports": [],
+                "output_ports": [],
+                "config_schema": {"type": "object", "properties": {}},
+                "run": abstractmethod(lambda self, inputs, config: {}),
+            },
+        )
+        ep = self._make_mock_entry_point("abstract_block", abstract_block)
+        mock_eps = MagicMock()
+        mock_eps.select.return_value = [ep]
+
+        reg = BlockRegistry()
+        with patch("importlib.metadata.entry_points", return_value=mock_eps), caplog.at_level(logging.WARNING):
+            reg._scan_tier2()
+
+        assert "contained abstract Block subclass" in caplog.text
+        assert "contained non-Block item" not in caplog.text
 
     def test_plain_list_return_uses_ep_name(self) -> None:
         """Entry-point returning plain list uses ep.name as package_name."""
