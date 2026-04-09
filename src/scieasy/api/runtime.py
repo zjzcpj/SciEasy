@@ -34,7 +34,7 @@ from scieasy.engine.runners.local import LocalRunner
 from scieasy.engine.runners.process_handle import ProcessRegistry
 from scieasy.engine.scheduler import DAGScheduler
 from scieasy.workflow.definition import EdgeDef, NodeDef, WorkflowDefinition
-from scieasy.workflow.serializer import load_yaml, save_yaml
+from scieasy.workflow.serializer import absolutify_paths, load_yaml, relativify_paths, save_yaml
 
 logger = logging.getLogger(__name__)
 
@@ -464,6 +464,9 @@ class ApiRuntime:
         return Path(project.path) / "workflows" / f"{workflow_id}.yaml"
 
     def save_workflow(self, payload: dict[str, Any]) -> WorkflowDefinition:
+        # #506: relativify paths in node configs before persisting YAML.
+        project_dir = self.active_project.path if self.active_project else None
+
         definition = WorkflowDefinition(
             id=payload["id"],
             version=payload.get("version", "1.0.0"),
@@ -473,7 +476,7 @@ class ApiRuntime:
                 NodeDef(
                     id=node["id"],
                     block_type=node["block_type"],
-                    config=node.get("config", {}),
+                    config=self._relativify_node_config(node.get("config", {}), node["block_type"], project_dir),
                     execution_mode=node.get("execution_mode"),
                     layout=node.get("layout"),
                 )
@@ -494,7 +497,40 @@ class ApiRuntime:
         path = self.workflow_path(workflow_id)
         if not path.exists():
             raise FileNotFoundError(f"Workflow not found: {workflow_id}")
-        return load_yaml(path)
+        definition = load_yaml(path)
+
+        # #506: resolve relative paths back to absolute using project dir.
+        project_dir = self.active_project.path if self.active_project else None
+        if project_dir:
+            for node in definition.nodes:
+                node.config = self._absolutify_node_config(node.config, node.block_type, project_dir)
+
+        return definition
+
+    def _config_schema_for_block(self, block_type: str) -> dict[str, Any]:
+        """Look up the config_schema for a block type from the registry."""
+        spec = self.block_registry.get_spec(block_type)
+        if spec is not None:
+            return spec.config_schema
+        return {"type": "object", "properties": {}}
+
+    def _relativify_node_config(
+        self, config: dict[str, Any], block_type: str, project_dir: str | None
+    ) -> dict[str, Any]:
+        """Convert absolute paths in node config to relative paths (#506)."""
+        if not project_dir:
+            return config
+        schema = self._config_schema_for_block(block_type)
+        return relativify_paths(config, project_dir, schema)
+
+    def _absolutify_node_config(
+        self, config: dict[str, Any], block_type: str, project_dir: str | None
+    ) -> dict[str, Any]:
+        """Resolve relative paths in node config to absolute paths (#506)."""
+        if not project_dir:
+            return config
+        schema = self._config_schema_for_block(block_type)
+        return absolutify_paths(config, project_dir, schema)
 
     def delete_workflow(self, workflow_id: str) -> None:
         path = self.workflow_path(workflow_id)

@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#506] Store relative paths in workflow YAML for cross-machine portability (@claude, 2026-04-09, branch: fix/issue-506/relative-paths, session: 20260409-191659-store-relative-paths-in-workflow-yaml-50)
 - [#509] Disable monorepo scanner for end users — gate behind SCIEASY_DEV=1 env var (@claude, 2026-04-09, branch: fix/issue-509/disable-monorepo-scanner, session: 20260409-191427-disable-monorepo-scanner-for-end-users-5)
 - [#499] Configure Python logging handlers so logger output is not silently discarded (@claude, 2026-04-09, branch: fix/issue-499/configure-logging, session: 20260409-180335-configure-logging-handlers-for-the-codeb)
 - [#511] Fix toolbar layout shift caused by long workflow names — add max-width truncation with tooltip (@claude, 2026-04-09, branch: fix/issue-508/toolbar-name-truncation, session: 20260409-191332-fix-toolbar-shifts-when-workflow-filenam)
