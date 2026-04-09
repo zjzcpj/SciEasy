@@ -167,11 +167,11 @@ export function Toolbar(props: ToolbarProps) {
           <div className="rounded-[1.4rem] bg-ink px-4 py-2.5 text-stone-50">
             <p className="font-display text-lg leading-tight">SciEasy</p>
           </div>
-          <div className="min-w-0">
-            <p className="font-display text-base leading-tight text-ink">
+          <div className="min-w-0" style={{ maxWidth: 200 }}>
+            <p className="truncate font-display text-base leading-tight text-ink" title={currentProject?.name ?? undefined}>
               {currentProject?.name ?? "No project open"}
             </p>
-            <p className="truncate text-xs text-stone-500">
+            <p className="truncate text-xs text-stone-500" title={currentProject ? workflowName : undefined}>
               {currentProject
                 ? (<>{workflowName}<span style={{ visibility: workflowDirty ? "visible" : "hidden" }}>{" *"}</span></>)
                 : "Open or create a project"}
