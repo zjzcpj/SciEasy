@@ -787,7 +787,7 @@ class ApiRuntime:
         checkpoint_manager = CheckpointManager(self.checkpoint_dir_for(workflow_id))
         checkpoint = checkpoint_manager.load(workflow_id) if execute_from is not None else None
         if execute_from is not None and checkpoint is None:
-            raise FileNotFoundError("No checkpoint exists for execute-from")
+            raise ValueError("Run the full workflow at least once before using 'Run from here'")
 
         scheduler = DAGScheduler(
             workflow=workflow,

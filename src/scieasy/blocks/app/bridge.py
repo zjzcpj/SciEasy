@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
@@ -98,8 +99,12 @@ class FileExchangeBridge:
 
         parts = validate_app_command(command)
         trailing = argv_override if argv_override is not None else [str(exchange_dir)]
+        cmd = [*parts, *trailing]
+        # macOS .app bundles must be launched via `open -a` (#483).
+        if sys.platform == "darwin" and cmd[0].endswith(".app"):
+            cmd = ["open", "-a", cmd[0], "--args", *cmd[1:]]
         return subprocess.Popen(
-            [*parts, *trailing],
+            cmd,
             cwd=str(exchange_dir),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
