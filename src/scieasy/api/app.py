@@ -11,7 +11,7 @@ from fastapi import FastAPI, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
-from scieasy.api.routes import ai, blocks, data, projects, workflows
+from scieasy.api.routes import ai, blocks, data, filesystem, projects, workflows
 from scieasy.api.runtime import ApiRuntime
 from scieasy.api.spa import SPAStaticFiles
 from scieasy.api.sse import sse_handler
@@ -60,6 +60,10 @@ def create_app() -> FastAPI:
     app.include_router(workflows.router)
     app.include_router(blocks.router)
     app.include_router(data.router)
+    # filesystem router must be registered BEFORE projects router because
+    # the projects router uses {project_id:path} which would greedily
+    # match /api/projects/{id}/tree as a project-id lookup.
+    app.include_router(filesystem.router)
     app.include_router(projects.router)
     app.include_router(ai.router)
 

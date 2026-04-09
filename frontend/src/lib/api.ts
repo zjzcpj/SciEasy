@@ -11,6 +11,7 @@ import type {
   DataUploadResponse,
   ExecuteFromResponse,
   ProjectResponse,
+  TreeResponse,
   WorkflowExecutionResponse,
   WorkflowResponse,
 } from "../types/api";
@@ -157,5 +158,15 @@ export const api = {
       method: "POST",
       headers: JSON_HEADERS,
       body: JSON.stringify(body),
+    }),
+  getProjectTree: (projectId: string, path = "") =>
+    apiFetch<TreeResponse>(
+      `/api/projects/${encodeURIComponent(projectId)}/tree?path=${encodeURIComponent(path)}`,
+    ),
+  revealInExplorer: (path: string) =>
+    apiFetch<{ status: string }>("/api/filesystem/reveal", {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ path }),
     }),
 };

@@ -220,3 +220,13 @@ export interface AIOptimizeParamsResponse {
   suggestions: Record<string, unknown>;
   explanation: string;
 }
+
+export interface TreeEntry {
+  name: string;
+  type: "file" | "directory";
+  size?: number | null;
+}
+
+export interface TreeResponse {
+  entries: TreeEntry[];
+}

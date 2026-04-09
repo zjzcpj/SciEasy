@@ -10,6 +10,7 @@ import { BlockPalette } from "./components/BlockPalette";
 import { BottomPanel } from "./components/BottomPanel";
 import { DataPreview } from "./components/DataPreview";
 import { ProjectDialog } from "./components/ProjectDialog";
+import { ProjectTree } from "./components/ProjectTree";
 import { Toolbar } from "./components/Toolbar";
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { WorkflowCanvas } from "./components/WorkflowCanvas";
@@ -97,6 +98,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [leftTab, setLeftTab] = useState<"blocks" | "project">("blocks");
   const bootedRef = useRef(false);
 
   const { connected: wsConnected } = useWorkflowWebSocket(Boolean(currentProject));
@@ -143,6 +145,17 @@ export default function App() {
       return;
     }
     startTransition(() => setWorkflow(emptyWorkflow("main")));
+  }
+
+  async function loadWorkflowById(workflowId: string) {
+    try {
+      const workflow = await api.getWorkflow(workflowId);
+      startTransition(() => setWorkflow(workflow));
+      resetExecution();
+      setLastError(null);
+    } catch (error) {
+      setLastError((error as Error).message);
+    }
   }
 
   async function openProject(projectIdOrPath: string) {
@@ -620,23 +633,56 @@ export default function App() {
                 if (sizes[2] != null && sizes[2] >= 4) setPanelSize("preview", sizes[2]);
               }}
             >
-              {/* Block Palette — full height left column */}
+              {/* Left Sidebar — tab switcher + content */}
               <ResizablePanel defaultSize="15%" minSize="4%" maxSize="28%" collapsible collapsedSize="0%">
-                <BlockPalette
-                  blocks={blocks}
-                  collapsed={false}
-                  onAddBlock={(block) => {
-                    const defaultParams: Record<string, unknown> | undefined = block.direction
-                      ? { direction: block.direction }
-                      : block.type_name === "io_block"
-                        ? { direction: block.name === "Load Block" ? "input" : "output" }
-                        : undefined;
-                    addNode(block, { x: 160, y: 160 }, defaultParams);
-                  }}
-                  onReload={() => void refreshBlocks()}
-                  onSearch={setPaletteSearch}
-                  search={paletteSearch}
-                />
+                <div className="flex h-full flex-col overflow-hidden">
+                  {/* Tab switcher */}
+                  <div className="flex shrink-0 border-b border-stone-200 bg-[linear-gradient(180deg,_rgba(255,255,255,0.95),_rgba(245,241,232,0.98))]">
+                    <button
+                      className={`flex-1 px-3 py-2 text-xs font-medium transition ${leftTab === "blocks" ? "border-b-2 border-ember text-ink" : "text-stone-400 hover:text-stone-600"}`}
+                      onClick={() => setLeftTab("blocks")}
+                      type="button"
+                    >
+                      Blocks
+                    </button>
+                    <button
+                      className={`flex-1 px-3 py-2 text-xs font-medium transition ${leftTab === "project" ? "border-b-2 border-ember text-ink" : "text-stone-400 hover:text-stone-600"}`}
+                      onClick={() => setLeftTab("project")}
+                      type="button"
+                    >
+                      Project
+                    </button>
+                  </div>
+                  {/* Tab content */}
+                  <div className="min-h-0 flex-1">
+                    {leftTab === "blocks" ? (
+                      <BlockPalette
+                        blocks={blocks}
+                        collapsed={false}
+                        onAddBlock={(block) => {
+                          const defaultParams: Record<string, unknown> | undefined = block.direction
+                            ? { direction: block.direction }
+                            : block.type_name === "io_block"
+                              ? { direction: block.name === "Load Block" ? "input" : "output" }
+                              : undefined;
+                          addNode(block, { x: 160, y: 160 }, defaultParams);
+                        }}
+                        onReload={() => void refreshBlocks()}
+                        onSearch={setPaletteSearch}
+                        search={paletteSearch}
+                      />
+                    ) : currentProject ? (
+                      <ProjectTree
+                        projectId={currentProject.id}
+                        projectPath={currentProject.path}
+                        onLoadWorkflow={(workflowId) => void loadWorkflowById(workflowId)}
+                        onReloadBlocks={() => void refreshBlocks()}
+                      />
+                    ) : (
+                      <div className="p-4 text-xs text-stone-400">No project open</div>
+                    )}
+                  </div>
+                </div>
               </ResizablePanel>
               <ResizableHandle withHandle />
 
