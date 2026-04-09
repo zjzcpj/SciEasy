@@ -30,22 +30,22 @@ def _make_spa_dir(root: Path) -> Path:
     return root
 
 
-def test_resolve_spa_prefers_packaged_over_dev(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """When both layouts exist, the packaged ``api/static/`` wins."""
+def test_resolve_spa_prefers_dev_over_packaged(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """When both layouts exist, ``frontend/dist/`` wins (fresher dev build)."""
     fake_api_dir = tmp_path / "pkg" / "scieasy" / "api"
     fake_api_dir.mkdir(parents=True)
     fake_app_py = fake_api_dir / "app.py"
     fake_app_py.write_text("", encoding="utf-8")
 
     packaged = _make_spa_dir(fake_api_dir / "static")
-    dev_fallback = _make_spa_dir(tmp_path / "frontend" / "dist")
+    dev_build = _make_spa_dir(tmp_path / "frontend" / "dist")
     (tmp_path / "pyproject.toml").write_text("", encoding="utf-8")
 
     monkeypatch.setattr(app_module, "__file__", str(fake_app_py))
 
     resolved = app_module._resolve_spa_static_dir()
-    assert resolved == packaged
-    assert resolved != dev_fallback
+    assert resolved == dev_build
+    assert resolved != packaged
 
 
 def test_resolve_spa_falls_back_to_frontend_dist(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
