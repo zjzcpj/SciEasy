@@ -55,7 +55,23 @@ def _map_source(raw: str) -> str:
     return raw
 
 
+def _is_plugin_package(name: str) -> bool:
+    """Return True if *name* looks like an external plugin package.
+
+    Convention: plugin packages are named ``scieasy-blocks-<domain>``
+    (e.g. ``scieasy-blocks-imaging``).  Everything else (individual
+    entry-point names like ``ai_block``, ``code_block``, or empty
+    strings) is a core block and should be grouped under the default
+    "SciEasy Core" header in the palette.
+    """
+    return name.startswith("scieasy-blocks-")
+
+
 def _summary(spec: Any) -> BlockSummary:
+    raw_pkg = getattr(spec, "package_name", "") or ""
+    # Only keep the package_name for genuine plugin packages so the
+    # frontend groups core blocks together under "SciEasy Core".
+    package_name = raw_pkg if _is_plugin_package(raw_pkg) else ""
     return BlockSummary(
         name=spec.name,
         type_name=spec.type_name,
@@ -66,7 +82,7 @@ def _summary(spec: Any) -> BlockSummary:
         output_ports=[_port_response(port, direction="output") for port in spec.output_ports],
         direction=spec.direction or None,
         source=_map_source(getattr(spec, "source", "") or ""),
-        package_name=getattr(spec, "package_name", "") or "",
+        package_name=package_name,
     )
 
 
