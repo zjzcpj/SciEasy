@@ -72,10 +72,17 @@ def create_app() -> FastAPI:
         runtime = app.state.runtime
         await websocket_handler(websocket, runtime.event_bus)
 
-    # SPA static files (production) or redirect to API docs (development).
-    # Must be registered AFTER all /api/* and /ws routes.
-    static_dir = Path(__file__).parent / "static"
-    if static_dir.exists():
+    # SPA static files. Must be registered AFTER all /api/* and /ws routes.
+    # Two locations are checked, in order:
+    #   1. Packaged assets at ``scieasy/api/static/`` — populated by the
+    #      setuptools build hook from ``frontend/dist/`` when building wheels.
+    #   2. Editable-install fallback at ``<repo-root>/frontend/dist/`` — so
+    #      developers can ``pip install -e . && (cd frontend && npm run build)``
+    #      and get the SPA without running the full wheel build.
+    # If neither is present, ``GET /`` redirects to the API docs so users
+    # still land on something useful.
+    static_dir = _resolve_spa_static_dir()
+    if static_dir is not None:
         app.mount("/", SPAStaticFiles(directory=str(static_dir), html=True), name="spa")
     else:
 
@@ -84,3 +91,48 @@ def create_app() -> FastAPI:
             return RedirectResponse(url="/docs")
 
     return app
+
+
+def _resolve_spa_static_dir() -> Path | None:
+    """Locate the built SPA assets, preferring packaged over dev layout.
+
+    Returns the first directory that contains an ``index.html``, or ``None``
+    if no built SPA is available. See ``create_app`` for the resolution
+    order and rationale.
+    """
+    packaged = Path(__file__).parent / "static"
+    if (packaged / "index.html").is_file():
+        return packaged
+
+    # Walk up from ``src/scieasy/api/app.py`` to the repo root and look for
+    # ``frontend/dist/``. Only used for editable installs where ``__file__``
+    # is still inside the source tree.
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "frontend" / "dist"
+        if (candidate / "index.html").is_file():
+            # #406: Warn developers when frontend/src has files newer than
+            # dist/index.html — the built SPA may be stale.  This check is
+            # best-effort (errors are silently swallowed) and emits a warning
+            # only; it never blocks startup.
+            src_dir = parent / "frontend" / "src"
+            if src_dir.exists():
+                try:
+                    src_mtime = max(
+                        (f.stat().st_mtime for f in src_dir.rglob("*") if f.is_file()),
+                        default=0.0,
+                    )
+                    dist_mtime = (candidate / "index.html").stat().st_mtime
+                    if src_mtime > dist_mtime:
+                        import logging
+
+                        logging.getLogger(__name__).warning(
+                            "frontend/dist may be stale (frontend/src has newer files than "
+                            "dist/index.html). Run 'cd frontend && npm run build' to rebuild."
+                        )
+                except Exception:
+                    pass
+            return candidate
+        if (parent / "pyproject.toml").is_file():
+            # Reached the repo root without finding frontend/dist/
+            break
+    return None

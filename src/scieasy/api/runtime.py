@@ -17,15 +17,14 @@ from uuid import uuid4
 import pyarrow.parquet as pq
 import yaml
 
-from scieasy.blocks.io.adapter_registry import AdapterRegistry
 from scieasy.blocks.registry import BlockRegistry
 from scieasy.core.storage.ref import StorageReference
-from scieasy.core.types.array import Array, Image
+from scieasy.core.types.array import Array
 from scieasy.core.types.artifact import Artifact
 from scieasy.core.types.composite import CompositeData
 from scieasy.core.types.dataframe import DataFrame
 from scieasy.core.types.registry import TypeRegistry
-from scieasy.core.types.series import Series, Spectrum
+from scieasy.core.types.series import Series
 from scieasy.core.types.text import Text
 from scieasy.engine.checkpoint import CheckpointManager
 from scieasy.engine.events import EventBus
@@ -55,13 +54,26 @@ def _safe_parent_dir(path: str | Path | None) -> Path:
 
 
 def _infer_type_name_from_ref(ref: StorageReference) -> str:
+    # ADR-027 D2 / #407: prefer the type_chain written by the worker subprocess
+    # via _serialise_one().  The rightmost (most specific) entry is the
+    # canonical type name.  Fall through to the extension heuristic only when
+    # metadata is absent (e.g. file uploads that have no type_chain yet).
+    if ref.metadata:
+        type_chain = ref.metadata.get("type_chain")
+        if type_chain and isinstance(type_chain, list) and type_chain:
+            return str(type_chain[-1])
+
     fmt = (ref.format or "").lower()
     if fmt in {"csv", "parquet"}:
         return DataFrame.__name__
     if fmt in {"txt", "json", "yaml", "yml", "md"}:
         return Text.__name__
+    # T-006 / ADR-027 D2: ``Image`` lives in the imaging plugin, not
+    # core. Imaging payloads are modelled as generic ``Array`` with
+    # ``axes=["y", "x"]`` here; the frontend preview hook still handles
+    # the "image" kind via the TIFF/PNG data-URI path below.
     if fmt in {"png", "jpg", "jpeg", "tif", "tiff"}:
-        return Image.__name__
+        return Array.__name__
     if fmt == "zarr":
         return Array.__name__
     return Artifact.__name__
@@ -102,6 +114,50 @@ def _image_data_uri_from_matrix(values: list[list[float]]) -> str:
     return f"data:image/png;base64,{base64.b64encode(png).decode('ascii')}"
 
 
+def _load_preview_matrix(ref: StorageReference) -> Any:
+    """Load a raster payload for preview generation."""
+    path = Path(ref.path)
+    suffix = path.suffix.lower()
+
+    if suffix in {".tif", ".tiff"}:
+        import tifffile
+
+        return tifffile.imread(str(path))
+
+    if suffix == ".zarr":
+        import zarr
+
+        node: Any = zarr.open(str(path), mode="r")
+        if isinstance(node, zarr.Array):
+            return node[...]
+        if "data" in node:
+            data_array: Any = node["data"]
+            return data_array[...]
+        raise ValueError(f"Zarr preview store at {path} has no top-level array or 'data' dataset")
+
+    raise ValueError(f"Unsupported raster preview format for {path}")
+
+
+def _downsample_matrix(matrix: Any, max_dim: int = 256) -> Any:
+    """Downsample a 2-D matrix to at most *max_dim* on the longest side.
+
+    Uses nearest-neighbour sampling via ``numpy.linspace`` indices so the
+    full spatial extent of the image is preserved in the thumbnail.
+    """
+    import numpy as np
+
+    h, w = int(matrix.shape[0]), int(matrix.shape[1])
+    if max(h, w) > max_dim:
+        scale = max_dim / max(h, w)
+        new_h, new_w = max(1, int(h * scale)), max(1, int(w * scale))
+        row_idx = np.linspace(0, h - 1, new_h, dtype=int)
+        col_idx = np.linspace(0, w - 1, new_w, dtype=int)
+        thumbnail_arr = matrix[np.ix_(row_idx, col_idx)]
+    else:
+        thumbnail_arr = matrix
+    return thumbnail_arr.tolist()
+
+
 @dataclass
 class KnownProject:
     """Persisted metadata for a known project workspace."""
@@ -121,6 +177,10 @@ class DataRecord:
     ref: StorageReference
     type_name: str
     metadata: dict[str, Any] = field(default_factory=dict)
+    # ADR-027 D2 / #407: full type chain from the worker subprocess wire format,
+    # e.g. ["DataObject", "Array", "Image"].  Used by preview_data() to resolve
+    # plugin types via TypeRegistry instead of relying on class name equality.
+    type_chain: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -191,7 +251,7 @@ class ApiRuntime:
         self._bind_event_logging()
 
     def _configure_static_registries(self) -> None:
-        self.type_registry.scan_builtins()
+        self.type_registry.scan_all(include_monorepo=True)
         self.refresh_block_registry()
 
     def _bind_event_logging(self) -> None:
@@ -245,7 +305,7 @@ class ApiRuntime:
         if self.active_project is not None:
             registry.add_scan_dir(Path(self.active_project.path) / "blocks")
             registry.add_scan_dir(Path.home() / ".scieasy" / "blocks")
-        registry.scan()
+        registry.scan(include_monorepo=True)
         self.block_registry = registry
 
     def create_project(self, name: str, description: str = "", parent_path: str | None = None) -> KnownProject:
@@ -446,17 +506,17 @@ class ApiRuntime:
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(content)
 
-        registry = AdapterRegistry()
-        registry.register_defaults()
-        extension = destination.suffix or ".bin"
-        try:
-            adapter_class = registry.get_for_extension(extension)
-        except KeyError:
-            from scieasy.blocks.io.adapters.generic_adapter import GenericAdapter
-
-            adapter_class = GenericAdapter
-        adapter = adapter_class()
-        ref = adapter.create_reference(destination)
+        # T-TRK-004 / ADR-028 §D2: the legacy ``AdapterRegistry`` /
+        # ``adapter.create_reference()`` dispatch was removed. Build the
+        # ``StorageReference`` directly from the destination path; the
+        # format is the file extension without the leading dot, falling
+        # back to the bytes-stream sentinel for unknown payloads.
+        extension = destination.suffix.lower().lstrip(".") or "bin"
+        ref = StorageReference(
+            backend="filesystem",
+            path=str(destination),
+            format=extension,
+        )
         record = self.register_data_ref(ref)
         return {
             "ref": record.id,
@@ -471,11 +531,21 @@ class ApiRuntime:
         type_name: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> DataRecord:
+        resolved_type_name = type_name or _infer_type_name_from_ref(ref)
+        # ADR-027 D2 / #407: propagate type_chain from the wire-format metadata
+        # so that preview_data() can use TypeRegistry.resolve() + issubclass()
+        # rather than hardcoded class name comparisons.
+        ref_type_chain: list[str] = []
+        if ref.metadata:
+            tc = ref.metadata.get("type_chain")
+            if isinstance(tc, list):
+                ref_type_chain = [str(n) for n in tc]
         record = DataRecord(
             id=f"data-{uuid4().hex}",
             ref=ref,
-            type_name=type_name or _infer_type_name_from_ref(ref),
+            type_name=resolved_type_name,
             metadata=metadata or self.describe_ref(ref),
+            type_chain=ref_type_chain,
         )
         self.data_catalog[record.id] = record
         return record
@@ -488,7 +558,16 @@ class ApiRuntime:
                 format=payload.get("format"),
                 metadata=payload.get("metadata"),
             )
-            record = self.register_data_ref(ref, metadata=self.describe_ref(ref))
+            # ADR-027 D2 / #407: extract type_chain from wire-format metadata
+            # and pass as explicit type_name so _infer_type_name_from_ref() is
+            # bypassed entirely for worker-produced payloads.  This preserves
+            # plugin type identity (e.g. "Image" instead of "Array").
+            explicit_type_name: str | None = None
+            raw_meta = payload.get("metadata") or {}
+            tc = raw_meta.get("type_chain") if isinstance(raw_meta, dict) else None
+            if tc and isinstance(tc, list) and tc:
+                explicit_type_name = str(tc[-1])
+            record = self.register_data_ref(ref, type_name=explicit_type_name, metadata=self.describe_ref(ref))
             return {
                 "data_ref": record.id,
                 "type_name": record.type_name,
@@ -534,13 +613,39 @@ class ApiRuntime:
                 logger.debug("Failed to read parquet metadata for %s", ref.path, exc_info=True)
         return metadata
 
+    def _resolve_record_class(self, record: DataRecord) -> type | None:
+        """Resolve the DataObject class for *record* via TypeRegistry.
+
+        ADR-027 D2 / #405: Consults ``record.type_chain`` (populated by
+        ``register_data_ref`` from wire-format metadata) via
+        ``TypeRegistry.resolve(list)``, falling back to a single-name lookup
+        on ``record.type_name``.  Returns ``None`` when the type is not
+        registered (e.g. a plugin that is not installed in this environment).
+        """
+        chain = record.type_chain or [record.type_name]
+        try:
+            return self.type_registry.resolve(chain)
+        except Exception:
+            return None
+
     def preview_data(self, data_ref: str) -> dict[str, Any]:
         record = self.get_data_record(data_ref)
         ref = record.ref
         path = Path(ref.path)
         suffix = path.suffix.lower()
 
-        if record.type_name == DataFrame.__name__ or suffix in {".csv", ".parquet"}:
+        # ADR-027 D2 / #405: resolve the concrete class via TypeRegistry so
+        # plugin types (Image, Spectrum, …) are matched by subclass relationship
+        # rather than by exact class name equality.
+        resolved_cls = self._resolve_record_class(record)
+
+        # ------------------------------------------------------------------
+        # DataFrame / tabular
+        # ------------------------------------------------------------------
+        is_dataframe = record.type_name == DataFrame.__name__ or (
+            resolved_cls is not None and issubclass(resolved_cls, DataFrame)
+        )
+        if is_dataframe or suffix in {".csv", ".parquet"}:
             if suffix == ".parquet":
                 table = pq.read_table(path).slice(0, 100)
             else:
@@ -555,7 +660,13 @@ class ApiRuntime:
                 "row_count": len(rows),
             }
 
-        if record.type_name in {Text.__name__, Artifact.__name__} and suffix in {
+        # ------------------------------------------------------------------
+        # Text / artifact (text-based formats only)
+        # ------------------------------------------------------------------
+        is_text = record.type_name in {Text.__name__, Artifact.__name__} or (
+            resolved_cls is not None and (issubclass(resolved_cls, Text) or issubclass(resolved_cls, Artifact))
+        )
+        if is_text and suffix in {
             ".txt",
             ".json",
             ".yaml",
@@ -569,41 +680,79 @@ class ApiRuntime:
                 "language": suffix.lstrip(".") or "text",
             }
 
-        if record.type_name in {Array.__name__, Image.__name__} or suffix in {".tif", ".tiff"}:
+        # ------------------------------------------------------------------
+        # Array / image (raster data)
+        # ------------------------------------------------------------------
+        is_array = record.type_name == Array.__name__ or (resolved_cls is not None and issubclass(resolved_cls, Array))
+        if is_array or suffix in {".tif", ".tiff", ".zarr"}:
+            # T-TRK-004 / ADR-028 §D2: ``TIFFAdapter`` is gone. Read the
+            # tiff directly via the ``tifffile`` package, which was the
+            # adapter's only dependency. The imaging plugin's
+            # ``LoadImage`` block will own this code path post-Phase 11
+            # (T-IMG-002).
             try:
-                from scieasy.blocks.io.adapters.tiff_adapter import TIFFAdapter
-
-                image = TIFFAdapter().read(path)
-                data = getattr(image, "_data", None)
-                if data is not None:
-                    matrix = data
-                    while getattr(matrix, "ndim", 0) > 2:
-                        matrix = matrix[0]
-                    height = min(int(matrix.shape[0]), 64)
-                    width = min(int(matrix.shape[1]), 64)
-                    thumbnail = matrix[:height, :width].tolist()
-                    return {
-                        "kind": "image",
-                        "shape": list(matrix.shape),
-                        "thumbnail": thumbnail,
-                        "src": _image_data_uri_from_matrix(thumbnail),
-                    }
+                matrix = _load_preview_matrix(ref)
+                while getattr(matrix, "ndim", 0) > 2:
+                    matrix = matrix[0]
+                full_shape = list(matrix.shape)
+                thumbnail = _downsample_matrix(matrix)
+                return {
+                    "kind": "image",
+                    "shape": full_shape,
+                    "thumbnail": thumbnail,
+                    "src": _image_data_uri_from_matrix(thumbnail),
+                }
             except Exception:
-                logger.debug("Failed to read TIFF preview for %s", ref.path, exc_info=True)
+                logger.debug("Failed to read raster preview for %s", ref.path, exc_info=True)
             return {
                 "kind": "artifact",
                 "path": ref.path,
-                "mime_type": "image/tiff",
+                "mime_type": "image/tiff" if suffix in {".tif", ".tiff"} else "application/zarr",
             }
 
-        if record.type_name in {Series.__name__, Spectrum.__name__}:
+        # ------------------------------------------------------------------
+        # Series / spectral (chart preview)
+        # ADR-027 D2 / #405: replaced the "Spectrum" substring hack with a
+        # proper issubclass check via TypeRegistry.  Plugin-provided spectra
+        # still hit this path because Spectrum is a Series subclass.
+        # ------------------------------------------------------------------
+        is_series = record.type_name == Series.__name__ or (
+            resolved_cls is not None and issubclass(resolved_cls, Series)
+        )
+        if is_series:
             values = record.metadata.get("values", [])
             return {
                 "kind": "chart",
                 "points": [{"x": index, "y": value} for index, value in enumerate(values[:256])],
             }
 
-        if record.type_name == CompositeData.__name__:
+        # ------------------------------------------------------------------
+        # CompositeData
+        # ------------------------------------------------------------------
+        is_composite = record.type_name == CompositeData.__name__ or (
+            resolved_cls is not None and issubclass(resolved_cls, CompositeData)
+        )
+        if is_composite:
+            # Try to render the raster slot as an image preview (e.g. Label)
+            composite_path = Path(ref.path)
+            for slot_name in ("raster",):
+                slot_path = composite_path / slot_name
+                if slot_path.exists():
+                    try:
+                        slot_ref = StorageReference(backend="zarr", path=str(slot_path))
+                        raster_matrix = _load_preview_matrix(slot_ref)
+                        while getattr(raster_matrix, "ndim", 0) > 2:
+                            raster_matrix = raster_matrix[0]
+                        full_shape = list(raster_matrix.shape)
+                        thumbnail = _downsample_matrix(raster_matrix)
+                        return {
+                            "kind": "image",
+                            "shape": full_shape,
+                            "thumbnail": thumbnail,
+                            "src": _image_data_uri_from_matrix(thumbnail),
+                        }
+                    except Exception:
+                        logger.debug("Failed to read raster slot '%s' for composite preview", slot_name, exc_info=True)
             return {
                 "kind": "composite",
                 "slots": record.metadata.get("slots", {}),
@@ -667,6 +816,9 @@ class ApiRuntime:
                 await scheduler.execute()
 
         task = asyncio.create_task(_run())
+        task.add_done_callback(
+            lambda finished: asyncio.create_task(self._log_workflow_task_failure(workflow_id, finished))
+        )
         self.workflow_runs[workflow_id] = WorkflowRun(
             scheduler=scheduler,
             task=task,
@@ -685,6 +837,28 @@ class ApiRuntime:
             "reused_blocks": reused_blocks,
             "reset_blocks": reset_blocks,
         }
+
+    async def _log_workflow_task_failure(self, workflow_id: str, task: asyncio.Task[None]) -> None:
+        """Surface unexpected workflow task failures to logs and SSE clients."""
+        if task.cancelled():
+            return
+        try:
+            exc = task.exception()
+        except asyncio.CancelledError:
+            return
+        if exc is None:
+            return
+        logger.error(
+            "Workflow %s task failed: %s",
+            workflow_id,
+            exc,
+            exc_info=(type(exc), exc, exc.__traceback__),
+        )
+        await self.log_broadcaster.publish(
+            level="error",
+            message=str(exc),
+            workflow_id=workflow_id,
+        )
 
     def get_run(self, workflow_id: str) -> WorkflowRun:
         if workflow_id not in self.workflow_runs:

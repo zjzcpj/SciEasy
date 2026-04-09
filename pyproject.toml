@@ -1,6 +1,6 @@
 [project]
 name = "scieasy"
-version = "0.1.0-dev"
+version = "0.2.1"
 description = "AI-native, inclusive workflow runtime for multimodal scientific data"
 readme = "README.md"
 license = {text = "MIT"}
@@ -48,7 +48,8 @@ dev = [
 scieasy = "scieasy.cli.main:app"
 
 [project.entry-points."scieasy.blocks"]
-io_block = "scieasy.blocks.io:IOBlock"
+load_data = "scieasy.blocks.io.loaders.load_data:LoadData"
+save_data = "scieasy.blocks.io.savers.save_data:SaveData"
 process_merge = "scieasy.blocks.process.builtins.merge:MergeBlock"
 process_split = "scieasy.blocks.process.builtins.split:SplitBlock"
 code_block = "scieasy.blocks.code:CodeBlock"
@@ -60,17 +61,19 @@ split_collection = "scieasy.blocks.process.builtins.split_collection:SplitCollec
 filter_collection = "scieasy.blocks.process.builtins.filter_collection:FilterCollection"
 slice_collection = "scieasy.blocks.process.builtins.slice_collection:SliceCollection"
 
-[project.entry-points."scieasy.adapters"]
-csv = "scieasy.blocks.io.adapters.csv_adapter:CSVAdapter"
-tiff = "scieasy.blocks.io.adapters.tiff_adapter:TIFFAdapter"
-mzxml = "scieasy.blocks.io.adapters.mzxml_adapter:MzXMLAdapter"
-h5ad = "scieasy.blocks.io.adapters.h5ad_adapter:H5ADAdapter"
-parquet = "scieasy.blocks.io.adapters.parquet_adapter:ParquetAdapter"
+# T-TRK-004 / ADR-028 §D4: the ``scieasy.adapters`` entry-point group
+# has been removed. Plugin-owned IO blocks now register via the
+# ``scieasy.blocks`` entry-point group as ``IOBlock`` subclasses
+# (see ADR-028 §D1 + Addendum 1 §C). Core ``LoadData`` and ``SaveData``
+# entry-points will be added by T-TRK-007 / T-TRK-008.
 
+# T-008 / ADR-027 D2: the previous entry-points here pointed at
+# core ``Image``, ``Spectrum``, and ``PeakTable`` classes that were
+# removed in T-006 and T-007. The classes now live in plugin
+# packages (``scieasy-blocks-imaging``, ``scieasy-blocks-spectral``)
+# which declare their own ``scieasy.types`` entry-points. The core
+# repository contributes no built-in domain types via this group.
 [project.entry-points."scieasy.types"]
-image = "scieasy.core.types.array:Image"
-spectrum = "scieasy.core.types.series:Spectrum"
-peak_table = "scieasy.core.types.dataframe:PeakTable"
 
 [project.entry-points."scieasy.runners"]
 python = "scieasy.blocks.code.runners.python_runner:PythonRunner"
@@ -126,6 +129,11 @@ addopts = "-ra -q --cov=scieasy --cov-report=term-missing --cov-fail-under=85"
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+markers = [
+    "requires_imaging: marks tests that need scieasy-blocks-imaging installed (deselect with '-m \"not requires_imaging\"')",
+    "requires_r: tests that need an R installation with Rscript on PATH",
+    "requires_fiji: marks tests that need a local Fiji install at the master-plan §10 path (deselect with '-m \"not requires_fiji\"'). T-IMG-038 will migrate this marker to packages/scieasy-blocks-imaging/pyproject.toml.",
+]
 
 [tool.importlinter]
 root_packages = ["scieasy"]
@@ -150,7 +158,7 @@ forbidden_modules = ["scieasy.api", "scieasy.ai"]
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.1.0-dev"
+version = "0.2.1"
 tag_format = "v$version"
 
 [tool.coverage.run]

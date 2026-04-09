@@ -1,8 +1,20 @@
-"""IOBlock -- loads and saves data in any supported format."""
+"""IOBlock — abstract base for plugin-owned data ingress and egress.
+
+Per ADR-028 §D1, ``IOBlock`` is an abstract base class. Subclasses
+override :meth:`load` (for ``direction="input"``) or :meth:`save` (for
+``direction="output"``); the default :meth:`run` dispatches based on
+the ``direction`` ClassVar.
+
+The legacy ``adapter_registry`` / ``adapters/`` dispatch layer was
+removed in T-TRK-004. Concrete core loaders (``LoadData``, ``SaveData``)
+arrive in T-TRK-007 and T-TRK-008. Plugin-owned IO blocks (e.g.
+``LoadImage`` in ``scieasy-blocks-imaging``) subclass ``IOBlock``
+directly and register via the ``scieasy.blocks`` entry-point group.
+"""
 
 from __future__ import annotations
 
-from pathlib import Path
+from abc import abstractmethod
 from typing import Any, ClassVar
 
 from scieasy.blocks.base.block import Block
@@ -10,129 +22,117 @@ from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.core.types.base import DataObject
 from scieasy.core.types.collection import Collection
+from scieasy.core.types.text import Text
 
 
 class IOBlock(Block):
-    """Block for data ingress and egress with pluggable format adapters.
+    """Abstract base for blocks that load or save data.
 
-    For direction=input, creates lazy StorageReference objects via
-    adapter.create_reference() and wraps them in a Collection.
-
-    For direction=output, takes a Collection (or single DataObject)
-    and writes each item via the adapter.
+    Subclasses must override :meth:`load` (for ``direction='input'``)
+    or :meth:`save` (for ``direction='output'``). The default
+    :meth:`run` dispatches based on the ``direction`` ClassVar.
     """
 
-    direction: ClassVar[str] = "input"
-    format: ClassVar[str] = ""
-
+    # ``name`` and ``description`` are preserved from the pre-T-TRK-004
+    # concrete IOBlock so that the existing ``BlockRegistry`` builtin
+    # registration (``registry._scan_builtins``) keeps surfacing the
+    # ``"IO Block"`` / ``"io_block"`` identity that integration tests,
+    # workflow YAMLs, and the API connection-validator depend on. The
+    # spec body at standards doc lines 914-976 omits these but does not
+    # forbid them; ADR-028 §D1 only mandates ``load`` / ``save``
+    # abstractness and the ``run()`` dispatch contract.
     name: ClassVar[str] = "IO Block"
-    description: ClassVar[str] = "Load or save data using a format adapter"
+    description: ClassVar[str] = "Abstract base for blocks that load or save data."
+
+    direction: ClassVar[str] = "input"
+    category: ClassVar[str] = "io"
 
     input_ports: ClassVar[list[InputPort]] = [
-        InputPort(
-            name="data",
-            accepted_types=[DataObject],
-            required=False,
-            description="Data to save (output mode)",
-        ),
+        InputPort(name="data", accepted_types=[DataObject], required=False),
     ]
     output_ports: ClassVar[list[OutputPort]] = [
-        OutputPort(
-            name="data",
-            accepted_types=[DataObject],
-            description="Loaded data (input mode)",
-        ),
+        OutputPort(name="data", accepted_types=[DataObject]),
     ]
     config_schema: ClassVar[dict[str, Any]] = {
         "type": "object",
-        "properties": {
-            "path": {"type": "string", "title": "File/Directory Path", "ui_priority": 1},
-            "direction": {
-                "type": "string",
-                "enum": ["input", "output"],
-                "default": "input",
-                "title": "Direction",
-                "ui_priority": 2,
-            },
-        },
+        "properties": {"path": {"type": "string", "ui_priority": 1}},
         "required": ["path"],
     }
 
-    def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, Collection]:
-        """Execute the IO operation (read or write)."""
-        from scieasy.blocks.io.adapter_registry import AdapterRegistry
+    @abstractmethod
+    def load(self, config: BlockConfig) -> DataObject | Collection:
+        """Load and return a single :class:`DataObject` or :class:`Collection`."""
+        ...
 
-        path_str = config.get("path") or config.params.get("path")
-        if not path_str:
-            raise ValueError("IOBlock requires \x27path\x27 in config.params")
+    @abstractmethod
+    def save(self, obj: DataObject | Collection, config: BlockConfig) -> None:
+        """Persist *obj* to the configured path."""
+        ...
 
-        path = Path(path_str)
-        registry = AdapterRegistry()
-        registry.register_defaults()
+    def _resolved_input_port_name(self) -> str:
+        """Return the active input-port name for this IO block."""
+        getter = getattr(self, "get_effective_input_ports", None)
+        ports = getter() if callable(getter) else self.input_ports
+        return ports[0].name if ports else "data"
 
+    def _resolved_load_output_port_name(self) -> str:
+        """Return the active output-port name for input-direction dispatch."""
+        getter = getattr(self, "get_effective_output_ports", None)
+        ports = getter() if callable(getter) else self.output_ports
+        return ports[0].name if ports else "data"
+
+    def _resolved_save_receipt_port_name(self) -> str:
+        """Return the receipt port name for output-direction dispatch.
+
+        Legacy compatibility: subclasses that inherit the base
+        ``output_ports=[OutputPort(name="data", ...)]`` still receive the
+        historical ``"path"`` receipt key unless they explicitly override
+        ``output_ports`` with a concrete receipt port.
+        """
+        getter = getattr(self, "get_effective_output_ports", None)
+        ports = getter() if callable(getter) else self.output_ports
+        if not ports or self.__class__.output_ports is IOBlock.output_ports:
+            return "path"
+        return ports[0].name
+
+    def run(
+        self,
+        inputs: dict[str, Collection],
+        config: BlockConfig,
+    ) -> dict[str, Collection]:
+        """Dispatch to :meth:`load` or :meth:`save` based on ``direction``.
+
+        For ``direction='input'`` the result of :meth:`load` is wrapped
+        in a single-item :class:`Collection` if it is not already a
+        Collection, and returned under the declared output port name.
+
+        For ``direction='output'`` the declared input port is required
+        and forwarded to :meth:`save`; the configured ``path`` is
+        returned under a receipt key that defaults to ``"path"`` for
+        backward compatibility.
+        """
         if self.direction == "input":
-            return self._run_input(path, registry)
+            result = self.load(config)
+            if not isinstance(result, Collection):
+                result = Collection(items=[result], item_type=type(result))
+            return {self._resolved_load_output_port_name(): result}
         else:
-            return self._run_output(path, registry, inputs)
-
-    def _run_input(self, path: Path, registry: Any) -> dict[str, Any]:
-        """Build a lazy Collection from *path* (file or directory)."""
-        if path.is_dir():
-            items: list[DataObject] = []
-            for child in sorted(path.iterdir()):
-                if child.is_file():
-                    ext = child.suffix.lower()
-                    try:
-                        adapter_cls = registry.get_for_extension(ext)
-                    except KeyError:
-                        continue
-                    adapter = adapter_cls()
-                    ref = adapter.create_reference(child)
-                    obj = DataObject(storage_ref=ref)
-                    items.append(obj)
-
-            if not items:
-                raise ValueError(f"No recognised files found in directory: {path}")
-
-            collection = Collection(items=items, item_type=DataObject)
-        else:
-            ext = path.suffix.lower()
-            adapter_cls = registry.get_for_extension(ext)
-            adapter = adapter_cls()
-            ref = adapter.create_reference(path)
-            obj = DataObject(storage_ref=ref)
-            collection = Collection(items=[obj], item_type=DataObject)
-
-        return {"data": collection}
-
-    def _run_output(self, path: Path, registry: Any, inputs: dict[str, Any]) -> dict[str, Any]:
-        """Write each item in inputs data through the adapter."""
-        data = inputs.get("data")
-        if data is None:
-            raise ValueError("IOBlock in output mode requires \x27data\x27 input")
-
-        ext = path.suffix.lower()
-
-        if isinstance(data, Collection):
-            path.mkdir(parents=True, exist_ok=True)
-            adapter_cls = registry.get_for_extension(ext) if ext else None
-
-            for i, item in enumerate(data):
-                item_ext = ext
-                if not item_ext and item.storage_ref and item.storage_ref.format:
-                    item_ext = f".{item.storage_ref.format}"
-                if not item_ext:
-                    item_ext = ".bin"
-
-                if adapter_cls is None:
-                    adapter_cls = registry.get_for_extension(item_ext)
-
-                adapter = adapter_cls()
-                item_path = path / f"item_{i:04d}{item_ext}"
-                adapter.write(item, item_path)
-        else:
-            adapter_cls = registry.get_for_extension(ext)
-            adapter = adapter_cls()
-            adapter.write(data, path)
-
-        return {"path": str(path)}
+            input_port_name = self._resolved_input_port_name()
+            data = inputs.get(input_port_name)
+            if data is None:
+                raise ValueError(f"IOBlock(output) requires {input_port_name!r} input")
+            self.save(data, config)
+            # T-TRK-008: wrap the path receipt in a single-item Collection
+            # of Text so the return type matches the public
+            # ``dict[str, Collection]`` signature without a type-ignore
+            # suppression. The pre-T-TRK-004 IOBlock returned a bare
+            # string here; the spec body for the post-T-TRK-004 ABC made
+            # the same shape literal which forced a targeted
+            # ``# type: ignore[dict-item]``. Wrapping in a typed
+            # ``Text`` Collection preserves the "configured path" receipt
+            # semantics for downstream consumers (they call
+            # ``coll[0].content`` instead of ``result["path"]``) and
+            # restores strict typing across the IO surface. See
+            # ``project_phase11_ttrk007_008_bookkeeping.md`` Item 1.
+            path_receipt = Text(content=str(config.get("path")), format="plain")
+            return {self._resolved_save_receipt_port_name(): Collection(items=[path_receipt], item_type=Text)}

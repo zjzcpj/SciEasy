@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -11,7 +12,11 @@ def test_list_blocks_and_schema_alias_endpoints(client: TestClient) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert "blocks" in payload
-    assert any(block["type_name"] == "process_block" for block in payload["blocks"])
+    # T-TRK-003: TransformBlock was relocated to tests/fixtures/noop_block.py
+    # as NoopBlock with type_name="noop". The conftest hook re-registers it
+    # under the legacy "process_block" alias for backward compatibility, but
+    # the canonical type_name reported by the palette endpoint is now "noop".
+    assert any(block["type_name"] == "noop" for block in payload["blocks"])
 
     schema = client.get("/api/blocks/process_block/schema")
     assert schema.status_code == 200
@@ -52,3 +57,50 @@ def test_validate_connection_endpoint_uses_registry_type_information(client: Tes
     assert incompatible.status_code == 200
     assert incompatible.json()["compatible"] is False
     assert incompatible.json()["reason"]
+
+
+def test_imaging_io_schema_exposes_item_types_and_collection_flags(client: TestClient) -> None:
+    """Imaging IO blocks should expose concrete item types and collection metadata."""
+    load_schema = client.get("/api/blocks/imaging.load_image/schema")
+    assert load_schema.status_code == 200
+    load_payload = load_schema.json()
+    assert load_payload["direction"] == "input"
+    assert load_payload["output_ports"][0]["accepted_types"] == ["Image"]
+    assert load_payload["output_ports"][0]["is_collection"] is True
+    assert any(entry["name"] == "Mask" for entry in load_payload["type_hierarchy"])
+    assert any(entry["name"] == "Label" for entry in load_payload["type_hierarchy"])
+
+    save_schema = client.get("/api/blocks/imaging.save_image/schema")
+    assert save_schema.status_code == 200
+    save_payload = save_schema.json()
+    assert save_payload["direction"] == "output"
+    assert save_payload["input_ports"][0]["accepted_types"] == ["Image"]
+    assert save_payload["input_ports"][0]["is_collection"] is True
+
+
+# ----------------------------------------------------------------------------
+# Stage 10.1 Part 2 — skipped test stubs authored by Agent A.
+#
+# Agent B will remove the skip markers and implement these in Part 2.
+# See docs/design/stage-10-1-palette.md §4.1 for the test plan.
+# ----------------------------------------------------------------------------
+
+
+@pytest.mark.skip(reason="Agent B implements in Stage 10.1 Part 2")
+def test_list_blocks_includes_source_and_package_name(client: TestClient) -> None:
+    """GET /api/blocks/ response items contain ``source`` and ``package_name``.
+
+    After Agent B populates the fields in ``_summary``, every block in the
+    palette listing must expose these two keys (even if ``package_name`` is
+    an empty string for builtins).
+    """
+
+
+@pytest.mark.skip(reason="Agent B implements in Stage 10.1 Part 2")
+def test_list_blocks_source_values_enumerated(client: TestClient) -> None:
+    """Every block reports ``source`` in {"builtin", "package", "custom"}.
+
+    After the source value rename, no block should report ``"tier1"`` or
+    ``"entry_point"``. The valid domain is the three-value enum documented
+    in docs/design/stage-10-1-palette.md §3.2.3.
+    """

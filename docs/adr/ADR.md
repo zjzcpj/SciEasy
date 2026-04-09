@@ -1090,6 +1090,209 @@ The `EventBus` becomes the backbone of the runtime. All runtime components commu
 
 ---
 
+## ADR-018 Addendum 1: Scheduler concurrency implementation
+
+**Status**: proposed
+**Date**: 2026-04-06
+
+### Purpose
+
+ADR-018 committed to an event-driven DAGScheduler that reacts to events as they arrive and dispatches independent branches of the workflow concurrently. ARCHITECTURE.md §6.1 and Appendix A both describe this behaviour — for example, the multimodal walkthrough states that "Three IOBlocks load data in parallel (independent branches). Each runs in its own subprocess (ADR-017)".
+
+The implementation in `src/scieasy/engine/scheduler.py` as of 2026-04-06 does **not** match that contract. Independent branches execute strictly in topological order, serialised on `popen.communicate()` inside the scheduler coroutine. This addendum documents the discrepancy, specifies the required implementation change, and captures the decisions made during Phase 10 planning about how concurrency, cancellation, and resource throttling must interact.
+
+This addendum does **not** revise any of ADR-018's user-visible decisions (state machine, cancel propagation, event catalogue, subscription matrix). Those remain authoritative. The addendum only narrows the implementation strategy.
+
+### Context
+
+ADR-018 §5 ("Event-driven runtime architecture") and the subscription matrix assume that the scheduler is a true event loop: `DAGScheduler.execute()` kicks off the initial set of READY blocks and then awaits events, and each `BLOCK_DONE` event fires an `_on_block_done` handler that dispatches newly-ready successors. The expected behaviour is that when two blocks with no data dependency between them are simultaneously READY, they both start immediately — each on its own subprocess — and the scheduler returns to the event loop to await whichever finishes first.
+
+Source code audit (grep of `asyncio.(create_task|gather|ensure_future)` across `src/scieasy/engine/scheduler.py`) returns **zero matches**. Every dispatch is performed as a direct `await self._dispatch(node_id)`, and `_dispatch` itself performs `await self._runner.run(block, inputs, node.config)` inline, which in turn awaits `popen.communicate()` on the worker subprocess. The call chain is synchronous with respect to the event loop — no other coroutine runs until the current block's subprocess exits.
+
+**Concrete observations** (referenced lines may shift as the file is edited):
+
+- `scheduler.py` line 122–125 (in `execute()`): `for node_id in self._order: if self._block_states[node_id] == BlockState.IDLE and self._check_readiness(node_id): self._block_states[node_id] = BlockState.READY; await self._dispatch(node_id)`.
+- `scheduler.py` line 155 (in `_dispatch()`): `result = await self._runner.run(block, inputs, node.config)` — direct inline await.
+- `scheduler.py` line 218–223 (in `_on_block_done()`): scans for newly-ready nodes and calls `await self._dispatch(next_id)` — same inline pattern.
+- `scheduler.py` line 409–412, 481, 584 (in `resume()`, `reset_block()`, `execute_from()`): all use `await self._dispatch(node_id)` inline.
+- `runners/local.py` line 93: `stdout, stderr = await asyncio.to_thread(popen.communicate, stdin_payload)` — this bit is correct (the blocking call is off-loaded to a thread), but because every scheduler dispatch awaits it inline, the event loop still blocks progressing to the next dispatch until the subprocess finishes.
+
+**User-visible consequence**: A workflow like the one in ARCH Appendix A with three independent IOBlock roots (load LC-MS, load Raman, load IF) executes as `load_lcms → (completes) → load_raman → (completes) → load_if → …`. A workflow that fans out a Collection via `SplitCollection` into four parallel `CellposeSegment` branches executes the Cellpose blocks serially, one after another, regardless of GPU availability.
+
+**Phase 10 impact**: every parallelism story in Phase 10 depends on fixing this. Specifically:
+
+- DAG branch parallelism (L1 in the Phase 10 discussion) is directly broken.
+- Collection fan-out via `SplitCollection` → N parallel branches → `MergeCollection` (L2 in the Phase 10 discussion) is indirectly broken because it relies on branch parallelism.
+- Any future multi-GPU imaging workflow is blocked.
+- ResourceManager GPU slot gating becomes meaningless under serialised execution — a `gpu_slots=4` configuration behaves identically to `gpu_slots=1` because the scheduler never tries to dispatch a second GPU block concurrently.
+
+### Discussion points and resolution
+
+| # | Topic | Options discussed | Final decision |
+|---|---|---|---|
+| 1 | Where should the subprocess `await` happen so that independent branches run concurrently? | (A) Inline in `_dispatch`, as today. (B) In an `asyncio.Task` created by `_dispatch`, tracked separately. (C) Collected in a list and passed to `asyncio.gather` in `execute()`. | **Decision: (B).** `_dispatch` performs the synchronous state transition and input gathering, then wraps the long-running `runner.run(...)` call in `asyncio.create_task`. The task is stored in `self._active_tasks[block_id]` and runs independently. (A) is the current broken behaviour. (C) does not compose with event-driven re-dispatch triggered by `_on_block_done` — `gather` works for the initial root set but becomes awkward as new generations of READY blocks emerge. |
+| 2 | How does `execute()` know when the workflow is done? | (A) Track a completion event set by `_check_completion` when all blocks are terminal (current approach). (B) Return from `execute()` only when `self._active_tasks` is empty AND all blocks are terminal. | **Decision: (A) + (B).** Keep the existing `self._completed_event` asyncio.Event pattern. Update `_check_completion` to require `all(state in terminal for state in block_states.values())` (unchanged) AND `not self._active_tasks` (new). This ensures `execute()` does not return before all running subprocesses have finalised. |
+| 3 | How does cancellation propagate through the new task model? | (A) Use `task.cancel()` exclusively. (B) Use `ProcessHandle.terminate()` exclusively. (C) Use `ProcessHandle.terminate()` as the primary path and `task.cancel()` only for blocks still in pre-subprocess setup. | **Decision: (C).** The authoritative cancellation path stays as per ADR-019 — `ProcessHandle.terminate()` sends SIGTERM (+grace+SIGKILL on POSIX) or `TerminateJobObject` (Windows) to the worker subprocess. The task naturally unwinds when the subprocess exits, reads exit code, and transitions to CANCELLED. `task.cancel()` is only required for the small window between `_dispatch` entering and `spawn_block_process` returning — if cancellation is requested while the block is still in that setup phase, there is no `ProcessHandle` to terminate yet, so `task.cancel()` injects a `CancelledError` to abort setup. |
+| 4 | Do we need locks around state mutation? | (A) Introduce an `asyncio.Lock` per block or a single scheduler lock. (B) Rely on cooperative scheduling (asyncio coroutines do not preempt). | **Decision: (B).** asyncio is single-threaded; a coroutine only yields at `await` points. As long as state mutations happen between awaits (rather than across them), no lock is needed. The existing `_reset_lock` for `reset_block()` is kept because that path can be triggered from an external caller and has multi-step state updates. |
+| 5 | How are blocks throttled when `ResourceManager.can_dispatch()` returns False? | (A) Block inside `_dispatch` until resources free up. (B) Leave the block in READY state and retry dispatch when a resource event fires. | **Decision: (B).** Blocking inside `_dispatch` would reintroduce the serialisation bug under a different guise. Instead, `_dispatch` checks `can_dispatch` and, if refused, resets the block to READY and returns immediately. A new helper `_dispatch_newly_ready()` is called from `_on_block_done`, `_on_process_exited`, and the `ResourceManager`'s release callback; it re-scans for READY blocks and retries dispatch. |
+| 6 | Should each `RunHandle.result` `asyncio.Future` be the source of truth for "block finished"? | (A) Yes — subscribe to the future's done callback and emit BLOCK_DONE from there. (B) No — keep the "await runner.run then emit" pattern, just move it into a task. | **Decision: (B).** Minimises the change surface. `RunHandle.result` remains an `asyncio.Future` (per `scheduler.py:40`) but is implemented as the result of `runner.run()` awaited inside `_run_and_finalize`. The exception-handling structure stays nearly identical to the current `_dispatch`, only moved one level in. |
+| 7 | What happens if `execute()` raises mid-workflow (bug in a callback, cancelled externally)? | (A) Leak active tasks. (B) Cancel all active tasks in a `finally` block. | **Decision: (B).** `execute()` wraps its main body in `try: await self._completed_event.wait(); finally: await self._cancel_active_tasks_on_shutdown()`. The shutdown helper iterates `self._active_tasks`, terminates each subprocess via `ProcessHandle.terminate()`, and awaits task completion. This prevents zombie subprocesses after an engine-level exception. |
+| 8 | Do existing tests still pass under the new implementation? | (A) Yes, because tests only check eventual state. (B) No, because some tests assume strict sequential ordering. | **Decision: (B).** Tests that assert "block A's BLOCK_DONE event arrives before block B's BLOCK_RUNNING event" when A and B are in independent branches will fail — that ordering was an artefact of the bug, not a guarantee. Acceptance criterion for this fix: all existing scheduler tests either pass unchanged, or are updated with a written rationale that the old assertion relied on the serialisation bug. |
+
+### Decision
+
+`DAGScheduler._dispatch` is split into two methods:
+
+1. **`async def _dispatch(self, node_id: str) -> None`** — synchronous prelude performed on the scheduler coroutine: check `_paused`, check `_resource_manager.can_dispatch()` (re-queue if False), transition to RUNNING, emit BLOCK_RUNNING event, record lineage start, gather inputs, instantiate the block, wrap `_run_and_finalize(node_id, block, inputs, node)` in `asyncio.create_task`, store the task in `self._active_tasks[node_id]`, and return. The method no longer awaits the runner.
+
+2. **`async def _run_and_finalize(self, node_id, block, inputs, node) -> None`** — the long-running body, executed as an independent task: await `self._runner.run(block, inputs, node.config)`, store output refs in `self._block_outputs[node_id]`, transition to DONE, emit BLOCK_DONE event, save checkpoint. Exception handling mirrors the current `try/except` in `_dispatch`, including the "post-cancellation clean exit" early return. On finally, pop `node_id` from `self._active_tasks`.
+
+**New scheduler field**: `self._active_tasks: dict[str, asyncio.Task[None]] = {}` — keyed by `block_id`, tracks currently running block tasks.
+
+**`_on_cancel_block(event)`** — updated cancellation path:
+1. Look up `self._process_registry.get_handle(block_id)`.
+2. If a handle exists: call `handle.terminate(grace_period_sec=block.terminate_grace_sec)`. Set `_block_states[block_id] = CANCELLED` and emit `BLOCK_CANCELLED`. The `_run_and_finalize` task will unwind naturally when the subprocess exits (it catches the exception raised by `runner.run()`, sees the current state is already CANCELLED, and early-returns).
+3. If no handle exists (block is still in pre-subprocess setup): call `self._active_tasks[block_id].cancel()`. The `_run_and_finalize` task raises `CancelledError`, the scheduler transitions the block to CANCELLED, and emits `BLOCK_CANCELLED`.
+4. Call `_propagate_skip(block_id, "cancelled")`.
+5. Call `_check_completion()`.
+
+**`_on_cancel_workflow(event)`** — iterates all running blocks and applies `_on_cancel_block` logic to each, then marks any still-IDLE/READY blocks as SKIPPED with reason "workflow cancelled".
+
+**`_on_block_done(event)`** and **`_on_process_exited(event)`** — after their existing logic, call a new helper `_dispatch_newly_ready()`:
+
+```python
+async def _dispatch_newly_ready(self) -> None:
+    """Scan for READY blocks that were previously blocked by can_dispatch
+    and retry their dispatch. Also scan for IDLE blocks whose predecessors
+    are now all DONE."""
+    for node_id in self._order:
+        state = self._block_states[node_id]
+        if state == BlockState.IDLE and self._check_readiness(node_id):
+            self._block_states[node_id] = BlockState.READY
+            await self._dispatch(node_id)
+        elif state == BlockState.READY and node_id not in self._active_tasks:
+            # Previously blocked by can_dispatch; retry.
+            await self._dispatch(node_id)
+```
+
+Note that `_dispatch` is itself idempotent now: if `can_dispatch()` returns False again, the block stays in READY and the method returns without creating a task.
+
+**`_check_completion()`** — updated:
+
+```python
+def _check_completion(self) -> None:
+    terminal = {BlockState.DONE, BlockState.ERROR, BlockState.CANCELLED, BlockState.SKIPPED}
+    if all(s in terminal for s in self._block_states.values()) and not self._active_tasks:
+        self._completed_event.set()
+```
+
+**`execute()`** — updated:
+
+```python
+async def execute(self) -> None:
+    await self._event_bus.emit(EngineEvent(event_type=WORKFLOW_STARTED, ...))
+    if not self._dag.nodes:
+        self._completed_event.set()
+        await self._event_bus.emit(EngineEvent(event_type=WORKFLOW_COMPLETED, ...))
+        return
+    try:
+        # Initial dispatch of root-ready blocks. Note: no inline await on runner.
+        for node_id in self._order:
+            if self._block_states[node_id] == BlockState.IDLE and self._check_readiness(node_id):
+                self._block_states[node_id] = BlockState.READY
+                await self._dispatch(node_id)
+        # Wait for event-driven completion. Event handlers dispatch successors
+        # via _dispatch_newly_ready() called from _on_block_done / _on_process_exited.
+        await self._completed_event.wait()
+    finally:
+        await self._cancel_active_tasks_on_shutdown()
+    await self._event_bus.emit(EngineEvent(event_type=WORKFLOW_COMPLETED, ...))
+
+async def _cancel_active_tasks_on_shutdown(self) -> None:
+    """Best-effort cleanup of any tasks still running when execute() exits.
+    Terminates subprocesses via ProcessRegistry, then awaits task completion.
+    Swallows exceptions — this runs in a finally block."""
+    for block_id, task in list(self._active_tasks.items()):
+        handle = self._process_registry.get_handle(block_id) if self._process_registry else None
+        if handle is not None:
+            try:
+                handle.terminate()
+            except Exception:
+                logger.exception("Error terminating process for block %s during shutdown", block_id)
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except BaseException:
+                pass
+```
+
+### Alternatives considered
+
+- **Keep inline `await` and use `multiprocessing.Pool` at scheduler level**: duplicates the ProcessHandle / ProcessRegistry infrastructure built in ADR-019, loses ProcessMonitor's crash detection for those children, and fragments the process management story. Rejected.
+- **Use `asyncio.gather(*[self._dispatch(n) for n in ready_roots])` in `execute()`**: correct for the initial root dispatch but does not extend to `_on_block_done` which needs to dispatch newly-ready blocks on the fly. A mix of gather (for roots) and create_task (for successors) would be inconsistent. Rejected in favour of pure create_task.
+- **Switch to `threading.Thread` per block instead of `asyncio.Task`**: threads in Python are GIL-bound for CPU work and provide no isolation advantage over the subprocess-per-block model we already have (ADR-017). They also complicate cancellation — see ADR-027 §8 (thread policy) — and would not interoperate with the existing `asyncio` event bus without a bridging layer. Rejected.
+- **Defer the fix to Phase 11**: ADR-018 already promised this behaviour, and Phase 10 imaging workflows fundamentally depend on it (fan-out across 4 GPU workers, multi-branch multimodal workflows, etc.). Deferring would block Phase 10 from delivering any meaningful parallelism. Rejected.
+- **Expose a per-workflow `sequential: bool` config flag**: allows callers to opt in to the current broken behaviour for deterministic test runs. This is a legitimate debugging feature but should not be the default. Deferred to a follow-up: if test determinism becomes a pain point, a `deterministic=True` flag can be added that internally uses `asyncio.gather` in dependency order rather than fully concurrent dispatch. Not in scope for this addendum.
+
+### Consequences
+
+- Independent DAG branches execute concurrently, restoring the behaviour ADR-018 §5 and ARCH Appendix A promised.
+- `ResourceManager.can_dispatch()` becomes load-bearing: it is the sole throttle preventing unbounded subprocess fan-out. Bugs in `can_dispatch` (e.g., the `gpu_slots=0` default identified in ADR-027 §9) now have user-visible impact rather than being masked by serialised execution.
+- Tests that asserted strict sequential ordering between independent blocks will fail and must be updated. Tests that check dependency-respecting ordering (A before B when B depends on A) continue to work unchanged.
+- Debuggability degrades slightly because async stack traces interleave. Mitigation: set `task.set_name(f"dispatch:{block_id}")` for better logs and exception reporting.
+- The implementation is more sensitive to exceptions in event handlers. A bug in a subscriber (e.g., LineageRecorder raising) must not cascade — `EventBus.emit` already logs-and-continues on subscriber exceptions, but the scheduler-level try/finally in `execute()` is new and needs careful testing.
+- Cancellation on engine shutdown is now explicit via `_cancel_active_tasks_on_shutdown`. Previously the scheduler could leak subprocesses if `execute()` raised. This change is a correctness improvement.
+- The scheduler's memory footprint grows by a few pointers per running block (the `_active_tasks` dict). Negligible.
+
+### Detailed impact scope
+
+#### Rewritten files
+
+| File | Current state | New state | Detailed changes |
+|---|---|---|---|
+| `src/scieasy/engine/scheduler.py` | `_dispatch` inline awaits `runner.run`. Every `await self._dispatch(...)` is inline-awaited by the caller. Zero `asyncio.create_task`. | `_dispatch` is a synchronous prelude that creates a task for `_run_and_finalize`. `execute()` wraps its body in `try/finally` to guarantee task cleanup. Event handlers call `_dispatch_newly_ready()` for throttling retries. `_check_completion()` additionally checks `_active_tasks` is empty. New `_cancel_active_tasks_on_shutdown()` helper. | **Add** field `self._active_tasks: dict[str, asyncio.Task[None]] = {}` in `__init__`. **Split** `_dispatch` (current ~34 lines) into `_dispatch` (prelude, ~15 lines) and `_run_and_finalize` (body, ~30 lines). **Add** `_dispatch_newly_ready()` (~12 lines). **Add** `_cancel_active_tasks_on_shutdown()` (~15 lines). **Change** `execute()` to wrap in `try/finally`. **Change** `_on_block_done` and `_on_process_exited` to call `_dispatch_newly_ready` instead of scanning inline (smaller, ~5 lines each). **Change** `_on_cancel_block` to branch on "handle present → terminate" vs "handle absent → task.cancel()". **Change** `_check_completion` to also check `not self._active_tasks`. Total diff approximately 150 lines changed across one file. |
+
+#### Modified files
+
+| File | Current state | Changes |
+|---|---|---|
+| `tests/engine/test_scheduler.py` (and related) | Some tests may assert strict serial ordering of independent blocks. | **Audit** each test. Tests asserting ordering within independent branches must be updated to assert "A happened before B" only when B depends on A. **Add** a new test: `test_independent_branches_run_concurrently` that constructs a two-root DAG with a sleep in each block and asserts the total wall time is approximately `max(a, b)` rather than `a + b`. **Add** a new test: `test_resource_throttling_retries_dispatch` that constructs a DAG where two blocks both require a GPU, sets `gpu_slots=1`, and asserts the second block enters RUNNING only after the first completes. **Add** a new test: `test_scheduler_shutdown_cleanup` that triggers an exception mid-workflow and asserts `_active_tasks` is empty and all subprocesses are terminated after `execute()` returns. |
+| `tests/engine/test_dag.py` | Tests for DAG construction. | No changes expected. |
+| `tests/engine/test_runner.py` | Tests for LocalRunner. | No changes expected — the `LocalRunner` interface is unchanged. |
+| `tests/integration/test_multimodal_workflow.py` | Existing integration tests may implicitly depend on serial execution. | **Audit** the test. If it checks output values only, no change. If it checks event ordering between independent branches, update assertions. |
+
+#### New tests required
+
+- `tests/engine/test_scheduler_concurrency.py` (new file) containing:
+  - `test_independent_branches_run_concurrently`
+  - `test_resource_throttling_retries_dispatch`
+  - `test_scheduler_shutdown_cleanup_on_exception`
+  - `test_cancel_block_before_subprocess_starts` (edge case: task.cancel() path)
+  - `test_cancel_block_during_subprocess_run` (normal case: ProcessHandle.terminate() path)
+  - `test_cancel_workflow_with_mix_of_running_and_ready_blocks`
+
+#### Documentation impact
+
+| Document | Current state | Required changes |
+|---|---|---|
+| `docs/architecture/ARCHITECTURE.md` §6.1 (DAG scheduler) | Describes event-driven scheduler at a conceptual level. Does not mention `asyncio.Task` or `_active_tasks`. | **Clarify** that scheduling is implemented via `asyncio.create_task` per block, with `_active_tasks` as the concurrent task registry. **Add** a short paragraph on ResourceManager throttling semantics (blocks stay in READY when `can_dispatch` returns False; retry is triggered on the next resource release event). **Update** the pseudo-code in the section to reflect the split between `_dispatch` and `_run_and_finalize`. |
+| `docs/architecture/ARCHITECTURE.md` §6.1 EventBus subscription matrix | Shows DAGScheduler subscribing to BLOCK_DONE, BLOCK_ERROR, etc. | No change — the subscriptions are unchanged, only the internal dispatch strategy is. |
+| `docs/architecture/ARCHITECTURE.md` Appendix A (concrete example walkthrough) | States "Three IOBlocks load data in parallel". | No change — the addendum makes the prose accurate; previously it described behaviour that the implementation did not provide. |
+| `docs/adr/ADR.md` | This addendum. | Appended after ADR-018's Detailed impact scope table. |
+| `CHANGELOG.md` | Current entries. | **Add** entry under `[Unreleased]` → `### Fixed`: "Scheduler concurrency implementation per ADR-018 Addendum 1". |
+
+#### Out of scope
+
+- **No changes to BlockState, EventBus event types, or the subscription matrix**. ADR-018 remains authoritative for those.
+- **No changes to cancellation message protocol on WebSocket**. ADR-018 §8.3 remains authoritative.
+- **No changes to LineageRecord schema**. ADR-018's addition of termination fields remains authoritative.
+- **No changes to ProcessHandle, ProcessRegistry, or spawn_block_process**. ADR-019 remains authoritative.
+- **No changes to Collection transport or block iteration model**. ADR-020 remains authoritative.
+- **No new block states, no new events**. This addendum is implementation-only.
+
+---
+
 ## ADR-019: ProcessHandle, ProcessRegistry, and cross-platform process lifecycle
 
 **Status**: proposed
@@ -3407,6 +3610,20 @@ The package author writes a custom save/load hook or a thin wrapper block that p
 
 #### 6. Adapter registration via entry-points
 
+> **Status (2026-04-08): SUPERSEDED by ADR-028 §D4.** The `scieasy.adapters`
+> entry-point group described in this section has been removed. Concrete IO is
+> now provided by `IOBlock` ABC subclasses (`LoadData`, `SaveData`, plus
+> plugin-owned loaders like `LoadImage` and `LoadMSRawFile`) registered under
+> the existing `scieasy.blocks` entry-point group. The `FormatAdapter` protocol,
+> the per-extension adapter registry, and the `get_adapters()` callable have
+> all been deleted; the logic that previously lived in
+> `src/scieasy/blocks/io/adapters/{csv,parquet,zarr,generic}_adapter.py` was
+> absorbed into module-level private `_load_*` / `_save_*` functions inside
+> `LoadData` and `SaveData` (ADR-028 Addendum 1 §C9). Plugin-owned IO blocks
+> use the dynamic-port mechanism (ADR-028 Addendum 1 §C5) when one class needs
+> to expose different effective output types based on user config. The text
+> below is preserved verbatim for historical context — do not implement it.
+
 Custom adapters handle domain-specific file formats:
 
 ```python
@@ -3752,3 +3969,3298 @@ Does the standard adapter return the wrong type?
 | `docs/architecture/PROJECT_TREE.md` | **Add** `testing/__init__.py` and `testing/harness.py` entries under `src/scieasy/`. **Add** `cli/templates/` directory entry with annotation "Jinja2 templates for init-block-package scaffolding". **Add** `cli/_scaffold.py` entry. **Add** `docs/block-development/` directory listing. |
 | `docs/adr/ADR.md` | This ADR (ADR-026). |
 | `CHANGELOG.md` | **Add** entry under `[Unreleased]` → `### Added`. |
+
+---
+
+## ADR-027: Phase 10 core type system and block runtime refinements
+
+**Status**: proposed
+**Date**: 2026-04-06
+
+### Context
+
+Phase 10 introduces the first domain plugin package (`scieasy-blocks-imaging`) and with it the first sustained contact between the core runtime and real 5D/6D scientific data. The planning discussion surfaced a set of gaps between the architecture described in ADRs 001–026 and the code actually needed to ship a working imaging pipeline:
+
+1. **The current `Array` / `Image` hierarchy is not usable for routine microscopy data.** `src/scieasy/core/types/array.py` declares `axes` as `ClassVar[list[str] | None]` and hard-codes `Image.axes = ["y", "x"]`, `MSImage.axes = ["y", "x", "mz"]`, etc. There is no way to represent a 5D `(t, z, c, y, x)` fluorescence stack or a 6D hyperspectral time-course without inventing yet another subclass for every permutation. This is the literal opposite of what the architecture §4.1 promises about "extensibility through named axes".
+
+2. **Domain subtypes leak into core.** `Image`, `FluorImage`, `SRSImage`, `MSImage` are all defined in `src/scieasy/core/types/array.py`. ADR-002 (named axes), ADR-003 (broadcast as utility), and CLAUDE.md §2.3 ("Core must stay small and stable") all pressure in the direction of core holding only base primitives. The current placement contradicts that goal and blocks `scieasy-blocks-imaging` from owning its own type definitions cleanly.
+
+3. **No ergonomic metadata story.** `DataObject._metadata` is a free `dict[str, Any]` validated only as JSON-serialisable (`core/types/base.py:93`). A `FluorImage` author who wants to record pixel size, acquisition date, channel list, and objective lens has to cram everything into one flat untyped dict. There is no schema, no unit handling, no propagation rule, and no way for a downstream block to autocomplete `img.metadata["pix..."]`.
+
+4. **`Block` has no setup/teardown lifecycle.** Running Cellpose (or any GPU model) inside a `ProcessBlock` currently requires loading the model inside `process_item`, which means reloading it for every item in a Collection — a 5-second penalty per item on a 100-item batch. The default `run()` implementation in `ProcessBlock` iterates and calls `process_item` directly with no hook for per-run setup.
+
+5. **Thread policy was left implicit during earlier discussions.** ADR-017 requires subprocess isolation but says nothing about whether a block's own `run()` may use threads internally. A permissive reading allows threads (cellpose-style L3 parallelism inside a block); a restrictive reading forbids them. Phase 10 needs this policy written down.
+
+6. **`ResourceManager` defaults are broken for GPU workloads.** `resources.py:70` sets `gpu_slots: int = 0`, and `can_dispatch` refuses any `requires_gpu=True` block when `_gpu_in_use >= gpu_slots`. With `gpu_slots=0`, every GPU block fails `can_dispatch` unconditionally. The fix is a one-line default change plus auto-detection.
+
+7. **There is no common utility for "iterate over extra axes".** ADR-003 decided broadcast is a utility in `scieasy.utils.broadcast.broadcast_apply`, but that helper was designed for the "low-dim source + high-dim target" case (applying a 2D mask over an MSI hypercube), not the more common "single Array with axes I want to process one slice at a time" case. Phase 10 imaging blocks all need the latter.
+
+8. **Worker subprocess cannot reconstruct domain types after they move out of core.** `engine/runners/worker.py:37-60` imports `TypeSignature` and `ViewProxy` but does not call any `TypeRegistry.scan()`. Once `Image` lives in `scieasy-blocks-imaging`, a worker running a Cellpose block must be able to `import` that package and find the `Image` class to reconstruct a typed instance from a `StorageReference`. Without a scan, the worker only has core base classes available.
+
+9. **Collection-level parallelism pattern is undocumented.** With ADR-018 Addendum 1 restoring DAG-branch parallelism, the natural way to parallelise Cellpose over 100 images is `SplitCollection → 4 parallel Cellpose branches → MergeCollection`. This is the "L2 fan-out" pattern. It works with existing built-in blocks but has never been written down as the recommended approach, so block authors will invent ad-hoc alternatives.
+
+10. **OptEasy's `iter_over(axis)` and `sel(**kwargs)` helpers on `ArrayData` are missed.** Block authors writing 5D processing code in SciEasy currently have to `to_memory()` the whole volume and manually index with `tuple(slice(None) ... 15 ... slice(None))`. Every Phase 10 imaging block would repeat this pattern.
+
+These issues are cross-cutting and interdependent — for example, moving domain types to plugins (#2) requires worker TypeRegistry scanning (#8), and `iter_over` laziness (#10) interacts with the metadata inheritance story (#3). They are bundled into a single ADR because they form a coherent Phase 10 preparation package rather than a sequence of unrelated fixes.
+
+### Discussion points and resolution
+
+| # | Topic | Options discussed | Final decision |
+|---|---|---|---|
+| 1 | Should `Array.axes` be class-level, instance-level, or a hybrid? | (A) Keep class-level, users subclass for every new combination. (B) Move to instance-level; class declares only constraints. (C) OptEasy-style single `dims: str` per instance. | **Decision: (B).** `Array` instances carry their own `axes: list[str]`. Classes declare `required_axes: frozenset[str]` (minimum set any instance must have), `allowed_axes: frozenset[str] | None` (superset of axes the class accepts; `None` means any), and `canonical_order: tuple[str, ...]` (preferred ordering for reorder operations). Option (A) is the current broken state. Option (C) sacrifices the typed-class discipline that makes port validation work in SciEasy. |
+| 2 | How large is the axis alphabet for Phase 10? | (A) Just `(y, x)` plus a couple extras. (B) 5D: `(t, z, c, y, x)`. (C) 6D including spectral: `(t, z, c, lambda, y, x)`. | **Decision: (C).** Spectral imaging (SRS, hyperspectral) is a first-class target modality, and the `lambda` axis semantically differs from `c` (continuous spectral vs. discrete channel). Allowing both supports rare-but-real combined modalities (e.g., multichannel hyperspectral). Axis name `lambda` is spelled out (not the Greek letter `λ`) for YAML/JSON/URL safety. Canonical order is `(t, z, c, lambda, y, x)` following OME convention with spectral inserted between channel and spatial. |
+| 3 | Should `c` (discrete channel) and `lambda` (continuous spectral) coexist in one axes list? | (A) Forbid; a class picks one. (B) Allow; rare but valid. | **Decision: (B).** Allow. Block authors restrict via port `constraint` helpers (e.g., `has_axes("y", "x", "c")` for multichannel, `has_axes("y", "x", "lambda")` for spectral). Framework does not forbid the combination. |
+| 4 | Where should domain subtypes (`Image`, `Spectrum`, `AnnData`, `PeakTable`, etc.) live? | (A) Stay in core alongside base types. (B) Move all domain subtypes out of `scieasy/core/types/` into plugin packages. | **Decision: (B).** Core keeps only the seven base types (`DataObject`, `Array`, `Series`, `DataFrame`, `Text`, `Artifact`, `CompositeData`). All domain subtypes move to their respective plugin packages. This includes `Image`, `FluorImage`, `SRSImage`, `MSImage` (→ `scieasy-blocks-imaging`), `Spectrum`, `RamanSpectrum`, `MassSpectrum`, `PeakTable`, `MetabPeakTable` (→ `scieasy-blocks-spectral`), `AnnData` (→ future `scieasy-blocks-singlecell`), `SpatialData` (→ future `scieasy-blocks-spatial-omics`). This is the purest reading of CLAUDE.md §2.3 and ADR-008's Tier 2 package model. |
+| 5 | How is broadcast-like iteration exposed to block authors? | (A) New base class hierarchy (`SpatialBlock`, `SpectralBlock`, `AxisIteratingBlock`) with override points. (B) Utility function `iterate_over_axes(source, operates_on, func)` that block authors call explicitly inside `process_item`. | **Decision: (B).** A base class per dimensional pattern multiplies the Block inheritance tree without adding expressive power — the only thing that varies is the set of axes to iterate over, which is a function argument, not a type. Utility function places the decision in the block author's hands without class-level commitment. Matches CLAUDE.md §7.2 ("Favor composition over deep inheritance"). |
+| 6 | Should the iteration utility be lazy, eager, or lazy-capable? | (A) Eager: load the whole Array, iterate in memory. (B) Level 1 lazy: `iter_over(axis)` is a generator that reads one slice per step. (C) Level 2 lazy: return new Array instances with `SlicedStorageReference` that read lazily at every subsequent access. | **Decision: (B) for Phase 10.** Level 1 laziness ensures peak memory is one slice, not the full volume. Each yielded slice is an in-memory Array instance (fresh `storage_ref=None`, data in `_data`), so downstream access is free. Level 2 (virtual slice refs threaded through ViewProxy) is deferred as a Phase 11+ optimisation under a separate ADR if profiling justifies it. |
+| 7 | Must `iter_over`/`sel` preserve metadata? | (A) Return raw numpy arrays. (B) Return new Array instances with all metadata inherited. | **Decision: (B).** Yielded slices are same-class-as-source (e.g., iterating a `FluorImage` yields `FluorImage` slices). `framework` metadata is derived (with a lineage hint), `meta` (domain metadata) is shared by reference since it is frozen Pydantic, `user` metadata is shallow-copied, `axes` has the iterated dimension removed. Block authors never lose metadata just because they iterated. |
+| 8 | How should metadata be structured? | (A) Free `dict[str, Any]` (current). (B) Structured per-subtype using dataclasses. (C) Structured per-subtype using Pydantic BaseModel with three slots (framework / domain / user). | **Decision: (C).** Three slots: `framework: FrameworkMeta` (immutable framework-managed fields — created_at, object_id, source, lineage hint), `meta: DomainMeta` (typed Pydantic BaseModel declared per subtype), `user: dict[str, Any]` (free-form escape hatch). Pydantic gives IDE autocompletion, type validation, clean JSON round-trip for subprocess transport, and painless schema evolution via field defaults. |
+| 9 | How are physical units represented? | (A) Raw floats; unit lives in a sibling field. (B) Use `pint`. (C) Self-written `PhysicalQuantity` with a small unit table. | **Decision: (C).** `pint` is ~200–400 ms import time per subprocess worker — unacceptable when every block spawns a fresh interpreter. `PhysicalQuantity` is a ~50-line dataclass covering the ~15 units SciEasy actually needs (length, time, frequency, wavenumber). Drop-in replacement with `pint` remains possible in a future phase by swapping the `scieasy.core.units` module internals. |
+| 10 | How does a block declare expensive one-time setup? | (A) Do it in `process_item`, pay the cost N times. (B) Add `setup(config)` / `teardown(state)` hooks to `ProcessBlock`. (C) Add a new `StatefulBlock` base class. | **Decision: (B).** Smallest surface change. Default `setup` returns `None`, default `teardown` does nothing. `process_item(item, config, state=None)` receives whatever `setup` returned. `ProcessBlock.run()` calls `setup` once, iterates, calls `teardown` in a `finally` block. Authors of stateless blocks ignore the hooks entirely. |
+| 11 | Should `setup` receive the inputs dict? | (A) Yes, for data-driven setup. (B) No, only config. | **Decision: (B).** `setup(config)` sees only the config. Data-driven decisions (e.g. "pick the model based on the first image's modality") happen lazily inside `process_item` and cache their result on the `state` object. Keeping `setup` config-only prevents a tangled contract where `setup` becomes responsible for Collection-aware logic. |
+| 12 | Are threads allowed inside a block's `run()`? | (A) Forbidden. (B) Allowed as an escape hatch, documented as not recommended. (C) Encouraged as the default parallelism pattern. | **Decision: (B).** Threads inside a block's worker subprocess are acceptable — SIGTERM/SIGKILL on the subprocess cleanly terminates all of its threads because OS-level process death releases thread resources. Threads CANNOT be interrupted cooperatively at sub-second granularity (there is no graceful "stop this thread mid-`cellpose.eval`"), so hard kill is the only reliable abort. Documentation must state: (1) threads are allowed, (2) L2 fan-out is preferred for Collection-level parallelism because it scales across machines and plays nicely with `ResourceManager`, (3) threads should be used only when a library releases the GIL (numpy/torch/cellpose C extensions) or for I/O-bound work, (4) cancellation is guaranteed only via subprocess kill, not via cooperative thread signalling. |
+| 13 | What is the recommended pattern for Collection-level parallelism? | (A) Block-internal ThreadPool. (B) Block-internal ProcessPool. (C) L2 fan-out: `SplitCollection → N parallel branches → MergeCollection` at the workflow graph level. | **Decision: (C).** Pushing parallelism up to the workflow graph means each branch is a separate subprocess under `ProcessRegistry` supervision, gets its own `ResourceManager` GPU/CPU slot, benefits from DAG-level cancellation semantics, and scales naturally to multi-GPU and multi-machine execution (future). Block-internal pools are permitted as an escape hatch (per #12) but not the documented default. |
+| 14 | Does `cellpose` specifically need block-internal parallelism? | (A) Yes, iterate items with a ThreadPool. (B) No, cellpose's own `model.eval([img1, img2, ...], batch_size=N)` uses GPU batching internally. | **Decision: (B).** Cellpose's parallelism is GPU-batched kernels inside a single `eval` call. A Phase 10 `CellposeSegment` block uses the Tier 2 pattern (override `run()`, call `setup()` once to load the model, then loop over the Collection in GPU-sized batches via `eval([...], batch_size=N)`). No thread pool or process pool needed at the block level. Multi-GPU parallelism uses L2 fan-out (per #13). |
+| 15 | What is the default value of `ResourceManager.gpu_slots`? | (A) `0` (current — GPU blocks never dispatch). (B) `1` (always allow one GPU block). (C) Auto-detect via `torch.cuda.device_count()` or `nvidia-smi` with `0` fallback. | **Decision: (C) + fallback behaviour.** `ResourceManager.__init__` takes `gpu_slots: int | None = None`. If `None`, call `_auto_detect_gpu_slots()` which tries `torch.cuda.device_count()` first, then `nvidia-smi -L`, then returns `0`. If the detected value is `0` but any block declares `requires_gpu=True`, log a single warning explaining that the user can override via project config. Explicit integer values passed to `__init__` are respected unchanged. Auto-detect runs once per scheduler instantiation, not per dispatch. |
+| 16 | Should the worker subprocess (`engine/runners/worker.py`) call `TypeRegistry.scan()` before reconstructing inputs? | (A) No — only core types are reconstructable, plugin types remain dict-like. (B) Yes — scan entry-points at worker startup so plugin types work. | **Decision: (B).** Once domain subtypes move to plugins (#4), the worker must be able to resolve `type_chain=["DataObject", "Array", "Image", "FluorImage"]` by importing `scieasy-blocks-imaging`. This means adding a `TypeRegistry.scan()` call at the top of `worker.main()` before `reconstruct_inputs()`. The scan is the same `scieasy.types` entry-point scan that the main process uses (ADR-025). Subprocess cold start grows by ~50 ms for a package with five types, acceptable given subprocess startup already dominates (~150 ms). |
+
+### Decision
+
+The Phase 10 decisions from the discussion table are codified below. Each section has a one-paragraph summary and a code-shape sketch where appropriate. Exact line-by-line impact is in the "Detailed impact scope" section further down.
+
+#### D1. Instance-level axes with class-level schema (covers discussion #1–3)
+
+`Array` holds `axes` as a per-instance list. Subclasses declare axis constraints at class level. The 6D axis alphabet is `{"t", "z", "c", "lambda", "y", "x"}`. `lambda` (spectral) and `c` (discrete channel) are distinct and may coexist in a single instance.
+
+```python
+class Array(DataObject):
+    # Class-level schema (subclass overrides)
+    required_axes:   ClassVar[frozenset[str]] = frozenset()
+    allowed_axes:    ClassVar[frozenset[str] | None] = None   # None = any
+    canonical_order: ClassVar[tuple[str, ...]] = ()
+
+    def __init__(
+        self,
+        *,
+        axes: list[str],            # now required
+        shape: tuple[int, ...] | None = None,
+        dtype: Any = None,
+        chunk_shape: tuple[int, ...] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.axes = list(axes)
+        self.shape = shape
+        self.dtype = dtype
+        self.chunk_shape = chunk_shape
+        self._validate_axes()
+
+    def _validate_axes(self) -> None:
+        axes_set = set(self.axes)
+        if not self.required_axes.issubset(axes_set):
+            missing = self.required_axes - axes_set
+            raise ValueError(
+                f"{type(self).__name__} requires axes {sorted(self.required_axes)}, "
+                f"missing: {sorted(missing)}"
+            )
+        if self.allowed_axes is not None and not axes_set.issubset(self.allowed_axes):
+            extra = axes_set - self.allowed_axes
+            raise ValueError(
+                f"{type(self).__name__} accepts only {sorted(self.allowed_axes)}, "
+                f"unexpected: {sorted(extra)}"
+            )
+        if len(set(self.axes)) != len(self.axes):
+            raise ValueError(f"Duplicate axes in {self.axes}")
+```
+
+Domain subtypes (defined in plugins per D2):
+
+```python
+# In scieasy-blocks-imaging
+class Image(Array):
+    required_axes   = frozenset({"y", "x"})
+    allowed_axes    = frozenset({"t", "z", "c", "lambda", "y", "x"})
+    canonical_order = ("t", "z", "c", "lambda", "y", "x")
+
+class FluorImage(Image):
+    required_axes = frozenset({"y", "x", "c"})   # channel mandatory
+
+class HyperspectralImage(Image):
+    required_axes = frozenset({"y", "x", "lambda"})
+```
+
+`TypeSignature.from_type(cls)` additionally records `required_axes` as part of the signature so that port `port_accepts_signature` checks can enforce "incoming instance must have at least required_axes of target port type".
+
+#### D2. Core contains only base types; all domain subtypes live in plugins (covers discussion #4)
+
+`src/scieasy/core/types/` ends Phase 10 holding exactly these classes:
+
+- `base.py` → `DataObject`, `TypeSignature`
+- `array.py` → `Array` (no `Image`, no `MSImage`, no `SRSImage`, no `FluorImage`)
+- `series.py` → `Series` (no `Spectrum`, `RamanSpectrum`, `MassSpectrum`)
+- `dataframe.py` → `DataFrame` (no `PeakTable`, `MetabPeakTable`)
+- `text.py` → `Text`
+- `artifact.py` → `Artifact`
+- `composite.py` → `CompositeData` (no `AnnData`, `SpatialData`)
+- `collection.py` → `Collection` (unchanged)
+- `registry.py` → `TypeRegistry` (unchanged behaviour, but becomes the sole source of truth for domain types)
+
+Plugin package map:
+
+| Domain type | Target plugin package |
+|---|---|
+| `Image`, `FluorImage`, `BrightfieldImage`, `HyperspectralImage`, `SRSImage` | `scieasy-blocks-imaging` |
+| `MSImage`, `MALDIImage` | `scieasy-blocks-msi` (new) |
+| `Spectrum`, `RamanSpectrum`, `MassSpectrum` | `scieasy-blocks-spectral` |
+| `PeakTable`, `MetabPeakTable` | `scieasy-blocks-spectral` |
+| `AnnData` | `scieasy-blocks-singlecell` (new) |
+| `SpatialData` | `scieasy-blocks-spatial-omics` (new) |
+
+Built-in blocks that currently reference `Image` directly (e.g. `MergeCollection`, `FilterCollection`, `SliceCollection`) are audited and changed to reference `Array` (or a plugin-provided type via entry-point import) — see impact scope.
+
+#### D3. `iterate_over_axes` utility (covers discussion #5)
+
+New module `src/scieasy/utils/axis_iter.py`:
+
+```python
+from typing import Callable
+import numpy as np
+from scieasy.core.types.array import Array
+from scieasy.core.exceptions import BroadcastError
+
+def iterate_over_axes(
+    source: Array,
+    operates_on: set[str],
+    func: Callable[[np.ndarray, dict[str, int]], np.ndarray],
+) -> Array:
+    """Iterate `func` over all axes in source NOT in operates_on.
+
+    For each combination of the non-operates_on axes, calls:
+        func(slice_data, slice_coord)
+    where slice_data is a numpy array containing only the operates_on
+    dimensions, and slice_coord is a dict mapping extra-axis name to
+    current integer index.
+
+    Results are stacked back into a new instance of source's concrete
+    class, preserving axes, shape, and metadata (framework/meta/user).
+
+    Raises BroadcastError if slice outputs have inconsistent shapes or
+    if operates_on is not a subset of source.axes.
+    """
+    ...
+```
+
+The function is serial. It does not use threads or subprocesses. Memory footprint is O(one slice + one result slice). Errors in user-provided `func` propagate unchanged. Metadata inheritance follows D5 (see below).
+
+This utility is placed in `scieasy.utils.axis_iter`, adjacent to the existing `scieasy.utils.broadcast.broadcast_apply` (ADR-003). The two cover complementary use cases: `iterate_over_axes` handles "iterate a single Array's extra dims" (common case), `broadcast_apply` handles "project a low-dim object onto a high-dim object" (cross-modal fusion case).
+
+#### D4. `Array.iter_over()` and `Array.sel()` with Level 1 laziness (covers discussion #6, #7)
+
+New methods on `Array`:
+
+```python
+class Array(DataObject):
+    def sel(self, **kwargs: int | slice) -> "Array":
+        """Select a sub-array along named axes.
+
+        Example:
+            img.sel(z=15, c=0)        # single z index, single channel
+            img.sel(z=slice(10, 20))  # z range
+
+        Returns a new instance of self.__class__ with axes reduced by the
+        scalar-index selections. Integer indices remove the axis; slice
+        objects keep the axis. Supports integers and slice objects;
+        does NOT support lists of indices or boolean masks in Phase 10.
+
+        Metadata inheritance:
+            framework: derived (lineage hint back to parent)
+            meta: shared by reference (immutable Pydantic)
+            user: shallow copy
+            axes: reduced per the selection
+
+        Laziness:
+            If self.storage_ref is Zarr-backed and supports partial reads,
+            only the requested chunk(s) are materialised. For other backends,
+            falls back to self.view().to_memory() then numpy indexing.
+        """
+        ...
+
+    def iter_over(self, axis: str) -> Iterator["Array"]:
+        """Yield sub-arrays along one named axis.
+
+        Example:
+            for z_slice in img.iter_over("z"):
+                ...
+
+        Memory: O(one slice per iteration step). Each yielded Array has
+        `axis` removed from its axes list, same class as self, metadata
+        preserved per sel()'s rules.
+
+        Implementation: generator that calls `self.sel(**{axis: k})` for
+        k in range(axis_size). Lazy in the iteration sense — each step
+        reads one chunk on demand.
+        """
+        ...
+```
+
+Phase 10 implements Level 1 laziness: lazy iteration (one slice per step) for Zarr-backed instances; for filesystem-backed instances, fall back to materialising once on first access. Level 2 laziness (persistent `SlicedStorageReference` carried through ViewProxy) is deferred.
+
+#### D5. Stratified metadata with Pydantic (covers discussion #8)
+
+`DataObject` gains three slots replacing the current flat `_metadata` dict:
+
+```python
+from pydantic import BaseModel, Field
+
+class FrameworkMeta(BaseModel):
+    """Framework-managed, block-authors do not mutate."""
+    created_at: datetime
+    object_id: str
+    source: str = ""           # free-form origin description
+    lineage_id: str | None = None   # links into LineageRecorder
+    derived_from: str | None = None # parent object_id for derived slices
+
+class DataObject:
+    framework: FrameworkMeta
+    meta: BaseModel              # subclass overrides with typed subclass
+    user: dict[str, Any]         # free-form, framework does not interpret
+
+    # Backward-compat shim: `metadata` property maps to `user` for the
+    # duration of Phase 10, emitting a DeprecationWarning. Removed in Phase 11.
+```
+
+Each Array subtype declares its own `Meta` Pydantic model:
+
+```python
+# In scieasy-blocks-imaging
+class FluorImage(Image):
+    class Meta(BaseModel):
+        pixel_size:       PhysicalQuantity              # see D6
+        channels:         list[ChannelInfo] = []
+        objective:        str | None = None
+        acquisition_date: datetime | None = None
+        instrument:       str | None = None
+        exposure_ms:      dict[str, float] | None = None
+
+    meta: "FluorImage.Meta"
+```
+
+New helper `with_meta(**changes)` on `DataObject` for immutable update:
+
+```python
+def with_meta(self, **changes: Any) -> "Self":
+    """Return a new DataObject with meta fields changed.
+    Other slots (framework, user, storage_ref, shape, etc.) preserved."""
+    new_meta = self.meta.model_copy(update=changes)
+    return self.__class__(..., meta=new_meta, ...)
+```
+
+Propagation rule in `iterate_over_axes` and `iter_over`:
+
+- `framework`: new `framework` with `derived_from=parent.framework.object_id`, new `object_id`, `created_at=now()`.
+- `meta`: shared by reference (Pydantic model is frozen).
+- `user`: shallow copy.
+- `axes`: reduced per the slicing operation.
+
+Backward-compat: `DataObject.metadata` remains as a property that returns `self.user` with a `DeprecationWarning`. Removed after Phase 11.
+
+#### D6. `PhysicalQuantity` (covers discussion #9)
+
+New module `src/scieasy/core/units.py`:
+
+```python
+from dataclasses import dataclass
+
+_LENGTH   = {"m": 1.0, "mm": 1e-3, "um": 1e-6, "nm": 1e-9, "pm": 1e-12, "A": 1e-10}
+_TIME     = {"s": 1.0, "ms": 1e-3, "us": 1e-6, "ns": 1e-9, "min": 60.0, "hr": 3600.0}
+_FREQ     = {"Hz": 1.0, "kHz": 1e3, "MHz": 1e6, "GHz": 1e9}
+_WAVENUM  = {"cm-1": 100.0, "m-1": 1.0}
+
+_KIND = {
+    **{u: "length"     for u in _LENGTH},
+    **{u: "time"       for u in _TIME},
+    **{u: "freq"       for u in _FREQ},
+    **{u: "wavenumber" for u in _WAVENUM},
+}
+_SCALE = {**_LENGTH, **_TIME, **_FREQ, **_WAVENUM}
+
+@dataclass(frozen=True)
+class PhysicalQuantity:
+    value: float
+    unit: str
+
+    def __post_init__(self) -> None:
+        if self.unit not in _SCALE:
+            raise ValueError(f"Unknown unit: {self.unit!r}")
+
+    def to(self, target_unit: str) -> "PhysicalQuantity":
+        if _KIND[self.unit] != _KIND[target_unit]:
+            raise ValueError(f"Cannot convert {_KIND[self.unit]} to {_KIND[target_unit]}")
+        return PhysicalQuantity(
+            self.value * _SCALE[self.unit] / _SCALE[target_unit],
+            target_unit,
+        )
+
+    def __lt__(self, other: "PhysicalQuantity") -> bool:
+        if _KIND[self.unit] != _KIND[other.unit]:
+            raise TypeError("Incompatible kinds")
+        return self.value * _SCALE[self.unit] < other.value * _SCALE[other.unit]
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, PhysicalQuantity):
+            return NotImplemented
+        if _KIND[self.unit] != _KIND[other.unit]:
+            return False
+        return abs(self.value * _SCALE[self.unit] - other.value * _SCALE[other.unit]) < 1e-12
+```
+
+Pydantic validator ensures `PhysicalQuantity` fields serialise as `{"value": ..., "unit": ...}` for JSON transport across subprocesses. A custom serialiser/validator module inside `scieasy.core.units` handles the Pydantic integration.
+
+#### D7. `ProcessBlock.setup()` and `teardown()` hooks (covers discussion #10, #11)
+
+`ProcessBlock` base class gains two hooks and a three-argument `process_item`:
+
+```python
+class ProcessBlock(Block):
+    def setup(self, config: BlockConfig) -> Any:
+        """Called once per run() before iterating the Collection.
+        Return value is passed to every process_item() as `state`.
+        Default: returns None.
+        Use for: loading ML models, opening DB connections, compiling
+        regexes, anything expensive that should be reused across items."""
+        return None
+
+    def teardown(self, state: Any) -> None:
+        """Called once per run() in a finally block, even on error.
+        Default: no-op.
+        Use for: releasing resources (close files, free GPU memory)."""
+        pass
+
+    def process_item(
+        self,
+        item: DataObject,
+        config: BlockConfig,
+        state: Any = None,
+    ) -> DataObject:
+        raise NotImplementedError
+
+    def run(self, inputs, config):
+        from scieasy.core.types.collection import Collection
+        primary = next(iter(inputs.values()))
+        state = self.setup(config)
+        try:
+            if isinstance(primary, Collection):
+                results = []
+                for item in primary:
+                    result = self.process_item(item, config, state)
+                    result = self._auto_flush(result)
+                    results.append(result)
+                output_name = self.output_ports[0].name if self.output_ports else "output"
+                return {output_name: Collection(results, item_type=primary.item_type)}
+            else:
+                result = self.process_item(primary, config, state)
+                output_name = self.output_ports[0].name if self.output_ports else "output"
+                return {output_name: result}
+        finally:
+            self.teardown(state)
+```
+
+`setup` receives only `config`. It must not access `inputs`. Blocks that need data-driven initialisation do it lazily inside `process_item` and cache on the `state` object.
+
+Existing blocks that override `process_item(self, item, config)` (two-argument form) remain source-compatible because the new third argument has a default of `None`. Adding `state` is purely additive.
+
+#### D8. Thread policy (covers discussion #12)
+
+Threads are permitted inside a block's `run()` as an escape hatch. They are NOT permitted in the engine, scheduler, event bus, process registry, or any core runtime component. The block-developer documentation must state:
+
+1. A block's worker subprocess is killable as a unit. SIGTERM/SIGKILL terminates all threads within it. You do not need to manually cancel threads.
+2. Threads cannot be interrupted cooperatively between `await` points or mid-function. If your block's thread is inside `cellpose.eval()` for 30 seconds, the only way to stop it before 30 seconds is to kill the whole subprocess.
+3. Threads are worthwhile only when: (a) the library releases the GIL (numpy, torch, cellpose internals), (b) the work is I/O-bound (file or network reads).
+4. For Collection-level parallelism, prefer L2 fan-out (D9) over block-internal threads. Fan-out scales across multiple GPUs and machines, threads do not.
+5. If a block uses a thread pool, it should set `max_internal_workers` on its `ResourceRequest` so the `ResourceManager` can count the block's actual CPU footprint toward the scheduler-wide CPU pool. The existing `ResourceRequest.max_internal_workers` field (already present at `resources.py:27`, currently unused) is formally activated by this ADR.
+
+#### D9. L2 fan-out as the recommended Collection-level parallelism pattern (covers discussion #13, #14)
+
+Block authors who need N-way parallelism on a Collection express it in the workflow graph using existing built-in blocks:
+
+```
+[LoadImages]
+    └─ Collection[Image] length=100
+[SplitCollection n_parts=4]
+    ├─ out_0 → [Cellpose A] ─┐
+    ├─ out_1 → [Cellpose B] ─┤
+    ├─ out_2 → [Cellpose C] ─┤
+    └─ out_3 → [Cellpose D] ─┤
+                             ↓
+                    [MergeCollection]
+```
+
+Each `Cellpose*` branch is a separate subprocess under `ProcessRegistry` supervision, acquires its own GPU slot from `ResourceManager`, has its own setup/teardown cycle, and can be cancelled independently via ADR-018's cancel flow. Scheduler concurrency per ADR-018 Addendum 1 is a prerequisite.
+
+`SplitCollection` and `MergeCollection` already exist as built-in blocks (`blocks/process/builtins/split_collection.py`, `merge_collection.py`). No new code is required for the pattern itself — only documentation and examples in the block developer guide.
+
+Phase 10 `CellposeSegment` block uses Tier 2 (override `run()`) to exploit cellpose's built-in GPU batching:
+
+```python
+class CellposeSegment(ProcessBlock):
+    input_ports  = [InputPort(name="images", accepted_types=[Image],
+                              constraint=has_axes("y", "x"))]
+    output_ports = [OutputPort(name="masks", accepted_types=[Image])]
+    resource_request = ResourceRequest(
+        requires_gpu=True, gpu_memory_gb=4.0, cpu_cores=2,
+    )
+
+    def setup(self, config):
+        from cellpose import models
+        return models.Cellpose(
+            model_type=config.get("model", "cyto2"),
+            gpu=True,
+        )
+
+    def run(self, inputs, config):
+        state = self.setup(config)
+        try:
+            images = inputs["images"]
+            batch_size = config.get("batch_size", 8)
+            results = []
+            item_list = list(images)
+            for i in range(0, len(item_list), batch_size):
+                batch_items = item_list[i:i+batch_size]
+                batch_arrays = [it.to_memory() for it in batch_items]
+                masks_list, _, _, _ = state.eval(
+                    batch_arrays,
+                    batch_size=batch_size,
+                    diameter=config.get("diameter", 30),
+                )
+                for orig, mask in zip(batch_items, masks_list):
+                    result = Image(
+                        axes=orig.axes, shape=mask.shape, dtype=mask.dtype,
+                        meta=orig.meta,
+                    )
+                    results.append(self._auto_flush(result))
+            return {"masks": Collection(results, item_type=Image)}
+        finally:
+            import torch
+            torch.cuda.empty_cache()
+```
+
+#### D10. `ResourceManager` auto-detects GPU slots (covers discussion #15)
+
+`ResourceManager.__init__` signature change:
+
+```python
+class ResourceManager:
+    def __init__(
+        self,
+        gpu_slots: int | None = None,      # was: int = 0
+        cpu_workers: int = 4,
+        memory_high_watermark: float = 0.80,
+        memory_critical: float = 0.95,
+        event_bus: Any | None = None,
+    ) -> None:
+        if gpu_slots is None:
+            gpu_slots = _auto_detect_gpu_slots()
+        self.gpu_slots = gpu_slots
+        ...
+
+def _auto_detect_gpu_slots() -> int:
+    """Best-effort GPU count detection. Tries torch, then nvidia-smi, then 0."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return torch.cuda.device_count()
+    except ImportError:
+        pass
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["nvidia-smi", "-L"], capture_output=True, text=True, timeout=2,
+        )
+        if result.returncode == 0:
+            return sum(1 for line in result.stdout.splitlines() if line.startswith("GPU "))
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        pass
+    return 0
+```
+
+If auto-detection returns 0 but any block in the loaded workflow declares `requires_gpu=True`, log a single WARNING at scheduler start-up explaining that no GPU was detected and pointing the user at the project config override. Explicit integer values passed to `__init__` are respected unchanged.
+
+**Important caveat**: auto-detection returns physical GPU count, not "how many cellpose instances can coexist in VRAM". Users with large models on small cards should override via project config. Phase 10 does NOT introduce VRAM-based slot calculation because `gpu_memory_gb` declarations are block-declared, not enforced, and VRAM is not reliably monitorable cross-platform per ADR-022.
+
+#### D11. Worker subprocess TypeRegistry scan (covers discussion #16)
+
+`src/scieasy/engine/runners/worker.py` `main()` gains an early call:
+
+```python
+def main() -> None:
+    try:
+        # ADR-027 D11: scan entry-points so plugin-provided DataObject
+        # subtypes can be resolved during reconstruct_inputs.
+        from scieasy.core.types.registry import TypeRegistry
+        TypeRegistry.scan()
+
+        raw = sys.stdin.read()
+        payload = json.loads(raw)
+        # ... rest unchanged ...
+```
+
+`reconstruct_inputs` is enhanced to look up `type_chain` in the registry and construct the correct subclass instance instead of always returning a bare `DataObject`:
+
+```python
+def reconstruct_inputs(payload):
+    from scieasy.core.proxy import ViewProxy
+    from scieasy.core.storage.ref import StorageReference
+    from scieasy.core.types.base import TypeSignature
+    from scieasy.core.types.registry import TypeRegistry
+
+    raw_inputs = payload.get("inputs", {})
+    result = {}
+    for key, value in raw_inputs.items():
+        if isinstance(value, dict) and "backend" in value and "path" in value:
+            ref = StorageReference(...)
+            type_chain = value.get("metadata", {}).get("type_chain", ["DataObject"])
+            # Resolve the most specific class known to the registry.
+            cls = TypeRegistry.resolve(type_chain) or DataObject
+            sig = TypeSignature(type_chain=type_chain)
+            # Wrap in ViewProxy; callers can upgrade to a typed instance via
+            # their port-aware layer or by constructing cls from the ref.
+            result[key] = ViewProxy(storage_ref=ref, dtype_info=sig)
+        else:
+            result[key] = value
+    return result
+```
+
+(The exact mapping from `type_chain` back to a concrete subclass may need a small helper in `TypeRegistry`; that helper is listed in the impact scope.)
+
+### Alternatives considered
+
+- **Keep all domain subtypes in core (D2 Option A)**: preserves the current import paths and test layout. Rejected because it contradicts CLAUDE.md §2.3 and makes the core untestable without implicit assumptions about imaging. The audit of `src/scieasy/blocks/` to update `accepted_types=[Image]` → `accepted_types=[Array]` is routine.
+- **Single `dims: str` like OptEasy (D1 Option C)**: one-line schema, zero validation. Rejected because it cannot express per-class required-axes constraints, cannot handle axis names longer than one character (`"lambda"`, `"wavenumber"`, `"mz"`), and gives up the typed-class contract that makes port checking work in SciEasy. OptEasy gets away with this because it is imaging-only.
+- **New base class `SpatialBlock` / `SpectralBlock` / `AxisIteratingBlock` (D3 Option A)**: aesthetically tidy, but creates a new layer of the inheritance tree for every dimensional pattern and forces block authors to choose a base class before they understand their problem. A utility function gives the same capability without the commitment. CLAUDE.md §7.2 explicitly favours composition.
+- **Use `pint` for units (D6 Option B)**: mature, well-tested, handles dimensional algebra. Rejected for Phase 10 on cold-start grounds: every subprocess worker imports Python fresh, and `pint` adds 200–400 ms to that. For a workflow with 50 blocks, that is 10–20 seconds of wall-clock overhead unconditionally. A 50-line self-written quantity class covers 99% of actual SciEasy metadata and can be swapped for pint later without API changes.
+- **Forbid threads entirely (D8 Option A)**: simpler to explain but costs us the ability to use libraries like `torch.nn.DataParallel` or any numpy operation that internally spawns MKL/OpenBLAS threads. Those "threads" already exist implicitly in numpy code; forbidding explicit thread use in blocks would be arbitrary and inconsistent. Rejected.
+- **Auto-detect VRAM-aware GPU slot count (D10)**: tried to match physical VRAM against declared `gpu_memory_gb` to compute "how many cellpose instances can coexist". Rejected for Phase 10 because `gpu_memory_gb` is block-declared, not enforced, and because VRAM monitoring requires nvml bindings (`pynvml`) which are platform-specific and another dependency. The simpler "physical GPU count with user override" covers 90% of cases.
+- **Deep worker-side type reconstruction returning concrete subclass instances (D11 Option B maximalist)**: instead of leaving reconstructed inputs as `ViewProxy`, construct `Image(storage_ref=..., ...)` directly so that downstream code sees typed instances. Rejected because it would make `reconstruct_inputs` responsible for invoking each subclass's `__init__` with the right arguments, which we cannot generically do (different subclasses have different required metadata). The middle ground is: scan the registry (D11), map `type_chain` to a concrete class for signature matching, but still return a `ViewProxy`. Block authors call `item.view()` or `item.to_memory()` in the usual way; the registry-resolved class is used only for `TypeSignature` and port validation.
+
+### Consequences
+
+- **Phase 10 becomes a clean start for imaging.** The `scieasy-blocks-imaging` package can own its own type hierarchy without fighting core. 6D data is a first-class supported shape, not a cast-to-Array workaround.
+- **Core shrinks by several files' worth of domain code.** `src/scieasy/core/types/array.py` loses four subclass definitions; `series.py`, `dataframe.py`, `composite.py` lose their domain subclasses similarly (audit will confirm exact counts). Each deleted class reappears inside the appropriate plugin package.
+- **Every block that referenced a domain type directly must be updated.** Core built-in blocks (`MergeCollection`, `FilterCollection`, `SliceCollection`, maybe `TransformBlock`) currently declare `accepted_types=[Image]` in some test fixtures. These become `accepted_types=[Array]` with optional constraint helpers. Tests under `tests/blocks/` that `from scieasy.core.types.array import Image` must either switch to `Array` or be marked as requiring `scieasy-blocks-imaging` installed (see impact scope).
+- **Metadata becomes typed.** Pydantic-validated fields are a breaking change to the current free-dict interface. `DataObject.metadata` becomes a property returning `self.user` with a `DeprecationWarning`; callers relying on it for domain metadata (e.g., `img.metadata["pixel_size"]`) will see warnings and should migrate to `img.meta.pixel_size` during Phase 10.
+- **Subprocess cold start cost grows by ~50 ms per worker.** `TypeRegistry.scan()` adds the entry-point iteration to every worker startup. Acceptable because startup is already dominated by Python interpreter boot.
+- **`ResourceManager` becomes meaningfully throttling.** With `gpu_slots > 0` by default and scheduler concurrency fixed (ADR-018 Addendum 1), GPU block dispatch is now actually gated. Users on multi-GPU machines see parallel execution; users on single-GPU machines see serial GPU access without spinning.
+- **Cellpose parallelism story is documented.** Block authors have three clear options: (a) Tier 1 setup+process_item for simple per-item processing, (b) Tier 2 override `run()` for library-native batching (cellpose, stardist), (c) L2 fan-out via SplitCollection for multi-GPU.
+- **Block-developer docs must be updated.** Thread policy, setup/teardown, metadata conventions, axis semantics, and the fan-out pattern all need explicit documentation. This is tracked as Deliverable B in issue #255 and will land in a separate PR.
+- **Test fixtures across `tests/` need a one-shot migration.** Roughly 75 `Image(...)` instantiations across 17 test files must be updated to pass `axes=[...]`. A shim can be introduced temporarily (`def _test_image(...): return Image(axes=["y","x"], ...)`) to minimise diff noise.
+- **AI block generator templates must be updated.** ADR-013 / ADR-027 cross-reference: AI-generated blocks in Phase 9 produced code using `Image` imported from core. Generated code must be regenerated to import from `scieasy_blocks_imaging.types`, or the validator (ADR-013 §7.1) must reject core-Image imports.
+
+### Detailed impact scope
+
+#### New files
+
+| File | Contents |
+|---|---|
+| `src/scieasy/utils/axis_iter.py` | `iterate_over_axes(source, operates_on, func)` utility (D3). ~80 lines including docstrings and `BroadcastError` raises. |
+| `src/scieasy/utils/constraints.py` | Port constraint helper factory functions (D4 context): `has_axes(*required)`, `has_exact_axes(*axes)`, `has_shape(ndim)`, etc. Small module, ~40 lines, used in port `constraint=` kwargs. |
+| `src/scieasy/core/units.py` | `PhysicalQuantity` dataclass + unit tables + Pydantic integration (D6). ~120 lines. |
+| `src/scieasy/core/meta/__init__.py` | Public exports for `FrameworkMeta`, `with_meta` helper, `ChannelInfo` BaseModel used by plugins (D5). |
+| `src/scieasy/core/meta/framework.py` | `FrameworkMeta` BaseModel implementation. ~30 lines. |
+
+#### Rewritten files
+
+| File | Current state | New state | Detailed changes |
+|---|---|---|---|
+| `src/scieasy/core/types/array.py` | Defines `Array` with `axes: ClassVar`, plus `Image`, `MSImage`, `SRSImage`, `FluorImage` subclasses. 84 lines. | `Array` only, with instance-level `axes`, class-level `required_axes`/`allowed_axes`/`canonical_order`, `_validate_axes` method. New `sel()` and `iter_over()` methods per D4. No domain subclasses. | **Delete** lines 62–83 (all `Image`-family subclasses). **Change** `Array` constructor: `axes` becomes a required keyword argument (`axes: list[str]`). **Add** `required_axes`, `allowed_axes`, `canonical_order` ClassVars (all default to empty/None). **Add** `_validate_axes` method called from `__init__`. **Add** `sel(**kwargs)` method (~40 lines). **Add** `iter_over(axis)` generator method (~20 lines). **Remove** the class-level `axes: ClassVar` declaration. |
+| `src/scieasy/core/types/base.py` | `DataObject.__init__(metadata, storage_ref)`, single free-dict metadata field, JSON validator. | `DataObject.__init__(framework, meta, user, storage_ref)` with three slots. Backward-compat `metadata` property delegating to `user`. | **Add** `framework: FrameworkMeta`, `meta: BaseModel`, `user: dict` fields. **Add** `with_meta(**changes)` method. **Keep** `metadata` as `@property` returning `self.user` with `DeprecationWarning`. **Update** JSON-serialisability check to cover `user` dict only (framework and meta use Pydantic's own serialisation). **Update** `TypeSignature.from_type` to include `required_axes` when the class has them (so the signature carries the constraint into port checks). |
+| `src/scieasy/core/types/series.py` | `Series` base class; domain subclasses if present. | `Series` only. | **Delete** any `Spectrum`, `RamanSpectrum`, `MassSpectrum` class definitions (audit — some may not exist yet). |
+| `src/scieasy/core/types/dataframe.py` | `DataFrame` base; domain subclasses. | `DataFrame` only. | **Delete** `PeakTable`, `MetabPeakTable` if present. |
+| `src/scieasy/core/types/composite.py` | `CompositeData`; domain subclasses. | `CompositeData` only. | **Delete** `AnnData`, `SpatialData` if present. |
+| `src/scieasy/blocks/process/process_block.py` | `ProcessBlock` with `process_item(self, item, config)` 2-arg signature, default `run()` iterates and calls `process_item`. | `ProcessBlock` with `setup(config)`, `teardown(state)`, `process_item(self, item, config, state=None)` 3-arg signature, default `run()` calls `setup`, iterates, calls `teardown` in finally. | **Add** `setup` and `teardown` methods (default no-op). **Change** `process_item` signature to accept `state=None` (backward-compatible — existing 2-arg overrides continue to work because they ignore the new parameter). **Change** `run()` to wrap iteration in `state = self.setup(config); try: ... finally: self.teardown(state)`. |
+| `src/scieasy/engine/runners/worker.py` | `main()` parses stdin, imports block, runs it. `reconstruct_inputs` creates bare `ViewProxy` with `DataObject` type chain when registry info is absent. | `main()` scans `TypeRegistry` entry-points first. `reconstruct_inputs` resolves `type_chain` to the most specific registered class. | **Add** `TypeRegistry.scan()` call at the top of `main()` before `reconstruct_inputs`. **Add** import of `TypeRegistry`. **Change** `reconstruct_inputs` to call `TypeRegistry.resolve(type_chain)` (new helper) and pass the resolved class into `TypeSignature`. **No change** to output serialisation path. |
+| `src/scieasy/engine/resources.py` | `ResourceManager.__init__(gpu_slots: int = 0, ...)`. `ResourceRequest.max_internal_workers` exists but is not officially enforced. | `ResourceManager.__init__(gpu_slots: int | None = None, ...)` with auto-detect. Formally document `max_internal_workers` as the block author's declaration of intended internal parallelism. | **Change** default of `gpu_slots` to `None`. **Add** `_auto_detect_gpu_slots()` module function. **Add** one-time WARNING log when detected slots is 0 but a GPU block is scheduled. **Update** docstrings of `ResourceRequest.max_internal_workers` and `effective_cpu` to point to ADR-027 D8 for the thread-policy context. |
+| `src/scieasy/core/types/registry.py` | `TypeRegistry` with register/scan for core types. | `TypeRegistry` with a new `resolve(type_chain: list[str]) -> type | None` helper that finds the most specific registered class matching a chain. | **Add** `resolve(type_chain)` method that walks the chain from most-specific to least-specific and returns the first match. **Ensure** `scan()` is idempotent (safe to call from worker subprocess every startup). |
+
+#### Modified files
+
+| File | Changes |
+|---|---|
+| `src/scieasy/blocks/io/adapters/tiff_adapter.py` | **Change** line 26 `img = Image(...)` to import `Image` from `scieasy_blocks_imaging.types` (plugin) if available, else raise a clear error. Alternatively, the built-in TIFF adapter can be moved entirely to `scieasy-blocks-imaging` as part of Phase 10. Final decision deferred to the implementation ticket but captured here for visibility. |
+| `src/scieasy/blocks/process/builtins/*.py` (MergeCollection, FilterCollection, SliceCollection, TransformBlock, MergeBlock, SplitBlock) | **Audit** each for `accepted_types=[Image]` or similar domain-type references. **Change** to `accepted_types=[Array]` with optional constraint helpers. These built-ins are domain-agnostic by design and must not import from plugins. |
+| `src/scieasy/blocks/base/ports.py` | **Add** integration with `has_axes` constraint helper (constraint is the existing mechanism; no new field). **Update** `port_accepts_signature` to also check `TypeSignature.required_axes` compatibility (target port's required axes must be a subset of source type's required axes). |
+| `src/scieasy/api/routes/blocks.py` | **Audit** endpoints that return block schemas. If any hardcode domain-type names, generalise to read from `TypeRegistry`. |
+| `src/scieasy/ai/validators/*.py` (Phase 9 code generator validators) | **Update** type-reference checks so that AI-generated blocks cannot import `Image` from `scieasy.core.types.array` (it is no longer there). Validator must enforce plugin imports for domain types. |
+| `tests/core/test_types.py` | **Update** ~3 `Image(...)` instantiations: either use `Array` directly with `axes=["y","x"]`, or install `scieasy-blocks-imaging` as a test dependency. Chosen approach: switch to `Array` where the test is actually about core behaviour, keep `Image` imports in imaging-specific tests that live under `scieasy-blocks-imaging/tests/`. |
+| `tests/core/test_dataobject_extended.py` | **Update** ~1 instantiation per above. |
+| `tests/core/test_composite.py` | **Update** ~1 instantiation. |
+| `tests/core/test_proxy.py` | **Update** ~1 instantiation. |
+| `tests/core/test_collection.py` | **Update** ~21 instantiations. Largest migration. Most use `Image` as a generic Collection fixture; all can switch to `Array(axes=["y","x"], ...)`. |
+| `tests/blocks/test_block_base.py` | **Update** ~16 instantiations per above. |
+| `tests/blocks/test_collection_blocks.py` | **Update** ~1 instantiation. |
+| `tests/blocks/test_adapters.py` | **Update** ~1 instantiation. (May move entirely to imaging plugin tests.) |
+| `tests/blocks/test_ports.py` | **Update** ~3 instantiations. |
+| `tests/blocks/test_lazy_list.py` | **Update** ~3 instantiations. |
+| `tests/blocks/test_app_block.py` | **Update** ~2 instantiations. |
+| `tests/engine/test_checkpoint.py` | **Update** ~7 instantiations. |
+| `tests/integration/test_block_sdk_e2e.py` | **Update** ~1 instantiation. |
+| `tests/integration/test_multimodal_workflow.py` | **Update** ~7 instantiations OR move this test into `scieasy-blocks-imaging` as an integration test that requires all three plugin packages installed. Phase 10 decision: keep in core repo but mark with a pytest marker `@pytest.mark.requires_imaging` that is skipped when the plugin is not installed. |
+| `tests/api/test_data.py` | **Update** ~1 instantiation. |
+| `tests/workflow/test_validator.py` | **Update** 1 `from scieasy.core.types.array import Array, Image` → `Array` only. |
+| `tests/ai/test_validator.py` | **Update** ~4 instantiations. AI validator tests verify the "you cannot import Image from core" rule. |
+| `tests/ai/test_type_generator.py` | **Update** ~2 instantiations. |
+
+#### Deleted files
+
+No outright deletions. Domain subclasses are moved (deleted from core, recreated in plugins), but the Phase 10 plan tracks plugin-side additions as a separate work package in the `scieasy-blocks-imaging` repo scaffold task, not as file creations inside this repo.
+
+#### New tests required
+
+| Test file | Coverage |
+|---|---|
+| `tests/core/test_array_axes.py` | Instance-level axes, `required_axes` / `allowed_axes` validation, 6D instantiation, axis ordering, `sel()` single-index, `sel()` slice, `iter_over()` memory-bounded iteration, metadata inheritance across `sel`/`iter_over`. |
+| `tests/utils/test_axis_iter.py` | `iterate_over_axes` happy path (3D input, iterate over `z`), shape-mismatch → BroadcastError, `operates_on` not a subset → BroadcastError, metadata preservation, `source.__class__` preservation on output. |
+| `tests/core/test_units.py` | `PhysicalQuantity` construction, unit validation, `to()` conversion within a kind, cross-kind rejection, `__lt__` / `__eq__`, Pydantic integration (round-trip a model with a PhysicalQuantity field through `model_dump_json` / `model_validate_json`). |
+| `tests/core/test_stratified_metadata.py` | `FrameworkMeta` auto-population, `with_meta()` immutable update, `metadata` deprecation warning, Pydantic-backed `meta` field round-trip. |
+| `tests/blocks/test_process_block_lifecycle.py` | `setup` called once before iteration, `teardown` called once after, `state` passed to `process_item`, `teardown` called even on error via `finally`. |
+| `tests/engine/test_worker_type_registry.py` | Worker subprocess can reconstruct a `FluorImage` instance from a `StorageReference` when the plugin is installed. Simulated by injecting a test-only type registration. |
+| `tests/engine/test_resource_manager_gpu_autodetect.py` | `gpu_slots=None` triggers auto-detect; mocked `torch.cuda.device_count` returns various values; fallback to `nvidia-smi`; explicit integer respected. |
+
+#### Documentation impact
+
+| Document | Required changes |
+|---|---|
+| `docs/architecture/ARCHITECTURE.md` §4.1 (Base type hierarchy) | **Rewrite** the class diagram: core shows only the 7 base types with a "domain subtypes provided by plugin packages" annotation below. **Remove** references to `Image`, `MSImage`, `FluorImage`, `SRSImage`, `Spectrum`, `AnnData`, `SpatialData`, `PeakTable` from the core diagram. **Add** an "extended example (plugin-provided)" inset showing an imaging plugin's hierarchy as illustrative. |
+| `docs/architecture/ARCHITECTURE.md` §4.1 (Named axes on Array) | **Rewrite** the `axes` example code to show instance-level axes: `Image(axes=["t","z","c","y","x"], shape=(10,30,4,512,512))`. **Add** discussion of `required_axes` / `allowed_axes` / `canonical_order`. **Add** the 6D axis alphabet table (`t, z, c, lambda, y, x`) with descriptions. |
+| `docs/architecture/ARCHITECTURE.md` §4.5 (Broadcast utility) | **Add** cross-reference to `scieasy.utils.axis_iter.iterate_over_axes` (new sibling function). Describe the split of responsibility: `broadcast_apply` = low-dim → high-dim projection, `iterate_over_axes` = single Array extra-dim iteration. |
+| `docs/architecture/ARCHITECTURE.md` §5.1 (Block base class) | **Add** `setup(config)` and `teardown(state)` to the ProcessBlock contract description. **Update** `process_item` signature to 3-arg. |
+| `docs/architecture/ARCHITECTURE.md` §6.4 (Resource management) | **Update** to note that `gpu_slots` auto-detects by default in Phase 10 and references ADR-027 D10. |
+| `docs/architecture/ARCHITECTURE.md` §4.4 / metadata discussion | **Rewrite** to describe the `framework` / `meta` / `user` three-slot model. **Add** example of a Pydantic `Meta` subclass on a domain type. |
+| `docs/architecture/ARCHITECTURE.md` §5.4 (Block and type distribution) | **Add** note that Phase 10 moves all domain types out of core. Plugin packages are the only path. Core contains only base types. |
+| `docs/architecture/ARCHITECTURE.md` Appendix A (multimodal example) | **Audit** code snippets that import `Image`, `MSImage`, etc. from core. Update to import from plugin packages with `from scieasy_blocks_imaging.types import FluorImage`. |
+| `docs/architecture/PROJECT_TREE.md` | **Remove** `Image`, `MSImage`, `SRSImage`, `FluorImage` from `core/types/array.py` description. **Add** `utils/axis_iter.py`, `utils/constraints.py`, `core/units.py`, `core/meta/__init__.py`, `core/meta/framework.py` entries. |
+| `docs/guides/block-sdk.md` | **Rewrite** all `from scieasy.core.types.array import Image` imports to use plugin packages. **Add** section on setup/teardown hooks. **Add** section on metadata conventions (`img.meta.pixel_size`, `with_meta()`). **Add** subsection on L2 fan-out as the recommended Collection-level parallelism pattern. **Add** explicit thread policy paragraph. |
+| `docs/testing/phase-5-to-8-human-tests.md` and `phase-5-human-tests.md` | **Update** example snippets that import core `Image`. |
+| `docs/adr/ADR.md` | This ADR (ADR-027). |
+| `CHANGELOG.md` | **Add** entry under `[Unreleased]` → `### Added` for ADR-027. |
+
+#### Out of scope
+
+- **Level 2 laziness** (`SlicedStorageReference` threaded through ViewProxy). Deferred to Phase 11+.
+- **`pint` integration**. `PhysicalQuantity` is the Phase 10 unit story; pint is a future option if dimensional algebra is ever needed.
+- **Block-internal `parallel_slices` or `ThreadPoolExecutor` helpers** built into the framework. Block authors may use threads (D8) but the framework provides no blessed helper in Phase 10.
+- **VRAM-aware GPU slot calculation**. Physical GPU count with user override is sufficient for Phase 10.
+- **New block states, new BlockEvent types, new ExecutionMode variants**. All runtime protocols remain as ADR-018 defined them.
+- **Changes to `Collection`, `ViewProxy`, or storage backends beyond the registry scan requirement**.
+- **Any code changes in this PR**. This ADR is documentation only. Implementation lands under Phase 10 implementation tickets, each referencing specific ADR-027 sections.
+- **Any updates to `docs/architecture/ARCHITECTURE.md`, `docs/guides/block-sdk.md`, or `docs/architecture/PROJECT_TREE.md` in this PR**. Those updates are tracked as Deliverable B of issue #255 and will ship in a follow-up PR with its own gate workflow.
+
+---
+
+## ADR-027 Addendum 1: Worker subprocess type reconstruction returns typed DataObject instances, not ViewProxy
+
+**Status**: proposed
+**Date**: 2026-04-06
+
+### Purpose
+
+ADR-027 D11 (worker subprocess `TypeRegistry.scan()`) and ADR-027 D5 (stratified Pydantic metadata) are mutually inconsistent as written. This Addendum resolves the contradiction by formally adopting "Option B" — `worker.reconstruct_inputs` returns typed `DataObject` instances rather than `ViewProxy`. It also locks down the per-base-class reconstruction contract, the `Meta` Pydantic constraints, the `PhysicalQuantity` Pydantic integration approach, and the resulting role of `ViewProxy` after this Addendum.
+
+This Addendum **does not** modify any of the other ADR-027 decisions (D1–D10 stand unchanged) and does **not** revise the discussion-table row for D11 (the high-level commitment "worker scans entry-points so plugin types can be resolved" remains correct). It supersedes only the specific pseudocode example inside D11's Decision section and the corresponding entry under "Alternatives considered" that rejected typed reconstruction.
+
+### Context
+
+ADR-027 D11's "Decision" section specifies that the worker subprocess should call `TypeRegistry.resolve(type_chain)` and use the resolved class — but the code sample then computes `cls` and immediately discards it, returning a bare `ViewProxy`:
+
+```python
+# From ADR-027 D11 (the version being clarified)
+def reconstruct_inputs(payload):
+    ...
+    for key, value in raw_inputs.items():
+        if isinstance(value, dict) and "backend" in value and "path" in value:
+            ref = StorageReference(...)
+            type_chain = value.get("metadata", {}).get("type_chain", ["DataObject"])
+            cls = TypeRegistry.resolve(type_chain) or DataObject     # ← computed
+            sig = TypeSignature(type_chain=type_chain)
+            result[key] = ViewProxy(storage_ref=ref, dtype_info=sig) # ← cls discarded
+        else:
+            result[key] = value
+    return result
+```
+
+D11's "Alternatives considered" then explicitly rejects "deep type reconstruction" with the rationale:
+
+> Rejected because it would make `reconstruct_inputs` responsible for invoking each subclass's `__init__` with the right arguments, which we cannot generically do (different subclasses have different required metadata). The middle ground is: scan the registry (D11), map `type_chain` to a concrete class for signature matching, but still return a `ViewProxy`.
+
+That rationale was correct **before** D5 unified the constructor surface. With D5 in effect, every `DataObject` subclass takes the same core fields (`framework: FrameworkMeta`, `meta: BaseModel`, `user: dict`, `storage_ref: StorageReference | None`) plus a small, base-class-specific set of geometry fields (e.g. `axes`, `shape`, `dtype`, `chunk_shape` for `Array`). Subclasses no longer have wildly divergent `__init__` signatures, so the rejection reason no longer applies.
+
+Meanwhile, every other ADR-027 decision and every example in `docs/guides/block-sdk.md` (rewritten in PR #258) assumes block authors receive a real typed instance. The Cellpose example is representative:
+
+```python
+def process_item(self, item: FluorImage, config, state):
+    if item.meta.pixel_size < Q(0.2, "um"):                  # ← item.meta
+        ...
+    new = item.with_meta(pixel_size=Q(0.216, "um"))           # ← with_meta()
+    img_2d = item.to_memory()
+    masks, _, _, _ = state.eval(img_2d, ...)
+    return Image(axes=item.axes, shape=masks.shape, dtype=masks.dtype, meta=item.meta)
+```
+
+`ViewProxy` has none of `meta`, `with_meta`, or `Image`-typed isinstance compatibility. It was designed in ADR-007 as a thin lazy accessor with `slice / to_memory / iter_chunks / shape` only. If the worker really returned `ViewProxy`, every block in Phase 10 would have to:
+
+1. Inspect `item.dtype_info.type_chain` instead of using `isinstance`.
+2. Read metadata via a side channel (the `storage_ref.metadata` dict), bypassing all Pydantic validation.
+3. Lose the `with_meta` immutable update path entirely.
+
+This effectively cancels D5 and D7 inside the worker, which is the only place they matter.
+
+The contradiction was not noticed during ADR-027 authoring because D5, D7, and D11 were drafted as independent table rows rather than as a single integrated contract. This Addendum integrates them.
+
+### Discussion points and resolution
+
+| # | Topic | Options discussed | Final decision |
+|---|---|---|---|
+| 1 | What should `worker.reconstruct_inputs` return for each input? | (A) `ViewProxy` (current ADR-027 D11). (B) Typed `DataObject` instance with `storage_ref` set but payload not yet read. (C) A new `LazyDataObject` mix-in: typed instance that masquerades as `FluorImage` but defers payload load through proxy semantics. | **Decision: (B).** D5 unified the constructor surface, removing the original rationale for rejecting (B). (B) makes the in-worker block API identical to the externally-tested API: `item.meta.pixel_size`, `item.with_meta(...)`, `item.iter_over("z")`, `isinstance(item, FluorImage)` all behave the same. Lazy loading is preserved because a `FluorImage(storage_ref=ref, ...)` with `storage_ref` set does not read its payload until `to_memory()` / `view()` / `sel()` / `iter_over()` is called — the lazy contract from ADR-007 is satisfied at the method level, not at the wrapper-class level. (A) cancels D5/D7 inside the worker, as documented in the Context section. (C) introduces a third concept (LazyDataObject) without solving any problem that (B) does not already solve. |
+| 2 | Where lives the per-base-class knowledge of "how to reconstruct from a metadata sidecar"? | (A) A big `if cls is Array: ... elif cls is DataFrame: ...` chain inside `worker.py`. (B) A classmethod hook `_reconstruct_extra_kwargs(metadata: dict) -> dict` declared on each base class; worker.py invokes it generically. (C) Pydantic full reflection over class fields at runtime. | **Decision: (B).** (A) puts plugin-specific knowledge in the engine, violating CLAUDE.md §7.3 ("No mixing core contracts with plugin logic"). (C) is too magical and breaks for fields the framework deliberately keeps non-Pydantic, such as `Array.axes` (a list[str] that has class-level validation logic) and the geometry tuples. (B) is a small, explicit, well-documented contract: each base class declares what it needs to round-trip, the worker calls the hook generically. Plugin subclasses inherit the hook from their base class and almost never need to override it (the only exception is composite types whose slots have plugin-specific structure, which have their own slot reconstruction story). |
+| 3 | What constraints does a subclass's `Meta` Pydantic model have to satisfy to be reconstructable across the subprocess boundary? | (A) Any `pydantic.BaseModel` works; we hope for the best. (B) Frozen, no `PrivateAttr`, all fields must round-trip through `model_dump_json` / `model_validate_json`. | **Decision: (B).** The framework round-trips `Meta` through JSON every time a block runs, because the engine and worker live in different processes. PrivateAttr fields, fields holding live file handles, and fields with arbitrary types that lack a serializer all break this round-trip silently or noisily. Documenting the constraint as part of the `Meta` contract prevents Phase 11+ plugin authors from hitting confusing reconstruction errors. The framework provides `PhysicalQuantity`, `ChannelInfo`, and a small set of other primitives that all comply; plugin authors compose their `Meta` from these and from primitive Python types (str/int/float/bool/datetime/list/dict). |
+| 4 | How does `PhysicalQuantity` (ADR-027 D6) integrate with Pydantic so that `pixel_size: PhysicalQuantity` works without per-field boilerplate? | (A) Pydantic v2 `__get_pydantic_core_schema__` registered on the dataclass — fully transparent to plugin authors. (B) Per-field `field_serializer` / `field_validator` that each plugin author writes. | **Decision: (A).** Plugin authors writing `pixel_size: PhysicalQuantity` should not need to know anything about Pydantic internals. The integration cost is paid once inside `scieasy.core.units` (when ADR-027 D6 is implemented) and is invisible to downstream code. The serialised JSON form is `{"value": 0.108, "unit": "um"}`, which is what plugin authors see if they ever inspect the wire format. |
+| 5 | What is the role of `ViewProxy` after this Addendum? | (A) Delete entirely, fold its methods into `Array`. (B) Keep `ViewProxy` as the return type of `Array.view()` for blocks that genuinely need explicit chunk-by-chunk reading without materialising the whole array. (C) Make `ViewProxy` strictly internal to backends. | **Decision: (B).** ViewProxy is still useful for blocks that read 100 GB Zarr stores chunk-by-chunk, where the block author wants explicit control over which chunks are touched. Examples: a streaming statistics block that computes per-chunk means, an ROI extraction block that reads only the requested spatial region. After this Addendum, `ViewProxy` is **demoted from "engine-injected input type"** to **"opt-in helper accessed via `item.view()`"**. The default block experience is `item.to_memory()` / `item.sel(...)` / `item.iter_over(...)`. Blocks that need ViewProxy explicitly call `item.view()`. |
+
+### Decision
+
+#### D11′. `worker.reconstruct_inputs` returns typed DataObject instances
+
+Replace the D11 pseudocode with the following. The function dispatches three cases — `Collection`, single `DataObject`, scalar pass-through — and delegates per-item reconstruction to a private helper:
+
+```python
+# scieasy/engine/runners/worker.py
+
+def reconstruct_inputs(payload: dict[str, Any]) -> dict[str, Any]:
+    """Reconstruct typed DataObject inputs from the JSON wire payload.
+
+    ADR-027 D11 + Addendum 1: Returns typed instances (e.g. FluorImage),
+    not ViewProxy. Lazy loading is preserved at the method level: the
+    returned instance has storage_ref set but does not read payload data
+    until to_memory() / view() / sel() / iter_over() is called.
+    """
+    from scieasy.core.types.collection import Collection
+    from scieasy.core.types.registry import TypeRegistry
+    from scieasy.core.types.base import DataObject
+
+    raw_inputs = payload.get("inputs", {})
+    result: dict[str, Any] = {}
+
+    for key, value in raw_inputs.items():
+        if isinstance(value, dict) and value.get("_collection"):
+            # Collection of typed items
+            items = [_reconstruct_one(item) for item in value["items"]]
+            item_type_name = value.get("item_type", "DataObject")
+            item_type = TypeRegistry.resolve([item_type_name]) or DataObject
+            result[key] = Collection(items, item_type=item_type)
+        elif isinstance(value, dict) and "backend" in value and "path" in value:
+            # Single typed DataObject
+            result[key] = _reconstruct_one(value)
+        else:
+            # Scalar / pass-through (config-derived inputs that aren't DataObjects)
+            result[key] = value
+
+    return result
+
+
+def _reconstruct_one(payload_item: dict) -> "DataObject":
+    """Reconstruct one typed DataObject instance from a serialised payload item.
+
+    The serialised form is the same JSON dict that worker.serialise_outputs
+    produces, namely:
+        {
+            "backend": "zarr",
+            "path":    "/path/to/store",
+            "format":  "...",
+            "metadata": {
+                "type_chain":  ["DataObject", "Array", "Image", "FluorImage"],
+                "framework":   { ...FrameworkMeta fields... },
+                "meta":        { ...Meta-model fields, JSON-serialised... },
+                "user":        { ...free-form dict... },
+                # base-class extras (e.g. axes/shape/dtype/chunk_shape for Array)
+                "axes":        ["t", "z", "c", "y", "x"],
+                "shape":       [10, 30, 4, 512, 512],
+                "dtype":       "uint16",
+                "chunk_shape": [1, 1, 1, 512, 512],
+            },
+        }
+    """
+    from scieasy.core.types.registry import TypeRegistry
+    from scieasy.core.types.base import DataObject
+    from scieasy.core.storage.ref import StorageReference
+    from scieasy.core.meta import FrameworkMeta
+
+    ref = StorageReference(
+        backend=payload_item["backend"],
+        path=payload_item["path"],
+        format=payload_item.get("format"),
+        metadata=payload_item.get("metadata", {}),
+    )
+    md = payload_item.get("metadata", {})
+
+    # 1. Resolve the most specific class registered for this type chain.
+    type_chain = md.get("type_chain", ["DataObject"])
+    cls = TypeRegistry.resolve(type_chain) or DataObject
+
+    # 2. Reconstruct the three metadata slots.
+    framework = FrameworkMeta.model_validate(md.get("framework", {}))
+
+    meta_cls = getattr(cls, "Meta", None)
+    if meta_cls is not None:
+        meta = meta_cls.model_validate(md.get("meta", {}))
+    else:
+        meta = None
+
+    user = dict(md.get("user", {}) or {})
+
+    # 3. Ask the base class which extra kwargs it wants from the metadata.
+    if hasattr(cls, "_reconstruct_extra_kwargs"):
+        extra_kwargs = cls._reconstruct_extra_kwargs(md)
+    else:
+        extra_kwargs = {}
+
+    # 4. Construct the typed instance. storage_ref is set but payload not read.
+    return cls(
+        storage_ref=ref,
+        framework=framework,
+        meta=meta,
+        user=user,
+        **extra_kwargs,
+    )
+```
+
+#### D11′ companion. `_reconstruct_extra_kwargs` classmethod hook
+
+Each of the six core base classes implements a `classmethod _reconstruct_extra_kwargs(metadata: dict) -> dict` that returns the keyword arguments that the class's `__init__` needs **beyond** the four core fields (`storage_ref`, `framework`, `meta`, `user`). The hook is called by `_reconstruct_one`. Plugin subclasses inherit the hook from their base class and almost never need to override it.
+
+```python
+# scieasy/core/types/base.py
+class DataObject:
+    @classmethod
+    def _reconstruct_extra_kwargs(cls, metadata: dict) -> dict:
+        """Return base-class-specific kwargs to pass to __init__ during
+        worker subprocess reconstruction. Default: no extra kwargs."""
+        return {}
+
+
+# scieasy/core/types/array.py
+class Array(DataObject):
+    @classmethod
+    def _reconstruct_extra_kwargs(cls, metadata: dict) -> dict:
+        return {
+            "axes":        list(metadata.get("axes", [])),
+            "shape":       tuple(metadata["shape"]) if metadata.get("shape") else None,
+            "dtype":       metadata.get("dtype"),
+            "chunk_shape": tuple(metadata["chunk_shape"]) if metadata.get("chunk_shape") else None,
+        }
+
+
+# scieasy/core/types/series.py
+class Series(DataObject):
+    @classmethod
+    def _reconstruct_extra_kwargs(cls, metadata: dict) -> dict:
+        return {
+            "index_name": metadata.get("index_name"),
+            "value_name": metadata.get("value_name"),
+            "length":     metadata.get("length"),
+        }
+
+
+# scieasy/core/types/dataframe.py
+class DataFrame(DataObject):
+    @classmethod
+    def _reconstruct_extra_kwargs(cls, metadata: dict) -> dict:
+        return {
+            "columns":   list(metadata.get("columns", [])),
+            "row_count": metadata.get("row_count"),
+            "schema":    dict(metadata.get("schema", {})),
+        }
+
+
+# scieasy/core/types/text.py
+class Text(DataObject):
+    @classmethod
+    def _reconstruct_extra_kwargs(cls, metadata: dict) -> dict:
+        return {
+            "format":   metadata.get("format", "plain"),
+            "encoding": metadata.get("encoding", "utf-8"),
+        }
+
+
+# scieasy/core/types/artifact.py
+class Artifact(DataObject):
+    @classmethod
+    def _reconstruct_extra_kwargs(cls, metadata: dict) -> dict:
+        return {
+            "mime_type":   metadata.get("mime_type"),
+            "description": metadata.get("description", ""),
+        }
+
+
+# scieasy/core/types/composite.py
+class CompositeData(DataObject):
+    @classmethod
+    def _reconstruct_extra_kwargs(cls, metadata: dict) -> dict:
+        """Composite types reconstruct nested slots recursively.
+
+        The serialised form of a composite item carries a "slots" dict
+        whose values are themselves single-DataObject payload items
+        (with backend/path/metadata). We delegate to _reconstruct_one
+        to rebuild each slot.
+        """
+        slot_payloads = metadata.get("slots", {}) or {}
+        slots = {
+            slot_name: _reconstruct_one(slot_payload)
+            for slot_name, slot_payload in slot_payloads.items()
+        }
+        return {"slots": slots}
+```
+
+Plugin subclasses that add fields beyond their base class can override the hook and call `super()._reconstruct_extra_kwargs(metadata)` to pick up the parent class's extras:
+
+```python
+# Hypothetical plugin subclass that adds a wavenumber_axis numeric field
+# (not a Meta field — it is geometry-like, so it lives outside Meta)
+class HyperspectralImage(Image):
+    @classmethod
+    def _reconstruct_extra_kwargs(cls, metadata: dict) -> dict:
+        kwargs = super()._reconstruct_extra_kwargs(metadata)
+        kwargs["wavenumber_axis"] = list(metadata.get("wavenumber_axis", []))
+        return kwargs
+```
+
+In practice, almost all plugin types put their domain fields inside `Meta` (which round-trips automatically via Pydantic) and never need to override this hook. The override path exists for unusual cases.
+
+#### D11′ companion. Symmetric `serialise_outputs` change
+
+`worker.serialise_outputs` must be updated symmetrically so that the wire format `_reconstruct_one` reads is the wire format `serialise_outputs` writes. The output side already produces a metadata sidecar; this Addendum specifies its exact contents:
+
+```python
+# scieasy/engine/runners/worker.py
+
+def serialise_outputs(outputs: dict[str, Any], output_dir: str) -> dict[str, Any]:
+    """Serialise typed DataObject outputs to the JSON wire format.
+
+    For each output value:
+      - If Collection: serialise each item via _serialise_one,
+        emit {"_collection": True, "item_type": ..., "items": [...]}
+      - If DataObject:  serialise via _serialise_one
+      - Else:           pass through scalar / list / dict
+    """
+    from scieasy.blocks.base.block import Block
+    from scieasy.core.types.base import DataObject
+    from scieasy.core.types.collection import Collection
+
+    result: dict[str, Any] = {}
+    for key, value in outputs.items():
+        if isinstance(value, Collection):
+            item_payloads = [_serialise_one(Block._auto_flush(item)) for item in value]
+            result[key] = {
+                "_collection": True,
+                "item_type":   value.item_type.__name__ if value.item_type else "DataObject",
+                "items":       item_payloads,
+            }
+        elif isinstance(value, DataObject):
+            result[key] = _serialise_one(Block._auto_flush(value))
+        elif isinstance(value, (str, int, float, bool, type(None), list, dict)):
+            result[key] = value
+        else:
+            result[key] = str(value)
+    return result
+
+
+def _serialise_one(obj: "DataObject") -> dict:
+    """Serialise one typed DataObject to a wire-format payload item.
+
+    The metadata sidecar carries everything _reconstruct_one needs:
+    type_chain (for class lookup), framework/meta/user (for metadata),
+    and base-class extras (for __init__ kwargs).
+    """
+    if obj.storage_ref is None:
+        # Should never happen — Block._auto_flush is called before us.
+        raise RuntimeError(f"Cannot serialise {type(obj).__name__} without storage_ref")
+
+    md: dict[str, Any] = {}
+
+    # type_chain — used by TypeRegistry.resolve in the receiving worker
+    md["type_chain"] = obj.dtype_info.type_chain
+
+    # framework slot
+    md["framework"] = obj.framework.model_dump(mode="json")
+
+    # meta slot (Pydantic round-trip via JSON mode)
+    if obj.meta is not None:
+        md["meta"] = obj.meta.model_dump(mode="json")
+
+    # user slot (free dict — already JSON-serialisable per ADR-017)
+    md["user"] = dict(obj.user or {})
+
+    # base-class extras: ask the class which fields it wants persisted.
+    if hasattr(type(obj), "_serialise_extra_metadata"):
+        md.update(type(obj)._serialise_extra_metadata(obj))
+
+    ref = obj.storage_ref
+    return {
+        "backend":  ref.backend,
+        "path":     ref.path,
+        "format":   ref.format,
+        "metadata": md,
+    }
+```
+
+`_serialise_extra_metadata` is the symmetric counterpart of `_reconstruct_extra_kwargs`. Each base class implements both:
+
+```python
+class Array(DataObject):
+    @classmethod
+    def _serialise_extra_metadata(cls, obj: "Array") -> dict:
+        return {
+            "axes":        list(obj.axes),
+            "shape":       list(obj.shape) if obj.shape is not None else None,
+            "dtype":       str(obj.dtype) if obj.dtype is not None else None,
+            "chunk_shape": list(obj.chunk_shape) if obj.chunk_shape is not None else None,
+        }
+```
+
+The other five base classes implement their own `_serialise_extra_metadata` that mirrors their `_reconstruct_extra_kwargs`. The implementation ticket will write all six pairs.
+
+#### `Meta` Pydantic constraints
+
+Plugin subclasses declaring a `Meta` Pydantic model must obey:
+
+1. **Inherit from `pydantic.BaseModel`**, not from `dataclass` or any other base.
+2. **No `PrivateAttr`**. Private state cannot round-trip through JSON.
+3. **All fields must be JSON-round-trippable** via `model_dump(mode="json")` and `model_validate`. Acceptable types are: primitive Python (`str`, `int`, `float`, `bool`, `None`), lists and dicts of acceptable types, `datetime`, other Pydantic `BaseModel` whose fields are themselves acceptable, `PhysicalQuantity` (which provides Pydantic v2 integration via `__get_pydantic_core_schema__` — see next subsection), and Pydantic-supplied custom types like `EmailStr`, `HttpUrl`, etc.
+4. **Recommended `model_config = ConfigDict(frozen=True)`** so `with_meta(...)` immutability is enforced statically rather than relying on convention. The framework does not strictly require `frozen=True`, but `with_meta` only makes semantic sense if the existing `Meta` is treated as immutable.
+
+The framework enforces (1) and (3) at registration time: when a plugin's `get_types()` callable returns a class with a non-conforming `Meta`, `TypeRegistry` rejects the registration with a clear error message pointing at the offending field. This prevents Phase 11+ plugin authors from discovering serialisation failures only at runtime.
+
+Validation logic lives in `TypeRegistry.register` and is called once per class at scan time, so the cost is paid at startup, not per dispatch.
+
+#### `PhysicalQuantity` Pydantic integration
+
+ADR-027 D6 specified `PhysicalQuantity` as a frozen dataclass. To make `pixel_size: PhysicalQuantity` work inside a `Meta` BaseModel without per-field boilerplate, the `scieasy.core.units` module attaches a Pydantic v2 core schema to the dataclass:
+
+```python
+# scieasy/core/units.py (extends ADR-027 D6's specification)
+
+from __future__ import annotations
+from dataclasses import dataclass
+from typing import Any
+from pydantic_core import core_schema
+from pydantic import GetCoreSchemaHandler
+
+@dataclass(frozen=True)
+class PhysicalQuantity:
+    value: float
+    unit: str
+
+    # ... existing methods (to, __lt__, __eq__) per ADR-027 D6 ...
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source_type: Any, handler: GetCoreSchemaHandler,
+    ) -> core_schema.CoreSchema:
+        """Pydantic v2 integration: PhysicalQuantity round-trips as
+        {"value": float, "unit": str}.
+
+        Plugin authors writing `pixel_size: PhysicalQuantity` get JSON
+        serialisation, JSON validation, and OpenAPI schema generation
+        automatically. No field_serializer / field_validator boilerplate
+        required.
+        """
+        def _validate(v: Any) -> "PhysicalQuantity":
+            if isinstance(v, PhysicalQuantity):
+                return v
+            if isinstance(v, dict) and "value" in v and "unit" in v:
+                return cls(value=float(v["value"]), unit=str(v["unit"]))
+            raise ValueError(
+                f"PhysicalQuantity expects {{value, unit}} dict or PhysicalQuantity, got {type(v).__name__}"
+            )
+
+        return core_schema.no_info_plain_validator_function(
+            _validate,
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                lambda obj: {"value": obj.value, "unit": obj.unit},
+                return_schema=core_schema.dict_schema(),
+            ),
+        )
+```
+
+Plugin authors do not see any of this. They write:
+
+```python
+class FluorImage(Image):
+    class Meta(Image.Meta):
+        pixel_size: PhysicalQuantity
+        exposure_ms: dict[str, float] | None = None
+```
+
+and the framework handles JSON round-trip transparently. When this `Meta` instance is serialised via `model_dump(mode="json")`, `pixel_size` becomes `{"value": 0.108, "unit": "um"}`. When `model_validate` reads it back in the receiving worker, it becomes a `PhysicalQuantity(0.108, "um")` instance again.
+
+The implementation ticket for ADR-027 D6 must include this Pydantic integration, the corresponding test (`tests/core/test_units.py::test_physical_quantity_pydantic_round_trip`), and a smoke test that round-trips a full `FluorImage.Meta` containing several `PhysicalQuantity` fields through `model_dump_json` / `model_validate_json`.
+
+#### `ViewProxy` role after this Addendum
+
+`ViewProxy` is **not removed** by this Addendum. It is **demoted** from "the type the engine injects into block inputs" to "an opt-in helper accessed via `Array.view()` for blocks that need explicit chunk-level reading". Concretely:
+
+- `Array.view()` continues to return `ViewProxy(storage_ref, dtype_info)`. The signature and behaviour of ViewProxy itself are unchanged.
+- `Array.to_memory()`, `Array.sel()`, `Array.iter_over()`, and `Array.shape` are now methods on the `Array` instance directly (per ADR-027 D4), without needing to detour through ViewProxy.
+- Blocks that read 100 GB Zarr stores chunk-by-chunk continue to call `item.view().slice(...)` or `item.view().iter_chunks(...)`. This is the same code they would have written before this Addendum; the only thing that changes is the **default** path is now `item.to_memory()` / `item.sel(...)` rather than `item.view().to_memory()` / `item.view().slice(...)`.
+- `worker.reconstruct_inputs` no longer constructs `ViewProxy` instances at all. The `ViewProxy` import is removed from `worker.py`.
+
+This demotion is consistent with ADR-007 (lazy loading): laziness is now expressed at the **method level** on the typed instance (`to_memory` / `sel` / `iter_over` defer I/O until called) rather than at the **wrapper-class level**. Both achieve the same memory behaviour; the typed-instance approach gives block authors a richer API with no extra cost.
+
+### Alternatives considered
+
+- **Option A: keep ViewProxy as the worker return type and patch around it.** Requires giving `ViewProxy` a `meta` attribute, a `with_meta` method, an `iter_over` / `sel` proxy that round-trips through the underlying type, and isinstance compatibility with plugin classes. Each of these is feasible individually; together they reconstruct most of `DataObject` on the `ViewProxy` side. At that point ViewProxy *is* a DataObject in all but name, and the simpler thing is to use the actual class. Rejected.
+- **Option C: introduce `LazyDataObject` mix-in.** A new class that inherits from both `DataObject` and ViewProxy, providing typed-class identity AND proxy semantics. The mix-in could in principle solve the same problem as Option B, but introduces a third concept (alongside ViewProxy and the typed classes) that plugin authors must learn. There is no behaviour LazyDataObject would provide that a plain typed instance with a set `storage_ref` does not already provide. Rejected as unnecessary complexity.
+- **Have the engine keep using ViewProxy and run a "type upgrade" pass before invoking the block's `run()`.** This is a variant of Option B that defers reconstruction by one step. It does not change the contract or the implementation cost meaningfully — the upgrade pass would do exactly what `_reconstruct_one` does in Option B. Rejected as a wash.
+- **Rewrite D5 to make `DataObject.meta` optional / lazy on ViewProxy.** Reverses the wrong decision. D5 is the right design; D11's pseudocode is the wrong design. Rejected.
+- **Defer the resolution to the implementation phase.** Tempting but dangerous: the contradiction is large enough that the implementation ticket would have to either re-litigate this decision or pick one of the bad options under time pressure. Resolving it now in an Addendum keeps the implementation ticket focused on writing code rather than re-arguing architecture.
+
+### Consequences
+
+- **`worker.py` becomes the canonical reference site for typed DataObject reconstruction.** Both `_reconstruct_one` and `_serialise_one` live there and dispatch to base-class hooks. The worker file grows by ~80 lines (the two helpers) but loses the discarded `cls` line and the `ViewProxy` import.
+- **Six new pairs of classmethods on the base classes.** Each of `DataObject`, `Array`, `Series`, `DataFrame`, `Text`, `Artifact`, `CompositeData` gains `_reconstruct_extra_kwargs` and `_serialise_extra_metadata`. Total: 12 small classmethods, ~5 lines each. The hook contract is documented in the developer SDK guide as "rarely overridden by plugin authors; framework default is sufficient for almost all subtypes".
+- **Plugin `Meta` classes have an explicit constraint set** (frozen, no PrivateAttr, JSON-round-trippable). The constraint is enforced at registration time by `TypeRegistry`, with a clear error message pointing at the offending field. This is a small cost paid once per class at startup, not per dispatch.
+- **`PhysicalQuantity` integration with Pydantic is no longer hand-waved.** ADR-027 D6's implementation ticket will include the `__get_pydantic_core_schema__` method and a round-trip test. Plugin authors get transparent JSON serialisation for `pixel_size: PhysicalQuantity` without writing any boilerplate.
+- **`ViewProxy` is demoted but not removed.** Existing code that calls `item.view().to_memory()` continues to work. New blocks should prefer `item.to_memory()` directly. The block-sdk.md guide will note (in a future PR — not in this Addendum's scope) that `view()` is the escape hatch for explicit chunk reading; the default path is direct method calls on the typed instance.
+- **Tests that asserted `inputs["x"]` is a `ViewProxy` will fail.** I expect ~5–10 such assertions across `tests/`, mostly in early `test_proxy.py` and `test_block_base.py` tests written before D5 was specified. The implementation ticket for D11 must update these to assert `isinstance(inputs["x"], FluorImage)` (or `Array`, depending on the test's domain) instead.
+- **No change to the wire format on the engine→worker direction.** The serialised payload already carries a `metadata` dict; this Addendum specifies its exact contents but does not introduce a new transport mechanism. Existing checkpoints continue to load (with a small forward-compat note: `framework`/`meta`/`user` defaults are filled in when loading older checkpoints whose metadata was a flat dict).
+- **No change to `D5/D7/D9` decisions.** The metadata stratification, the `setup`/`teardown` hooks, the L2 fan-out pattern — all unchanged. This Addendum touches only the worker reconstruction layer.
+- **No change to the `EventBus`, `BlockState`, `Collection`, or `ProcessRegistry` contracts.** This is a worker-internal clarification.
+
+### Detailed impact scope
+
+#### Rewritten files (in the eventual implementation ticket; not in this PR)
+
+| File | Current state | New state | Detailed changes |
+|---|---|---|---|
+| `src/scieasy/engine/runners/worker.py` | `reconstruct_inputs` returns `ViewProxy`. `serialise_outputs` writes a metadata sidecar but does not split it into framework/meta/user. | `reconstruct_inputs` dispatches to `_reconstruct_one` per item, returns typed `DataObject` instances. `serialise_outputs` dispatches to `_serialise_one`, which writes `type_chain` + `framework` + `meta` + `user` + base-class extras into the metadata sidecar. | **Add** `_reconstruct_one(payload_item)` (~40 lines). **Add** `_serialise_one(obj)` (~30 lines). **Change** `reconstruct_inputs` to call `_reconstruct_one` instead of constructing `ViewProxy` (current ~30 lines → ~25 lines). **Change** `serialise_outputs` to call `_serialise_one` instead of inline serialisation (current ~50 lines → ~35 lines). **Remove** the `ViewProxy` import (no longer needed in worker.py). **Add** `TypeRegistry.scan()` call at top of `main()` per ADR-027 D11 (this part is unchanged from D11). |
+| `src/scieasy/core/types/base.py` | `DataObject` has framework/meta/user slots per ADR-027 D5. | Adds `_reconstruct_extra_kwargs(metadata)` and `_serialise_extra_metadata(obj)` classmethods, both returning `{}` by default. | **Add** two classmethods, each ~3 lines (default empty implementation + docstring). |
+| `src/scieasy/core/types/array.py` | `Array` per ADR-027 D1 with instance-level `axes`. | Adds `_reconstruct_extra_kwargs` and `_serialise_extra_metadata` covering `axes`, `shape`, `dtype`, `chunk_shape`. | **Add** two classmethods, ~10 lines each. |
+| `src/scieasy/core/types/series.py` | `Series` base class. | Adds two classmethods covering `index_name`, `value_name`, `length`. | **Add** two classmethods, ~6 lines each. |
+| `src/scieasy/core/types/dataframe.py` | `DataFrame` base class. | Adds two classmethods covering `columns`, `row_count`, `schema`. | **Add** two classmethods, ~6 lines each. |
+| `src/scieasy/core/types/text.py` | `Text` base class. | Adds two classmethods covering `format`, `encoding`. | **Add** two classmethods, ~5 lines each. |
+| `src/scieasy/core/types/artifact.py` | `Artifact` base class. | Adds two classmethods covering `mime_type`, `description`. | **Add** two classmethods, ~5 lines each. |
+| `src/scieasy/core/types/composite.py` | `CompositeData` per ADR-027 D2. | Adds two classmethods covering `slots` — recursively delegates to `_reconstruct_one` / `_serialise_one` for each slot. | **Add** two classmethods, ~10 lines each. The recursive delegation needs an import of `worker._reconstruct_one`, which is acceptable because composite reconstruction is intrinsically tied to the worker reconstruction protocol. Alternative: move the helpers into a new module `scieasy.core.types.serialization` to avoid `core` importing `engine.runners`. The implementation ticket will pick the cleaner of the two import directions. |
+| `src/scieasy/core/types/registry.py` | `TypeRegistry.register` and `TypeRegistry.resolve` per ADR-027 D11. | Adds validation in `register`: if the registered class declares a `Meta` attribute, check that it is a `BaseModel`, has no `PrivateAttr` fields, and that all fields round-trip through `model_dump(mode="json")` / `model_validate`. Reject with a clear error if not. | **Add** `_validate_meta_class(cls)` (~25 lines). **Call** from `register()`. The validation cost is paid once per class at registration; not per dispatch. |
+| `src/scieasy/core/units.py` | `PhysicalQuantity` per ADR-027 D6. | Adds `__get_pydantic_core_schema__` for transparent Pydantic v2 integration. | **Add** the classmethod (~25 lines including the imported `core_schema` helpers). |
+
+#### Tests
+
+| Test file | Coverage |
+|---|---|
+| `tests/engine/test_worker_type_reconstruction.py` (new) | `_reconstruct_one` round-trip for each base class with synthetic `StorageReference`. Verifies returned instance is the correct subclass, `meta` is the correct Pydantic model, `framework` fields populated, `user` dict preserved. |
+| `tests/engine/test_worker_serialise_outputs.py` (new or extended) | `_serialise_one` produces the wire format expected by `_reconstruct_one`. Round-trip test: serialise → reconstruct → assert deep equality. |
+| `tests/core/test_stratified_metadata.py` (already in ADR-027) | Add a test that round-trips a `FluorImage.Meta` with a `PhysicalQuantity` field through `model_dump_json` / `model_validate_json`. |
+| `tests/core/test_units.py` (already in ADR-027) | Add `test_physical_quantity_pydantic_round_trip`: assert that `BaseModel(pixel_size=Q(0.108, "um"))` serialises to `{"pixel_size": {"value": 0.108, "unit": "um"}}` and back. |
+| `tests/core/test_type_registry.py` (existing or new) | Add `test_register_rejects_meta_with_private_attr`, `test_register_rejects_meta_with_arbitrary_field`, `test_register_accepts_well_formed_meta`. |
+| `tests/blocks/test_block_base.py` (existing) | **Audit** for any test that asserts `isinstance(inputs["x"], ViewProxy)`. Update to assert the typed class (`Array` or a plugin type if available). |
+| `tests/core/test_proxy.py` (existing) | **Audit** for the same. ViewProxy itself is unchanged, so tests that exercise `ViewProxy.slice` / `ViewProxy.to_memory` directly still pass; only tests that asserted "the input the worker delivers is a ViewProxy" need to change. |
+
+#### Documentation impact
+
+| Document | Required changes |
+|---|---|
+| `docs/architecture/ARCHITECTURE.md` §5.1 (Block base class) | **No change**. The §5.1 prose updated in PR #258 already says "the worker subprocess must be able to reconstruct the typed input via TypeRegistry.scan()" and does not commit to a specific return type. |
+| `docs/architecture/ARCHITECTURE.md` §6.1 (DAG scheduler) | **No change**. The scheduler does not interact with worker input reconstruction. |
+| `docs/architecture/ARCHITECTURE.md` §4.1 (Base type hierarchy) | **No change**. The §4.1 rewrite in PR #258 already shows block authors using `item.meta.pixel_size` and `item.with_meta(...)` directly, which this Addendum makes accurate. |
+| `docs/guides/block-sdk.md` | **No change**. All examples in the guide already show typed-instance access. This Addendum makes those examples accurate without any edit. |
+| `docs/adr/ADR.md` | This Addendum. |
+| `CHANGELOG.md` | **Add** entry under `[Unreleased]` → `### Added` referencing this Addendum and #259. |
+
+#### Out of scope
+
+- **Any source code changes.** This Addendum is documentation only. The implementation lands under the Phase 10 ADR-027 D11 implementation ticket (to be opened) and references this Addendum.
+- **ARCHITECTURE.md / PROJECT_TREE.md / block-sdk.md updates.** Those documents already match the post-Addendum contract because they were written assuming typed-instance access. Verified by re-reading PR #258 content during the change-plan phase of this issue.
+- **Any change to the `BlockState`, `EventBus`, cancellation, or scheduler contracts.** ADR-018, ADR-018 Addendum 1, ADR-019, ADR-020, and ADR-027 D1–D10 stand unchanged.
+- **Changing the wire format JSON keys.** The engine→worker payload structure is unchanged. This Addendum specifies the **contents** of the metadata sidecar precisely, but does not rename any top-level keys (`backend`, `path`, `format`, `metadata`, `_collection`, `items`, `item_type` all remain).
+- **Changing `Collection` semantics.** Collection of typed items continues to work as ADR-020 specified. The only change is that the items inside a reconstructed `Collection` are now typed instances rather than `ViewProxy`.
+- **Reopening D11's main "discussion table" row.** That row commits to `TypeRegistry.scan()` in the worker, which this Addendum keeps unchanged. Only the Decision-section pseudocode and the corresponding "Alternatives considered" entry are superseded.
+
+## ADR-028: IOBlock architectural refactor — plugin-owned IO pattern
+
+**Status**: proposed
+**Date**: 2026-04-06
+
+### Context
+
+Phase 10 landed the final core type surface (ADR-027) with exactly seven base types — `DataObject`, `Array`, `Series`, `DataFrame`, `Text`, `Artifact`, `CompositeData` — and excised every domain subtype (`Image`, `Spectrum`, `PeakTable`, `AnnData`, ...) to plugin packages. The core's deliberate smallness is now load-bearing: `scieasy-blocks-imaging`, `scieasy-blocks-srs`, `scieasy-blocks-lcms`, and future plugins all depend on it as a stable foundation.
+
+The IO layer, however, was not revised during Phase 10. It still follows the pre-Phase-10 "central adapter registry" pattern that was originally designed when domain types lived inside core:
+
+1. `src/scieasy/blocks/io/adapters/` ships eight bundled format adapters: `csv_adapter.py`, `fcs_adapter.py`, `generic_adapter.py`, `h5ad_adapter.py`, `mzxml_adapter.py`, `parquet_adapter.py`, `tiff_adapter.py`, `zarr_adapter.py`.
+2. `src/scieasy/blocks/io/adapter_registry.py` is a separate registry class that dispatches by file extension, completely parallel to the `BlockRegistry` in `scieasy.blocks.registry` and the `TypeRegistry` in `scieasy.core.types.registry`.
+3. `src/scieasy/blocks/io/io_block.py::_run_input` (lines 78–106) loops files in a directory, asks `AdapterRegistry.get_for_extension(ext)` for a class, calls `adapter.create_reference(path)`, and wraps the result in a bare `DataObject(storage_ref=ref)` — *with no type information*. The loaded object has no `Image`/`SRSImage`/`PeakTable` identity; it is a generic `DataObject` whose only distinguishing feature is its `storage_ref.metadata` dict.
+4. ADR-025 §6 (block package distribution protocol) specifies a `scieasy.adapters` entry-point group alongside `scieasy.blocks` and `scieasy.types`, intended so external packages can register additional adapters via `pyproject.toml`.
+
+This model was coherent when `Image` lived in core: the TIFF adapter knew about `Image`, returned an `Image` instance, and the adapter registry was the single source of truth for format-to-type mapping. With Phase 10's domain types moved to plugins, the model is broken in several concrete ways that surfaced when planning Phase 11's three plugin packages.
+
+#### Tension 1 — Core enumerates formats it cannot predict
+
+The eight bundled adapters mix two orthogonal concerns:
+
+| Adapter | Category | Belongs in |
+|---|---|---|
+| `csv_adapter.py` | Generic tabular | Core |
+| `parquet_adapter.py` | Generic tabular | Core |
+| `generic_adapter.py` | Opaque bytes | Core |
+| `zarr_adapter.py` | Generic chunked array | Core |
+| `tiff_adapter.py` | Image-specific | `scieasy-blocks-imaging` |
+| `mzxml_adapter.py` | LC-MS-specific | `scieasy-blocks-lcms` |
+| `h5ad_adapter.py` | Single-cell-specific | Future `scieasy-blocks-singlecell` |
+| `fcs_adapter.py` | Flow-cytometry-specific | Future `scieasy-blocks-flow` |
+
+Four of the eight adapters are plugin-domain concerns that core currently imports unconditionally. A user who installs only `scieasy` and wants to do single-cell analysis gets an `h5ad_adapter` they cannot meaningfully use (because `AnnData` was deleted from core in T-007). A user who installs `scieasy` plus `scieasy-blocks-lcms` gets the plugin's mzML support — but also the core's `mzxml_adapter`, which is a second, differently-behaving path to the same goal.
+
+This is the literal opposite of "core stays small and stable" from CLAUDE.md §2.3, and it is the literal opposite of ADR-027 D2's "core contains only base types; all domain subtypes live in plugins".
+
+#### Tension 2 — Typed reconstruction never happens in the IO path
+
+The current `IOBlock._run_input` implementation (reproduced in full because it is load-bearing for this ADR):
+
+```python
+def _run_input(self, path: Path, registry: Any) -> dict[str, Any]:
+    """Build a lazy Collection from *path* (file or directory)."""
+    if path.is_dir():
+        items: list[DataObject] = []
+        for child in sorted(path.iterdir()):
+            if child.is_file():
+                ext = child.suffix.lower()
+                try:
+                    adapter_cls = registry.get_for_extension(ext)
+                except KeyError:
+                    continue
+                adapter = adapter_cls()
+                ref = adapter.create_reference(child)
+                obj = DataObject(storage_ref=ref)   # <-- type information lost here
+                items.append(obj)
+
+        if not items:
+            raise ValueError(f"No recognised files found in directory: {path}")
+
+        collection = Collection(items=items, item_type=DataObject)
+    else:
+        ext = path.suffix.lower()
+        adapter_cls = registry.get_for_extension(ext)
+        adapter = adapter_cls()
+        ref = adapter.create_reference(path)
+        obj = DataObject(storage_ref=ref)           # <-- again here
+        collection = Collection(items=[obj], item_type=DataObject)
+
+    return {"data": collection}
+```
+
+Two lines, `obj = DataObject(storage_ref=ref)`, throw away every piece of type knowledge the adapter had. A plugin `LoadImage` block that wants to return `Collection[Image]` cannot use `IOBlock` as-is; it would have to bypass the registry entirely and re-implement format detection. Phase 10's `TypeRegistry.resolve(type_chain)` (T-012) and `_reconstruct_one` (T-014) — designed exactly to map a `type_chain` to a concrete class — are never reached from the IO path because the IO path never produces a `type_chain`.
+
+#### Tension 3 — Two parallel registries for one concern
+
+ADR-009 (registry stores specs), ADR-025 (plugin distribution), and Phase 10's `TypeRegistry` together establish that SciEasy has two registries:
+
+- `BlockRegistry` — maps block name → `BlockSpec` → block class, scanned from `scieasy.blocks` entry-points plus Tier-1 drop-in files.
+- `TypeRegistry` — maps type name → `TypeSpec` → `DataObject` subclass, scanned from `scieasy.types` entry-points plus core builtins.
+
+The adapter layer adds a third:
+
+- `AdapterRegistry` — maps file extension → adapter class, scanned from `scieasy.adapters` entry-points plus a hardcoded `register_defaults()` list in `adapter_registry.py`.
+
+These three registries overlap substantially. An adapter IS a kind of block (specifically, an IO block). An adapter's output type IS a registered DataObject subclass. The extension → adapter lookup IS functionally a specialised form of "find the block that knows how to read this format". Keeping three registries requires plugin authors to understand three registration protocols, debug three scan paths when their plugin does not load, and read three sections of ADR-025 to register a single feature.
+
+#### Tension 4 — No first-class ergonomics for pickle / TSV / ndarray / single-column Series
+
+The user asked during Phase 11 planning for the following additional first-class load paths: Python pickle (`.pkl`), tab-separated values (`.tsv`), single numpy arrays (`.npy`, `.npz`), and pandas Series sidecars. None of these fits cleanly into the current adapter layer:
+
+- `.pkl` requires a security-conscious `allow_pickle` opt-in (pickle is arbitrary code execution); the `generic_adapter` would happily read bytes but could not produce a typed Python object.
+- `.tsv` is functionally CSV with a separator, but `csv_adapter.py` is hardcoded to `,` and the existing adapter protocol has no param-passing mechanism (parameters are block-level, not adapter-level).
+- `.npy` / `.npz` need to return `Array` instances, but no current adapter binds to `Array`; the closest match is `generic_adapter.py` which returns `DataObject(storage_ref=ref)` with no `axes` field.
+- Single-column Series have no adapter at all. `parquet_adapter` returns `DataFrame`; there is no path to `Series`.
+
+Retrofitting the adapter layer to handle each of these requires either four new adapters (further bloating core) or an orthogonal "adapter params" mechanism (a protocol change with no existing consumers). Both options make the layer more complex in exchange for a feature the user explicitly prefers to own inside the loader block.
+
+#### Tension 5 — Block authors want user-facing named blocks, not `IOBlock(format=...)`
+
+OptEasy's experience directly informs this tension. OptEasy ships `LoadImage`, `SaveImage`, `LoadPeakTable`, `LoadSpectrum` as named blocks in the block palette. Each is self-explanatory; a non-programmer scientist picking `LoadImage` from the palette immediately understands what it will do. SciEasy's current `IOBlock(direction="input", path=..., format="tiff")` is strictly less expressive in the GUI: the same block name appears for every IO operation, and the user must set `format` correctly for the workflow to validate. The block palette's two-level grouping (ADR-025 §3) cannot help, because every IO block has the same `type_name = "io_block"`.
+
+The user-facing fix is obvious: ship `LoadImage` as a concrete class whose `output_ports` declares `accepted_types=[Image]`. The current adapter layer stands directly in the way of doing this, because it forces the declaration of type into the `storage_ref.metadata` dict rather than into the block's port contract.
+
+---
+
+These five tensions are cross-cutting and reinforcing. Any one of them alone might be fixable inside the current adapter model; all five together compose an architectural pattern that no longer matches Phase 10's philosophy. This ADR resolves all five in a single coherent refactor.
+
+### Discussion points and resolution
+
+| # | Topic | Options discussed | Final decision |
+|---|---|---|---|
+| 1 | Should `IOBlock` be a concrete class (current state) or an abstract base? | (A) Concrete, with a `format` param and internal dispatch. (B) Abstract base class with `load()` / `save()` abstract methods; concrete loaders are subclasses. | **Decision: (B).** Abstract base forces every IO block to declare its input/output types via the standard `input_ports` / `output_ports` ClassVars. Type information flows through the block's port contract (ADR-016, Phase 10 port-check), not through a side-channel metadata dict. Concrete loaders are subclasses (one per loaded type for core, one per loaded type per plugin). This aligns the IO layer with every other block category: `ProcessBlock`, `CodeBlock`, `AppBlock` are all abstract-or-configurable bases with concrete subclasses carrying domain knowledge. |
+| 2 | Should the central adapter registry survive? | (A) Keep it, add typed reconstruction. (B) Delete it entirely; adapters are absorbed into loader blocks. (C) Keep it as a soft-deprecated compatibility layer for one phase. | **Decision: (B).** The registry is a second source of truth for "how to load files". Its only consumer is `IOBlock._run_input`, which this ADR deletes. Option (C) doubles the plugin-author cognitive burden for a full phase with no long-term payoff. Deleting in one cut (per Phase 10's "first destructive change is the risk point" lesson — this ADR and its implementation are explicitly expected to be the risk point, not a plugin package's first integration) keeps the surface area small. |
+| 3 | Which formats does core ship loader support for? | (A) Minimum: just Zarr for Array, Parquet for DataFrame/Series. (B) Pragmatic: all formats that are genuinely generic and not domain-specific, including CSV, TSV, Parquet, Pickle, NumPy, Zarr, plain text, opaque bytes. (C) Maximum: everything currently shipped, minus the four clearly plugin-specific ones. | **Decision: (B).** Pragmatic set. Users working with generic data (metadata CSVs, config files, numpy arrays from intermediate calculations, pickled sklearn models) should not need to install a domain plugin just to load their file. The specific format set is enumerated in Decision D3 below. |
+| 4 | Should the `scieasy.adapters` entry-point group be kept or deleted? | (A) Keep it for plugin-provided adapters. (B) Delete it; plugins ship IO *blocks*, not adapters. | **Decision: (B).** The `scieasy.blocks` entry-point group already accepts any block class, including `IOBlock` subclasses. A plugin loading mzML files registers an `LoadMSRawFile(IOBlock)` through `scieasy.blocks`, not a `MzmlAdapter` through `scieasy.adapters`. One registration protocol instead of two. ADR-025 §6 is superseded. |
+| 5 | What happens to the eight bundled adapters during implementation? | (A) Delete all eight, no migration. (B) Merge the four generic ones into core loaders; move the four domain-specific ones to their target plugin packages. | **Decision: (B).** The four generic adapters (`csv_adapter`, `parquet_adapter`, `zarr_adapter`, `generic_adapter`) contain logic that core needs — CSV parsing with pandas, Parquet reading, Zarr metadata handling, byte copy. That logic is absorbed into the corresponding `LoadDataFrame` / `LoadArray` / `LoadArtifact` core loaders. The four domain-specific adapters (`tiff_adapter`, `mzxml_adapter`, `h5ad_adapter`, `fcs_adapter`) are moved verbatim into their target plugin packages (`scieasy-blocks-imaging` / `scieasy-blocks-lcms` / future `scieasy-blocks-singlecell` / future `scieasy-blocks-flow`). The TIFF adapter's JSON-in-ImageDescription metadata round-trip logic is preserved as-is and becomes part of `scieasy-blocks-imaging`'s `LoadImage` block (Phase 11 Track 2). |
+| 6 | Is pickle safe to support as a core loader path? | (A) No — pickle is arbitrary code execution, block authors should never load it. (B) Yes, with a mandatory opt-in flag and a prominent security warning. (C) Yes, unconditionally. | **Decision: (B).** Pickle is the de-facto serialisation format for sklearn models, intermediate pandas frames from notebooks, and arbitrary Python objects that cannot round-trip through parquet. Refusing to support it forces users to write `CodeBlock` script escape hatches to do something trivial, which is a worse outcome than a clearly-documented opt-in. The opt-in takes the form of an `allow_pickle: bool = False` config param on the relevant core loaders. When `allow_pickle` is `False` and the file extension is `.pkl` / `.pickle`, the block raises `ValueError` with a message pointing at the security implication and the opt-in path. This matches numpy's `np.load(..., allow_pickle=False)` convention and makes the decision auditable at workflow definition time. |
+| 7 | How does a plugin loader declare its output type? | (A) Via `output_ports = [OutputPort(accepted_types=[Image])]` — the standard Phase 10 port contract. (B) Via a new sidecar protocol specific to IO blocks. | **Decision: (A).** No new protocol. Plugin `LoadImage` subclasses `IOBlock` and declares `output_ports = [OutputPort(name="data", accepted_types=[Image])]` exactly like every other block. The Phase 10 port-check system already handles type compatibility via `TypeSignature.matches()` (T-005/T-006). Downstream `process_item(self, item: Image, ...)` annotations become accurate, isinstance checks work, `item.meta.pixel_size` autocompletes in IDEs — everything Phase 10 promised for typed DataObjects finally applies to the IO path. |
+| 8 | Does this ADR require changes to `_reconstruct_one` / `_serialise_one` (Phase 10 worker round-trip)? | (A) Yes — the IO block's output type needs a new field in the wire format. (B) No — the existing `type_chain` field in the metadata sidecar already handles this. | **Decision: (B).** No change required. When a plugin `LoadImage` block returns an `Image` instance, the worker's `serialise_outputs` calls `_serialise_one(image)`, which writes `md["type_chain"] = image.dtype_info.type_chain == ["DataObject", "Array", "Image"]` into the sidecar. The downstream block's worker calls `_reconstruct_one(payload_item)`, which calls `TypeRegistry.resolve(type_chain)` → `Image` class → constructs a typed `Image` instance. The wire format, the resolver, and the reconstruction hook contracts are all unchanged. This ADR interacts with Phase 10 only by *finally* making the IO path feed data into the Phase 10 pipeline in the typed form the pipeline was designed for. |
+| 9 | How does the default `IOBlock.run()` dispatch between load and save modes? | (A) Keep the current `direction: str = "input"` class var. (B) Split into two separate abstract base classes, `LoaderBlock` and `SaverBlock`. | **Decision: (A).** The current `direction` ClassVar is sufficient. Concrete subclasses that load override `load()` and set `direction = "input"`; concrete subclasses that save override `save()` and set `direction = "output"`. The default `run()` branches once on `direction` and delegates. Splitting into two base classes would double the number of IO block classes shipped by core (seven loaders + seven savers = fourteen classes across two base classes, instead of fourteen classes across one base). It would also make "round-trip" blocks (rare but possible — e.g. a transcoder that reads one format and writes another) awkward to express. |
+| 10 | What is the contract between `IOBlock.load()` and the engine's `Collection` wrapping? | (A) `load()` returns a `DataObject` (or list of them); the default `run()` wraps into a `Collection`. (B) `load()` returns a `Collection` directly. | **Decision: (A).** `load(config) -> DataObject \| list[DataObject]` is the simpler contract for block authors. Loader authors do not think about Collections; they think "given this path, produce this many objects of this type". The default `run()` handles the "one file → length-1 Collection" and "directory → length-N Collection" cases automatically. This matches the existing `ProcessBlock.process_item` pattern (author writes per-item logic, framework handles Collection). `save()` accepts a `Collection` because the save path by design iterates — a user saving `Collection[Image]` wants all N images saved, and the default `run()` handles the "single vs many" split via Collection length. |
+| 11 | Do we ship concrete loaders for all seven core types, or only the subset that has a natural binary format? | (A) All seven (`DataObject`, `Array`, `Series`, `DataFrame`, `Text`, `Artifact`, `CompositeData`). (B) Only the five with obvious binary formats (`Array`, `Series`, `DataFrame`, `Text`, `Artifact`). `CompositeData` and bare `DataObject` do not ship loaders. | **Decision: (B) plus LoadCompositeData.** Bare `DataObject` has no reasonable "load" story — it is the abstract root. `CompositeData` does, because composites persist as a directory containing one storage ref per slot plus a `manifest.json` (per Phase 10's §4.2 backend table). `LoadCompositeData` is a thin wrapper that reads the manifest, recurses into `_reconstruct_one` for each slot, and returns the assembled composite. Six concrete loaders + six concrete savers ship from core. |
+| 12 | Pickle only for DataFrame, or also Series / Array? | (A) Only DataFrame (most common pickle target — pandas.to_pickle). (B) DataFrame and Series (symmetric with parquet). (C) DataFrame, Series, Array, and bare DataObject (maximum flexibility). | **Decision: (B).** DataFrame and Series pickle are symmetric (both are pandas-native) and cover 95% of real-world `.pkl` usage. Array pickle is supported via numpy's native `np.load(allow_pickle=True)` path through `LoadArray`, not as a separate code path. Bare DataObject pickle is refused: anyone pickling a DataObject has enough framework knowledge to write a `CodeBlock` escape hatch, and loading a pickled DataObject would bypass Phase 10's typed reconstruction path entirely. |
+| 13 | How are the per-format extensions registered inside each core loader? | (A) Class-level `supported_extensions: ClassVar[dict[str, str]]` mapping extension → internal format name. (B) Hardcoded `if ext == ".csv": ... elif ext == ".tsv": ...` chains. (C) A pluggable registry inside each loader class. | **Decision: (A).** Class-level ClassVar. Every core loader declares `supported_extensions` explicitly so the block palette can render "supported formats: .csv, .tsv, .parquet, .pkl" in the block description automatically. Format dispatch inside the loader is a simple dict lookup plus a call to a private per-format method (`_load_csv`, `_load_tsv`, ...). Option (C) is premature generality — no loader needs runtime-pluggable format support. |
+| 14 | Is the change a breaking change, and if so, what is the migration story? | (A) Yes, breaking; ship a migration guide and a script. (B) No, keep `IOBlock(format=...)` as a deprecated shim for one phase. (C) Yes, breaking; no migration tooling needed because the pre-Phase-11 IOBlock usage base is small. | **Decision: (C).** SciEasy is still in pre-1.0 development; no external user has built production workflows on top of `IOBlock(format=...)`. The internal callers are the three bundled adapter tests plus `tests/blocks/test_adapter_registry.py`, which are migrated as part of this ADR's implementation PR. The CHANGELOG entry flags the break clearly. A migration shim that accepts the old `IOBlock(format=...)` form and re-routes to the new loaders would cost ~150 lines of code and add a permanent "did you mean the new loader?" ambiguity to every workflow file. |
+
+### Decision
+
+The Phase 11 decisions from the discussion table are codified below. Each decision has a one-paragraph summary, a code-shape sketch where useful, and a line-by-line impact reference in the "Detailed impact scope" section.
+
+#### D1. `IOBlock` becomes an abstract base class (covers discussion #1, #9, #10)
+
+`src/scieasy/blocks/io/io_block.py` is rewritten. The post-ADR-028 shape:
+
+```python
+# scieasy/blocks/io/io_block.py
+
+from __future__ import annotations
+
+from abc import abstractmethod
+from pathlib import Path
+from typing import Any, ClassVar
+
+from scieasy.blocks.base.block import Block
+from scieasy.blocks.base.config import BlockConfig
+from scieasy.blocks.base.ports import InputPort, OutputPort
+from scieasy.core.types.base import DataObject
+from scieasy.core.types.collection import Collection
+
+
+class IOBlock(Block):
+    """Abstract base class for data ingress and egress blocks.
+
+    Per ADR-028, IOBlock is an ABC. Concrete subclasses declare their
+    typed output via ``output_ports`` (for loaders) or accept typed
+    input via ``input_ports`` (for savers), and implement ``load`` or
+    ``save`` accordingly.
+
+    Subclasses MUST set ``direction`` to either ``"input"`` or
+    ``"output"`` and override the matching abstract method.
+
+    The default ``run()`` method dispatches based on ``direction``,
+    wraps single-object outputs into a length-1 Collection, and passes
+    Collection inputs unchanged to ``save()``.
+    """
+
+    direction: ClassVar[str] = "input"   # subclasses override to "output"
+
+    # Subclasses override with their typed ports.
+    input_ports: ClassVar[list[InputPort]] = []
+    output_ports: ClassVar[list[OutputPort]] = []
+
+    # Subclasses declare supported extensions (ADR-028 D13).
+    supported_extensions: ClassVar[dict[str, str]] = {}
+
+    @abstractmethod
+    def load(self, config: BlockConfig) -> DataObject | list[DataObject]:
+        """Load data from ``config['path']``.
+
+        Args:
+            config: BlockConfig containing at least ``path: str``.
+                Additional format-specific params (e.g. ``allow_pickle``,
+                ``separator``, ``encoding``) are subclass-specific.
+
+        Returns:
+            A single ``DataObject`` (for single-file loads) or a list
+            of ``DataObject`` instances (for directory/glob loads).
+            Both are wrapped into a ``Collection`` by ``run()``.
+
+        Raises:
+            FileNotFoundError: path does not exist.
+            ValueError: path extension is not in ``supported_extensions``,
+                or a format-specific validation fails.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} is a loader but does not override load()"
+        )
+
+    @abstractmethod
+    def save(self, data: Collection, config: BlockConfig) -> None:
+        """Save ``data`` to ``config['path']``.
+
+        Args:
+            data: A Collection of DataObjects. Subclass decides how
+                length > 1 is serialised (directory with indexed files,
+                multi-page container, etc.).
+            config: BlockConfig containing at least ``path: str``.
+
+        Raises:
+            ValueError: if the target extension is not supported or if
+                ``data`` contains items of an unexpected type.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} is a saver but does not override save()"
+        )
+
+    def run(
+        self,
+        inputs: dict[str, Collection],
+        config: BlockConfig,
+    ) -> dict[str, Collection]:
+        """Default dispatch: load or save based on ``direction``.
+
+        - ``direction == "input"``: calls ``load(config)``, wraps result
+          into ``Collection``, returns on first output port.
+        - ``direction == "output"``: unwraps input Collection, calls
+          ``save(data, config)``, returns empty dict.
+
+        Subclasses that need custom run semantics (e.g. transcoder that
+        reads one format and writes another) override ``run()`` directly.
+        """
+        if self.direction == "input":
+            raw = self.load(config)
+            if isinstance(raw, list):
+                items = raw
+            else:
+                items = [raw]
+            port_name = self.output_ports[0].name if self.output_ports else "data"
+            # item_type is taken from the first output port's accepted_types[0]
+            # so the Collection is correctly typed for downstream port checks.
+            item_type: type[DataObject]
+            if self.output_ports and self.output_ports[0].accepted_types:
+                item_type = self.output_ports[0].accepted_types[0]
+            else:
+                item_type = DataObject
+            return {port_name: Collection(items=items, item_type=item_type)}
+
+        if self.direction == "output":
+            data = next(iter(inputs.values()))
+            if not isinstance(data, Collection):
+                data = Collection(items=[data], item_type=type(data))
+            self.save(data, config)
+            return {}
+
+        raise ValueError(
+            f"{type(self).__name__}.direction must be 'input' or 'output', "
+            f"got {self.direction!r}"
+        )
+```
+
+Block authors write concrete loaders as small subclasses:
+
+```python
+class LoadDataFrame(IOBlock):
+    direction: ClassVar[str] = "input"
+    type_name: ClassVar[str] = "load_dataframe"
+    name: ClassVar[str] = "Load DataFrame"
+    description: ClassVar[str] = "Load a DataFrame from CSV, TSV, Parquet, or Pickle."
+    category: ClassVar[str] = "io"
+    supported_extensions: ClassVar[dict[str, str]] = {
+        ".csv": "csv",
+        ".tsv": "tsv",
+        ".txt": "tsv",
+        ".parquet": "parquet",
+        ".pq": "parquet",
+        ".pkl": "pickle",
+        ".pickle": "pickle",
+    }
+    output_ports: ClassVar[list[OutputPort]] = [
+        OutputPort(
+            name="data",
+            accepted_types=[DataFrame],
+            description="Loaded DataFrame",
+        ),
+    ]
+    config_schema: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "title": "Path"},
+            "allow_pickle": {
+                "type": "boolean",
+                "default": False,
+                "title": "Allow pickle (security risk)",
+                "description": "Required to load .pkl / .pickle files.",
+            },
+            "separator": {
+                "type": "string",
+                "default": ",",
+                "title": "CSV separator (auto for .tsv)",
+            },
+            "encoding": {"type": "string", "default": "utf-8"},
+        },
+        "required": ["path"],
+    }
+
+    def load(self, config: BlockConfig) -> DataObject | list[DataObject]:
+        path = Path(config["path"])
+        if not path.exists():
+            raise FileNotFoundError(f"Path does not exist: {path}")
+        if path.is_dir():
+            return [self._load_one(p, config) for p in sorted(path.iterdir()) if p.is_file()]
+        return self._load_one(path, config)
+
+    def _load_one(self, path: Path, config: BlockConfig) -> DataFrame:
+        ext = path.suffix.lower()
+        fmt = self.supported_extensions.get(ext)
+        if fmt is None:
+            raise ValueError(
+                f"{type(self).__name__} does not support extension {ext!r}. "
+                f"Supported: {sorted(self.supported_extensions.keys())}"
+            )
+        if fmt == "pickle" and not config.get("allow_pickle", False):
+            raise ValueError(
+                f"Loading {path} requires allow_pickle=True. Pickle is "
+                f"arbitrary code execution; only enable for trusted files."
+            )
+        if fmt == "csv":
+            return self._load_csv(path, config)
+        if fmt == "tsv":
+            return self._load_tsv(path, config)
+        if fmt == "parquet":
+            return self._load_parquet(path)
+        if fmt == "pickle":
+            return self._load_pickle(path)
+        raise ValueError(f"Unknown format {fmt!r} for {path}")
+
+    # ... _load_csv, _load_tsv, _load_parquet, _load_pickle implementations
+```
+
+Abstract base status is enforced via `ABC` inheritance in the implementation: `class IOBlock(Block, ABC)`. A direct instantiation of `IOBlock()` raises `TypeError` at construction time, matching Python's standard `abc` contract.
+
+#### D2. `AdapterRegistry` and all bundled adapters are deleted (covers #2, #5)
+
+The following files are **deleted** in the implementation PR (not this ADR PR):
+
+```
+src/scieasy/blocks/io/adapter_registry.py
+src/scieasy/blocks/io/adapters/__init__.py
+src/scieasy/blocks/io/adapters/base.py
+src/scieasy/blocks/io/adapters/csv_adapter.py
+src/scieasy/blocks/io/adapters/fcs_adapter.py
+src/scieasy/blocks/io/adapters/generic_adapter.py
+src/scieasy/blocks/io/adapters/h5ad_adapter.py
+src/scieasy/blocks/io/adapters/mzxml_adapter.py
+src/scieasy/blocks/io/adapters/parquet_adapter.py
+src/scieasy/blocks/io/adapters/tiff_adapter.py
+src/scieasy/blocks/io/adapters/zarr_adapter.py
+tests/blocks/test_adapter_registry.py
+tests/blocks/test_adapters.py  # migrated to tests/blocks/test_core_loaders.py
+```
+
+The per-adapter logic is preserved in one of two destinations per ADR-028 D5:
+
+| Adapter | Destination | Receiving block |
+|---|---|---|
+| `csv_adapter.py` | Core, merged | `LoadDataFrame._load_csv` / `_load_tsv` |
+| `parquet_adapter.py` | Core, merged | `LoadDataFrame._load_parquet`, `LoadSeries._load_parquet` |
+| `zarr_adapter.py` | Core, merged | `LoadArray._load_zarr`, `SaveArray._save_zarr` |
+| `generic_adapter.py` | Core, merged | `LoadArtifact._load_bytes` / `SaveArtifact._save_bytes` |
+| `tiff_adapter.py` | `scieasy-blocks-imaging` | `LoadImage._load_tif` (verbatim) |
+| `mzxml_adapter.py` | `scieasy-blocks-lcms` | `LoadMSRawFile._load_mzxml` (verbatim) |
+| `h5ad_adapter.py` | Future `scieasy-blocks-singlecell` | `LoadAnnData._load_h5ad` |
+| `fcs_adapter.py` | Future `scieasy-blocks-flow` | `LoadFCS._load_fcs` |
+
+Moving the plugin adapters is the responsibility of the Phase 11 plugin-package implementation PRs. The core-merge of the four generic adapters is the responsibility of the ADR-028 implementation PR. Both are tracked separately from this ADR PR.
+
+#### D3. Seven core loader/saver pairs (covers #3, #11)
+
+Core ships seven concrete loader classes and seven concrete saver classes, one per base type, under `src/scieasy/blocks/io/loaders/` and `src/scieasy/blocks/io/savers/`. The table below locks the format set and the primary backend per ADR-027 D2 §4.2:
+
+| Block | Base type | Supported extensions | Primary backend | Notes |
+|---|---|---|---|---|
+| `LoadArray` / `SaveArray` | `Array` | `.zarr`, `.npy`, `.npz` | Zarr (primary), numpy (sidecar for `.npy`/`.npz` + metadata JSON) | `axes` metadata JSON-encoded in Zarr `.attrs` or sidecar `.json` for numpy |
+| `LoadDataFrame` / `SaveDataFrame` | `DataFrame` | `.parquet`, `.pq`, `.csv`, `.tsv`, `.txt`, `.pkl`, `.pickle` | Parquet (primary), pandas read_csv, pandas read_pickle | `.pkl` requires `allow_pickle=True`; `.txt` treated as TSV |
+| `LoadSeries` / `SaveSeries` | `Series` | `.parquet`, `.pq`, `.csv`, `.pkl`, `.pickle` | Parquet single-column, pandas read_csv with single-column enforcement, pandas read_pickle | Loader rejects multi-column CSVs with a clear error |
+| `LoadText` / `SaveText` | `Text` | `.txt`, `.json`, `.md`, `.html`, `.xml`, `.log`, `.yaml`, `.yml`, `.toml` | Filesystem (plain text), UTF-8 default, encoding param | JSON/XML/etc. stored as-is; parsing is downstream's concern |
+| `LoadArtifact` / `SaveArtifact` | `Artifact` | `*` (any extension; fallback for unknown formats) | Filesystem (opaque byte copy) | Loader never parses content; sets `mime_type` from extension if known |
+| `LoadCompositeData` / `SaveCompositeData` | `CompositeData` | `.composite/` (directory) | Directory containing `manifest.json` plus one sub-directory per slot | Recurses into `_reconstruct_one` per slot |
+
+`DataObject` (the abstract root) has no loader or saver. Attempting to load a file with "no specific type" raises `ValueError` with a message suggesting the user pick the specific loader block; the `LoadArtifact` path catches the opaque-bytes case.
+
+#### D4. Pickle security protocol (covers #6, #12)
+
+Pickle support is opt-in via an `allow_pickle: bool = False` config parameter on `LoadDataFrame`, `LoadSeries`, and `LoadArray` (the three block classes that accept `.pkl`/`.pickle` or numpy pickled arrays). When the requested format is pickle and `allow_pickle` is `False`, the loader raises `ValueError` with this exact message template:
+
+```
+Loading {path} requires allow_pickle=True. Pickle is arbitrary code
+execution; only enable for trusted files. If this file came from
+an untrusted source, load it via LoadArtifact (opaque bytes) and
+validate before unpickling.
+```
+
+The security warning is also reproduced in the block's `description` ClassVar so it appears in the GUI block palette: `"Load a DataFrame from CSV, TSV, Parquet, or Pickle. Warning: pickle loading is opt-in and runs arbitrary code — only enable for trusted files."`
+
+`SaveDataFrame` / `SaveSeries` can write pickle unconditionally (writing pickle is safe). The asymmetry is intentional: writing is always safe, reading is a security boundary.
+
+Downstream block authors who pipe loaded-pickle data into `CodeBlock` or `ProcessBlock` get no additional protection — if the pickle ran malicious code during `load()`, the damage is already done by the time the object reaches the next block. This matches numpy's security model.
+
+#### D5. Plugin IO block contract (covers #4, #7)
+
+Plugin packages ship their own IO blocks as subclasses of `scieasy.blocks.io.IOBlock`. The plugin's `LoadImage`:
+
+```python
+# scieasy_blocks_imaging/io/load_image.py
+
+from scieasy.blocks.io import IOBlock
+from scieasy.blocks.base.ports import OutputPort
+from scieasy_blocks_imaging.types import Image
+
+class LoadImage(IOBlock):
+    direction = "input"
+    type_name = "load_image"
+    name = "Load Image"
+    category = "io"
+    supported_extensions = {
+        ".tif": "tiff",
+        ".tiff": "tiff",
+        ".ome.tif": "ome_tiff",
+        ".ome.tiff": "ome_tiff",
+        ".png": "png",
+        ".jpg": "jpeg",
+        ".jpeg": "jpeg",
+        ".zarr": "zarr",
+        ".czi": "czi",       # optional, requires aicsimageio
+        ".nd2": "nd2",       # optional, requires nd2reader
+        ".lif": "lif",       # optional, requires readlif
+        ".npy": "npy",
+        ".npz": "npz",
+    }
+    output_ports = [
+        OutputPort(name="data", accepted_types=[Image]),
+    ]
+
+    def load(self, config):
+        path = Path(config["path"])
+        if path.is_dir():
+            return [self._load_one(p, config) for p in sorted(path.glob(config.get("pattern", "*"))) if p.is_file()]
+        return self._load_one(path, config)
+
+    def _load_one(self, path, config):
+        ext = "".join(path.suffixes).lower()   # handles .ome.tif
+        fmt = self.supported_extensions.get(ext) or self.supported_extensions.get(path.suffix.lower())
+        if fmt == "tiff":
+            return self._load_tif(path)
+        if fmt == "ome_tiff":
+            return self._load_ome_tif(path)
+        # ... etc.
+```
+
+No new protocol, no new entry-point group. The plugin author lists `LoadImage` in `get_blocks()` alongside every other plugin block, and `BlockRegistry._scan_tier2()` picks it up via the `scieasy.blocks` entry-point group.
+
+The plugin's output type (`Image`) must be registered via the `scieasy.types` entry-point group (ADR-025 §4). At scan time, the worker subprocess `TypeRegistry.resolve(["DataObject", "Array", "Image"])` finds the plugin class, and Phase 10's `_reconstruct_one` reconstructs typed instances from serialised payloads. This entire path is unchanged by ADR-028.
+
+#### D6. `scieasy.adapters` entry-point group deletion (covers #4)
+
+The `scieasy.adapters` entry-point group defined in ADR-025 §6 is formally deleted by this ADR. The implementation PR removes:
+
+- `[project.entry-points."scieasy.adapters"]` section from `pyproject.toml` (if it currently has any entries; at the time of ADR-028 writing, the section is declared but empty).
+- All mentions of `scieasy.adapters` from `src/scieasy/blocks/io/adapter_registry.py::scan_entry_points` (the whole file is deleted per D2).
+- The ADR-025 §6 text is marked superseded with a pointer to ADR-028 (in a follow-up doc-update PR, not in this ADR PR).
+
+External plugins that currently use `scieasy.adapters` (none at time of ADR-028 writing) must migrate to shipping an `IOBlock` subclass via `scieasy.blocks`. The migration is straightforward: the adapter class body becomes a `_load_<format>` private method on the new IO block.
+
+#### D7. Default `run()` dispatch and Collection wrapping (covers #10)
+
+Already sketched in D1 above. The normative rules:
+
+1. `load()` returns either a single `DataObject` or a `list[DataObject]`. Both forms are legal; subclasses choose the shape that matches their semantics (a loader that always reads one file returns a single object; a loader that can read a directory returns a list).
+2. `run()` for `direction == "input"` normalises the result into a list and wraps into a `Collection`, using the first `output_ports[0].accepted_types[0]` as the Collection's `item_type`. This makes downstream port checks see the correct item type.
+3. `save()` accepts a `Collection` and does whatever it needs per-item (write N files, write one multi-page file, etc.). The subclass decides.
+4. `run()` for `direction == "output"` wraps single-DataObject inputs into a length-1 Collection before calling `save()`, so `save()` never has to handle the "single or Collection" branching itself.
+5. Subclasses that need custom dispatch (transcoder blocks that read one format and write another) override `run()` directly; the default is a convenience, not a contract.
+
+#### D8. Supported extension declaration and lookup (covers #13)
+
+Each concrete IOBlock subclass declares `supported_extensions: ClassVar[dict[str, str]]` mapping lowercase extension (including the leading dot) to a short internal format name. The internal format name is a dispatch key; the loader's `_load_one()` method does `fmt = self.supported_extensions.get(ext)` and branches to `_load_<fmt>()`.
+
+Compound extensions like `.ome.tif` are handled by the subclass's lookup code, not by the framework. The pattern is `"".join(path.suffixes).lower()` first, then fallback to `path.suffix.lower()`:
+
+```python
+def _detect_format(self, path: Path) -> str | None:
+    compound = "".join(path.suffixes).lower()
+    if compound in self.supported_extensions:
+        return self.supported_extensions[compound]
+    single = path.suffix.lower()
+    if single in self.supported_extensions:
+        return self.supported_extensions[single]
+    return None
+```
+
+The framework provides a helper `IOBlock._detect_format(path)` implementing this lookup so subclasses do not reimplement it. The helper is a regular method (not abstract) and lives on the base class.
+
+#### D9. Metadata extraction protocol (informative, not normative)
+
+ADR-028 does not specify a formal metadata extraction protocol for plugin loaders. Each plugin's `LoadImage` / `LoadPeakTable` / `LoadMSRawFile` extracts metadata from its source files using format-specific logic (e.g. `tifffile.TiffFile.pages[0].description` for TIFF, `pyopenms` for mzML) and populates the loaded DataObject's `meta: Meta` Pydantic model using the `cls.Meta(...)` constructor.
+
+Best-practice guidance (non-binding, for the Phase 11 plugin spec docs):
+
+- Extract whatever the source format provides.
+- Normalise to `PhysicalQuantity` for physical fields (`pixel_size`, `laser_power`, `integration_time`).
+- Fill unknowns with `None` rather than empty strings or sentinel values.
+- Set `framework.source = str(path.resolve())` so Phase 10 lineage tracking works.
+- For directory loads, set `framework.source` per item to the individual file path, not the parent directory.
+
+A plugin's detailed metadata extraction protocol is documented in the plugin's own spec (e.g. `docs/specs/phase11-imaging-block-spec.md`), not in ADR-028.
+
+#### D10. CLI surface (informative)
+
+The `scieasy` CLI surface is unchanged by ADR-028. The existing `scieasy run <workflow.yaml>` command loads the workflow, instantiates blocks via `BlockRegistry`, and executes them — all block classes including IO blocks are resolved through the same `BlockRegistry` path. No CLI command needs to know about the old `AdapterRegistry`; deleting it has no user-visible CLI effect.
+
+### Alternatives considered
+
+**Alternative A — Typed reconstruction inside the existing adapter layer.** Retrofit `IOBlock._run_input` to call `TypeRegistry.resolve(type_chain)` using a new `type_chain` field on the adapter's `create_reference()` return value. Each adapter declares its output type, the registry dispatches, `_reconstruct_one` instantiates.
+
+*Rejected because*:
+- Solves tension 2 but leaves tensions 1, 3, 4, 5 untouched.
+- Requires a new adapter protocol field (`type_chain`) that every existing adapter must be modified to supply.
+- Keeps two parallel registries (`AdapterRegistry` + `BlockRegistry`), increasing cognitive load for plugin authors.
+- Does not deliver user-facing named blocks (`LoadImage`, `LoadPeakTable`), which was an explicit Phase 11 requirement.
+- Adds one more thing to maintain when the long-term direction is to reduce core surface.
+
+**Alternative B — IOBlock stays concrete, gets a `subclass_of: type[DataObject]` ClassVar for typed dispatch.** Keep the adapter registry but add a single ClassVar to `IOBlock` so subclasses can specialise. `IOBlock(subclass_of=Image)` returns Image-typed Collections.
+
+*Rejected because*:
+- Still requires adapters underneath, so tensions 1 and 3 are untouched.
+- Conflates two orthogonal dimensions: what type does the block produce (a class-level concern) and how does the block load it (a runtime format-dispatch concern). Bundling them into one ClassVar requires users to subclass whenever they need a different type OR a different format, creating a Cartesian explosion (`LoadImageFromTiff`, `LoadImageFromZarr`, `LoadImageFromNpy`, ...).
+- Does not match the post-Phase-10 direction (core ships abstract bases, plugins ship concrete subclasses). This alternative proposes a third model (core ships concrete-but-configurable blocks).
+
+**Alternative C — Gradual deprecation over two phases.** Keep `scieasy.adapters` and `AdapterRegistry` alive in Phase 11 as soft-deprecated compatibility shims. Ship the new `IOBlock` ABC pattern alongside them. Mark the old API with `DeprecationWarning`. Remove in Phase 12.
+
+*Rejected because*:
+- Doubles the surface area for a full phase. Every plugin author must learn both patterns to understand which one to use.
+- Introduces "which registry should I write to?" as a permanent question during the deprecation window.
+- Phase 10 deprecated the old `DataObject.metadata` dict with exactly this pattern, and the resulting dual-path code in `filter_collection.py:58` and `bridge.py:52` (tracked by issue #278) has already become a small maintenance burden. Repeating the pattern is a known failure mode.
+- The Phase 11 plugin packages are the first consumers of the new IO path. There are no external users to protect from a breaking change — the change is fully internal to SciEasy at the time of landing.
+
+**Alternative D — Keep adapters, rename to "format readers", integrate with `TypeRegistry`.** Unify the registries under a single umbrella: every type has one or more "format reader" classes attached to it, and `TypeRegistry.resolve(["DataObject", "Array", "Image"]).get_reader(".tif")` returns the correct loader class.
+
+*Rejected because*:
+- This is architecturally appealing but the plumbing is invasive: every `DataObject` subclass must know about its own readers, turning the type hierarchy into a bidirectional graph.
+- The reader objects still need to be IO blocks (so they can run inside the workflow engine), so this alternative ships the same block classes as Option B plus a registry-to-block indirection.
+- Plugin authors have to register both the type and the readers, doubling registration work.
+
+### Consequences
+
+**Breaking changes** (all internal to pre-Phase-11 SciEasy, no external users affected):
+
+- `IOBlock()` is no longer instantiable directly; it is an ABC. Any test or code that constructs `IOBlock()` directly must migrate to one of the concrete loader/saver classes.
+- `AdapterRegistry` class no longer exists. Any code that imports `from scieasy.blocks.io.adapter_registry import AdapterRegistry` breaks.
+- Bundled adapters under `scieasy.blocks.io.adapters.*` no longer exist. Imports from that path break.
+- `scieasy.adapters` entry-point group is removed from `pyproject.toml`. Plugins that declared entries here (none at time of writing) break.
+- `IOBlock(direction="input", path=...)` no longer auto-dispatches by extension. Workflow YAML files using the old form must be migrated to specific loader blocks (e.g. `LoadDataFrame(path=...)`).
+
+**Non-breaking consequences**:
+
+- Block palette gains concrete loader entries: `LoadArray`, `LoadDataFrame`, `LoadSeries`, `LoadText`, `LoadArtifact`, `LoadCompositeData`, plus savers. GUI users see named blocks rather than a generic `IOBlock`.
+- Plugin packages can ship their own IO blocks (`LoadImage`, `LoadPeakTable`, `LoadMSRawFile`) via the existing `scieasy.blocks` entry-point group. No new plugin registration protocol to learn.
+- Typed reconstruction (Phase 10 `_reconstruct_one`) finally reaches the IO path. Downstream blocks can declare `process_item(self, item: Image, ...)` annotations and they will be accurate.
+- Pickle support becomes first-class via the opt-in flag, without requiring a `CodeBlock` escape hatch.
+- `.tsv`, `.pkl`, `.npy`, `.npz` all gain first-class load paths via the core loaders.
+- The TIFF adapter's JSON-in-ImageDescription metadata round-trip is preserved verbatim in `scieasy-blocks-imaging.LoadImage` — no feature regression.
+- Two registries (`BlockRegistry`, `TypeRegistry`) instead of three. Plugin author cognitive load decreases.
+- ADR-025 §6 is superseded, leaving ADR-025 with two entry-point groups (`scieasy.blocks`, `scieasy.types`) instead of three.
+
+**Known risks and mitigations**:
+
+| Risk | Mitigation |
+|---|---|
+| The implementation PR will be large (deletions + new loader files + test migration). | Split into stacked PRs: (a) delete adapters + rewrite IOBlock ABC, (b) add seven concrete loaders, (c) add seven concrete savers, (d) update ARCHITECTURE.md and block-sdk.md. Each stacked PR is small and independently reviewable. The Phase 10 cascade methodology proved this pattern works. |
+| Plugin authors reading ADR-025 §6 will be confused by the deletion. | Follow-up doc-update PR adds a "superseded by ADR-028" notice inside ADR-025 §6 pointing at this ADR. |
+| The four generic adapters being merged into core loaders may introduce subtle behaviour drift (e.g. CSV quoting edge cases). | The implementation PR must include a regression test per adapter: load a known input file, assert the output matches the pre-refactor output byte-for-byte or (for CSV) row-for-row. |
+| Pickle security footgun: a user might enable `allow_pickle=True` and then forget it is dangerous. | (1) The error message when `allow_pickle=False` reproduces the warning verbatim. (2) The block description in the GUI contains the warning. (3) A workflow validation pass can lint for `allow_pickle=True` in block configs and surface it during review. |
+| TIFF adapter's existing behaviour (JSON-in-ImageDescription metadata round-trip) must be preserved in the `scieasy-blocks-imaging` move. | The move PR includes a regression test that writes a known Image, reads it back, and asserts metadata equality. The test file moves alongside the adapter code. |
+| `scieasy.adapters` entry-point group deletion requires editing `pyproject.toml`. | The implementation PR updates `pyproject.toml`; the entry-point group declaration is trivially removable. |
+| Tests under `tests/blocks/test_adapters.py` and `tests/blocks/test_adapter_registry.py` must be rewritten. | The ADR implementation PR deletes `test_adapter_registry.py` and replaces `test_adapters.py` with `test_core_loaders.py` (new file) covering the seven new concrete loaders, the seven savers, the pickle safety flag, the format-dispatch helper, and the default `run()` dispatch. |
+
+### Detailed impact scope
+
+Implementation of ADR-028 is **not** part of this ADR PR. The impact scope below describes what the follow-up implementation PR(s) must do so that the ADR stands as a clear, implementable spec.
+
+#### Files to delete
+
+| File | Reason |
+|---|---|
+| `src/scieasy/blocks/io/adapter_registry.py` | Replaced by per-block dispatch inside concrete loaders (D2). |
+| `src/scieasy/blocks/io/adapters/__init__.py` | Directory deleted (D2). |
+| `src/scieasy/blocks/io/adapters/base.py` | `FormatAdapter` protocol deleted; replaced by `IOBlock` ABC (D1). |
+| `src/scieasy/blocks/io/adapters/csv_adapter.py` | Logic merged into `LoadDataFrame._load_csv` (D5). |
+| `src/scieasy/blocks/io/adapters/fcs_adapter.py` | Moved verbatim to future `scieasy-blocks-flow` (D5). |
+| `src/scieasy/blocks/io/adapters/generic_adapter.py` | Logic merged into `LoadArtifact._load_bytes` (D5). |
+| `src/scieasy/blocks/io/adapters/h5ad_adapter.py` | Moved verbatim to future `scieasy-blocks-singlecell` (D5). |
+| `src/scieasy/blocks/io/adapters/mzxml_adapter.py` | Moved verbatim to `scieasy-blocks-lcms` (D5). |
+| `src/scieasy/blocks/io/adapters/parquet_adapter.py` | Logic merged into `LoadDataFrame._load_parquet`, `LoadSeries._load_parquet` (D5). |
+| `src/scieasy/blocks/io/adapters/tiff_adapter.py` | Moved verbatim to `scieasy-blocks-imaging` (D5). |
+| `src/scieasy/blocks/io/adapters/zarr_adapter.py` | Logic merged into `LoadArray._load_zarr`, `SaveArray._save_zarr` (D5). |
+| `tests/blocks/test_adapter_registry.py` | Registry no longer exists (D2). |
+| `tests/blocks/test_adapters.py` | Replaced by `tests/blocks/test_core_loaders.py` and `tests/blocks/test_core_savers.py` (D11). |
+
+#### Files to rewrite
+
+| File | Before | After |
+|---|---|---|
+| `src/scieasy/blocks/io/io_block.py` | 138 lines concrete class with `_run_input` / `_run_output` adapter-dispatch implementations | Abstract base class with `load()` / `save()` abstract methods, default `run()` dispatching on `direction`, `_detect_format()` helper (D1, D7, D8) |
+| `src/scieasy/blocks/io/__init__.py` | Re-exports `IOBlock`, `AdapterRegistry` | Re-exports `IOBlock` only; adds re-exports for the seven concrete core loaders/savers |
+| `pyproject.toml` | Contains `[project.entry-points."scieasy.adapters"]` section (empty) | Section removed (D6) |
+
+#### Files to create
+
+| File | Contents |
+|---|---|
+| `src/scieasy/blocks/io/loaders/__init__.py` | Re-exports the seven concrete loaders |
+| `src/scieasy/blocks/io/loaders/array.py` | `LoadArray(IOBlock)` — supports `.zarr`, `.npy`, `.npz`. Metadata JSON sidecar for numpy formats |
+| `src/scieasy/blocks/io/loaders/dataframe.py` | `LoadDataFrame(IOBlock)` — supports `.parquet`, `.pq`, `.csv`, `.tsv`, `.txt`, `.pkl`, `.pickle`. `allow_pickle` flag (D4) |
+| `src/scieasy/blocks/io/loaders/series.py` | `LoadSeries(IOBlock)` — supports `.parquet`, `.pq`, `.csv`, `.pkl`, `.pickle`. Single-column enforcement on CSV. `allow_pickle` flag |
+| `src/scieasy/blocks/io/loaders/text.py` | `LoadText(IOBlock)` — supports `.txt`, `.json`, `.md`, `.html`, `.xml`, `.log`, `.yaml`, `.yml`, `.toml`. UTF-8 default, `encoding` param |
+| `src/scieasy/blocks/io/loaders/artifact.py` | `LoadArtifact(IOBlock)` — catch-all for any extension; opaque byte copy; sets `mime_type` from extension |
+| `src/scieasy/blocks/io/loaders/composite.py` | `LoadCompositeData(IOBlock)` — reads `manifest.json`, recurses into `_reconstruct_one` per slot |
+| `src/scieasy/blocks/io/savers/__init__.py` | Re-exports the seven concrete savers |
+| `src/scieasy/blocks/io/savers/array.py` | `SaveArray(IOBlock)` — writes `.zarr`, `.npy`, `.npz`. Round-trips `axes`/`shape`/`dtype`/`chunk_shape` via sidecar JSON or Zarr `.attrs` |
+| `src/scieasy/blocks/io/savers/dataframe.py` | `SaveDataFrame(IOBlock)` — writes `.parquet`, `.csv`, `.tsv`, `.pkl` |
+| `src/scieasy/blocks/io/savers/series.py` | `SaveSeries(IOBlock)` — writes `.parquet`, `.csv`, `.pkl` |
+| `src/scieasy/blocks/io/savers/text.py` | `SaveText(IOBlock)` — writes `.txt`, `.json`, etc. UTF-8 default |
+| `src/scieasy/blocks/io/savers/artifact.py` | `SaveArtifact(IOBlock)` — byte copy to any destination |
+| `src/scieasy/blocks/io/savers/composite.py` | `SaveCompositeData(IOBlock)` — writes `manifest.json` and per-slot sub-directories via `_serialise_one` |
+| `tests/blocks/test_core_loaders.py` | Per-loader tests: happy path for each format, error on unknown extension, error on missing file, pickle opt-in enforcement, metadata round-trip |
+| `tests/blocks/test_core_savers.py` | Per-saver tests: happy path for each format, round-trip equivalence with loaders, directory-mode for `Collection` length > 1 |
+| `tests/blocks/test_ioblock_base.py` | `IOBlock()` direct instantiation raises `TypeError`; default `run()` dispatch branches correctly on `direction`; `_detect_format()` handles compound extensions |
+
+#### Files to modify (documentation)
+
+| File | Changes |
+|---|---|
+| `docs/adr/ADR.md` | This ADR (appended) |
+| `docs/adr/ADR.md` (ADR-025 §6) | **Follow-up PR after this ADR lands**: insert a `**Superseded by**: ADR-028` line at the start of §6 linking to ADR-028. Not included in this ADR PR to keep scope minimal. |
+| `docs/architecture/ARCHITECTURE.md` §4.2 (Storage backends) | **Follow-up PR**: clarify that loaders per base type now live at `scieasy.blocks.io.loaders.*` instead of `scieasy.blocks.io.adapters.*` |
+| `docs/architecture/ARCHITECTURE.md` §5.1 (Block base) | **Follow-up PR**: add IOBlock ABC discussion alongside CodeBlock / AppBlock / ProcessBlock |
+| `docs/architecture/PROJECT_TREE.md` | **Follow-up PR**: update to reflect new `loaders/` and `savers/` sub-directories, deletion of `adapters/` |
+| `docs/guides/block-sdk.md` | **Follow-up PR**: add a "Shipping a format-specific IO block" section with the `LoadImage` example from D5 |
+| `docs/specs/phase11-imaging-block-spec.md` | **New file, separate PR**: the Phase 11 imaging plugin spec consumes ADR-028's contract |
+| `docs/specs/phase11-srs-block-spec.md` | **New file, separate PR** |
+| `docs/specs/phase11-lcms-block-spec.md` | **New file, separate PR** |
+| `CHANGELOG.md` | **This ADR PR**: entry under `[Unreleased]` → `### Added` per CLAUDE.md Appendix A Stage 6 |
+
+#### Files NOT affected (explicitly)
+
+The following files are NOT touched by ADR-028 or its implementation. Listing them explicitly to prevent scope creep in the implementation PR:
+
+- `src/scieasy/core/types/*` — Phase 10's type hierarchy is unchanged.
+- `src/scieasy/core/types/registry.py` — `TypeRegistry.resolve` is unchanged.
+- `src/scieasy/core/types/serialization.py` — `_reconstruct_one` / `_serialise_one` are unchanged.
+- `src/scieasy/engine/runners/worker.py` — worker subprocess reconstruction path is unchanged.
+- `src/scieasy/engine/scheduler.py` — scheduler is unchanged.
+- `src/scieasy/blocks/base/*` — `Block` ABC, `InputPort`, `OutputPort`, `BlockConfig`, `BlockSpec` are unchanged.
+- `src/scieasy/blocks/process/*` — `ProcessBlock` is unchanged.
+- `src/scieasy/blocks/code/*` — `CodeBlock` is unchanged.
+- `src/scieasy/blocks/app/*` — `AppBlock` is unchanged.
+- `src/scieasy/blocks/ai/*` — AI blocks are unchanged.
+- Any test under `tests/core/`, `tests/engine/`, `tests/integration/` that does not currently import from `scieasy.blocks.io.adapters.*` or `scieasy.blocks.io.adapter_registry`.
+
+#### Test impact
+
+| Test file | Action |
+|---|---|
+| `tests/blocks/test_adapter_registry.py` | Delete |
+| `tests/blocks/test_adapters.py` | Delete |
+| `tests/blocks/test_core_loaders.py` | Create — covers D1, D3, D4, D8 |
+| `tests/blocks/test_core_savers.py` | Create — covers D3, D7 |
+| `tests/blocks/test_ioblock_base.py` | Create — covers D1 (ABC enforcement), D7 (default run dispatch), D8 (format detection helper) |
+| Any test under `tests/blocks/test_io_block.py` that instantiates `IOBlock()` directly | Migrate to one of the concrete core loaders |
+| `tests/integration/test_block_sdk_e2e.py` | Audit for `IOBlock(format=...)` usage; migrate any hits to specific loaders |
+
+#### Migration guide for workflow YAML files
+
+Pre-ADR-028 workflow YAML:
+
+```yaml
+blocks:
+  - id: load
+    type: io_block
+    config:
+      direction: input
+      path: data/input.csv
+```
+
+Post-ADR-028 equivalent:
+
+```yaml
+blocks:
+  - id: load
+    type: load_dataframe
+    config:
+      path: data/input.csv
+```
+
+The block `type` field changes from the generic `io_block` to the specific loader name (`load_array`, `load_dataframe`, `load_series`, `load_text`, `load_artifact`, `load_composite_data`, or a plugin-provided name like `load_image`). The `direction` field is removed; the block class encodes it. The `path` field is unchanged.
+
+For save blocks:
+
+```yaml
+# Before
+- id: save
+  type: io_block
+  config:
+    direction: output
+    path: data/output.parquet
+
+# After
+- id: save
+  type: save_dataframe
+  config:
+    path: data/output.parquet
+```
+
+The implementation PR ships a small `scieasy migrate-workflow <file.yaml>` helper that rewrites old workflow files in place. The helper is explicitly optional — not shipping it would also be acceptable because no production workflows exist yet.
+
+### Open questions deferred to implementation
+
+The following details are deliberately left for the implementation PR(s) to resolve, rather than being locked in this ADR. The implementation author is expected to pick the simplest option consistent with the ADR's decision text and document the choice in the PR body.
+
+1. **Zarr `.attrs` key name for `axes` metadata**. `"axes"`, `"scieasy_axes"`, `"_axes"`, or nested under `"scieasy": {"axes": [...]}`? Low stakes; pick whichever matches the Phase 10 convention in `tiff_adapter.py::write`.
+
+2. **Sidecar JSON filename for `.npy` / `.npz`**. `foo.npy` → `foo.npy.json` or `foo.json` or `foo_meta.json`? Low stakes; pick the least-ambiguous option.
+
+3. **`LoadText` encoding auto-detection**. Ship `charset-normalizer` as a dependency, or require users to pass `encoding` explicitly? Decision: require explicit encoding (UTF-8 default), no auto-detection. This is lower-risk and avoids a new dependency. Documented here to save the implementation author from re-litigating.
+
+4. **`LoadArtifact` `mime_type` detection**. Use Python's `mimetypes` stdlib module (always available) or add `python-magic` (libmagic binding) for content sniffing. Decision: `mimetypes` only. Extension-based is sufficient; content sniffing adds a system dependency.
+
+5. **`SaveCompositeData` manifest file format**. JSON (per Phase 10's `backend_router.py`) or YAML? Decision: JSON. Keep consistency with existing composite persistence.
+
+6. **Whether the default `run()` should catch `FileNotFoundError` and wrap with additional context**. Decision: no — let it propagate. Subclasses can wrap if they want, but the framework should not swallow.
+
+7. **Whether the CLI `scieasy migrate-workflow` helper is part of the implementation PR or a follow-up**. Decision: follow-up, issue filed separately. The ADR implementation PR must not block on tooling.
+
+### Relationship to other ADRs
+
+- **Supersedes**: ADR-025 §6 "Adapter registration via entry-points". The `scieasy.adapters` entry-point group is removed. The rest of ADR-025 (blocks entry-point group §1, package metadata §2, two-level categorization §3, types entry-point group §4, custom metadata persistence §5, built-in blocks strategy §7) stands unchanged.
+- **Depends on**: ADR-009 (registry stores specs) — `BlockRegistry` is the surviving registry for IO blocks. ADR-027 (Phase 10 core type system) — the seven base types this ADR provides loaders for. ADR-027 Addendum 1 §1 (typed reconstruction) — the downstream path for any loaded DataObject.
+- **Does not affect**: ADR-017 (subprocess isolation), ADR-018 + Addendum 1 (scheduler), ADR-019 (ProcessHandle), ADR-020 + Addenda (Collection transport), ADR-021 (collection operations), ADR-022 (memory monitoring). These operate at the runtime layer which is orthogonal to how IO blocks are structured.
+- **Enables**: Phase 11 Track 2 (`scieasy-blocks-imaging`), Track 3 (`scieasy-blocks-srs`), Track 4 (`scieasy-blocks-lcms`). All three plugin packages ship their primary user-facing blocks via the `IOBlock` ABC path specified here. The three plugin specs (`docs/specs/phase11-imaging-block-spec.md`, `phase11-srs-block-spec.md`, `phase11-lcms-block-spec.md`) will reference this ADR as their IO contract source of truth.
+
+## ADR-028 Addendum 1: Dynamic port override mechanism and GUI consequences
+
+**Status**: proposed
+**Date**: 2026-04-07
+
+### Purpose
+
+ADR-028 (merged in PR #294) refactored `IOBlock` into an abstract base class and deleted the central adapter registry. Three cross-cutting concerns surfaced during the Phase 11 design review that ADR-028 itself did not cover:
+
+1. **GUI hardcoding breakage** — `frontend/src/components/nodes/BlockNode.tsx` contains three hardcoded `blockType === "io_block"` special cases that break after ADR-028 because there is no longer a single `io_block` type_name.
+2. **Dynamic port type for core IO** — During design review, the user chose a single-palette-entry design for core IO: one `Load Data` block with a dropdown to select the output type from the six core DataObject base types, rather than six separate loader classes in the palette.
+3. **ADR-028 §D3 override** — The six concrete core loader/saver pairs specified in ADR-028 §D3 are replaced with two dynamic blocks (`LoadData`, `SaveData`) that dispatch internally via private module-level functions.
+
+This Addendum resolves all three concerns in a single coherent document by introducing a minimal dynamic-port override mechanism on the `Block` ABC, locking the GUI changes required to consume it, and explicitly overriding ADR-028 §D3 for core IO. The mechanism is deliberately constrained to **enum-only declarative mapping** — it does not attempt to support variadic port count (user adds/removes ports via the GUI), which remains out of scope for this Addendum and is tracked in ADR-029 (preliminary, scope pending).
+
+This Addendum **does not** modify any of the other ADR-028 decisions (D1, D2, D4-D14 stand unchanged) and does **not** touch any of the doc-phase scope boundaries ADR-028 set for ARCHITECTURE.md / block-sdk.md / PROJECT_TREE.md updates. Those updates remain scheduled for the Sprint A sub-1b PR-D follow-up. This Addendum does supersede ADR-028 §D3 ("Seven core loader/saver pairs") and documents that supersession explicitly.
+
+### Context
+
+#### Concern 1: GUI hardcoding breakage
+
+`frontend/src/components/nodes/BlockNode.tsx` has three hardcoded checks against the string `"io_block"` that were added to handle the pre-ADR-028 generic `IOBlock` class. After ADR-028, `io_block` is no longer a concrete class in the palette — it is an abstract base with concrete subclasses like `LoadArray`, `LoadDataFrame`, and plugin-provided `LoadImage`. The three hardcoded hits break or produce surprising behaviour:
+
+1. **`BlockNode.tsx:179`** — `const showBrowse = blockType === "io_block" && key === "path";` — renders a "Browse" button next to the `path` config field only when the block's type_name is exactly `"io_block"`. After ADR-028, `type_name` for core loaders will be `"load_array"`, `"load_dataframe"`, `"load_data"`, etc., so the browse button disappears entirely from every IO block. Plugin-provided `LoadImage` (`type_name = "load_image"`) also loses the browse button.
+
+2. **`BlockNode.tsx:241-243`** — the inline config field filter hides the `direction` property specifically on `io_block` nodes. After ADR-028, `direction` is no longer a user-editable config field (it is a ClassVar `"input"` or `"output"` on the subclass). The hide logic must be generalised or else every loader/saver block will render a direction dropdown that has no effect.
+
+3. **`BlockNode.tsx:247-249`** — computes `ioDirection = data.blockType === "io_block" ? data.config?.direction : undefined` and passes it to the `InlineConfigField` so the Browse button knows whether to open a file picker (load) or directory picker (save). After ADR-028, `data.config?.direction` does not exist because direction is a ClassVar, not a runtime config value. The Browse button would always default to file picker, breaking save blocks.
+
+None of these checks can be left in place. All three must be generalised to rely on the `category === "io"` discriminator (which Stage 10.1 already added to `BlockSchemaResponse`) plus a new `direction` field on the schema payload that is populated from the backend ClassVar at scan time.
+
+#### Concern 2: Dynamic port type for core IO
+
+ADR-028 §D3 specified six concrete core loader classes (`LoadArray`, `LoadDataFrame`, `LoadSeries`, `LoadText`, `LoadArtifact`, `LoadCompositeData`) and six corresponding savers. This would produce twelve distinct palette entries for "core IO" alone, before plugin packages contribute their own loader blocks.
+
+During design review the user observed that twelve palette items for core IO is visually dense and asked for a consolidated design: **one `Load Data` palette entry and one `Save Data` palette entry**, each with an internal "Data type" dropdown that picks which of the six base types the block produces. The output port's `accepted_types` must update when the dropdown selection changes, and the port's colour (inherited via `resolveTypeColor()` from the type hierarchy) must update to reflect the new type.
+
+This is the first case in SciEasy where a block's ports depend on its instance configuration. The existing `Block.input_ports` and `Block.output_ports` are `ClassVar[list[...]]` — their values are frozen at class definition time and cannot change per-instance. To deliver the `Load Data` UX, the framework needs an override point for per-instance port resolution.
+
+Two dimensions of dynamism exist in the Phase 11 block surface:
+
+| Dimension | Static | Dynamic | Example |
+|---|---|---|---|
+| Port **type** | Fixed at class level | Chosen at instance level | `LoadData` picks type from dropdown |
+| Port **count** | Fixed at class level | User adds/removes | `AIBlock` variadic inputs/outputs |
+
+These two dimensions have the same underlying mechanism ("effective ports are computed per instance") but very different GUI requirements. The type dimension needs only a dropdown and an enum→type mapping. The count dimension needs "add port" / "remove port" UI controls and a richer per-port editor.
+
+**This Addendum addresses the type dimension only.** The count dimension (AI variadic, CodeBlock variadic) is deferred to ADR-029, which will be a preliminary draft that records the problem without making decisions.
+
+#### Concern 3: ADR-028 §D3 override
+
+The original ADR-028 §D3 lists six concrete core loader/saver pairs as separate classes:
+
+```
+LoadArray / SaveArray
+LoadDataFrame / SaveDataFrame
+LoadSeries / SaveSeries
+LoadText / SaveText
+LoadArtifact / SaveArtifact
+LoadCompositeData / SaveCompositeData
+```
+
+This Addendum replaces that with:
+
+```
+LoadData / SaveData  (two dynamic blocks)
+  |
+  +-- dispatches internally to private module-level functions:
+      _load_array(config), _load_dataframe(config), _load_series(config),
+      _load_text(config), _load_artifact(config), _load_composite_data(config)
+      and the symmetric _save_* set
+```
+
+The six-pair structure disappears from the palette. The six internal format-handling functions still exist — they are where the adapter merge logic from ADR-028 §D2 lands — but they are private to the `load_data.py` / `save_data.py` modules and never appear as palette blocks or as importable classes.
+
+**Why private functions and not helper classes** (Q-B from the design conversation): the six dispatch functions are called exactly once each per `load()` invocation, do not need state, do not need a common interface other than `(BlockConfig) -> DataObject`, and do not benefit from polymorphism (the dispatch is an `if-elif` chain on a config string). A helper class per function would add class-definition boilerplate, MRO lookups, and instance construction cost for no benefit. The user explicitly chose private functions; this Addendum locks that decision.
+
+**Plugin IO blocks are unaffected.** `LoadImage` in `scieasy-blocks-imaging` remains a single concrete class with static `output_ports = [OutputPort(accepted_types=[Image])]`. Plugin authors who want to ship typed loaders continue to do so via the standard Phase 10 pattern. The dynamic mechanism is available to them via `get_effective_*_ports()` overrides if they want it, but plugin IO blocks for single-type formats (TIFF → Image, mzML → MSRawFile) stay static and get automatic port colouring from `resolveTypeColor()`'s type-hierarchy walk.
+
+### Discussion points and resolution
+
+| # | Topic | Options discussed | Final decision |
+|---|---|---|---|
+| 1 | Should dynamic ports be a new `DynamicBlock` base class, a mixin, or methods on `Block`? | (A) New `DynamicBlock(Block)` sibling base class alongside `ProcessBlock` / `CodeBlock` / `IOBlock` / `AppBlock` / `AIBlock`. (B) `DynamicPortsMixin` mixin for multiple inheritance. (C) Two default-implementation methods on `Block` itself that subclasses override when needed. | **Decision: (C).** Dynamic ports are orthogonal to execution model. A new base class would create Cartesian product problems (`DynamicIOBlock`, `DynamicAIBlock`, `DynamicCodeBlock`, ...). A mixin adds multiple-inheritance complexity. Two default methods on `Block` — `get_effective_input_ports(self)` and `get_effective_output_ports(self)` — add zero surface area for static blocks (default returns the ClassVar) and a clean override point for dynamic blocks. This mirrors Phase 10's "no `SpatialBlock` base class, use `iterate_over_axes` function" decision (ADR-027 D5). |
+| 2 | How should the declarative mapping between a config field and port types be expressed? | (A) Enum-only mapping: `{source_config_key: str, output_port_mapping: dict[port_name, dict[enum_value, list[type_name]]]}`. (B) Mini-DSL with expressions: `"output_types": "[Array] if config.core_type == 'Array' else [DataFrame]"`. (C) Python lambda closures. | **Decision: (A).** Enum-only. The user explicitly restricted the mechanism to this simple case (Q-A). A mini-DSL invites parsing, security, and user-confusion problems for a benefit no one has asked for. Lambda closures cannot round-trip through JSON for frontend consumption. Dynamic blocks whose port rules are more complex than enum dispatch simply override `get_effective_*_ports(self)` in Python and skip the declarative mapping entirely — the frontend falls back to reading `output_ports` (the ClassVar placeholder) for palette display and calls the backend to recompute when config changes. The current Addendum does not implement that backend-round-trip path; it is explicitly deferred to ADR-029. |
+| 3 | Where does `dynamic_ports` live on the block class? | (A) `ClassVar[dict[str, Any]] = {}` on `Block`. (B) A separate `PortPolicy` dataclass attached via `dynamic_ports: ClassVar[PortPolicy | None] = None`. (C) A decorator `@dynamic_ports(...)`. | **Decision: (A).** A `ClassVar[dict[str, Any] \| None] = None` on `Block`. Simplest possible form. Validation that the dict has the expected shape happens once at registry scan time via `BlockRegistry._validate_dynamic_ports(cls)`. A `PortPolicy` dataclass is overkill for the two-level nested dict structure the mechanism needs. A decorator adds magic for no benefit. |
+| 4 | How does the frontend learn about `dynamic_ports`? | (A) Add a `dynamic_ports` field to `BlockSchemaResponse`. (B) Inline the mapping into `config_schema` as a custom `ui_widget` property. (C) Separate API endpoint `/api/blocks/<id>/dynamic_ports`. | **Decision: (A).** Add a `dynamic_ports: dict \| None = None` field to `BlockSchemaResponse` (Pydantic model in `src/scieasy/api/schemas.py`). The frontend reads the field once when the user drops the block onto the canvas and then recomputes ports locally whenever the driving config field changes. No API round-trip per change. |
+| 5 | How does the backend compute `get_effective_output_ports()` for `LoadData`? | (A) Hardcode a `_CORE_TYPE_MAP` dict inside `load_data.py` mapping enum strings to classes. (B) Look up via `TypeRegistry.resolve`. (C) Use `importlib.import_module`. | **Decision: (A).** Hardcode the six core type mappings in a module-level `_CORE_TYPE_MAP: dict[str, type[DataObject]]` at the top of `load_data.py`. The six core types are stable Phase 10 contract, not user-extensible. Using `TypeRegistry.resolve` adds a registry dependency for no benefit; `importlib` adds runtime overhead. The hardcoded map is 6 lines and self-documenting. |
+| 6 | Where does the framework read the effective ports? | (A) Every call site that currently reads `self.input_ports` / `self.output_ports` changes to `self.get_effective_*_ports()`. (B) Only the hot paths change. (C) Introduce a property setter that caches on change. | **Decision: (A).** Audit every read of `.input_ports` / `.output_ports` in the framework and update each one. Static blocks pay zero cost (default implementation returns the ClassVar list). Caching adds complexity for a mechanism that runs at most once per block instance per workflow execution. The audit is small: `Block.validate`, `ProcessBlock.run`, `workflow/validator.py`, `api/routes/blocks.py` plus a few peripheral call sites. |
+| 7 | How does `workflow/validator.py` handle a dynamic block's port check? | (A) Use the class-level ClassVar (may be wrong for dynamic blocks). (B) Use `get_effective_*_ports()` on a temporary instance constructed with the workflow node's config. (C) Skip port validation for dynamic blocks. | **Decision: (B).** The workflow validator constructs a temporary `Block` instance from the workflow node's config (which it already has because it is validating a specific workflow), then calls `block.get_effective_input_ports()` / `get_effective_output_ports()` to get the effective port lists for that specific node. Static blocks still produce the same ClassVar values; dynamic blocks produce per-instance values that reflect the user's selection. |
+| 8 | How does the GUI `Browse` button learn whether to open a file picker or directory picker? | (A) Read `data.config?.direction` (current, broken after ADR-028). (B) Read `data.schema?.direction` (new field, populated from the block class's `direction` ClassVar). (C) Infer from `type_name.startsWith("load_")` vs `"save_"`. | **Decision: (B).** Add a `direction: str \| None = None` field to `BlockSchemaResponse` that is populated from `cls.direction` at API response construction time. The frontend reads `data.schema?.direction` and branches accordingly. Option (C) is brittle because plugin authors might name their blocks anything. Option (A) is broken after ADR-028 because `direction` is no longer a runtime config value. |
+| 9 | What happens to the six concrete loader/saver classes originally specified in ADR-028 §D3? | (A) Keep them as private classes, used internally by `LoadData` / `SaveData` via composition. (B) Replace with private module-level functions. (C) Keep six classes but hide from the palette via a `palette_hidden: ClassVar[bool] = True` flag. | **Decision: (B).** Private module-level functions `_load_array(config) -> Array`, `_load_dataframe(config) -> DataFrame`, etc. inside `load_data.py`. Symmetric `_save_*(obj, config)` functions inside `save_data.py`. No separate classes. The user explicitly chose this (Q-B). ADR-028 §D3 is superseded on this point. |
+| 10 | Are plugin IO blocks required to use the dynamic mechanism? | (A) Required — plugins must use `dynamic_ports` if their loader produces more than one type. (B) Optional — plugins can be static (one class per type) or dynamic (one class with a dropdown) at the author's discretion. | **Decision: (B).** Plugin IO blocks are free to be static or dynamic. Most plugin loaders target a single file format that produces a single type (TIFF → Image, mzML → MSRawFile) and should stay static. The dynamic mechanism is available when it adds value. Static plugin blocks automatically inherit the correct port colour from the type hierarchy via `resolveTypeColor()`, so no frontend work is needed per plugin. |
+| 11 | How does the Browse button generalise from `blockType === "io_block"` to a property-based discriminator? | (A) Use `data.category === "io"`. (B) Use `data.schema?.direction != null`. (C) Use a new `config_schema.properties.path.ui_widget = "path_picker"` annotation. | **Decision: (A) + per-field override**. Primary rule: any block with `data.category === "io"` that has a `path` config field gets a Browse button on that field. This covers core `LoadData` / `SaveData` and all plugin IO blocks that follow the standard `category = "io"` convention. A rare block that wants a path field without the Browse button can omit the `path` field name (rename to `file_location` etc.), but this is a degenerate case. Option (C) is a more explicit but more verbose opt-in; not needed for Phase 11. |
+| 12 | Does the worker subprocess (`_reconstruct_one` / `_serialise_one`) need changes to handle dynamic blocks? | (A) Yes — add `dynamic_ports` to the wire format. (B) No — the worker receives the already-resolved effective ports from the engine. | **Decision: (B).** Dynamic port resolution happens in the engine (which has the block instance and its config). The worker subprocess receives already-resolved data with concrete types. When the worker reconstructs a `DataObject` via `_reconstruct_one`, the type comes from `metadata.type_chain`, not from any port-level information. The worker neither knows nor cares whether the block is dynamic. ADR-027 Addendum 1 §1 (worker reconstruction contract) is unaffected. |
+| 13 | Is the variadic port count (AI variadic, CodeBlock variadic) in scope? | (A) Yes — design the full mechanism that handles both type and count dimensions. (B) No — defer to a separate ADR. | **Decision: (B).** Variadic port count requires frontend "add port" / "remove port" controls, per-instance port configuration storage, and a significantly more complex backend mechanism (the port list is variable length, each port has its own name and type). That work is large enough to warrant its own ADR. ADR-029 (preliminary) reserves the namespace and lists the open questions. This Addendum does not constrain ADR-029's design — it only provides the `get_effective_*_ports()` override mechanism that ADR-029 will build on. |
+
+### Decision
+
+The decisions from the discussion table are codified below as D1' through D9' (with prime marks to distinguish from ADR-028's D1-D14). Each decision has a one-paragraph summary, a code-shape sketch where appropriate, and a line-by-line impact reference in the "Detailed impact scope" section.
+
+#### D1'. `get_effective_input_ports` / `get_effective_output_ports` override points on `Block` (covers #1, #6)
+
+The `Block` ABC in `src/scieasy/blocks/base/block.py` gains two new methods with default implementations that return the class-level `input_ports` / `output_ports` ClassVar lists. Dynamic-port blocks override these methods to compute per-instance port lists from `self.config`.
+
+```python
+class Block(ABC):
+    # ... existing ClassVars ...
+    input_ports: ClassVar[list[InputPort]] = []
+    output_ports: ClassVar[list[OutputPort]] = []
+
+    # New Addendum 1 override points.
+    def get_effective_input_ports(self) -> list[InputPort]:
+        """Return the effective input ports for this block instance.
+
+        ADR-028 Addendum 1 D1': default implementation returns
+        ``type(self).input_ports``. Dynamic-port blocks (e.g. ``LoadData``)
+        override this method to read ``self.config`` and compute a
+        per-instance port list.
+
+        The framework's port-check, scheduler, and workflow-validator
+        read-paths use this method rather than reading the ClassVar
+        directly, so static blocks pay zero cost while dynamic blocks
+        get the override point they need.
+        """
+        return list(type(self).input_ports)
+
+    def get_effective_output_ports(self) -> list[OutputPort]:
+        """Return the effective output ports for this block instance.
+
+        See :meth:`get_effective_input_ports` for the override contract.
+        """
+        return list(type(self).output_ports)
+```
+
+The defaults return a **copy** of the ClassVar list (via `list(...)`) rather than the list itself so that callers cannot mutate the class state by appending to the returned list. This matches the defensive-copy pattern used by Phase 10's `DataObject.user` property.
+
+Static blocks pay one `type(self).input_ports` lookup and one `list(...)` copy per call. Dynamic blocks pay whatever they choose inside their override. Neither cost is on the hot path (port lookups happen at validation/dispatch time, not per-item).
+
+#### D2'. `dynamic_ports` declarative ClassVar on `Block` (covers #2, #3)
+
+`Block` gains a new ClassVar:
+
+```python
+class Block(ABC):
+    # ... existing ClassVars ...
+    dynamic_ports: ClassVar[dict[str, Any] | None] = None
+```
+
+The shape of the dict (when non-None) is strictly fixed to the enum-mapping form:
+
+```python
+dynamic_ports = {
+    "source_config_key": "core_type",   # which config field drives the mapping
+    "output_port_mapping": {            # per-port mapping
+        "data": {                       # port name
+            "Array":         ["Array"],         # enum value -> list of type names
+            "DataFrame":     ["DataFrame"],
+            "Series":        ["Series"],
+            "Text":          ["Text"],
+            "Artifact":      ["Artifact"],
+            "CompositeData": ["CompositeData"],
+        },
+    },
+    # optionally, "input_port_mapping" with the same shape for input ports
+}
+```
+
+The enum values in the mapping must be the exact string values declared in `config_schema.properties[source_config_key].enum`. Type names in the value list must be strings that are resolvable via `TypeRegistry.resolve([type_name])` — core type names (`"Array"`, `"DataFrame"`, etc.) for core blocks, plugin type names (`"Image"`, `"FluorImage"`) for plugin blocks.
+
+**Validation at registration time**: `BlockRegistry.register()` (or `_build_spec()`) calls a new helper `_validate_dynamic_ports(cls)` that checks:
+1. If `cls.dynamic_ports is None`, return immediately (static block).
+2. Otherwise, `cls.dynamic_ports` must be a dict with keys `source_config_key: str` and `output_port_mapping: dict[str, dict[str, list[str]]]` (input_port_mapping is optional, same shape).
+3. `source_config_key` must exist as a property in `cls.config_schema["properties"]`.
+4. The enum values in the mapping must match `cls.config_schema["properties"][source_config_key]["enum"]` exactly (set equality).
+5. Every port name in the mapping must exist in `cls.output_ports` (or `cls.input_ports`) — the ClassVar list is the placeholder for the palette preview.
+6. Every type name in the mapping's value lists must be importable (`TypeRegistry.resolve` returns non-None). Non-importable type names are logged as a warning at registration time but do not fail registration.
+
+Validation failures raise `ValueError` at registration time with a clear message pointing at the offending block class and field.
+
+#### D3'. `BlockSpec` and `BlockSchemaResponse` changes (covers #4, #8)
+
+`BlockSpec` (the dataclass stored in `BlockRegistry`) gains a field:
+
+```python
+# src/scieasy/blocks/registry.py
+@dataclass
+class BlockSpec:
+    # ... existing fields ...
+    dynamic_ports: dict[str, Any] | None = None
+    direction: str | None = None          # from cls.direction for IOBlock subclasses
+```
+
+The `direction` field on `BlockSpec` is populated at scan time via `getattr(cls, "direction", None)`. Non-IOBlock classes have no `direction` ClassVar and this field stays `None`.
+
+`BlockSchemaResponse` (Pydantic model in `src/scieasy/api/schemas.py`) gains the same two fields:
+
+```python
+# src/scieasy/api/schemas.py
+class BlockSchemaResponse(BlockSummary):
+    """Detailed schema payload for a single block type."""
+    config_schema: dict[str, Any] = Field(default_factory=dict)
+    type_hierarchy: list[TypeHierarchyEntry] = Field(default_factory=list)
+    # New Addendum 1 fields
+    dynamic_ports: dict[str, Any] | None = None
+    direction: str | None = None
+```
+
+`_schema_response()` (in `src/scieasy/api/routes/blocks.py`) and `_summary()` are updated to populate both fields from `BlockSpec`.
+
+The frontend TypeScript types in `frontend/src/types/api.ts` are updated to match:
+
+```typescript
+export interface BlockSchemaResponse extends BlockSummary {
+  config_schema: Record<string, unknown>;
+  type_hierarchy: TypeHierarchyEntry[];
+  dynamic_ports?: DynamicPortsMapping;
+  direction?: "input" | "output";
+}
+
+export interface DynamicPortsMapping {
+  source_config_key: string;
+  output_port_mapping?: Record<string, Record<string, string[]>>;
+  input_port_mapping?: Record<string, Record<string, string[]>>;
+}
+```
+
+#### D4'. Framework read-path migration (covers #6, #7)
+
+Every call site that currently reads `.input_ports` or `.output_ports` on a block instance changes to call `get_effective_*_ports()`. The audit:
+
+| File | Before | After |
+|---|---|---|
+| `src/scieasy/blocks/base/block.py:92` | `port_map = {p.name: p for p in self.input_ports}` | `port_map = {p.name: p for p in self.get_effective_input_ports()}` |
+| `src/scieasy/blocks/base/block.py:95` | `for port in self.input_ports:` | `for port in self.get_effective_input_ports():` |
+| `src/scieasy/blocks/process/process_block.py:160` | `output_name = self.output_ports[0].name if self.output_ports else "output"` | `ports = self.get_effective_output_ports(); output_name = ports[0].name if ports else "output"` |
+| `src/scieasy/blocks/process/process_block.py:165` | (same pattern) | (same pattern) |
+| `src/scieasy/workflow/validator.py:190` | `for port in spec.input_ports:` (reads class spec) | For dynamic blocks: construct a temporary instance from the workflow node's config and call `block.get_effective_input_ports()`. For static blocks: fall through to the class-level list. See the validator implementation sketch below. |
+| `src/scieasy/api/routes/blocks.py:54-55` | `input_ports=[_port_response(port, ...) for port in spec.input_ports]` | For static blocks: unchanged (reads class spec for palette preview). For dynamic blocks: palette preview shows the placeholder ports from the ClassVar, and the frontend recomputes per-instance ports from `dynamic_ports`. |
+
+**Workflow validator sketch** (for `workflow/validator.py`):
+
+```python
+def _get_effective_ports(node: WorkflowNode, spec: BlockSpec) -> tuple[list[InputPort], list[OutputPort]]:
+    """Return the effective input/output ports for a workflow node.
+
+    Static blocks: return the BlockSpec's class-level lists.
+    Dynamic blocks: construct a temporary Block instance from the node's
+    config and call get_effective_*_ports().
+    """
+    if spec.dynamic_ports is None:
+        return (spec.input_ports, spec.output_ports)
+
+    # Dynamic block - instantiate from the node's config and ask the instance
+    block_cls = BlockRegistry.load_class(spec.name)
+    instance = block_cls(config=node.config or {})
+    return (
+        instance.get_effective_input_ports(),
+        instance.get_effective_output_ports(),
+    )
+```
+
+The validator's type-compatibility check for a workflow edge uses `_get_effective_ports(source_node, source_spec)` for the source side and `_get_effective_ports(target_node, target_spec)` for the target side. Static blocks produce the same ClassVar lists they produce today; dynamic blocks produce per-instance lists that reflect the node's configured state.
+
+`BlockRegistry.register()` (or equivalent scan-time entry point) calls `_validate_dynamic_ports(cls)` per D2' so malformed `dynamic_ports` declarations fail loudly at startup rather than at workflow validation time.
+
+#### D5'. LoadData and SaveData concrete design (covers #5, #9)
+
+ADR-028 §D3's six loader classes become two concrete classes (`LoadData` and `SaveData`) plus twelve private module-level functions. The file layout:
+
+```
+src/scieasy/blocks/io/
+|-- __init__.py            (re-exports IOBlock, LoadData, SaveData)
+|-- io_block.py            (IOBlock ABC - per ADR-028 D1)
+|-- loaders/
+|   |-- __init__.py        (re-exports LoadData)
+|   `-- load_data.py       (LoadData class + six private _load_* functions)
+`-- savers/
+    |-- __init__.py        (re-exports SaveData)
+    `-- save_data.py       (SaveData class + six private _save_* functions)
+```
+
+`LoadData` exact shape is locked in the Sprint A sub-1b PR-B implementation ticket (summary: `type_name = "load_data"`, `category = "io"`, `direction = "input"`, a placeholder `output_ports = [OutputPort(name="data", accepted_types=[DataObject])]` for the palette preview, a `dynamic_ports` ClassVar with `source_config_key = "core_type"` and an `output_port_mapping` for the "data" port covering all six core type enum values, a `config_schema` declaring `core_type` enum + `path` + `allow_pickle` + `separator` + `encoding` properties, a `get_effective_output_ports()` override that reads `self.config["core_type"]` and returns a single `OutputPort` with `accepted_types=[_CORE_TYPE_MAP[type_name]]`, and a `load()` implementation that dispatches through six private functions `_load_array`/`_load_dataframe`/`_load_series`/`_load_text`/`_load_artifact`/`_load_composite_data`).
+
+The six private functions absorb the format-handling logic from the deleted bundled adapters per ADR-028 §D2 and §D5:
+
+- `_load_array(config)` — absorbs `zarr_adapter.py`, handles `.zarr` / `.npy` / `.npz` with metadata sidecar JSON.
+- `_load_dataframe(config)` — absorbs `parquet_adapter.py` and `csv_adapter.py`, handles `.parquet` / `.pq` / `.csv` / `.tsv` / `.txt` / `.pkl` / `.pickle`. Pickle requires `allow_pickle=True`.
+- `_load_series(config)` — absorbs the single-column Parquet/CSV path, enforces single-column, supports `.pkl` / `.pickle`.
+- `_load_text(config)` — filesystem read, UTF-8 default, honours `encoding` config.
+- `_load_artifact(config)` — absorbs `generic_adapter.py`, opaque byte copy, sets `mime_type` from extension.
+- `_load_composite_data(config)` — reads a directory containing `manifest.json` and recurses into `_reconstruct_one` per slot.
+
+`SaveData` has the symmetric structure in `src/scieasy/blocks/io/savers/save_data.py` with:
+- `direction: ClassVar[str] = "output"`
+- `type_name: ClassVar[str] = "save_data"`
+- `input_ports` placeholder instead of output_ports placeholder
+- `dynamic_ports` maps to `input_port_mapping` instead of `output_port_mapping`
+- `save(obj, config)` method that dispatches to private `_save_array`, `_save_dataframe`, etc.
+- `get_effective_input_ports()` override mirroring `LoadData.get_effective_output_ports()`
+
+The private save functions are symmetric counterparts of the load functions and absorb the save-path logic from the same deleted adapters.
+
+**Key clarification**: The six private `_load_*` / `_save_*` functions are the **only** place the format-handling logic from the deleted bundled adapters lives in core. They are not exported, not tested via import, and do not appear in the palette. ADR-028 §D3's "Seven core loader/saver pairs" (actually six pairs, because `DataObject` has no loader) is superseded — those classes do not exist in Phase 11 core.
+
+**All implementation details for these six functions (format probing, metadata sidecar handling, pickle opt-in enforcement, compound extension detection for `.composite/` directories) are locked in ADR-028 §D3 and §D5 — this Addendum does not repeat them, it only changes where the logic lives (private functions in two modules, not methods on six classes).**
+
+#### D6'. GUI hardcoding removal and Browse button generalisation (covers #1, #11)
+
+`frontend/src/components/nodes/BlockNode.tsx` changes:
+
+**Change 1** (around line 179): Browse button shows on any block with `category === "io"` that has a `path` config field, not just blocks with `blockType === "io_block"`.
+
+```typescript
+// Before
+const showBrowse = blockType === "io_block" && key === "path";
+
+// After (D6' / D11)
+const showBrowse = data.category === "io" && key === "path";
+```
+
+**Change 2** (around lines 241-243): The hidden-direction filter generalises from `blockType === "io_block"` to `category === "io"`.
+
+```typescript
+// Before
+const configProps = getTopConfigProperties(data.schema?.config_schema).filter(
+  (prop) => !(data.blockType === "io_block" && prop.key === "direction"),
+);
+
+// After
+const configProps = getTopConfigProperties(data.schema?.config_schema).filter(
+  (prop) => !(data.category === "io" && prop.key === "direction"),
+);
+```
+
+Note that after ADR-028, `direction` is no longer a runtime config field — it is a ClassVar on the block class. Therefore this filter is largely defensive (there should be no `direction` key in `config_schema.properties` for any post-ADR-028 IO block) but is kept as a safety net in case a plugin author accidentally adds a direction property.
+
+**Change 3** (around lines 247-249): `ioDirection` reads from `data.schema?.direction` (new field from D3') instead of `data.config?.direction`.
+
+```typescript
+// Before
+const ioDirection = data.blockType === "io_block"
+  ? (data.config?.direction as string | undefined) ?? "input"
+  : undefined;
+
+// After (D6' / D8)
+const ioDirection = data.category === "io"
+  ? (data.schema?.direction as "input" | "output" | undefined) ?? "input"
+  : undefined;
+```
+
+#### D7'. Frontend dynamic port recomputation (covers #2, #4)
+
+When `BlockNode.tsx` renders a node whose schema has a non-null `dynamic_ports` field, the component watches the driving config field and recomputes the effective port list client-side whenever the user changes the selection.
+
+Implementation sketch (pseudocode):
+
+```typescript
+function computeEffectivePorts(
+  basePorts: BlockPortResponse[],
+  dynamicMapping: DynamicPortsMapping | undefined,
+  currentConfig: Record<string, unknown>,
+): BlockPortResponse[] {
+  if (!dynamicMapping || !dynamicMapping.output_port_mapping) {
+    return basePorts;
+  }
+  const driverValue = currentConfig[dynamicMapping.source_config_key];
+  if (typeof driverValue !== "string") {
+    return basePorts;
+  }
+  return basePorts.map((port) => {
+    const portMapping = dynamicMapping.output_port_mapping?.[port.name];
+    if (!portMapping || !portMapping[driverValue]) {
+      return port;
+    }
+    return {
+      ...port,
+      accepted_types: portMapping[driverValue],
+    };
+  });
+}
+
+// In BlockNode.tsx:
+const effectiveOutputPorts = computeEffectivePorts(
+  data.outputPorts,
+  data.schema?.dynamic_ports,
+  data.config ?? {},
+);
+// Use effectiveOutputPorts in the port-rendering loop instead of data.outputPorts.
+```
+
+Port colour updates automatically because `resolveTypeColor(effectivePorts[i].accepted_types, typeHierarchy)` is called with the freshly computed `accepted_types` list every render.
+
+The palette preview (BlockPalette.tsx) does **not** use the dynamic recomputation — it shows the static `output_ports` / `input_ports` ClassVar placeholders (which is why `LoadData.output_ports` ships with a `DataObject`-typed placeholder that renders as light grey in the palette).
+
+#### D8'. Plugin IO blocks remain static (documented non-change)
+
+Plugin-provided IO blocks like `LoadImage` in `scieasy-blocks-imaging` continue to declare static `output_ports` ClassVars. They do not need to use the dynamic mechanism. Example (from the future Phase 11 imaging plugin spec):
+
+```python
+# scieasy_blocks_imaging/io/load_image.py
+
+class LoadImage(IOBlock):
+    direction: ClassVar[str] = "input"
+    type_name: ClassVar[str] = "load_image"
+    name: ClassVar[str] = "Load Image"
+    category: ClassVar[str] = "io"
+    # Static output_ports - LoadImage always produces Image (or subclass).
+    output_ports: ClassVar[list[OutputPort]] = [
+        OutputPort(name="data", accepted_types=[Image], description="Loaded image"),
+    ]
+    # No dynamic_ports ClassVar - the default (None) means "static block".
+    # ...
+```
+
+Port colour for `LoadImage` flows automatically via `resolveTypeColor(["Image"], typeHierarchy)` → walks the hierarchy → finds `Image → Array → blue`. No frontend work per plugin. The dynamic mechanism is opt-in.
+
+#### D9'. ADR-028 §D3 supersession (covers #9)
+
+This Addendum explicitly supersedes ADR-028 §D3 ("Seven core loader/saver pairs"). The original D3 listed:
+
+```
+LoadArray / SaveArray
+LoadDataFrame / SaveDataFrame
+LoadSeries / SaveSeries
+LoadText / SaveText
+LoadArtifact / SaveArtifact
+LoadCompositeData / SaveCompositeData
+```
+
+as six distinct concrete classes shipped under `src/scieasy/blocks/io/loaders/` and `src/scieasy/blocks/io/savers/`. Per Addendum 1 D5' and D9' (this decision), those six pairs are replaced with:
+
+```
+LoadData (single class) + six private module-level _load_* functions
+SaveData (single class) + six private module-level _save_* functions
+```
+
+living in `src/scieasy/blocks/io/loaders/load_data.py` and `src/scieasy/blocks/io/savers/save_data.py` respectively. The six private functions carry all the format-handling logic absorbed from the deleted bundled adapters per ADR-028 §D2 and §D5.
+
+The ADR-028 §"Detailed impact scope" / "Files to create" table's rows for `loaders/array.py`, `loaders/dataframe.py`, `loaders/series.py`, `loaders/text.py`, `loaders/artifact.py`, `loaders/composite.py` (and the symmetric `savers/` rows) are **superseded** by this Addendum. The actual files created in the Sprint A sub-1b implementation PRs are only `loaders/load_data.py` and `savers/save_data.py`.
+
+The ADR-028 §D3 table of "Supported extensions" per base type is **unchanged** — the same format set applies, just dispatched through the private functions instead of separate classes.
+
+### Alternatives considered
+
+**Alternative I — Don't introduce a dynamic port mechanism; keep six separate classes.** Under this alternative, ADR-028 §D3 stands as-is. The palette gets six `Load*` entries plus six `Save*` entries for core IO alone.
+
+*Rejected because*:
+- The user explicitly chose the consolidated single-palette-entry design.
+- Twelve core IO palette entries is visually dense and makes the "Core > io" category crowded before plugin packages contribute their own loaders.
+- The dynamic mechanism introduced by this Addendum is small (two methods, one ClassVar, one API field, one frontend helper). The cost of introducing it is lower than the cost of twelve palette entries.
+
+**Alternative II — Hide the six loader classes from the palette via a `palette_hidden: bool` flag and add a meta-palette-entry that dispatches at drag time.** Under this alternative, the six classes exist but don't appear in the palette. A single "Load Data" palette item is a special kind of palette entry that, when dragged, spawns the concrete block class selected via the dropdown.
+
+*Rejected because*:
+- This requires a new "meta-palette-entry" concept distinct from blocks, which no other palette item uses. The frontend palette model becomes more complex.
+- The spawned block class is fixed once the user selects the type, so changing the type requires deleting and re-creating the node. This is worse UX than a node whose type updates live.
+- Hiding six classes from the palette but keeping them as importable classes creates a "visible from code, hidden from GUI" split that confuses documentation.
+
+**Alternative III — Use a Pydantic discriminated union for the config and let FastAPI dispatch.** Under this alternative, `LoadData.config_schema` is a Pydantic discriminated union on `core_type`, and FastAPI returns the correct sub-schema in the API response.
+
+*Rejected because*:
+- The GUI problem is not schema dispatch — it is port type dispatch. The port types are not a Pydantic concept; they are `list[type[DataObject]]`. A discriminated union on the config does not tell the frontend what the port colour should be.
+- Adding Pydantic discriminated-union machinery to a problem that a three-field ClassVar solves is complexity for no benefit.
+
+**Alternative IV — Implement the full variadic port count mechanism in the same Addendum.** Under this alternative, Addendum 1 covers both the type dimension (LoadData) and the count dimension (AI variadic), landing both together.
+
+*Rejected because*:
+- The count dimension is significantly more complex and unlocks a much larger design space (GUI controls for add/remove port, per-port editor, constraint handling, scheduler routing, worker subprocess reconstruction).
+- Bundling the two dimensions would balloon this Addendum to multi-thousand-line scope and delay the core IO refactor.
+- ADR-029 is the right home for the count dimension because it deserves its own design conversation, not a sub-section of an Addendum.
+
+### Consequences
+
+**Non-breaking changes** (Addendum 1 is additive for static blocks):
+
+- `Block.get_effective_input_ports()` and `get_effective_output_ports()` have default implementations that return the existing ClassVar lists. Static blocks get the new methods for free with zero behaviour change.
+- `Block.dynamic_ports` defaults to `None`. Static blocks do not need to set it.
+- `BlockSpec.dynamic_ports` defaults to `None`. `BlockSchemaResponse.dynamic_ports` defaults to `None`. Frontend checks `?? undefined` and falls back to static port rendering.
+- `BlockSpec.direction` defaults to `None`. Non-IO blocks do not have a `direction` ClassVar and this field stays `None` in their spec.
+- All existing tests of static blocks should continue to pass without modification.
+
+**Breaking changes** (only affect ADR-028's implementation PRs, which are still pending):
+
+- ADR-028 §D3's six concrete loader/saver pairs are replaced by two dynamic blocks. The Sprint A sub-1b PR-B implementation creates `LoadData` (not `LoadArray`, `LoadDataFrame`, etc.). The Sprint A sub-1b PR-C implementation creates `SaveData` (not the six individual savers).
+- The ADR-028 "Files to create" table rows for `loaders/array.py`, `loaders/dataframe.py`, `loaders/series.py`, `loaders/text.py`, `loaders/artifact.py`, `loaders/composite.py` are deleted. Only `loaders/load_data.py` and `savers/save_data.py` are created.
+- The Sprint A sub-1b PR-B/PR-C implementation agents must read this Addendum, not just ADR-028, to know the correct file layout.
+
+**Frontend consequences**:
+
+- `BlockNode.tsx` no longer has three hardcoded `blockType === "io_block"` checks. The generalised `category === "io"` discriminator works for any IO block, plugin-provided or core.
+- The Browse button appears on any IO block's `path` config field (both core and plugin). Save blocks open a directory picker; load blocks open a file picker.
+- The `direction` field is hidden from the inline config fields on any IO block (defensive, since it's no longer a runtime config value).
+- Dynamic blocks (like `LoadData`) recompute their port colours live when the user changes the driving config field.
+- Static plugin IO blocks (like `LoadImage`) get port colours via the existing `resolveTypeColor()` type-hierarchy walk — no per-plugin frontend work.
+
+**Developer experience consequences**:
+
+- Plugin authors writing simple single-type loaders (e.g. `LoadImage`, `LoadMSRawFile`) write no frontend code and declare no dynamic mechanism. They get the same consolidated UX as core `LoadData` automatically via the generic renderer.
+- Plugin authors who want dynamic typed loaders declare a `dynamic_ports` ClassVar on their subclass. The declarative form is enum-only; more complex rules require a Python override of `get_effective_*_ports()`.
+- The `get_effective_*_ports()` mechanism generalises to future use cases beyond IO (e.g., a plugin block that produces different types based on a "mode" config). The mechanism is available to any `Block` subclass, not just `IOBlock`.
+
+**Known risks and mitigations**:
+
+| Risk | Mitigation |
+|---|---|
+| Dynamic port recomputation client-side gets out of sync with backend state | The recomputation is purely deterministic given `dynamic_ports` mapping + current config. Backend re-derives the same port list via `get_effective_*_ports()` when it runs the block. Unit tests verify the two implementations agree for every enum value. |
+| Plugin authors write malformed `dynamic_ports` ClassVars | Scan-time validation in `BlockRegistry._validate_dynamic_ports(cls)` catches malformed mappings before the block reaches the registry. Failures raise `ValueError` with the offending class name and field. |
+| Workflow validator accidentally uses stale cached port lists | Workflow validator always instantiates a fresh `Block` from the node's config to call `get_effective_*_ports()`. No caching between workflow nodes. |
+| `LoadData` dispatch function raises `NotImplementedError` for a valid core type | The six private dispatch functions are implementation placeholders until Sprint A sub-1b PR-B lands. The dispatch in `LoadData.load()` validates the core_type against `_CORE_TYPE_MAP` before calling the function, so unknown types raise a clear `ValueError` with the supported list. |
+| Frontend recomputation fires on every keystroke for text fields that happen to have a mapping | `dynamic_ports.source_config_key` targets an enum field (dropdown), not a text field. Validation at registration time enforces this by checking that the driving config property has an `enum` list. |
+| Existing static `IOBlock` tests break because the IOBlock ABC is already abstract | ADR-028 PR-A already made `IOBlock` abstract. This Addendum does not change that. Existing tests that instantiated a bare `IOBlock` were migrated to concrete loaders by PR-A. This Addendum inherits that migration. |
+| Plugin tests break because the plugin's IOBlock subclass does not override `get_effective_*_ports()` | Default implementation returns the ClassVar. Plugin blocks with static `output_ports` and no `dynamic_ports` work without any additional method override. The mechanism is strictly additive for plugin authors. |
+
+### Detailed impact scope
+
+Implementation of Addendum 1 is **not** part of this ADR PR. The impact scope below describes what the Sprint A sub-1b implementation PR(s) must do.
+
+#### Files to modify (backend, Phase 11 implementation PR)
+
+| File | Changes |
+|---|---|
+| `src/scieasy/blocks/base/block.py` | **Add** `dynamic_ports: ClassVar[dict[str, Any] \| None] = None` ClassVar (around line 64). **Add** `get_effective_input_ports(self)` and `get_effective_output_ports(self)` methods with default implementations (after `input_ports` / `output_ports` declarations). **Update** `Block.validate()` (lines 92, 95) to use `self.get_effective_input_ports()` instead of `self.input_ports` directly. |
+| `src/scieasy/blocks/process/process_block.py` | **Update** lines 160, 165 to read `self.get_effective_output_ports()` instead of `self.output_ports` directly. |
+| `src/scieasy/blocks/io/io_block.py` | **Add** `direction: ClassVar[str] = "input"` at the class-body level (moved from subclass responsibility — it stays ClassVar but the IOBlock base class declares it so all subclasses inherit a default). |
+| `src/scieasy/blocks/registry.py` | **Add** `dynamic_ports: dict[str, Any] \| None = None` and `direction: str \| None = None` fields to `BlockSpec` dataclass. **Add** `_validate_dynamic_ports(cls)` helper method on `BlockRegistry` that runs at registration time. **Update** `_build_spec(cls)` (or equivalent) to populate `dynamic_ports` and `direction` from the class attributes. |
+| `src/scieasy/workflow/validator.py` | **Add** `_get_effective_ports(node, spec)` helper that constructs a temporary block instance for dynamic blocks. **Update** the edge type-compatibility check to use `_get_effective_ports()` instead of reading `spec.input_ports` / `spec.output_ports` directly. |
+| `src/scieasy/api/schemas.py` | **Add** `dynamic_ports: dict[str, Any] \| None = None` and `direction: str \| None = None` fields to `BlockSchemaResponse` Pydantic model. |
+| `src/scieasy/api/routes/blocks.py` | **Update** `_summary()` / `_schema_response()` to populate the two new fields from `BlockSpec`. |
+
+#### Files to create (backend)
+
+| File | Contents |
+|---|---|
+| `src/scieasy/blocks/io/loaders/__init__.py` | Re-export `LoadData` |
+| `src/scieasy/blocks/io/loaders/load_data.py` | `LoadData` class + six private `_load_*` dispatch functions. Full implementation per D5'. |
+| `src/scieasy/blocks/io/savers/__init__.py` | Re-export `SaveData` |
+| `src/scieasy/blocks/io/savers/save_data.py` | `SaveData` class + six private `_save_*` dispatch functions. Symmetric counterpart of `load_data.py`. |
+
+#### Files to modify (frontend)
+
+| File | Changes |
+|---|---|
+| `frontend/src/components/nodes/BlockNode.tsx` | **Change 1** (line 179): `blockType === "io_block"` → `data.category === "io"` (Browse button). **Change 2** (line 241-243): same substitution (hide direction field). **Change 3** (line 247-249): `data.config?.direction` → `data.schema?.direction`. **Add** `computeEffectivePorts()` helper function that reads `data.schema?.dynamic_ports` and recomputes port types from current config. **Use** `effectiveOutputPorts` / `effectiveInputPorts` in the port rendering loops. |
+| `frontend/src/types/api.ts` | **Add** `DynamicPortsMapping` interface. **Add** `dynamic_ports?: DynamicPortsMapping` and `direction?: "input" \| "output"` fields to `BlockSchemaResponse` interface. |
+
+#### Files to create (tests)
+
+| File | Contents |
+|---|---|
+| `tests/blocks/test_dynamic_ports_mechanism.py` | Tests for the generic mechanism: `Block.get_effective_*_ports()` default behaviour, ClassVar fallback, override semantics, defensive copy, `BlockRegistry._validate_dynamic_ports()` happy path + malformed cases. |
+| `tests/blocks/test_load_data.py` | Tests for `LoadData`: palette placeholder ports, `get_effective_output_ports()` for each core_type enum value, unknown core_type raises ValueError, private `_load_*` functions raise NotImplementedError (placeholder marker for Sprint A sub-1b PR-B). |
+| `tests/blocks/test_save_data.py` | Symmetric tests for `SaveData`. |
+| `tests/api/test_block_schema_dynamic_ports.py` | Integration tests: `BlockSchemaResponse` includes `dynamic_ports` for `LoadData`, `direction` populated for `LoadData`/`SaveData`, static blocks produce `dynamic_ports=None` and `direction=None`. |
+| `tests/integration/test_dynamic_ports_workflow.py` | End-to-end: construct a workflow with a `LoadData` node, change core_type config, verify workflow validator sees the correct effective ports. |
+
+#### Files NOT affected (explicitly)
+
+- `src/scieasy/core/types/*` — Phase 10 type hierarchy unchanged.
+- `src/scieasy/core/types/registry.py` — TypeRegistry.resolve unchanged.
+- `src/scieasy/core/types/serialization.py` — `_reconstruct_one` / `_serialise_one` unchanged (per Discussion #12).
+- `src/scieasy/engine/runners/worker.py` — worker subprocess unchanged.
+- `src/scieasy/engine/scheduler.py` — scheduler unchanged.
+- `src/scieasy/blocks/code/*` — CodeBlock unchanged by this Addendum (variadic CodeBlock is ADR-029 scope).
+- `src/scieasy/blocks/app/*` — AppBlock unchanged.
+- `src/scieasy/blocks/ai/*` — AIBlock unchanged (variadic AIBlock is ADR-029 scope).
+- `docs/architecture/ARCHITECTURE.md` — tracked by Sprint A sub-1b PR-D.
+- `docs/architecture/PROJECT_TREE.md` — tracked by Sprint A sub-1b PR-D.
+- `docs/guides/block-sdk.md` — tracked by Sprint A sub-1b PR-D.
+
+### Open questions deferred to implementation
+
+The following details are deliberately left for the implementation PR(s) to resolve. The implementation author picks the simplest option consistent with this Addendum's decisions.
+
+1. **Defensive copy behaviour on `get_effective_*_ports()` default**: return `list(type(self).input_ports)` (shallow copy) or return the ClassVar directly? **Decision: shallow copy.** Prevents accidental mutation of class state. Implementation author follows this.
+2. **Validator's temporary-instance construction**: does it use `block_cls(config=node.config)` or does it need a dedicated factory method? **Decision: direct constructor call** using the same `config=...` kwarg that runtime uses. No factory method needed.
+3. **Frontend recomputation debouncing**: should the recomputation be throttled to avoid running on every dropdown re-render? **Decision: no debouncing**. The recomputation is pure, cheap, and the driving field is an enum dropdown that changes at most a few times per minute.
+4. **Dispatching `load()` on a `LoadData` instance with an unknown `core_type`**: raise `ValueError` or fall back to `DataObject`? **Decision: raise `ValueError`** with a clear message listing the supported core types. Falling back to `DataObject` would mask typos silently.
+5. **Should `BlockNode.tsx` display a warning badge when `dynamic_ports` is present but `source_config_key` resolves to an unknown value?** **Decision: no badge for now**. The current implementation falls back to the ClassVar placeholder ports. If this becomes confusing in practice, add a warning badge in a follow-up.
+6. **Should `_CORE_TYPE_MAP` be exported from `load_data.py` for plugin authors who want to reuse it?** **Decision: no**. The map is private to the core IO module. Plugin authors who need the same mapping import the six core types directly and build their own map.
+
+### Relationship to other ADRs
+
+- **Builds on**: ADR-028 (IOBlock architectural refactor) — this Addendum is the first consumer of the dynamic-port mechanism and the first implementation of the new `IOBlock` ABC in core.
+- **Supersedes**: ADR-028 §D3 "Seven core loader/saver pairs" — replaced by `LoadData` + `SaveData` + twelve private dispatch functions. The ADR-028 "Files to create" table rows for the six loader/saver class pairs are deleted.
+- **Defers to**: ADR-029 (preliminary) — AI variadic port count, CodeBlock variadic port count, per-instance port editor UI. Addendum 1 provides the `get_effective_*_ports()` override mechanism that ADR-029 will build on, but makes no decisions about the count dimension.
+- **Depends on**: Phase 10 core type system (ADR-027) — the six base types `LoadData` / `SaveData` dispatch over. ADR-027 Addendum 1 §1 (typed reconstruction) — not changed, worker subprocess continues to round-trip typed instances regardless of whether the producing block is dynamic or static.
+- **Does not affect**: ADR-017 (subprocess isolation), ADR-018 + Addendum 1 (scheduler), ADR-019 (ProcessHandle), ADR-020 + Addenda (Collection transport), ADR-021 (collection operations), ADR-022 (memory monitoring), ADR-023-026 (frontend / distribution / SDK), ADR-024 (CLI). All orthogonal to the dynamic-port mechanism.
+- **Enables**: Phase 11 Track 1 sub-1b PR-B/PR-C implementation agents have unambiguous instructions for `LoadData` / `SaveData` file layout. Phase 11 Track 2 imaging plugin's `LoadImage` block gets port colouring for free via the existing type-hierarchy walk. Phase 11 Track 3 SRS plugin's `SRSImage` port colouring via the same path. Phase 11 Track 4 LC-MS plugin's `LoadMSRawFile` port colouring via the same path.
+
+---
+
+## ADR-029: Variadic port count and per-instance port editor (preliminary — scope pending discussion)
+
+**Status**: draft — scope pending discussion
+**Date**: 2026-04-07
+**Issue**: #297
+
+> **THIS ADR CONTAINS NO ARCHITECTURAL DECISIONS.** It is a preliminary draft
+> that reserves the namespace and documents the problem space for the
+> "variadic port count" dimension of dynamic-port behaviour. Every section
+> that would normally hold a "Decision" instead holds a "Pending discussion"
+> placeholder. Implementation work that touches the surfaces named here MUST
+> NOT begin until this ADR is promoted from `draft — scope pending` to
+> `proposed` by a future decision-making round. Any PR that touches `AIBlock`
+> variadic behaviour, `CodeBlock` variadic behaviour, or per-instance port
+> editor GUI controls must reference this ADR explicitly and note that it is
+> acting on preliminary assumptions.
+
+### Purpose
+
+ADR-028 Addendum 1 (merged 2026-04-07) introduced a minimal dynamic-port
+override mechanism on the `Block` ABC: two methods
+`get_effective_input_ports(self)` / `get_effective_output_ports(self)` plus an
+enum-only declarative `dynamic_ports: ClassVar[dict | None]` mapping. That
+mechanism handles the **type dimension** of dynamism — one block, one output
+port, the output port's `accepted_types` is recomputed when an enum config
+field changes. It is consumed first by core `LoadData` / `SaveData`, where the
+single `core_type` dropdown ("Array" / "DataFrame" / "Series" / "Text" /
+"Artifact" / "CompositeData") drives the single output port's type.
+
+Addendum 1 explicitly **deferred the count dimension** (one block with a
+variable number of input or output ports added by the user via GUI controls)
+to this ADR. This ADR records the problem and the open questions without
+making any decisions. All substantive design discussion is deferred to a
+future conversation that the user will initiate after the Phase 11 plugin
+cascade lands.
+
+The purpose of writing this ADR now — before the design discussion happens —
+is fourfold:
+
+1. **Reserve the namespace.** Three plugin spec agents and an implementation
+   cascade are spawning in parallel. Reserving ADR-029 now prevents two
+   downstream agents from racing for the same number.
+2. **Give the source files a stable forward pointer.** `AIBlock` and
+   `CodeBlock` get `TODO(ADR-029)` paragraphs in their class docstrings so
+   that any future agent reading those files immediately finds the canonical
+   home for the variadic question.
+3. **Document the problem before context decays.** The design conversation
+   that produced ADR-028 Addendum 1 surfaced ten distinct open questions
+   about variadic ports. Capturing them in a numbered list now means the
+   future decision-making round starts from a complete problem statement,
+   not from scratch.
+4. **Establish a hard freeze.** Until ADR-029 is promoted from `draft —
+   scope pending` to `proposed`, no implementation PR may touch variadic
+   ports, the `AIBlock.run()` body, the `CodeBlock` port shape, or any
+   "add port" / "remove port" GUI control. Reviewers can cite this ADR to
+   reject any such PR.
+
+### Context
+
+#### What `AIBlock` is today
+
+`src/scieasy/blocks/ai/ai_block.py` is a 30-line stub. The full body:
+
+```python
+class AIBlock(Block):
+    """Block that uses a large language model to process data.
+
+    *model* identifies the LLM backend; *prompt_template* holds the
+    template string that is rendered with block inputs before inference.
+    """
+
+    model: ClassVar[str] = ""
+    prompt_template: ClassVar[str] = ""
+
+    def run(self, inputs, config):
+        """Run the LLM inference pipeline.
+
+        Not yet implemented — placeholder for AI-powered block execution.
+        Per ADR-020, inputs and outputs will use Collection transport.
+        """
+        raise NotImplementedError
+```
+
+It has no `input_ports`, no `output_ports`, no `config_schema`, no `setup` /
+`teardown`, no override of `get_effective_*_ports()`. The `run()` method
+raises `NotImplementedError` unconditionally. Inheriting the empty
+`input_ports: ClassVar[list[InputPort]] = []` from `Block` means the block
+currently exposes nothing in the palette beyond its name and category.
+
+`AIBlock` is intended to become the entry point for "this block uses an LLM
+to process inputs and produce outputs". The user's eventual workflow looks
+like *"give the AI block three images and a prompt; it returns one DataFrame
+per cell type the model detects"*. That requires:
+
+- a variable number of input ports (one per image, one per text annotation,
+  one per reference table, ...);
+- a variable number of output ports (one per output table the user expects);
+- per-port type declaration (the user picks `Image` for input port 0,
+  `DataFrame` for input port 1, `Text` for input port 2, etc.);
+- per-port name (the user picks `microscopy_field_1`, `microscopy_field_2`,
+  `cell_type_table`, ...) so the prompt template can interpolate them.
+
+None of these requirements fit the existing `Block` ABC, where
+`input_ports` and `output_ports` are `ClassVar` lists and therefore identical
+across every instance of the class. ADR-028 Addendum 1's
+`get_effective_*_ports()` override is one half of the answer (per-instance
+port resolution at validation time), but Addendum 1 deliberately scoped
+itself to the type dimension and left the count dimension (and the "where is
+the per-instance state stored?" question) to this ADR.
+
+#### What `CodeBlock` is today
+
+`src/scieasy/blocks/code/code_block.py` is 163 lines. The relevant excerpts:
+
+```python
+class CodeBlock(Block):
+    language: ClassVar[str] = "python"
+    mode: ClassVar[str] = "inline"
+    name: ClassVar[str] = "Code Block"
+    description: ClassVar[str] = "Execute user-provided scripts"
+
+    input_ports: ClassVar[list[InputPort]] = [
+        InputPort(name="data",
+                  accepted_types=[DataObject],
+                  required=False,
+                  description="Primary input data"),
+    ]
+    output_ports: ClassVar[list[OutputPort]] = [
+        OutputPort(name="result",
+                   accepted_types=[DataObject],
+                   description="Script output"),
+    ]
+    config_schema: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "language":     {...},
+            "mode":         {...},
+            "code":         {...},
+            "script_path":  {...},
+        },
+    }
+```
+
+`CodeBlock` is functional today (subprocess-isolated runners per ADR-017,
+auto-unpack/repack of Collection inputs per ADR-020-Add4) but is **constrained
+to a single static input port and a single static output port**. Every code
+block in the workflow graph has the same shape: one input named `data`, one
+output named `result`, both typed as the maximally-broad `DataObject`.
+
+This is too restrictive once users start writing real pipelines. A typical
+research script looks like *"take a peak table and a sample-metadata table,
+return three DataFrames (raw matrix, normalised matrix, statistics) and one
+plot artifact"*. Today the user has to either:
+
+- bundle everything into a single `CompositeData` and unpack it manually
+  inside the script, or
+- collapse multiple outputs into a list and lose the per-output type and
+  port name, or
+- chain three CodeBlocks sequentially and route each output through the
+  single shared "result" port.
+
+None of these options are good. The user wants to declare the inputs and
+outputs of a code block in the same way they declare the inputs and outputs
+of a regular block: explicit ports, explicit names, explicit types.
+
+The mechanism for *how* the user declares those ports is the count-dimension
+question this ADR sits on top of. It is closely related to but distinct from
+the AIBlock case, because a code block's port list might be **inferred from
+the script's source** (via Python AST analysis or R signature parsing)
+rather than typed in by the user as a list of GUI controls. Both options
+remain on the table, and both options need a backend data model that can
+hold a per-instance port list.
+
+#### Concrete use cases that motivate ADR-029
+
+The following are real workflows the user wants to express. None of them is
+expressible today.
+
+1. **AI-driven image analysis with N inputs and M outputs.** The user drops
+   an `AIBlock` onto the canvas, sets the prompt template to *"analyse the
+   following microscopy fields and return one cell-count table per cell
+   type you detect"*, then clicks "add input port" three times (each time
+   typing `Image` and naming it `field_1`, `field_2`, `field_3`) and "add
+   output port" twice (each time typing `DataFrame` and naming it
+   `lymphocyte_counts`, `monocyte_counts`). The block runs once, the LLM
+   inference returns two DataFrames, and the workflow validates each output
+   edge against the user-declared port type.
+
+2. **R-script ensemble averaging with a variable fan-in.** The user has
+   five sibling blocks producing per-replicate peak tables and wants to
+   merge them with an R script that computes the per-compound mean and
+   standard deviation. They drop a `CodeBlock(language="r")`, click "add
+   input port" five times (each time typing `DataFrame`), point each port
+   at one upstream block, then write the R body. The script receives five
+   named DataFrames and returns one DataFrame.
+
+3. **Python preprocessing fork.** The user has one input image and wants
+   one CodeBlock that returns three artifacts: the denoised image, a
+   diagnostic histogram PNG, and a per-pixel statistics DataFrame. Today
+   they can only return one of these. With variadic outputs they declare
+   three output ports of types `Image`, `Artifact`, `DataFrame` and the
+   script returns a dict.
+
+4. **Future "ensemble" blocks that collect predictions from N sibling
+   blocks.** Out of scope for the first cut of ADR-029, but the same
+   variadic mechanism would support an `EnsembleVote` block whose input
+   port list grows with the number of upstream models. Mentioned here so
+   the design conversation can confirm that ADR-029's mechanism is not
+   AIBlock-specific.
+
+#### How this differs from ADR-028 Addendum 1's type dimension
+
+ADR-028 Addendum 1 solves a narrower problem:
+
+| Dimension              | Type (Addendum 1)                                  | Count (this ADR)                                                |
+|------------------------|----------------------------------------------------|-----------------------------------------------------------------|
+| Number of ports        | **Fixed** (one port, declared on the class)        | **Variable per instance**                                       |
+| Per-port type          | Picked from a fixed enum at config time            | User-declared per port at edit time                             |
+| Per-port name          | Fixed by the class                                 | User-declared per port at edit time                             |
+| GUI control            | Existing dropdown driven by `dynamic_ports` enum   | New "add / remove / edit port" widget that does not exist yet   |
+| Backend storage        | None — port list reconstructed from `config` enum  | Per-instance state, must be persisted in workflow YAML          |
+| BlockSpec representation | One ClassVar `dynamic_ports` mapping             | Capability flag plus per-instance template                      |
+| Validator handling     | Construct temporary instance, call `get_effective_output_ports()` | Same plus type-check user-declared port types          |
+| Worker round-trip      | Unchanged — type is one of six core base classes   | Open question: how does `_reconstruct_one` know the output dict shape? |
+
+The type dimension was tractable because the option set was finite (six core
+base classes) and the per-instance state was already in `config` (the enum
+value picked by the dropdown). The count dimension is harder because:
+
+- the option set is unbounded (any non-negative integer count of ports);
+- the per-port type is itself an open set (any registered `DataObject`
+  subclass — including plugin-provided types not known at core build time);
+- the per-instance state is genuinely new (the variable-length port list is
+  not currently anywhere in `config` or in the `Block` ABC);
+- the GUI widget for adding / removing / editing ports does not exist;
+- the worker subprocess reconstruction contract (ADR-027 Addendum 1) was
+  designed assuming the producing block has a static output schema.
+
+Each of these gaps is an open question listed below.
+
+#### Why this ADR is preliminary
+
+The user has chosen to ship the three Phase 11 plugin packages
+(`scieasy-blocks-imaging`, `scieasy-blocks-srs`, `scieasy-blocks-lcms`)
+**before** committing to a variadic-port architecture. The plugin packages
+are themselves substantial work (~50 blocks across the three packages), and
+they exercise the existing static-port machinery thoroughly enough to
+surface any latent contract bugs before the variadic dimension is layered
+on top. Designing variadic ports first would risk locking in choices that
+the plugin work then has to re-negotiate.
+
+The user's exact instruction (paraphrased): *"set up some
+NotImplementedError placeholders for ADR-029 — record the problem, list the
+questions, defer the answers"*. This ADR honours that instruction
+literally: no decisions, no new methods, no test scaffolding, no source
+changes beyond docstring TODO comments.
+
+#### Explicit reference to ADR-028 Addendum 1 deferral
+
+ADR-028 Addendum 1's "Relationship to other ADRs" section ends with:
+
+> **Defers to**: ADR-029 (preliminary) — AI variadic port count, CodeBlock
+> variadic port count, per-instance port editor UI. Addendum 1 provides the
+> `get_effective_*_ports()` override mechanism that ADR-029 will build on,
+> but makes no decisions about the count dimension.
+
+This ADR is the reciprocal half of that pointer. When ADR-029 reaches
+`proposed` status, the corresponding ADR-028 Addendum 1 line will be
+updated from "Defers to ADR-029 (preliminary)" to "Defers to ADR-029
+(proposed)".
+
+### Open questions (all pending discussion)
+
+The following ten questions must be answered in a future decision-making
+round before ADR-029 can be promoted from `draft — scope pending` to
+`proposed`. Each question lists 2–4 candidate answer directions labelled
+A / B / C / D. **None of these directions is endorsed by this preliminary
+ADR.** All options remain open. The design discussion that promotes
+ADR-029 will pick one direction per question (or substitute its own) and
+record the rationale at that time.
+
+#### Q1. Where is the variadic port list stored on a block instance?
+
+The variable-length list of input ports and output ports for a single
+`AIBlock` or `CodeBlock` instance has to live somewhere. Today the only
+per-instance state on a block is `self.config` (a `BlockConfig` containing
+the user-edited config dict). Candidates:
+
+- **A. Inline in `self.config["input_ports"]` and `self.config["output_ports"]`.**
+  Each entry is a small dict like `{"name": "field_1", "types": ["Image"]}`.
+  The workflow YAML round-trips through the existing config serialiser
+  unchanged. Pro: zero new framework state. Con: blurs the line between
+  "user-tunable parameters" and "block topology", and the existing
+  `config_schema` JSON Schema does not have a clean way to declare a
+  variable-length list of structured dicts.
+
+- **B. New top-level `self.port_config: PortConfig` field on `Block`.**
+  Distinct from `self.config` so framework code can reason about port
+  topology separately from runtime parameters. Pro: clean separation of
+  concerns. Con: every persistence path (workflow YAML, checkpoint, REST
+  API) needs to learn about a second field. Two write/read paths to keep
+  in sync.
+
+- **C. Separate sidecar JSON file under the workflow directory.**
+  E.g., `workflows/foo/blocks/<block_id>.ports.json`. Pro: keeps the main
+  YAML small. Con: introduces a multi-file workflow representation, which
+  the rest of the system does not currently use; checkpoint and lineage
+  paths get complicated.
+
+- **D. Stored on the `BlockSpec` for the variadic block, with the spec
+  itself becoming per-instance.** This is a category error in the current
+  design (`BlockSpec` is shared across all instances of a class), but
+  some variants of the design conversation have proposed a "variadic
+  spec subclass" that holds per-instance state. Listed for completeness.
+
+All four remain open.
+
+#### Q2. How does the GUI render "add port" / "remove port" controls?
+
+The frontend `BlockNode.tsx` today renders a fixed list of port handles
+based on `data.schema?.input_ports` and `data.schema?.output_ports`. To
+support variadic editing the node has to grow new UI affordances.
+Candidates:
+
+- **A. New `ui_widget: "variadic_port_list"` declared in the block's
+  `config_schema`.** A generic widget rendered by `BlockNode.tsx` that
+  shows a list of editable port rows with "+" / "-" buttons, name input,
+  and a type dropdown. Pro: one widget covers AIBlock and CodeBlock and
+  any future variadic block. Con: needs a widget registry on the
+  frontend that does not exist yet, and the type dropdown's options have
+  to be sourced from the backend's known type registry.
+
+- **B. Custom React component per dynamic block type.** AIBlock gets its
+  own `AIBlockNode.tsx`; CodeBlock gets its own `CodeBlockNode.tsx`.
+  Each renders bespoke port-editing UI. Pro: maximum flexibility. Con:
+  fragments the rendering code, every new variadic block ships its own
+  React component, hard to keep visual consistency.
+
+- **C. Open the port editor in a side panel / modal instead of inline on
+  the node.** The node itself shows the current ports as handles; clicking
+  a "configure ports" button opens a side panel with the add/remove/edit
+  controls. Pro: keeps the node visually clean. Con: adds a navigation
+  step, makes it less obvious that the ports are editable.
+
+- **D. Pure-text declaration in a code editor (CodeBlock) plus auto-derived
+  ports.** The user types port declarations as the first lines of the
+  script (e.g., `# in: image: Image, mask: Mask` / `# out: result: DataFrame`)
+  and the GUI re-parses on save. Pro: zero new GUI controls. Con:
+  doesn't help AIBlock; couples the port list to the script body in a
+  way that is awkward when the script is empty.
+
+All four remain open. Combinations are possible (e.g., A for AIBlock, D
+for CodeBlock).
+
+#### Q3. How does validation handle variadic ports?
+
+`workflow/validator.py` type-checks every edge in the graph by reading the
+producer block's output ports and the consumer block's input ports and
+running the existing `TypeSignature.is_compatible_with()` check. With
+variadic ports, the port list is per-instance and the per-port type is
+user-declared. Candidates:
+
+- **A. Treat user-declared types exactly like class-declared types.** The
+  validator constructs a temporary block instance (per Addendum 1's
+  pattern), calls `get_effective_*_ports()`, and runs the existing edge
+  type-compatibility check. Pro: no new validator code. Con: the user
+  has to type-declare every port correctly; typos in the type name fail
+  validation hard.
+
+- **B. Allow `Any` / `DataObject` as a fallback type when the user has not
+  declared one.** Variadic ports default to "accept anything"; the user
+  can narrow if they want. Pro: easier authoring. Con: weakens type
+  safety; pushes runtime errors into the block body where they are harder
+  to diagnose.
+
+- **C. Defer validation to runtime.** The graph validator skips variadic
+  edges entirely; the runtime checks types just before invoking the
+  block's `run()`. Pro: avoids the temporary-instance construction at
+  validation time. Con: shifts errors from "graph won't save" to "workflow
+  fails halfway through execution".
+
+- **D. Hybrid: structural validation at graph time (port count and edge
+  presence), type validation at runtime.** The validator confirms the
+  variadic block's ports are wired but does not type-check; the runtime
+  enforces types per item. Pro: progressive disclosure. Con: two places
+  to maintain edge-checking logic.
+
+All four remain open.
+
+#### Q4. How does the scheduler route through variadic ports at runtime?
+
+`engine/scheduler.py` dispatches each block by reading its input edges,
+constructing the input dict (`{port_name: Collection}`), calling
+`block.run(inputs, config)`, then routing the output dict to downstream
+blocks via the output edges. With variadic ports the input and output
+dict shapes are per-instance. Candidates:
+
+- **A. No scheduler change.** The scheduler already constructs `inputs`
+  by walking edges; if the per-instance port list is the source of truth
+  for port names, the existing edge-walk logic works unchanged. The
+  scheduler never needs to know whether the port list is variadic.
+
+- **B. Scheduler needs to load `get_effective_*_ports()` per dispatch.**
+  Today the scheduler caches the class-level port list at registration
+  time. With variadic ports it has to re-read the effective ports per
+  block instance per dispatch. Pro: makes the variadic case explicit.
+  Con: cache invalidation is finicky and needs to be wired through the
+  whole engine.
+
+- **C. Scheduler treats variadic blocks via a special "variadic dispatch"
+  code path.** Different from static blocks, with its own `dispatch_variadic()`
+  method on `DAGScheduler`. Pro: clean separation. Con: code duplication.
+
+A and B are the realistic options; C is mostly a strawman.
+
+#### Q5. How does `_reconstruct_one` (worker subprocess) handle variadic ports given ADR-027 Addendum 1's typed reconstruction contract?
+
+ADR-027 Addendum 1 §1 defined `_reconstruct_one(payload)` and
+`_serialise_one(obj)` as the worker subprocess's typed round-trip helpers.
+Each is parameterised by a known target class (looked up from the
+`type_chain` in the payload metadata). With static output ports the engine
+already knows what classes to expect for each output port name. With
+variadic output ports the producing block decides at instance time which
+classes go in which output ports. Candidates:
+
+- **A. Variadic output ports embed the class name in the per-port wire
+  metadata.** The engine reads the per-port `type_chain` from the
+  serialised output payload and dispatches to the matching class.
+  Pro: no engine knowledge required up front. Con: requires the wire
+  format to carry the class name; minor duplication with the existing
+  `type_chain` field.
+
+- **B. Variadic blocks declare their per-instance port-to-class mapping
+  in a sidecar that the engine reads before invoking
+  `_reconstruct_one`.** The engine pre-resolves classes from the
+  per-instance port list and passes them down. Pro: keeps the wire format
+  unchanged. Con: requires the engine to thread the per-instance port
+  list through the worker subprocess boundary.
+
+- **C. Variadic outputs are restricted to types whose class name is
+  resolvable at scan time** (i.e., no plugin-provided types). The
+  reconstruction is then identical to the static case. Pro: simplest.
+  Con: massively limits the usefulness of variadic blocks (which is
+  exactly the reason plugins exist).
+
+A and B are the realistic options; C is a deliberate constraint that
+might be acceptable for the first cut.
+
+#### Q6. Does AIBlock need a "port_template" for the palette preview?
+
+The block palette in the frontend shows a small preview card for each
+registered block, including its input and output port handles. For a
+static block the preview reads `BlockSpec.input_ports` /
+`BlockSpec.output_ports`. For a variadic block whose port list is
+per-instance, the palette has nothing to read. Candidates:
+
+- **A. Show zero ports in the palette preview.** The user only sees the
+  ports after dropping the block onto the canvas and configuring it.
+  Pro: simplest. Con: confusing for first-time users who can't tell what
+  the block does.
+
+- **B. Show a `port_template` declared on the class.** AIBlock declares
+  e.g. `port_template = {"inputs": [{"name": "...", "types": ["DataObject"]}], "outputs": [...]}`
+  that the palette renders as a "default shape" hint. The user can
+  override after dropping. Pro: gives a meaningful preview. Con: yet
+  another ClassVar to maintain.
+
+- **C. Show a sentinel "variadic" badge on the port handle.** A single
+  pseudo-port with a "+" decoration that signals "this block has variable
+  ports". Pro: avoids lying about the actual port count. Con: requires
+  bespoke palette rendering.
+
+- **D. Render the palette card with no ports but show a tooltip
+  explaining "this block has user-configured ports".** Pro: documents
+  the variadic nature. Con: tooltip-only documentation is easy to miss.
+
+All four remain open.
+
+#### Q7. CodeBlock — should it auto-infer ports from script AST, or user declares explicitly?
+
+For `CodeBlock` specifically, the script body is itself a description of
+what inputs and outputs the block expects. Candidates:
+
+- **A. User declares explicitly via the same per-instance port editor as
+  AIBlock.** Pro: consistent with AIBlock; supports R and Julia (where
+  AST parsing is harder). Con: users have to declare ports twice (once
+  in the editor, once in the script signature).
+
+- **B. Python ports auto-inferred via AST analysis of the script's
+  function signature.** The runner parses the `def run(image, mask, ...)`
+  line and creates one input port per parameter. Type annotations
+  (`image: Image`) drive the port type. Pro: zero duplication for the
+  most common case. Con: only works for Python; needs a fallback for R
+  and Julia.
+
+- **C. Hybrid: auto-infer for Python, manual for R / Julia.** Pro: best
+  ergonomics per language. Con: two code paths to maintain.
+
+- **D. Side-load a `block.yaml` next to the script file declaring
+  ports.** Used for `mode = "script"`. Pro: clean separation of script
+  body and metadata. Con: introduces yet another file; doesn't help
+  inline mode.
+
+All four remain open.
+
+#### Q8. How does `BlockSpec` represent a variadic block at scan time?
+
+`BlockRegistry.scan_builtins()` walks every registered block class at
+import time and builds a `BlockSpec` capturing the class-level port list,
+config schema, category, etc. The static `ClassVar` model assumes the
+ports are known at scan time. For variadic blocks they are not.
+Candidates:
+
+- **A. New `BlockSpec.variadic: bool` flag.** Set to `True` for AIBlock /
+  CodeBlock; the `input_ports` / `output_ports` fields then carry the
+  palette template (per Q6). Frontend reads the flag to decide whether
+  to render the variadic editor. Pro: minimal new state. Con: a single
+  bool can't capture finer distinctions like "variadic inputs only" or
+  "variadic outputs only".
+
+- **B. New `BlockSpec.variadic_inputs: bool`, `variadic_outputs: bool`
+  pair.** Same as A but more granular. Pro: supports the half-variadic
+  case. Con: two new fields to populate and validate.
+
+- **C. New `BlockSpec.port_capability: Literal["static", "variadic", "type_dynamic"]`
+  enum.** A single enum that classifies the block's port behaviour.
+  Pro: one source of truth. Con: closed enum; harder to extend if a
+  fourth dimension shows up later.
+
+- **D. No new field; the absence of `input_ports` / `output_ports`
+  (empty lists) signals variadic.** Pro: zero new state. Con: ambiguous
+  with "block has no ports at all".
+
+All four remain open.
+
+#### Q9. Does variadic mode mix with Addendum 1's enum `dynamic_ports` mapping?
+
+A block could in principle be **both** type-dynamic (per Addendum 1, port
+types driven by an enum config field) **and** count-dynamic (per this
+ADR, port count driven by a per-instance editor). Example: an AIBlock
+where the user picks a top-level "task" enum
+(`segmentation` / `classification` / `extraction`) that determines the
+output port count and the per-port types. Candidates:
+
+- **A. Yes, the two mechanisms compose freely.** A block declares both
+  `dynamic_ports` (enum mapping per Addendum 1) and the variadic
+  capability (per this ADR). The framework reconciles at validation
+  time. Pro: maximum flexibility. Con: hard to reason about; the
+  product space of "enum value times port count" is large.
+
+- **B. No, they are mutually exclusive.** A block is either type-dynamic
+  or count-dynamic, never both. Pro: simpler mental model. Con:
+  forecloses a legitimate use case.
+
+- **C. They compose but with restrictions** — the enum mapping can only
+  drive the *type* of variadic ports, not their *count*. Pro: keeps the
+  count question entirely in the per-instance editor. Con: artificial
+  restriction.
+
+- **D. Defer the question.** First-cut ADR-029 lands variadic-only;
+  type-dynamic-plus-variadic is a follow-up addendum if it proves
+  necessary. Pro: ships sooner. Con: leaves a known gap.
+
+All four remain open.
+
+#### Q10. What's the wire format for variadic ports in the engine→worker payload?
+
+The engine serialises block inputs into a payload, ships it to the
+worker subprocess, and the worker reconstructs typed instances per
+ADR-027 Addendum 1 §1. The payload schema today is essentially
+`{port_name: collection_payload}`. Variadic ports keep that shape but
+add the per-port name and type list. Candidates:
+
+- **A. Same payload format.** The variadic per-instance port list is
+  sent alongside the main payload as a sidecar field. The worker reads
+  the sidecar to know how to dispatch. Pro: backward-compatible. Con:
+  two parallel data structures to keep in sync.
+
+- **B. Variadic-aware payload format.** Each port's payload entry
+  carries its own type metadata (name, declared types) so the worker
+  reconstructs purely from the payload. Pro: self-describing. Con:
+  changes the wire format.
+
+- **C. Variadic blocks pre-serialise their inputs to a single wrapper
+  envelope** (e.g., a CompositeData with named slots per port). Pro:
+  reuses the existing CompositeData round-trip. Con: forces every
+  variadic block author to interact with CompositeData semantics.
+
+All three remain open.
+
+### Scope (preliminary)
+
+The following list describes what **would** be in scope and out of scope
+once ADR-029 is promoted from `draft — scope pending` to `proposed`. None
+of it is in scope **now**. This list is informative only.
+
+#### Would be in scope (pending promotion)
+
+- Extending `Block.get_effective_input_ports()` /
+  `get_effective_output_ports()` to read a per-instance variadic port
+  list (whatever Q1 decides).
+- A new frontend widget or panel for adding, removing, renaming, and
+  retyping ports on a canvas node (whatever Q2 decides).
+- Backend data model for per-instance port configuration (whatever Q1
+  decides).
+- Updates to `BlockSpec` / `BlockSchemaResponse` to expose the variadic
+  capability flag (whatever Q8 decides).
+- Updates to `workflow/validator.py` to validate variadic connections
+  (whatever Q3 decides).
+- Updates to the worker subprocess `_reconstruct_one` /
+  `_serialise_one` paths to round-trip variadic ports (whatever Q5 / Q10
+  decide).
+- First consumers: the variadic form of `AIBlock` and the variadic form
+  of `CodeBlock`.
+- Tests for the new mechanism, the new GUI widget, the new validator
+  path, and the new worker round-trip.
+- Documentation updates: ADR-029 itself promoted to `proposed`,
+  `docs/architecture/ARCHITECTURE.md` extended with a "variadic ports"
+  section, `docs/guides/block-sdk.md` extended with a "writing a
+  variadic block" recipe.
+
+#### Explicitly out of scope (deferred to future ADRs)
+
+- Per-port authentication / access control. A future ADR may add
+  per-port read/write permissions for collaborative workflows; ADR-029
+  does not address this.
+- Port lazy instantiation (creating ports on demand during a workflow
+  run). All ports are declared before the workflow runs.
+- Type inference from port data at runtime (e.g., looking at the actual
+  `dtype` of an incoming Array and refining the port's accepted types).
+- Migration tooling for pre-ADR-029 workflows. There are no
+  pre-ADR-029 workflows that use variadic ports, so no migration is
+  needed.
+- AI-driven port suggestion (the LLM analyses the prompt and proposes a
+  port shape). Possibly a future Addendum.
+
+#### Out of scope for THIS preliminary ADR (locked)
+
+The following are explicitly out of scope for this preliminary draft:
+
+- Any change to `Block`, `AIBlock`, or `CodeBlock` beyond docstring
+  TODO comments.
+- Any test scaffolding.
+- Any frontend change.
+- Any new file.
+- Any decision on Q1 through Q10.
+- Any update to `docs/architecture/ARCHITECTURE.md` or any other
+  architecture doc beyond `docs/adr/ADR.md` itself.
+
+### Decision
+
+**Pending discussion.** No architectural decision is recorded by this
+preliminary ADR. When the design conversation that promotes ADR-029 to
+`proposed` happens, this section will be filled in with the chosen answer
+to each of Q1 through Q10 plus the rationale.
+
+### Alternatives considered
+
+**Pending discussion.** No alternatives have been evaluated in this
+preliminary draft because no decisions have been made yet. The Q1–Q10
+answer directions above are *candidates*, not *evaluated alternatives*.
+The future decision-making round will pick one direction per question
+(or substitute its own), document why the rejected directions were
+rejected, and record that comparison here.
+
+### Consequences
+
+**Pending discussion.** No consequences can be stated until decisions
+are made. When ADR-029 is promoted to `proposed`, this section will list
+the impact on `Block`, `AIBlock`, `CodeBlock`, `BlockSpec`,
+`BlockSchemaResponse`, `BlockNode.tsx`, `workflow/validator.py`,
+`engine/scheduler.py`, `worker.py`, and the workflow YAML format.
+
+### Relationship to other ADRs
+
+- **Builds on**: ADR-028 + Addendum 1 (IOBlock refactor + dynamic-port
+  override mechanism). ADR-029's future implementation will extend the
+  `get_effective_*_ports()` mechanism that Addendum 1 introduced to
+  support per-instance variadic port lists. ADR-029 does **not** replace
+  the Addendum 1 mechanism — the type-dimension dispatch (used by
+  `LoadData` / `SaveData`) is left untouched.
+- **Builds on**: ADR-027 + Addendum 1 (Phase 10 core type system + worker
+  reconstruction contract). ADR-029's Q5 and Q10 are specifically about
+  how variadic outputs interact with the typed reconstruction helpers
+  defined by ADR-027 Addendum 1 §1.
+- **Builds on**: ADR-020 + Addenda (Collection transport between blocks).
+  Variadic ports do not change how Collections are constructed or
+  shipped; they only change how many of them flow through a block.
+- **Builds on**: ADR-017 (subprocess isolation) and ADR-018 + Addendum 1
+  (scheduler concurrency). The scheduler is still the dispatcher;
+  variadic ports may force a small change to how it reads the per-block
+  port list (per Q4) but do not change the dispatch model itself.
+- **Does not supersede**: any existing ADR. ADR-029 adds new surface
+  without removing anything.
+- **Blocks**: the full implementation of `AIBlock` (currently a 30-line
+  stub whose `run()` raises `NotImplementedError`). Until ADR-029
+  reaches `proposed` status with concrete decisions, `AIBlock` remains a
+  static-port block with no real implementation.
+- **Blocks**: the variadic form of `CodeBlock`. The current static
+  single-port `CodeBlock` continues to work as today; what is blocked is
+  the addition of per-instance multiple ports.
+- **Blocks**: any frontend work on "add port" / "remove port" GUI
+  controls. The existing static port rendering in `BlockNode.tsx` is
+  untouched.
+- **Defers from**: ADR-028 Addendum 1's "Relationship to other ADRs"
+  section, which says *"Defers to ADR-029 (preliminary) — AI variadic
+  port count, CodeBlock variadic port count, per-instance port editor
+  UI"*. This ADR is the destination of that pointer.
+
+### Next steps
+
+1. The Phase 11 plugin cascade (`scieasy-blocks-imaging`,
+   `scieasy-blocks-srs`, `scieasy-blocks-lcms`) ships first. None of the
+   plugin work touches variadic ports; all plugin IO blocks declare
+   static `output_ports` and inherit the existing static port machinery.
+2. After the plugin cascade lands and the user has run the headline
+   E2E test (cellpose segmentation + extract spectrum), a future
+   decision-making round will work through Q1–Q10 in this ADR.
+3. When decisions are reached, this ADR's status changes from
+   `draft — scope pending discussion` to `proposed`. The "Decision",
+   "Alternatives considered", and "Consequences" sections are filled in
+   at that time.
+4. A separate implementation issue tracks the first consumer (likely
+   `AIBlock` variadic, since `AIBlock` is currently the most stub-like
+   and has the fewest existing constraints to renegotiate).
+5. Implementation of the first consumer walks the same workflow gate
+   as any other ticket, with the standards doc updated to add ADR-029
+   ticket entries.
+6. Once both `AIBlock` and `CodeBlock` variadic forms ship, ADR-029 is
+   promoted from `proposed` to `accepted`.
+
+Until then: **any implementation PR that touches `AIBlock` variadic
+behaviour, `CodeBlock` variadic behaviour, or "add port" / "remove
+port" GUI controls MUST reference this ADR explicitly and note that it
+is acting on preliminary assumptions. No merge without a decision.**
+Reviewers may cite this ADR to reject any such PR.

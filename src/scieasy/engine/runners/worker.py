@@ -3,16 +3,29 @@
 ADR-017: All block execution happens in isolated subprocesses. This module
 is the entry point for those subprocesses.
 
+ADR-027 D11 + Addendum 1 §1 (T-014): per-item reconstruction delegates
+to :func:`scieasy.core.types.serialization._reconstruct_one` which
+returns typed :class:`~scieasy.core.types.base.DataObject` instances
+(e.g. a :class:`~scieasy.core.types.array.Array`), **not** a
+:class:`~scieasy.core.proxy.ViewProxy`. Lazy loading is preserved at
+the method level: returned instances have ``storage_ref`` set but do
+not read payload data until ``to_memory()`` / ``view()`` / ``sel()`` /
+``iter_over()`` is called. Serialisation delegates symmetrically to
+:func:`~scieasy.core.types.serialization._serialise_one`, which writes
+the full metadata sidecar (``type_chain`` + ``framework`` + ``meta`` +
+``user`` + base-class extras).
+
 Protocol:
-    1. Receives serialized payload via stdin:
+    1. Scan the TypeRegistry for plugin-provided types (ADR-027 D11).
+    2. Receive serialized payload via stdin:
        - block_class: str (dotted module path + class name)
-       - inputs: dict[str, Any] (input references)
+       - inputs: dict[str, Any] (wire-format typed payload items)
        - config: dict[str, Any]
        - output_dir: str (optional, for persisting outputs)
-    2. Reconstructs inputs from payload.
-    3. Imports block class, instantiates, calls block.run(inputs, config).
-    4. Serializes outputs and writes JSON result to stdout.
-    5. On error: serializes traceback, returns error payload, exits with code 1.
+    3. Reconstruct inputs into typed DataObject instances.
+    4. Import block class, instantiate, call block.run(inputs, config).
+    5. Serialize outputs to wire format and write JSON result to stdout.
+    6. On error: serialize traceback, return error payload, exit with code 1.
 """
 
 from __future__ import annotations
@@ -28,44 +41,74 @@ logger = logging.getLogger(__name__)
 
 
 def reconstruct_inputs(payload: dict[str, Any]) -> dict[str, Any]:
-    """Reconstruct inputs from serialized payload.
+    """Reconstruct typed DataObject inputs from the JSON wire payload.
 
-    ADR-017: Converts StorageReference dicts back into ViewProxy instances
-    so block.run() receives lazy-loading accessors, not raw dicts.
-    Scalar values and other non-reference inputs pass through as-is.
+    ADR-027 D11 + Addendum 1 §1: returns typed :class:`DataObject`
+    instances (e.g. a :class:`~scieasy.core.types.array.Array` or a
+    plugin subclass like ``FluorImage``), not a
+    :class:`~scieasy.core.proxy.ViewProxy`. Lazy loading is preserved
+    at the method level: returned instances have ``storage_ref`` set
+    but do not read payload data until ``to_memory()`` / ``view()`` /
+    ``sel()`` / ``iter_over()`` is called.
+
+    Three dispatch cases (per the ADR pseudocode):
+
+    1. ``{"_collection": True, "items": [...], "item_type": "..."}``
+       — reconstruct each item via :func:`_reconstruct_one`, then wrap
+       in a :class:`~scieasy.core.types.collection.Collection` whose
+       ``item_type`` is resolved via :class:`TypeRegistry`.
+    2. ``{"backend": ..., "path": ..., "metadata": {...}}`` — single
+       typed DataObject reconstructed via :func:`_reconstruct_one`.
+    3. Anything else — scalar / list / dict pass-through for
+       config-derived inputs that are not DataObjects.
     """
-    from scieasy.core.proxy import ViewProxy
-    from scieasy.core.storage.ref import StorageReference
-    from scieasy.core.types.base import TypeSignature
+    from scieasy.core.types.base import DataObject
+    from scieasy.core.types.collection import Collection
+    from scieasy.core.types.serialization import _get_type_registry, _reconstruct_one
 
     raw_inputs = payload.get("inputs", {})
     result: dict[str, Any] = {}
 
     for key, value in raw_inputs.items():
-        if isinstance(value, dict) and "backend" in value and "path" in value:
-            # This is a serialized StorageReference — reconstruct ViewProxy.
-            ref = StorageReference(
-                backend=value["backend"],
-                path=value["path"],
-                format=value.get("format"),
-                metadata=value.get("metadata"),
-            )
-            type_chain = value.get("metadata", {}).get("type_chain", ["DataObject"])
-            sig = TypeSignature(type_chain=type_chain)
-            result[key] = ViewProxy(storage_ref=ref, dtype_info=sig)
+        if isinstance(value, dict) and value.get("_collection"):
+            # Collection of typed items — reconstruct each one and
+            # rewrap into a Collection with the resolved item_type.
+            raw_items = value.get("items", [])
+            items = [_reconstruct_one(item) for item in raw_items]
+            item_type_name = value.get("item_type", "DataObject")
+            registry = _get_type_registry()
+            resolved = registry.resolve([item_type_name])
+            item_type: type = resolved if resolved is not None else DataObject
+            result[key] = Collection(items, item_type=item_type)
+        elif isinstance(value, dict) and "backend" in value and "path" in value:
+            # Single typed DataObject — delegate to _reconstruct_one.
+            result[key] = _reconstruct_one(value)
         else:
-            # Scalar or other value — pass through.
+            # Scalar / list / dict / None — pass through for non-DataObject
+            # inputs threaded in from config or upstream non-typed outputs.
             result[key] = value
 
     return result
 
 
 def serialise_outputs(outputs: dict[str, Any], output_dir: str) -> dict[str, Any]:
-    """Serialize block outputs to JSON-compatible format.
+    """Serialize block outputs to JSON-compatible wire format.
 
-    ADR-017: Converts output DataObjects into StorageReference dicts.
-    ADR-020-Add5: Auto-flushes in-memory DataObjects that lack a
-    StorageReference, writing them to output_dir before serialization.
+    ADR-027 D11 + Addendum 1 §1: each output value (or each item in an
+    output :class:`Collection`) is serialised via
+    :func:`_serialise_one`, which writes the typed-instance metadata
+    sidecar (``type_chain`` + ``framework`` + ``meta`` + ``user`` +
+    base-class extras). The top-level wire-format keys
+    (``backend``/``path``/``format``/``metadata``/``_collection``/
+    ``items``/``item_type``) are unchanged.
+
+    Auto-flush behaviour from ADR-020-Add5 is preserved: in-memory
+    :class:`DataObject` instances without a :class:`StorageReference`
+    are written to ``output_dir`` (via :meth:`Block._auto_flush`)
+    before being handed to :func:`_serialise_one`. When no flush
+    context is configured, ``_auto_flush`` returns the object unchanged
+    and :func:`_serialise_one` tolerates the missing ``storage_ref``
+    by emitting ``backend=None`` / ``path=None``.
 
     Parameters
     ----------
@@ -75,79 +118,91 @@ def serialise_outputs(outputs: dict[str, Any], output_dir: str) -> dict[str, Any
         Directory for writing output artifacts when auto-flushing.
     """
     from scieasy.blocks.base.block import Block
+    from scieasy.core.storage.flush_context import clear, get_output_dir, set_output_dir
     from scieasy.core.types.base import DataObject
     from scieasy.core.types.collection import Collection
+    from scieasy.core.types.serialization import _serialise_one
 
-    result: dict[str, Any] = {}
-    for key, value in outputs.items():
-        # Handle Collection: serialize each item's reference.
-        if isinstance(value, Collection):
-            item_refs = []
-            for item in value:
-                item = Block._auto_flush(item)
-                if hasattr(item, "storage_ref") and item.storage_ref is not None:
-                    ref = item.storage_ref
-                    item_meta = {**(ref.metadata or {})}
-                    if hasattr(item, "dtype_info"):
-                        item_meta["type_chain"] = item.dtype_info.type_chain
-                    item_refs.append(
-                        {
-                            "backend": ref.backend,
-                            "path": ref.path,
-                            "format": ref.format,
-                            "metadata": item_meta,
-                        }
+    previous_output_dir = get_output_dir()
+    if output_dir:
+        set_output_dir(output_dir)
+    try:
+        result: dict[str, Any] = {}
+        for key, value in outputs.items():
+            # Handle Collection: serialise each item via _serialise_one.
+            if isinstance(value, Collection):
+                item_payloads: list[Any] = []
+                for item in value:
+                    flushed = Block._auto_flush(item)
+                    if isinstance(flushed, DataObject):
+                        item_payloads.append(_serialise_one(flushed))
+                    else:
+                        item_payloads.append({"_value": str(flushed)})
+                if value.item_type is None:
+                    logger.warning(
+                        "Collection output on port '%s' has item_type=None; defaulting to 'DataObject'",
+                        key,
                     )
+                result[key] = {
+                    "_collection": True,
+                    "items": item_payloads,
+                    "item_type": value.item_type.__name__ if value.item_type is not None else "DataObject",
+                }
+                continue
+
+            # Typed DataObject: auto-flush then delegate to _serialise_one.
+            if isinstance(value, DataObject):
+                flushed_obj = Block._auto_flush(value)
+                if isinstance(flushed_obj, DataObject):
+                    result[key] = _serialise_one(flushed_obj)
                 else:
-                    item_refs.append({"_value": str(item)})
-            if value.item_type is None:
-                logger.warning(
-                    "Collection output on port '%s' has item_type=None; defaulting to 'DataObject'",
-                    key,
-                )
-            result[key] = {
-                "_collection": True,
-                "items": item_refs,
-                "item_type": value.item_type.__name__ if value.item_type is not None else "DataObject",
-            }
-            continue
+                    # _auto_flush only ever returns the same obj or a
+                    # passed-through non-DataObject; this branch is
+                    # defensive only.
+                    result[key] = str(flushed_obj)
+                continue
 
-        # Auto-flush in-memory DataObjects.
-        if isinstance(value, DataObject):
-            value = Block._auto_flush(value)
+            # Scalar / list / dict / None: native JSON pass-through.
+            if isinstance(value, (str, int, float, bool, type(None), list, dict)):
+                result[key] = value
+            else:
+                result[key] = str(value)
 
-        # Serialize StorageReference-backed objects.
-        if hasattr(value, "storage_ref") and value.storage_ref is not None:
-            ref = value.storage_ref
-            obj_meta = {**(ref.metadata or {})}
-            if hasattr(value, "dtype_info"):
-                obj_meta["type_chain"] = value.dtype_info.type_chain
-            result[key] = {
-                "backend": ref.backend,
-                "path": ref.path,
-                "format": ref.format,
-                "metadata": obj_meta,
-            }
-        elif isinstance(value, (str, int, float, bool, type(None), list, dict)):
-            result[key] = value
+        return result
+    finally:
+        if previous_output_dir is None:
+            clear()
         else:
-            result[key] = str(value)
-    return result
+            set_output_dir(previous_output_dir)
 
 
 def main() -> None:
     """Subprocess entry point.
 
+    ADR-027 D11 + Addendum 1: warms up the :class:`TypeRegistry`
+    singleton at startup (so plugin types can be resolved during
+    :func:`reconstruct_inputs`), then reconstructs typed inputs,
+    runs the block, and serialises typed outputs.
+
     Steps:
-        1. Read JSON payload from stdin.
-        2. Parse block_class path, inputs, config.
-        3. Import the block class via importlib.
-        4. Reconstruct inputs from payload.
-        5. Instantiate block, call block.run(inputs, config).
-        6. Serialize outputs and write JSON to stdout.
-        7. On exception: write {"error": traceback_str} to stdout, exit 1.
+        1. Warm up the TypeRegistry singleton (scans builtins + plugins).
+        2. Read JSON payload from stdin.
+        3. Parse block_class path, inputs, config, output_dir.
+        4. Import the block class via importlib.
+        5. Reconstruct inputs as typed DataObject instances.
+        6. Instantiate block, call block.run(inputs, config).
+        7. Serialize outputs via the typed wire format.
+        8. On exception: write {"error": traceback_str} to stdout, exit 1.
     """
     try:
+        # ADR-027 D11: warm the TypeRegistry singleton so plugin-provided
+        # DataObject subtypes can be resolved during reconstruct_inputs.
+        # The singleton lives in scieasy.core.types.serialization; the
+        # first call scans builtins + entry-points.
+        from scieasy.core.types.serialization import _get_type_registry
+
+        _get_type_registry()
+
         raw = sys.stdin.read()
         payload = json.loads(raw)
 
@@ -155,15 +210,15 @@ def main() -> None:
         config: dict[str, Any] = payload.get("config", {})
         output_dir: str = payload.get("output_dir", "")
 
-        # Import block class
+        # Import block class.
         module_path, class_name = block_class_path.rsplit(".", 1)
         module = importlib.import_module(module_path)
         block_cls = getattr(module, class_name)
 
-        # Reconstruct inputs
+        # Reconstruct inputs as typed DataObject instances (ADR-027 Addendum 1).
         inputs = reconstruct_inputs(payload)
 
-        # Instantiate block
+        # Instantiate block.
         block = block_cls()
 
         if hasattr(block, "transition"):
@@ -171,12 +226,12 @@ def main() -> None:
 
             block.transition(BlockState.READY)
 
-        # Build config object
+        # Build config object.
         from scieasy.blocks.base.config import BlockConfig
 
         block_config = BlockConfig(**config)
 
-        # Execute
+        # Execute.
         outputs = block.run(inputs, block_config)
 
         # Capture environment inside subprocess for accurate lineage (issue #54).
@@ -184,7 +239,7 @@ def main() -> None:
 
         env_snapshot = EnvironmentSnapshot.capture()
 
-        # Serialize outputs
+        # Serialize outputs via the typed wire format.
         result = serialise_outputs(outputs, output_dir) if isinstance(outputs, dict) else {"_result": str(outputs)}
 
         print(json.dumps({"outputs": result, "environment": env_snapshot.to_dict()}))

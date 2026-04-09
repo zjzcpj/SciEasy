@@ -91,6 +91,14 @@ class BlockSummary(BaseModel):
     version: str = "0.1.0"
     input_ports: list[BlockPortResponse] = Field(default_factory=list)
     output_ports: list[BlockPortResponse] = Field(default_factory=list)
+    direction: str | None = None
+    # Stage 10.1 Part 1: palette grouping metadata. Agent A declares the
+    # fields with safe defaults; Agent B populates them from BlockSpec in
+    # ``_summary()`` after the ``source`` value rename lands. Empty strings
+    # are semantically equivalent to "unknown / not yet populated".
+    # See docs/design/stage-10-1-palette.md §3.1.3.
+    source: str = ""
+    package_name: str = ""
 
 
 class BlockListResponse(BaseModel):
@@ -104,6 +112,15 @@ class BlockSchemaResponse(BlockSummary):
 
     config_schema: dict[str, Any] = Field(default_factory=dict)
     type_hierarchy: list[TypeHierarchyEntry] = Field(default_factory=list)
+    # ADR-028 Addendum 1 D4: enum-driven dynamic-port descriptor (frontend
+    # consumes this to recompute port ``accepted_types`` when the driving
+    # config field changes). ``None`` for static blocks.
+    dynamic_ports: dict[str, Any] | None = None
+    # ADR-028 Addendum 1 D7: IO direction ("input" / "output") so the
+    # frontend can render IO-specific UI (browse file vs directory) without
+    # hardcoding ``blockType === "io_block"`` checks. ``None`` for
+    # non-IO blocks.
+    direction: str | None = None
 
 
 class BlockConnectionValidation(BaseModel):

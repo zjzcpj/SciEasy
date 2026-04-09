@@ -1,8 +1,16 @@
-"""Tests for worker.py subprocess entry point — ADR-017."""
+"""Tests for worker.py subprocess entry point.
+
+ADR-017: All block execution happens in isolated subprocesses.
+ADR-027 D11 + Addendum 1 §1 (T-014): ``reconstruct_inputs`` now
+returns typed :class:`~scieasy.core.types.base.DataObject` instances
+instead of :class:`~scieasy.core.proxy.ViewProxy`; ``serialise_outputs``
+writes the full typed metadata sidecar via
+:func:`~scieasy.core.types.serialization._serialise_one`.
+"""
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from pathlib import Path
 
 from scieasy.engine.runners.worker import (
     main,
@@ -27,9 +35,12 @@ class TestReconstructInputs:
         result = reconstruct_inputs(payload)
         assert result == {}
 
-    def test_storage_ref_dict_becomes_view_proxy(self) -> None:
-        """ADR-017: Dicts with backend/path are reconstructed as ViewProxy."""
+    def test_storage_ref_dict_becomes_typed_instance(self) -> None:
+        """ADR-027 Addendum 1 §1 (T-014): dicts with backend/path reconstruct
+        into typed DataObject instances, not ViewProxy.
+        """
         from scieasy.core.proxy import ViewProxy
+        from scieasy.core.types.array import Array
 
         payload = {
             "inputs": {
@@ -37,18 +48,29 @@ class TestReconstructInputs:
                     "backend": "zarr",
                     "path": "/data/img.zarr",
                     "format": "zarr",
-                    "metadata": {"axes": ["z", "y", "x"]},
+                    "metadata": {
+                        "type_chain": ["DataObject", "Array"],
+                        "axes": ["z", "y", "x"],
+                        "shape": [8, 16, 16],
+                        "dtype": "uint8",
+                    },
                 },
                 "label": "test",
             }
         }
         result = reconstruct_inputs(payload)
 
-        assert isinstance(result["image"], ViewProxy)
+        # Typed Array instance — the critical T-014 behaviour.
+        assert isinstance(result["image"], Array)
+        assert not isinstance(result["image"], ViewProxy)
+        assert result["image"].axes == ["z", "y", "x"]
+        assert result["image"].shape == (8, 16, 16)
+        # StorageReference is still populated so lazy loading works at
+        # the method level.
+        assert result["image"].storage_ref is not None
         assert result["image"].storage_ref.backend == "zarr"
         assert result["image"].storage_ref.path == "/data/img.zarr"
         assert result["image"].storage_ref.format == "zarr"
-        assert result["image"].storage_ref.metadata == {"axes": ["z", "y", "x"]}
         assert result["label"] == "test"
 
 
@@ -64,24 +86,34 @@ class TestSerialiseOutputs:
         result = serialise_outputs(outputs, "")
         assert result == {"result": 42, "name": "hello"}
 
-    def test_serialises_storage_ref(self) -> None:
-        mock_obj = MagicMock()
-        mock_obj.storage_ref.backend = "zarr"
-        mock_obj.storage_ref.path = "/data/output.zarr"
-        mock_obj.storage_ref.format = "zarr"
-        mock_obj.storage_ref.metadata = None
-        mock_obj.dtype_info.type_chain = ["DataObject", "Image"]
+    def test_serialises_typed_dataobject_with_storage_ref(self) -> None:
+        """ADR-027 Addendum 1 §1 (T-014): typed DataObject outputs use the
+        full metadata sidecar (type_chain + framework + meta + user + extras).
+        """
+        from scieasy.core.storage.ref import StorageReference
+        from scieasy.core.types.array import Array
 
-        outputs = {"image": mock_obj}
-        result = serialise_outputs(outputs, "/output")
-        assert result == {
-            "image": {
-                "backend": "zarr",
-                "path": "/data/output.zarr",
-                "format": "zarr",
-                "metadata": {"type_chain": ["DataObject", "Image"]},
-            }
-        }
+        arr = Array(axes=["y", "x"], shape=(8, 8), dtype="uint8")
+        arr._storage_ref = StorageReference(backend="zarr", path="/data/output.zarr", format="zarr")
+
+        result = serialise_outputs({"image": arr}, "/output")
+        payload = result["image"]
+
+        assert payload["backend"] == "zarr"
+        assert payload["path"] == "/data/output.zarr"
+        assert payload["format"] == "zarr"
+        md = payload["metadata"]
+        assert md["type_chain"] == ["DataObject", "Array"]
+        assert md["axes"] == ["y", "x"]
+        assert md["shape"] == [8, 8]
+        assert md["dtype"] == "uint8"
+        # framework slot is populated with FrameworkMeta fields.
+        assert "framework" in md
+        assert "object_id" in md["framework"]
+        # meta is None on the base Array class.
+        assert md["meta"] is None
+        # user is an empty dict by default.
+        assert md["user"] == {}
 
     def test_serialises_int_without_storage_ref_attribute(self) -> None:
         """ADR-017: int values without storage_ref are preserved as int."""
@@ -89,14 +121,42 @@ class TestSerialiseOutputs:
         result = serialise_outputs(outputs, "")
         assert result == {"count": 5}
 
-    def test_serialises_value_with_none_storage_ref(self) -> None:
-        mock_obj = MagicMock()
-        mock_obj.storage_ref = None
+    def test_serialises_dataobject_without_storage_ref(self) -> None:
+        """In-memory DataObject with no storage_ref serialises with None envelope.
 
-        outputs = {"data": mock_obj}
-        result = serialise_outputs(outputs, "")
-        # Should fall back to str()
-        assert "data" in result
+        T-014 relaxes the ADR pseudocode's RuntimeError: when auto-flush is a
+        no-op (no flush context configured), the object's storage_ref stays
+        ``None``. The worker emits ``backend=None`` / ``path=None`` so the
+        wire format remains JSON-clean and the receiving worker can round-
+        trip the object through _reconstruct_one.
+        """
+        from scieasy.core.types.array import Array
+
+        arr = Array(axes=["y", "x"], shape=(2, 2), dtype="uint8")
+        # No storage_ref set, no flush context → _auto_flush returns the obj.
+        result = serialise_outputs({"data": arr}, "")
+        assert result["data"]["backend"] is None
+        assert result["data"]["path"] is None
+        assert result["data"]["metadata"]["type_chain"] == ["DataObject", "Array"]
+        assert result["data"]["metadata"]["axes"] == ["y", "x"]
+
+    def test_serialises_dataobject_without_storage_ref_auto_flushes_when_output_dir_present(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """An output_dir should activate auto-flush and produce a persisted ref."""
+        from scieasy.core.types.array import Array
+
+        arr = Array(axes=["y", "x"], shape=(2, 2), dtype="uint8")
+        arr._data = [[1, 2], [3, 4]]  # type: ignore[attr-defined]
+
+        result = serialise_outputs({"data": arr}, str(tmp_path))
+
+        assert result["data"]["backend"] == "zarr"
+        assert result["data"]["path"] is not None
+        assert result["data"]["metadata"]["axes"] == ["y", "x"]
+        assert str(result["data"]["path"]).endswith(".zarr")
+        assert Path(result["data"]["path"]).exists()
 
     def test_serialise_collection_with_none_item_type(self) -> None:
         """Collection with item_type=None should not crash the worker (#168)."""

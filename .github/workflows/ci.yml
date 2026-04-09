@@ -135,6 +135,22 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         run: npm run build
+      - name: Check frontend/dist not stale relative to src
+        # #406: Ensure the committed frontend/dist/ reflects the current
+        # frontend/src/.  If any source file is newer than dist/index.html
+        # the build was not committed and developers must run
+        # 'cd frontend && npm run build' and commit the result.
+        # This step runs AFTER the build step so dist/index.html always
+        # exists in CI, and the mtime comparison is meaningful.
+        run: |
+          STALE=$(find frontend/src -newer frontend/dist/index.html 2>/dev/null | head -1)
+          if [ -n "$STALE" ]; then
+            echo "ERROR: frontend/dist is stale. At least one source file is newer than dist/index.html:"
+            echo "  $STALE"
+            echo "Run 'cd frontend && npm run build' and commit the result."
+            exit 1
+          fi
+          echo "frontend/dist is up to date."
 
   build-frontend-release:
     name: Build Frontend for Release

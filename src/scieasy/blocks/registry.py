@@ -13,6 +13,7 @@ import importlib.metadata
 import importlib.util
 import inspect
 import logging
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -45,6 +46,13 @@ class BlockSpec:
     source: str = ""
     type_name: str = ""
     package_name: str = ""
+    # ADR-028 Addendum 1 D3: IO direction for IO blocks ("input" | "output").
+    # Empty string means "not an IO block / no direction".
+    direction: str = ""
+    # ADR-028 Addendum 1 D3: enum-driven dynamic-port descriptor copied from
+    # the class-level ``Block.dynamic_ports`` ClassVar. Validated at scan
+    # time by :meth:`BlockRegistry._validate_dynamic_ports`.
+    dynamic_ports: dict[str, Any] | None = None
 
 
 class BlockRegistry:
@@ -67,17 +75,127 @@ class BlockRegistry:
         """Add a directory to the Tier 1 scan path."""
         self._scan_dirs.append(Path(directory))
 
-    def scan(self) -> None:
+    def scan(self, *, include_monorepo: bool = False) -> None:
         """Discover block classes from entry-points and drop-in directories."""
         self._scan_builtins()
         self._scan_tier1()
         self._scan_tier2()
+        if include_monorepo:
+            self._scan_monorepo_packages()
 
     def _register_spec(self, spec: BlockSpec) -> None:
         """Register a spec under its display name and public type name."""
         self._registry[spec.name] = spec
         if spec.type_name:
             self._aliases[spec.type_name] = spec.name
+
+    @staticmethod
+    def _validate_dynamic_ports(cls: type) -> None:
+        """Validate the shape of ``cls.dynamic_ports`` per ADR-028 Addendum 1.
+
+        Called at scan time so malformed declarations fail loudly at import.
+        Accepts ``None`` (the default) and any dict that matches::
+
+            {
+                "source_config_key": str,
+                # Exactly one of the following two keys must be present.
+                # ``output_port_mapping`` is used by input-direction blocks
+                # (LoadData) and ``input_port_mapping`` by output-direction
+                # blocks (SaveData). The shape of the value is identical.
+                "output_port_mapping": {
+                    "<port_name>": {
+                        "<enum_value>": ["<TypeName>", ...],
+                        ...
+                    },
+                    ...
+                },
+                # OR
+                "input_port_mapping": {
+                    "<port_name>": {
+                        "<enum_value>": ["<TypeName>", ...],
+                        ...
+                    },
+                    ...
+                },
+            }
+
+        Raises ``ValueError`` with the offending class name and field path
+        when the shape is wrong.
+
+        T-TRK-008 (SaveData) note: the ``input_port_mapping`` variant was
+        added in this ticket per ADR-028 Addendum 1 §C5/§C9. T-TRK-006
+        (PR #321) only declared the ``output_port_mapping`` variant
+        because LoadData (T-TRK-007) was the first consumer; SaveData is
+        the symmetric output-direction consumer and uses the
+        ``input_port_mapping`` key. The frontend
+        ``computeEffectivePorts`` helper in T-TRK-009 must handle both
+        keys.
+        """
+        descriptor = getattr(cls, "dynamic_ports", None)
+        if descriptor is None:
+            return
+
+        cls_name = cls.__name__
+        if not isinstance(descriptor, dict):
+            raise ValueError(f"{cls_name}.dynamic_ports must be a dict or None, got {type(descriptor).__name__}")
+
+        if "source_config_key" not in descriptor:
+            raise ValueError(f"{cls_name}.dynamic_ports is missing required key 'source_config_key'")
+        source_key = descriptor["source_config_key"]
+        if not isinstance(source_key, str) or not source_key:
+            raise ValueError(
+                f"{cls_name}.dynamic_ports['source_config_key'] must be a non-empty string, "
+                f"got {type(source_key).__name__}"
+            )
+
+        # Exactly one of ``output_port_mapping`` or ``input_port_mapping``
+        # must be present. Per ADR-028 Addendum 1 §C5: input-direction
+        # blocks (LoadData) drive output ports from a config enum, and
+        # output-direction blocks (SaveData) drive input ports from a
+        # config enum. Both use the same nested-dict shape.
+        has_output = "output_port_mapping" in descriptor
+        has_input = "input_port_mapping" in descriptor
+        if not has_output and not has_input:
+            raise ValueError(
+                f"{cls_name}.dynamic_ports is missing required key 'output_port_mapping' or 'input_port_mapping'"
+            )
+        if has_output and has_input:
+            raise ValueError(
+                f"{cls_name}.dynamic_ports must declare exactly one of "
+                "'output_port_mapping' or 'input_port_mapping', not both"
+            )
+        mapping_key = "output_port_mapping" if has_output else "input_port_mapping"
+        mapping = descriptor[mapping_key]
+        if not isinstance(mapping, dict):
+            raise ValueError(f"{cls_name}.dynamic_ports[{mapping_key!r}] must be a dict, got {type(mapping).__name__}")
+
+        for port_name, enum_map in mapping.items():
+            if not isinstance(port_name, str) or not port_name:
+                raise ValueError(
+                    f"{cls_name}.dynamic_ports[{mapping_key!r}] keys must be non-empty strings, got {port_name!r}"
+                )
+            if not isinstance(enum_map, dict):
+                raise ValueError(
+                    f"{cls_name}.dynamic_ports[{mapping_key!r}][{port_name!r}] must be a dict, "
+                    f"got {type(enum_map).__name__}"
+                )
+            for enum_value, type_names in enum_map.items():
+                if not isinstance(enum_value, str) or not enum_value:
+                    raise ValueError(
+                        f"{cls_name}.dynamic_ports[{mapping_key!r}][{port_name!r}] keys must be "
+                        f"non-empty strings, got {enum_value!r}"
+                    )
+                if not isinstance(type_names, list):
+                    raise ValueError(
+                        f"{cls_name}.dynamic_ports[{mapping_key!r}][{port_name!r}][{enum_value!r}] "
+                        f"must be a list, got {type(type_names).__name__}"
+                    )
+                for type_name in type_names:
+                    if not isinstance(type_name, str) or not type_name:
+                        raise ValueError(
+                            f"{cls_name}.dynamic_ports[{mapping_key!r}][{port_name!r}][{enum_value!r}] "
+                            f"entries must be non-empty strings, got {type_name!r}"
+                        )
 
     def _scan_builtins(self) -> None:
         """Register built-in core blocks used by the API/frontend."""
@@ -91,12 +209,17 @@ class BlockRegistry:
         from scieasy.blocks.process.builtins.slice_collection import SliceCollection
         from scieasy.blocks.process.builtins.split import SplitBlock
         from scieasy.blocks.process.builtins.split_collection import SplitCollection
-        from scieasy.blocks.process.builtins.transform import TransformBlock
         from scieasy.blocks.subworkflow.subworkflow_block import SubWorkflowBlock
+
+        # Phase 11 / T-TRK-003: ``TransformBlock`` was relocated to
+        # ``tests/fixtures/noop_block.py`` as ``NoopBlock``. It is no
+        # longer registered as a core builtin. Tests that need a generic
+        # pass-through Process block under the legacy ``"process_block"``
+        # registry alias rely on the test-only registration hook in
+        # ``tests/conftest.py``.
 
         for cls in (
             IOBlock,
-            TransformBlock,
             MergeBlock,
             SplitBlock,
             MergeCollection,
@@ -185,8 +308,12 @@ class BlockRegistry:
                 continue
 
             try:
-                # Invoke the callable to get blocks (and optionally PackageInfo).
-                result = loaded() if callable(loaded) else loaded
+                # Entry-points may point at a concrete block class directly.
+                # Classes are callable, so detect them before invoking.
+                if isinstance(loaded, type) and issubclass(loaded, Block):
+                    result = loaded
+                else:
+                    result = loaded() if callable(loaded) else loaded
 
                 info: PackageInfo | None = None
                 block_classes: list[type] = []
@@ -227,6 +354,12 @@ class BlockRegistry:
                         block_spec.class_name = cls.__name__
                         block_spec.package_name = pkg_name
                         self._register_spec(block_spec)
+                    elif isinstance(cls, type) and issubclass(cls, Block) and inspect.isabstract(cls):
+                        logger.warning(
+                            "Entry-point '%s' contained abstract Block subclass: %s",
+                            ep.name,
+                            cls,
+                        )
                     else:
                         logger.warning(
                             "Entry-point '%s' contained non-Block item: %s",
@@ -240,6 +373,85 @@ class BlockRegistry:
                     exc_info=True,
                 )
                 continue
+
+    def _scan_monorepo_packages(self) -> None:
+        """Development fallback for plugin packages living in the monorepo.
+
+        The desktop/app development workflow often runs the core package from
+        source without separately installing Phase 11 plugin packages in
+        editable mode. In that case there are no ``scieasy.blocks`` entry
+        points for the plugins yet, but the plugin sources are still present
+        under ``packages/*/src`` in the same repository checkout.
+
+        This fallback mirrors the entry-point callable protocol for any
+        ``scieasy_blocks_*`` package found in the monorepo:
+
+        - prefer ``get_block_package() -> (PackageInfo, list[type[Block]])``
+        - fall back to ``get_blocks() -> list[type[Block]]``
+
+        Installed entry-points remain authoritative because this scan runs
+        after :meth:`_scan_tier2` and skips any block type that is already
+        registered.
+        """
+        from scieasy.blocks.base.block import Block
+        from scieasy.blocks.base.package_info import PackageInfo
+
+        repo_root = Path(__file__).resolve().parents[3]
+        packages_dir = repo_root / "packages"
+        if not packages_dir.is_dir():
+            return
+
+        for pkg_dir in packages_dir.glob("scieasy-blocks-*"):
+            src_dir = pkg_dir / "src"
+            if not src_dir.is_dir():
+                continue
+
+            src_dir_str = str(src_dir)
+            if src_dir_str not in sys.path:
+                sys.path.insert(0, src_dir_str)
+
+            module_name = pkg_dir.name.replace("-", "_")
+            try:
+                module = importlib.import_module(module_name)
+            except Exception:
+                logger.warning("Failed to import monorepo plugin package '%s'", module_name, exc_info=True)
+                continue
+
+            result: Any | None = None
+            if hasattr(module, "get_block_package") and callable(module.get_block_package):
+                result = module.get_block_package()
+            elif hasattr(module, "get_blocks") and callable(module.get_blocks):
+                result = module.get_blocks()
+            else:
+                continue
+
+            info: PackageInfo | None = None
+            block_classes: list[type] = []
+            if isinstance(result, tuple) and len(result) == 2:
+                first, second = result
+                if isinstance(first, PackageInfo) and isinstance(second, list):
+                    info = first
+                    block_classes = second
+            elif isinstance(result, list):
+                block_classes = result
+
+            if not block_classes:
+                continue
+
+            pkg_name = info.name if info is not None else module_name
+            if info is not None:
+                self._packages[info.name] = info
+
+            for cls in block_classes:
+                if not (isinstance(cls, type) and issubclass(cls, Block) and not inspect.isabstract(cls)):
+                    continue
+                block_spec = _spec_from_class(cls, source="monorepo")
+                block_spec.module_path = cls.__module__
+                block_spec.class_name = cls.__name__
+                block_spec.package_name = pkg_name
+                if block_spec.type_name in self._aliases or block_spec.name in self._registry:
+                    continue
+                self._register_spec(block_spec)
 
     def get_spec(self, identifier: str) -> BlockSpec | None:
         """Resolve a block spec by display name or public type name."""
@@ -320,7 +532,15 @@ class BlockRegistry:
 
 
 def _spec_from_class(cls: type, source: str = "") -> BlockSpec:
-    """Build a :class:`BlockSpec` from a Block subclass's class-level metadata."""
+    """Build a :class:`BlockSpec` from a Block subclass's class-level metadata.
+
+    ADR-028 Addendum 1 D3: validates ``dynamic_ports`` shape at scan time and
+    captures both ``direction`` (for IO blocks) and ``dynamic_ports`` (for
+    enum-driven dynamic-port blocks) onto the spec.
+    """
+    # Fail loudly at scan time on malformed dynamic-port descriptors.
+    BlockRegistry._validate_dynamic_ports(cls)
+
     return BlockSpec(
         name=getattr(cls, "name", cls.__name__),
         description=getattr(cls, "description", "") or (cls.__doc__ or "").split("\n")[0],
@@ -333,11 +553,17 @@ def _spec_from_class(cls: type, source: str = "") -> BlockSpec:
         config_schema=getattr(cls, "config_schema", {"type": "object", "properties": {}}),
         source=source,
         type_name=_type_name_for_class(cls),
+        direction=getattr(cls, "direction", "") or "",
+        dynamic_ports=getattr(cls, "dynamic_ports", None),
     )
 
 
 def _infer_category(cls: type) -> str:
     """Infer the block category from the class hierarchy."""
+    # TODO(agent-b, stage-10.1): check ``cls.category`` ClassVar override first.
+    # If ``getattr(cls, "category", "")`` is a non-empty string, return it
+    # verbatim before falling through to the hierarchy checks below.
+    # See docs/design/stage-10-1-palette.md §3.2.1 for the full resolution order.
     # Lazy imports to avoid circular dependencies.
     from scieasy.blocks.ai.ai_block import AIBlock
     from scieasy.blocks.app.app_block import AppBlock

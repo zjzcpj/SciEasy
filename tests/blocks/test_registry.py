@@ -10,7 +10,6 @@ import pytest
 
 from scieasy.blocks.base.package_info import PackageInfo
 from scieasy.blocks.base.state import BlockState
-from scieasy.blocks.io.adapter_registry import AdapterRegistry
 from scieasy.blocks.registry import BlockRegistry, BlockSpec
 
 
@@ -26,6 +25,7 @@ class TestBlockRegistryTier2:
         names = list(specs.keys())
         assert "Merge" in names
         assert "Split" in names
+        assert "IOBlock" not in names
 
     def test_instantiate_by_name(self) -> None:
         reg = BlockRegistry()
@@ -180,41 +180,6 @@ class TestInferCategory:
         assert _infer_category(MyAIBlock) == "ai"
 
 
-class TestAdapterRegistry:
-    """AdapterRegistry — extension-to-adapter mapping."""
-
-    def test_register_defaults(self) -> None:
-        reg = AdapterRegistry()
-        reg.register_defaults()
-        adapters = reg.all_adapters()
-        assert ".csv" in adapters
-        assert ".parquet" in adapters
-        assert ".tif" in adapters
-
-    def test_get_for_extension(self) -> None:
-        from scieasy.blocks.io.adapters.csv_adapter import CSVAdapter
-
-        reg = AdapterRegistry()
-        reg.register_defaults()
-        cls = reg.get_for_extension(".csv")
-        assert cls is CSVAdapter
-
-    def test_normalisation(self) -> None:
-        from scieasy.blocks.io.adapters.csv_adapter import CSVAdapter
-
-        reg = AdapterRegistry()
-        reg.register_defaults()
-        assert reg.get_for_extension("CSV") is CSVAdapter
-        assert reg.get_for_extension(".CSV") is CSVAdapter
-        assert reg.get_for_extension("csv") is CSVAdapter
-
-    def test_unknown_extension_raises(self) -> None:
-        reg = AdapterRegistry()
-        reg.register_defaults()
-        with pytest.raises(KeyError, match="xyz"):
-            reg.get_for_extension(".xyz")
-
-
 class TestPackageInfo:
     """Tests for the PackageInfo dataclass (ADR-025 Phase 2.1)."""
 
@@ -364,6 +329,39 @@ class TestScanTier2CallableProtocol:
         assert "SRS Imaging" in pkgs
         assert pkgs["SRS Imaging"].author == "Dr. Wang"
 
+    def test_abstract_block_entry_point_logs_precise_warning(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Abstract Block entry-points should not be reported as non-Block items."""
+        from abc import ABC, abstractmethod
+
+        from scieasy.blocks.base.block import Block
+
+        abstract_block = type(
+            "AbstractMockBlock",
+            (Block, ABC),
+            {
+                "name": "Abstract Mock",
+                "description": "abstract",
+                "version": "0.1.0",
+                "input_ports": [],
+                "output_ports": [],
+                "config_schema": {"type": "object", "properties": {}},
+                "run": abstractmethod(lambda self, inputs, config: {}),
+            },
+        )
+        ep = self._make_mock_entry_point("abstract_block", abstract_block)
+        mock_eps = MagicMock()
+        mock_eps.select.return_value = [ep]
+
+        reg = BlockRegistry()
+        with patch("importlib.metadata.entry_points", return_value=mock_eps), caplog.at_level(logging.WARNING):
+            reg._scan_tier2()
+
+        assert "contained abstract Block subclass" in caplog.text
+        assert "contained non-Block item" not in caplog.text
+
     def test_plain_list_return_uses_ep_name(self) -> None:
         """Entry-point returning plain list uses ep.name as package_name."""
         block_cls = self._make_mock_block_class("GenomicsBlock")
@@ -459,3 +457,58 @@ class TestScanTier2CallableProtocol:
 
         assert len(reg.all_specs()) == 0
         assert len(reg.packages()) == 0
+
+
+# ----------------------------------------------------------------------------
+# Stage 10.1 Part 2 — skipped test stubs authored by Agent A.
+#
+# Agent B will remove the skip markers and implement these in Part 2.
+# See docs/design/stage-10-1-palette.md §4.1 for the test plan.
+# ----------------------------------------------------------------------------
+
+
+class TestStage101CategoryAndSource:
+    """Stage 10.1 — category ClassVar override, Custom default, source rename."""
+
+    @pytest.mark.skip(reason="Agent B implements in Stage 10.1 Part 2")
+    def test_explicit_category_classvar_wins(self, tmp_path: Path) -> None:
+        """A Tier 1 block with ``category = "segmentation"`` keeps that value.
+
+        The explicit ClassVar override must take precedence over the Custom
+        default Agent B applies in ``_scan_tier1``. Drop-in blocks that
+        declare a category are NOT reclassified as Custom.
+        """
+
+    @pytest.mark.skip(reason="Agent B implements in Stage 10.1 Part 2")
+    def test_tier1_block_without_category_defaults_to_custom(self, tmp_path: Path) -> None:
+        """A Tier 1 drop-in block with no category ClassVar gets "Custom".
+
+        This verifies the default assignment in ``_scan_tier1`` — blocks
+        from drop-in directories are palette-classified as Custom unless
+        they explicitly declare otherwise.
+        """
+
+    @pytest.mark.skip(reason="Agent B implements in Stage 10.1 Part 2")
+    def test_tier2_block_without_category_uses_hierarchy_inference(self) -> None:
+        """An entry-point block without a ClassVar still uses hierarchy inference.
+
+        Tier 2 (installed packages) must NOT be classified as Custom.
+        A ProcessBlock subclass from an entry-point gets ``category == "process"``.
+        """
+
+    @pytest.mark.skip(reason="Agent B implements in Stage 10.1 Part 2")
+    def test_spec_source_values_after_rename(self) -> None:
+        """After the Stage 10.1 rename, source values are builtin/custom/package.
+
+        - ``_scan_builtins`` -> ``spec.source == "builtin"``
+        - ``_scan_tier1``    -> ``spec.source == "custom"``
+        - ``_scan_tier2``    -> ``spec.source == "package"``
+        """
+
+    @pytest.mark.skip(reason="Agent B implements in Stage 10.1 Part 2")
+    def test_hot_reload_still_recognizes_custom_source(self, tmp_path: Path) -> None:
+        """``hot_reload`` prunes stale Tier 1 specs by matching new ``custom`` source.
+
+        After Agent B updates the comparison in ``hot_reload`` to
+        ``spec.source == "custom"``, deleted drop-in files are still pruned.
+        """

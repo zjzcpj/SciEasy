@@ -3,6 +3,13 @@
 These tests exercise multiple engine subsystems together to verify that the
 DAG construction, event bus, Collection transport, and block utilities work
 correctly when integrated.
+
+ADR-027 D2 / phase10-implementation-standards.md T-008 (Question 2): this
+module exercises an image-typed multimodal pipeline whose ``Image`` data
+type lives in the ``scieasy-blocks-imaging`` plugin package. The entire
+module is therefore gated behind ``pytest.importorskip`` so that when the
+plugin is not installed (the current state of the core repository) the
+tests are skipped at collection time rather than failing.
 """
 
 from __future__ import annotations
@@ -10,19 +17,37 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
-from scieasy.blocks.base.block import Block
-from scieasy.blocks.base.state import BlockState
-from scieasy.core.types.array import Image
-from scieasy.core.types.collection import Collection
-from scieasy.engine.dag import build_dag, topological_sort
-from scieasy.engine.events import (
+import pytest
+
+# T-008 / ADR-027 D2: skip the entire module unless the imaging plugin
+# is installed. The plugin provides the typed ``Image`` class these
+# tests reference; in its absence the multimodal workflow has no
+# Image-typed data to flow through it.
+pytest.importorskip(
+    "scieasy_blocks_imaging",
+    reason="requires scieasy-blocks-imaging plugin",
+)
+
+# Module-level marker so test runs can opt out of imaging-plugin tests
+# via ``pytest -m "not requires_imaging"``.
+pytestmark = pytest.mark.requires_imaging
+
+# The plugin's Image type. The import below only runs when
+# ``pytest.importorskip`` above succeeded.
+from scieasy_blocks_imaging.types import Image  # type: ignore[import-not-found]  # noqa: E402
+
+from scieasy.blocks.base.block import Block  # noqa: E402
+from scieasy.blocks.base.state import BlockState  # noqa: E402
+from scieasy.core.types.collection import Collection  # noqa: E402
+from scieasy.engine.dag import build_dag, topological_sort  # noqa: E402
+from scieasy.engine.events import (  # noqa: E402
     BLOCK_DONE,
     WORKFLOW_STARTED,
     EngineEvent,
     EventBus,
 )
-from scieasy.engine.scheduler import DAGScheduler
-from scieasy.workflow.definition import EdgeDef, NodeDef, WorkflowDefinition
+from scieasy.engine.scheduler import DAGScheduler  # noqa: E402
+from scieasy.workflow.definition import EdgeDef, NodeDef, WorkflowDefinition  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # DAG construction + topological sort for a multimodal pipeline

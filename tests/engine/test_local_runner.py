@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import tempfile
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from scieasy.engine.events import EventBus
-from scieasy.engine.runners.local import LocalRunner
+from scieasy.engine.runners.local import LocalRunner, _derive_output_dir
 from scieasy.engine.runners.process_handle import (
     ProcessExitInfo,
     ProcessHandle,
@@ -157,6 +159,8 @@ class TestLocalRunnerRun:
         assert payload["block_class"].endswith("FakeBlock")
         assert payload["inputs"] == {"input": "ref1"}
         assert payload["config"] == {"param": 1}
+        assert payload["output_dir"]
+        assert Path(payload["output_dir"]).exists()
 
     @patch("scieasy.engine.runners.process_handle.subprocess.Popen")
     def test_run_raises_on_nonzero_exit(self, mock_popen_cls: MagicMock) -> None:
@@ -247,30 +251,68 @@ class TestLocalRunnerRun:
         assert result == raw
 
 
+class TestLocalRunnerOutputDir:
+    def test_derive_output_dir_prefers_project_scoped_path(self, tmp_path: Path) -> None:
+        class FakeBlock:
+            id = "block-123"
+
+        output_dir = _derive_output_dir(
+            FakeBlock(),
+            {
+                "project_dir": str(tmp_path),
+                "workflow_id": "wf-1",
+            },
+        )
+
+        assert output_dir == str(tmp_path / "data" / "zarr" / "wf-1" / "block-123")
+        assert Path(output_dir).exists()
+
+    def test_derive_output_dir_falls_back_to_tempdir(self) -> None:
+        class FakeBlock:
+            id = "block-temp"
+
+        output_dir = _derive_output_dir(FakeBlock(), {})
+
+        assert output_dir.startswith(tempfile.gettempdir())
+        assert Path(output_dir).exists()
+
+
 # ---------------------------------------------------------------------------
-# reconstruct_inputs -- TypeSignature recovery (#132)
+# reconstruct_inputs -- TypeSignature recovery (#132, updated T-014)
 # ---------------------------------------------------------------------------
 
 
 class TestReconstructInputsTypeChain:
     def test_uses_type_chain_from_metadata(self) -> None:
-        """reconstruct_inputs should recover type_chain from metadata (#132)."""
+        """ADR-027 Addendum 1 §1 (T-014): reconstruct_inputs recovers type_chain
+        from metadata and returns a typed DataObject instance (not ViewProxy).
+        """
+        from scieasy.core.types.array import Array
+
         payload = {
             "inputs": {
                 "image": {
                     "backend": "zarr",
                     "path": "/data/img.zarr",
                     "format": "zarr",
-                    "metadata": {"type_chain": ["DataObject", "Image"]},
+                    "metadata": {
+                        "type_chain": ["DataObject", "Array"],
+                        "axes": ["z", "y", "x"],
+                        "shape": [8, 16, 16],
+                        "dtype": "uint8",
+                    },
                 }
             }
         }
         result = reconstruct_inputs(payload)
-        proxy = result["image"]
-        assert proxy.dtype_info.type_chain == ["DataObject", "Image"]
+        obj = result["image"]
+        assert isinstance(obj, Array)
+        assert obj.dtype_info.type_chain == ["DataObject", "Array"]
 
     def test_falls_back_to_dataobject_without_metadata(self) -> None:
-        """reconstruct_inputs should default to ['DataObject'] when no type_chain."""
+        """Reconstruct_inputs defaults to bare ``DataObject`` when no type_chain."""
+        from scieasy.core.types.base import DataObject
+
         payload = {
             "inputs": {
                 "data": {
@@ -281,8 +323,9 @@ class TestReconstructInputsTypeChain:
             }
         }
         result = reconstruct_inputs(payload)
-        proxy = result["data"]
-        assert proxy.dtype_info.type_chain == ["DataObject"]
+        obj = result["data"]
+        assert isinstance(obj, DataObject)
+        assert obj.dtype_info.type_chain == ["DataObject"]
 
     def test_scalar_passthrough(self) -> None:
         """Scalar values should pass through unchanged."""
@@ -292,20 +335,19 @@ class TestReconstructInputsTypeChain:
 
 
 # ---------------------------------------------------------------------------
-# serialise_outputs -- type_chain inclusion (#132)
+# serialise_outputs -- type_chain inclusion (#132, updated T-014)
 # ---------------------------------------------------------------------------
 
 
 class TestSerialiseOutputsTypeChain:
     def test_includes_type_chain_in_metadata(self) -> None:
-        """serialise_outputs should add type_chain to serialized metadata (#132)."""
+        """serialise_outputs includes type_chain in the wire-format metadata
+        sidecar (ADR-027 Addendum 1 §1, builds on #132).
+        """
         from scieasy.core.storage.ref import StorageReference
         from scieasy.core.types.base import DataObject
 
-        obj = DataObject.__new__(DataObject)
-        obj._storage_ref = StorageReference(backend="zarr", path="/out/result.zarr", format="zarr", metadata={})
-        obj._metadata = {}
-        obj._data = None
+        obj = DataObject(storage_ref=StorageReference(backend="zarr", path="/out/result.zarr", format="zarr"))
 
         result = serialise_outputs({"output": obj}, "/tmp/out")
         assert "type_chain" in result["output"]["metadata"]

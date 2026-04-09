@@ -155,7 +155,9 @@ def _sequential_execute(
     for block in blocks:
         block.transition(BlockState.READY)
         block_inputs: dict[str, Any] = {}
-        for port in block.input_ports:
+        # ADR-028 Addendum 1 D5: read effective input ports so dynamic
+        # child blocks resolve their config-driven port set per instance.
+        for port in block.get_effective_input_ports():
             if port.name in namespace:
                 block_inputs[port.name] = namespace[port.name]
             elif not port.required and port.default is not None:

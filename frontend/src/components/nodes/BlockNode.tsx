@@ -1,8 +1,9 @@
 import { type Node, Handle, Position, type NodeProps } from "@xyflow/react";
 
 import { api } from "../../lib/api";
-import { resolveTypeColor } from "../../config/typeColorMap";
+import { resolveTypeColor, resolveRingColor, isAnyType, primaryTypeName } from "../../config/typeColorMap";
 import type { BlockNodeData } from "../../types/ui";
+import { computeEffectivePorts } from "../../utils/computeEffectivePorts";
 
 // ---------------------------------------------------------------------------
 // Category icon map
@@ -108,14 +109,25 @@ function InlineConfigField({
   prop,
   value,
   onChange,
-  blockType,
+  category,
   ioDirection,
 }: {
   prop: ConfigProperty;
   value: unknown;
   onChange: (key: string, val: unknown) => void;
-  blockType?: string;
-  /** For io_block nodes: "input" (Load) or "output" (Save). */
+  /**
+   * Block category from ``BlockSchemaResponse.category`` (e.g. ``"io"``,
+   * ``"process"``). Used to gate IO-specific UI affordances like the
+   * Browse button on the ``path`` field. Replaces the pre-ADR-028
+   * legacy ``blockType`` string discriminator (ADR-028 Addendum 1 §C11).
+   */
+  category?: string;
+  /**
+   * IO direction from ``BlockSchemaResponse.direction`` (``"input"`` for
+   * loaders, ``"output"`` for savers, ``undefined`` for non-IO blocks).
+   * Read from the schema (class-level ClassVar) — not from
+   * ``data.config?.direction`` — per ADR-028 Addendum 1 §C8.
+   */
   ioDirection?: string;
 }) {
   const { key, schema } = prop;
@@ -175,8 +187,12 @@ function InlineConfigField({
     );
   }
 
-  // Show Browse button for the path field on io_block
-  const showBrowse = blockType === "io_block" && key === "path";
+  // Show Browse button for the ``path`` field on any IO block (ADR-028
+  // Addendum 1 §B fix #1 / §C11). The discriminator is the category, not
+  // the legacy abstract-base type_name string, because after ADR-028
+  // ``IOBlock`` is an abstract base with multiple concrete subclasses
+  // (``LoadData``, ``SaveData``, plugin loaders, ...).
+  const showBrowse = category === "io" && key === "path";
 
   // Default: text input
   return (
@@ -211,11 +227,7 @@ function InlineConfigField({
                     if (result.paths.length === 1) {
                       onChange(key, result.paths[0]);
                     } else {
-                      // Find common directory prefix for multi-select
-                      const first = result.paths[0];
-                      const dir = first.substring(0, first.lastIndexOf("/") + 1) ||
-                                  first.substring(0, first.lastIndexOf("\\") + 1);
-                      onChange(key, dir || result.paths[0]);
+                      onChange(key, result.paths);
                     }
                   }
                 }
@@ -233,20 +245,70 @@ function InlineConfigField({
 }
 
 // ---------------------------------------------------------------------------
+// Error message inline display
+// ---------------------------------------------------------------------------
+const MAX_INLINE_ERROR_LEN = 80;
+
+function ErrorMessage({ message }: { message: string }) {
+  const truncated =
+    message.length > MAX_INLINE_ERROR_LEN
+      ? `${message.slice(0, MAX_INLINE_ERROR_LEN)}…`
+      : message;
+  return (
+    <span
+      className="ml-2 min-w-0 flex-1 truncate text-[10px] leading-tight text-red-500"
+      title={message}
+    >
+      {truncated}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // BlockNode component
 // ---------------------------------------------------------------------------
 export function BlockNode({ data, selected }: NodeProps<Node<BlockNodeData>>) {
-  // For io_block, hide the "direction" field — it is determined by whether
-  // the user dragged a Load Block or Save Block from the palette.
+  // ADR-028 Addendum 1 §B fix #2 / §C11: hide the ``direction`` config
+  // field for any IO block (not just the legacy abstract-base type_name).
+  // ``direction`` is a ClassVar on the IOBlock subclass — it is not a
+  // user-editable runtime config field — so it must not be rendered in
+  // any IO block's inline config strip.
   const configProps = getTopConfigProperties(data.schema?.config_schema).filter(
-    (prop) => !(data.blockType === "io_block" && prop.key === "direction"),
+    (prop) => !(data.category === "io" && prop.key === "direction"),
   );
   const typeHierarchy = data.schema?.type_hierarchy;
   const categoryIcon = categoryIcons[data.category] ?? categoryIcons.custom;
-  // Resolve io_block direction for Browse button behavior
-  const ioDirection = data.blockType === "io_block"
-    ? (data.config?.direction as string | undefined) ?? "input"
-    : undefined;
+  // ADR-028 Addendum 1 §B fix #3 / §C8: read ``direction`` from the schema
+  // (class-level ClassVar, populated by the backend at scan time) instead
+  // of from ``data.config?.direction``. After ADR-028 there is no runtime
+  // ``direction`` config value — reading the old path always returned
+  // undefined, breaking the Save Block directory picker.
+  const ioDirection = data.schema?.direction ?? undefined;
+
+  // ADR-028 Addendum 1 §D4 / spec §d step 4: compute effective ports from
+  // the dynamic-port descriptor + driving config value. Static blocks pay
+  // zero cost (the helper returns ``basePorts`` by reference). Dynamic
+  // blocks (e.g. ``LoadData``) get per-instance ``accepted_types`` so the
+  // port colour resolved by ``resolveTypeColor()`` updates live as the
+  // user changes the dropdown.
+  const dynamicPorts = data.schema?.dynamic_ports ?? null;
+  const sourceConfigKey = dynamicPorts?.source_config_key;
+  const drivingConfigValue =
+    sourceConfigKey != null
+      ? (data.config?.[sourceConfigKey] as string | undefined)
+      : undefined;
+  const effectiveInputPorts = computeEffectivePorts(
+    dynamicPorts,
+    drivingConfigValue,
+    data.inputPorts,
+    "input",
+  );
+  const effectiveOutputPorts = computeEffectivePorts(
+    dynamicPorts,
+    drivingConfigValue,
+    data.outputPorts,
+    "output",
+  );
 
   const handleConfigChange = (key: string, value: unknown) => {
     data.onUpdateConfig?.({ [key]: value });
@@ -261,7 +323,7 @@ export function BlockNode({ data, selected }: NodeProps<Node<BlockNodeData>>) {
       {/* ----------------------------------------------------------------- */}
       {/* Header                                                            */}
       {/* ----------------------------------------------------------------- */}
-      <div className="drag-handle flex items-center justify-between gap-2 border-b border-stone-100 px-3 py-2">
+      <div className="flex items-center justify-between gap-2 border-b border-stone-100 px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <span className="text-base leading-none">{categoryIcon}</span>
           <span className="truncate font-display text-sm font-semibold text-ink">
@@ -313,7 +375,7 @@ export function BlockNode({ data, selected }: NodeProps<Node<BlockNodeData>>) {
               prop={prop}
               value={data.config?.[prop.key]}
               onChange={handleConfigChange}
-              blockType={data.blockType}
+              category={data.category}
               ioDirection={ioDirection}
             />
           ))
@@ -327,46 +389,63 @@ export function BlockNode({ data, selected }: NodeProps<Node<BlockNodeData>>) {
       {/* ----------------------------------------------------------------- */}
       {/* Port handles (positioned absolutely by React Flow)                */}
       {/* ----------------------------------------------------------------- */}
-      {data.inputPorts.map((port, index) => {
-        const color = resolveTypeColor(port.accepted_types, typeHierarchy);
-        const collectionShadow = port.is_collection
-          ? `0 0 0 2px white, 0 0 0 4px ${color}`
-          : undefined;
+      {/* Use effective ports so dynamic blocks (LoadData, SaveData) get   */}
+      {/* per-instance accepted_types resolved from data.schema?.dynamic_ports */}
+      {/* + the current driving config value (ADR-028 Addendum 1 §D4).      */}
+      {effectiveInputPorts.map((port, index) => {
+        const fillColor = resolveTypeColor(port.accepted_types, typeHierarchy);
+        const ringColor = resolveRingColor(port.accepted_types, typeHierarchy);
+        const anyType = isAnyType(port.accepted_types);
+        const typeName = primaryTypeName(port.accepted_types);
+        const borderColor = ringColor ?? (anyType ? "#d1d5db" : fillColor);
+        const shadows: string[] = [];
+        if (port.is_collection) {
+          shadows.push(`0 0 0 2px white`, `0 0 0 4px ${fillColor}`);
+        }
         return (
           <Handle
             key={port.name}
             id={port.name}
             type="target"
             position={Position.Left}
-            className="!h-3.5 !w-3.5 !border-2 !bg-white"
-            title={`${port.name}: ${port.accepted_types.join(", ")}${port.description ? " \u2014 " + port.description : ""}`}
+            className="!h-3.5 !w-3.5 !border-2"
+            title={`${typeName}${port.description ? " \u2014 " + port.description : ""}`}
             style={{
-              borderColor: color,
+              backgroundColor: anyType ? "#ffffff" : fillColor,
+              borderColor,
+              borderStyle: anyType ? "dashed" : "solid",
               left: -7,
               top: 80 + index * 20,
-              boxShadow: collectionShadow,
+              boxShadow: shadows.length > 0 ? shadows.join(", ") : undefined,
             }}
           />
         );
       })}
-      {data.outputPorts.map((port, index) => {
-        const color = resolveTypeColor(port.accepted_types, typeHierarchy);
-        const collectionShadow = port.is_collection
-          ? `0 0 0 2px white, 0 0 0 4px ${color}`
-          : undefined;
+      {effectiveOutputPorts.map((port, index) => {
+        const fillColor = resolveTypeColor(port.accepted_types, typeHierarchy);
+        const ringColor = resolveRingColor(port.accepted_types, typeHierarchy);
+        const anyType = isAnyType(port.accepted_types);
+        const typeName = primaryTypeName(port.accepted_types);
+        const borderColor = ringColor ?? (anyType ? "#d1d5db" : fillColor);
+        const shadows: string[] = [];
+        if (port.is_collection) {
+          shadows.push(`0 0 0 2px white`, `0 0 0 4px ${fillColor}`);
+        }
         return (
           <Handle
             key={port.name}
             id={port.name}
             type="source"
             position={Position.Right}
-            className="!h-3.5 !w-3.5 !border-2 !bg-white"
-            title={`${port.name}: ${port.accepted_types.join(", ")}${port.description ? " \u2014 " + port.description : ""}`}
+            className="!h-3.5 !w-3.5 !border-2"
+            title={`${typeName}${port.description ? " \u2014 " + port.description : ""}`}
             style={{
-              borderColor: color,
+              backgroundColor: anyType ? "#ffffff" : fillColor,
+              borderColor,
+              borderStyle: anyType ? "dashed" : "solid",
               right: -7,
               top: 80 + index * 20,
-              boxShadow: collectionShadow,
+              boxShadow: shadows.length > 0 ? shadows.join(", ") : undefined,
             }}
           />
         );
@@ -375,8 +454,11 @@ export function BlockNode({ data, selected }: NodeProps<Node<BlockNodeData>>) {
       {/* ----------------------------------------------------------------- */}
       {/* Footer                                                            */}
       {/* ----------------------------------------------------------------- */}
-      <div className="flex items-center border-t border-stone-100 px-3 py-2">
+      <div className="flex min-w-0 items-center border-t border-stone-100 px-3 py-2">
         <StatusBadge status={data.status} onErrorClick={data.onErrorClick} />
+        {data.status === "error" && data.errorMessage ? (
+          <ErrorMessage message={data.errorMessage} />
+        ) : null}
       </div>
     </div>
   );

@@ -229,19 +229,17 @@ srs = "scieasy_blocks_srs:get_blocks"
 # Optional: register custom DataObject subtypes
 [project.entry-points."scieasy.types"]
 srs = "scieasy_blocks_srs.types:get_types"
-
-# Optional: register custom file-format adapters
-[project.entry-points."scieasy.adapters"]
-srs = "scieasy_blocks_srs.io:get_adapters"
 ```
 
-Three entry-point groups are available:
+Two entry-point groups are available (ADR-028 §D4 supersedes the old
+`scieasy.adapters` group from ADR-025 §6 — plugin-owned IO loaders and
+savers are now registered as ordinary `IOBlock` subclasses through
+`scieasy.blocks`):
 
 | Group | Purpose | Return type |
 |-------|---------|-------------|
-| `scieasy.blocks` | Block class discovery | `(PackageInfo, list[type[Block]])` or `list[type[Block]]` |
+| `scieasy.blocks` | Block class discovery (including plugin-owned `IOBlock` subclasses such as `LoadSRSImage`) | `(PackageInfo, list[type[Block]])` or `list[type[Block]]` |
 | `scieasy.types` | Custom DataObject subtype registration | `list[type[DataObject]]` |
-| `scieasy.adapters` | Custom IO adapter registration | `list[type[FormatAdapter]]` |
 
 #### Two-level categorization in the GUI
 
@@ -362,7 +360,11 @@ from typing import Any, ClassVar
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.process.process_block import ProcessBlock
-from scieasy.core.types.array import Image
+from scieasy.utils.constraints import has_axes
+
+# Plugin-provided type — not in core (ADR-027 D2).
+# Requires `pip install scieasy-blocks-imaging`.
+from scieasy_blocks_imaging.types import Image
 
 
 class GaussianBlurBlock(ProcessBlock):
@@ -371,7 +373,12 @@ class GaussianBlurBlock(ProcessBlock):
     algorithm: ClassVar[str] = "gaussian_blur"
 
     input_ports: ClassVar[list[InputPort]] = [
-        InputPort(name="images", accepted_types=[Image], description="Input images"),
+        InputPort(
+            name="images",
+            accepted_types=[Image],
+            constraint=has_axes("y", "x"),
+            description="Input images (must have spatial y, x axes)",
+        ),
     ]
     output_ports: ClassVar[list[OutputPort]] = [
         OutputPort(name="blurred", accepted_types=[Image], description="Blurred images"),
@@ -383,14 +390,19 @@ class GaussianBlurBlock(ProcessBlock):
         },
     }
 
-    def process_item(self, item: Any, config: BlockConfig) -> Any:
-        import numpy as np
+    def process_item(self, item: Image, config: BlockConfig, state=None) -> Image:
         from scipy.ndimage import gaussian_filter
+        from scieasy.utils.axis_iter import iterate_over_axes
 
         sigma = config.get("sigma", 1.0)
-        data = item.view().to_memory()
-        blurred = gaussian_filter(data, sigma=sigma)
-        return Image(data=blurred)
+
+        # iterate_over_axes handles 5D/6D inputs by looping over extra
+        # dimensions and calling the func on each (y, x) slice. Metadata
+        # and axes are preserved automatically (ADR-027 D3, D4).
+        def _blur_slice(slice_2d, coord):
+            return gaussian_filter(slice_2d, sigma=sigma)
+
+        return iterate_over_axes(item, operates_on={"y", "x"}, func=_blur_slice)
 ```
 
 **Tier 2/3 pattern** (override `run()` directly when you need cross-item logic):
@@ -409,44 +421,65 @@ def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, C
 
 ### 3.2 IOBlock
 
-**Purpose**: Data ingress (loading files) and egress (saving files). Handles
-reading from and writing to the file system using pluggable format adapters.
+**Purpose**: Data ingress (loading files) and egress (saving files). `IOBlock`
+is an **abstract base class** (ADR-028 §D2). Concrete IO blocks subclass it and
+implement either `load()` (input-only) or `save()` (output-only). The previous
+"single block type with a `direction` flag plus a `FormatAdapter` registry"
+pattern is gone — there is no `scieasy.blocks.io.adapters` package and no
+`scieasy.adapters` entry-point group.
 
 **Module**: `scieasy.blocks.io.io_block`
+
+**Abstract methods** (subclasses must implement at least one):
+
+| Method | Signature | When to implement |
+|--------|-----------|-------------------|
+| `load` | `load(self, config: BlockConfig) -> DataObject` | Input-only blocks (`direction = "input"`) |
+| `save` | `save(self, obj: DataObject, config: BlockConfig) -> None` | Output-only blocks (`direction = "output"`) |
 
 **Special ClassVars**:
 
 | ClassVar | Type | Default | Purpose |
 |----------|------|---------|---------|
-| `direction` | `str` | `"input"` | `"input"` to load, `"output"` to save |
-| `format` | `str` | `""` | File format hint |
+| `direction` | `ClassVar[str]` | `"input"` | `"input"` to load, `"output"` to save. Drives the default `run()` dispatch. |
 
-**Pre-declared ports**:
+**How it works**: The default `run()` method on `IOBlock` reads `direction` and
+dispatches to either `load()` or `save()`. Concrete subclasses do not need to
+override `run()` themselves. For one-class-many-types loaders that want a single
+block with type-narrowing output ports based on user config, see
+[Writing a dynamic-port block](#writing-a-dynamic-port-block) below.
 
-- Input port: `data` (accepted types: `[DataObject]`, required: `False`)
-- Output port: `data` (accepted types: `[DataObject]`)
-
-**Config schema** includes `path` (required) and `direction`.
-
-**How it works**: In input mode, the block scans the given path (file or
-directory), selects the appropriate format adapter by file extension, creates
-lazy `StorageReference` objects, and wraps them in a Collection. In output mode,
-it iterates the input Collection and writes each item through the adapter.
-
-**Example: Custom IOBlock subclass**
+**Example: Minimal custom IOBlock subclass (single concrete output type)**
 
 ```python
 from typing import ClassVar
 
+from scieasy.blocks.base.config import BlockConfig
+from scieasy.blocks.base.ports import OutputPort
 from scieasy.blocks.io.io_block import IOBlock
+from scieasy.core.types.array import Array
 
 
 class TiffLoaderBlock(IOBlock):
     name: ClassVar[str] = "TIFF Loader"
-    description: ClassVar[str] = "Load TIFF image files"
+    description: ClassVar[str] = "Load a TIFF image file as an Array"
     direction: ClassVar[str] = "input"
-    format: ClassVar[str] = "tiff"
+    category: ClassVar[str] = "io"
+
+    output_ports: ClassVar[list[OutputPort]] = [
+        OutputPort(name="data", accepted_types=[Array]),
+    ]
+
+    def load(self, config: BlockConfig) -> Array:
+        import tifffile
+        path = config["path"]
+        data = tifffile.imread(path)
+        return Array(data=data, axes=("y", "x"))
 ```
+
+This example uses a fixed `Array` output type. For dynamic-port blocks (one
+class, multiple effective output types based on config), see
+[Writing a dynamic-port block](#writing-a-dynamic-port-block).
 
 ### 3.3 CodeBlock
 
@@ -517,6 +550,105 @@ class FijiBlock(AppBlock):
     watch_timeout: ClassVar[int] = 600  # 10 minutes
 ```
 
+#### 3.4.1 Writing a manual review step using AppBlock to open Fiji
+
+SciEasy treats human review as a first-class workflow step (see
+`CLAUDE.md` §2.5). There is **no dedicated manual-review block class** —
+the same `AppBlock` machinery that bridges automated GUI tools also
+covers the human-in-the-loop case. The trick is that the user *is* the
+external process: the block writes inputs to an exchange directory,
+launches the GUI, then sits in `PAUSED` until the user saves a result
+file matching `output_patterns`.
+
+The lifecycle is identical to any other `AppBlock`:
+
+1. **PREPARE** — `FileExchangeBridge.prepare()` writes input
+   `DataObject`s to `exchange_dir/inputs/` in the app's native format.
+2. **LAUNCH** — the configured `app_command` starts the GUI tool with
+   the input directory as an argument.
+3. **PAUSED** — the engine transitions to `PAUSED`. The frontend shows
+   "Waiting for manual review…". The user opens the file, edits or
+   annotates, and saves into `exchange_dir/outputs/`.
+4. **WATCH** — `FileWatcher` polls `exchange_dir/outputs/` for files
+   matching `output_patterns` (with `stability_period` so partial writes
+   are not picked up).
+5. **RESUME** — once outputs appear, the bridge collects them, wraps
+   them as `Artifact` instances inside a `Collection`, and the block
+   transitions to `DONE`.
+
+A minimal manual-review block that opens Fiji for cell annotation:
+
+```python
+"""manual_fiji_review.py — pause the workflow for human annotation in Fiji."""
+
+from typing import ClassVar
+
+from scieasy.blocks.app.app_block import AppBlock
+from scieasy.blocks.base.ports import InputPort, OutputPort
+from scieasy.blocks.base.state import ExecutionMode
+from scieasy.core.types.artifact import Artifact
+from scieasy.core.types.base import DataObject
+
+
+class ManualFijiReview(AppBlock):
+    """Open an Image in Fiji and wait for the user to save an annotated copy."""
+
+    name: ClassVar[str] = "Manual Fiji Review"
+    description: ClassVar[str] = (
+        "Pauses the workflow, opens the input image in Fiji, "
+        "and resumes once the user saves an annotated TIFF."
+    )
+    version: ClassVar[str] = "0.1.0"
+
+    # Canonical AppBlock ClassVars (see scieasy.blocks.app.app_block.AppBlock).
+    app_command: ClassVar[str] = "fiji"
+    execution_mode: ClassVar[ExecutionMode] = ExecutionMode.EXTERNAL
+    output_patterns: ClassVar[list[str]] = ["*_reviewed.tif", "*_reviewed.tiff"]
+    watch_timeout: ClassVar[int] = 1800  # 30 minutes — humans take coffee breaks
+
+    input_ports: ClassVar[list[InputPort]] = [
+        InputPort(
+            name="image",
+            accepted_types=[DataObject],
+            required=True,
+            description="Image to review in Fiji",
+        ),
+    ]
+    output_ports: ClassVar[list[OutputPort]] = [
+        OutputPort(
+            name="reviewed",
+            accepted_types=[Artifact],
+            description="Annotated image saved by the user",
+        ),
+    ]
+
+    # No run() override needed — AppBlock.run() handles the
+    # PREPARE → LAUNCH → PAUSED → WATCH → RESUME lifecycle for us.
+```
+
+A few notes on tuning this for real manual-review use:
+
+- **`watch_timeout`** should be generous (minutes to hours). Manual
+  review is slow; a 5-minute timeout will fail every real workflow.
+- **`output_patterns`** must be specific enough to ignore Fiji's
+  scratch files (`*.tmp`, `Thumbs.db`, etc.). Prefer a suffix
+  convention such as `*_reviewed.tif` so the user's intent to "submit"
+  is explicit.
+- **`done_marker`** (passed via `BlockConfig`) is supported when the
+  pattern alone is ambiguous: the user creates an empty `.done` file
+  to signal "I am finished", and the watcher only collects outputs
+  once the marker exists.
+- **Cancellation**: if the user closes Fiji without saving any output
+  matching `output_patterns`, `AppBlock.run()` catches
+  `ProcessExitedWithoutOutputError` and transitions to `CANCELLED`
+  rather than hanging forever.
+
+The real-world implementation lives in the imaging plugin under
+ticket **T-IMG-034 (`FijiBlock`)** in
+`docs/specs/phase11-implementation-standards.md` — that block adds
+ROI/overlay handling and a configurable Fiji macro launch path on top
+of the same `AppBlock` foundation shown here.
+
 ### 3.5 AIBlock
 
 **Purpose**: LLM-driven data processing with prompt templates. This block type
@@ -535,6 +667,218 @@ uses a large language model to process or analyze data.
 `NotImplementedError`. The infrastructure for AI-powered blocks is planned but
 not yet implemented.
 
+### 3.6 Writing a dynamic-port block
+
+Most blocks declare their input and output ports as static `ClassVar` lists at
+class definition time. A `ProcessBlock` that "takes a `DataFrame` and returns a
+`DataFrame`" looks the same to the validator and to the GUI palette no matter
+what the user types into its config panel.
+
+**Dynamic-port blocks break that assumption.** A dynamic-port block has *one*
+class but exposes *different effective port types* depending on a user-selected
+config enum. The canonical example is core's `LoadData` (ADR-028 Addendum 1
+§C5 / §C9): one block class loads any of the six core `DataObject` types
+(`Array`, `DataFrame`, `Series`, `Text`, `Artifact`, `CompositeData`), and the
+output port colour in the GUI palette tracks the user's `core_type` selection
+live. If the user picks `"DataFrame"`, the output port advertises
+`accepted_types=[DataFrame]` and only connects to downstream blocks that accept
+`DataFrame`; if they switch to `"Array"`, the same port instantly narrows to
+`accepted_types=[Array]`.
+
+**Why dynamic ports exist**. Without this hook, an author of a "load any core
+type" block has two bad options:
+
+1. Declare `accepted_types=[DataObject]` on the static port. The validator
+   accepts every downstream connection, even ones that will fail at runtime.
+2. Ship six separate classes (`LoadArray`, `LoadDataFrame`, …). The palette
+   becomes cluttered and the dispatch logic is duplicated six times.
+
+The dynamic-port mechanism gives a third option: **one class, one static port
+declaration with the broad `[DataObject]` upper bound, plus a per-instance
+override that reports the *narrowed* type for the configured enum value.** The
+runtime validator, the worker subprocess, and the frontend `BlockNode` all
+consume `get_effective_*_ports()` rather than the static class-level lists, so
+type narrowing flows through the entire stack consistently.
+
+#### The two-part contract
+
+A dynamic-port block declares two things:
+
+1. **`dynamic_ports: ClassVar[dict[str, Any] | None]`** — a static descriptor
+   that the API and the frontend consume to render the enum-driven port-colour
+   UI. The format is intentionally narrow (no expressions, no mini-DSL):
+
+   ```python
+   dynamic_ports: ClassVar[dict[str, Any] | None] = {
+       "source_config_key": "core_type",
+       "output_port_mapping": {
+           "data": {
+               "Array": ["Array"],
+               "DataFrame": ["DataFrame"],
+               # ... one entry per enum value
+           },
+       },
+       # Optional: same shape as output_port_mapping, for input narrowing
+       # "input_port_mapping": { ... },
+   }
+   ```
+
+   `source_config_key` names the config field whose enum value drives the
+   narrowing. `output_port_mapping[port_name][enum_value]` is a list of *type
+   names* (strings) that the frontend resolves through `TypeRegistry`.
+
+2. **`get_effective_input_ports()` / `get_effective_output_ports()`** — a
+   per-instance override that reads `self.config[source_config_key]` and
+   returns a fresh list of `InputPort` / `OutputPort` instances with
+   `accepted_types` narrowed to the resolved Python type. The runtime validator
+   calls this method, not the static `output_ports` ClassVar.
+
+The static class-level `output_ports` (or `input_ports`) declaration uses the
+broad upper bound (`[DataObject]`) so registration still succeeds for clients
+that don't know about the dynamic hook.
+
+#### Worked example: the `LoadData` core block
+
+The class body below is the canonical implementation that ships in core at
+`src/scieasy/blocks/io/loaders/load_data.py`. Read it top-to-bottom — every
+piece of the dynamic-port pattern is present.
+
+```python
+from typing import Any, ClassVar
+
+from scieasy.blocks.base.config import BlockConfig
+from scieasy.blocks.base.ports import OutputPort
+from scieasy.blocks.io.io_block import IOBlock
+from scieasy.core.types.array import Array
+from scieasy.core.types.artifact import Artifact
+from scieasy.core.types.base import DataObject
+from scieasy.core.types.composite import CompositeData
+from scieasy.core.types.dataframe import DataFrame
+from scieasy.core.types.series import Series
+from scieasy.core.types.text import Text
+
+
+# Module-level enum-to-type table. Hardcoded per ADR-028 Addendum 1 §C5
+# (no entry-point lookup, no runtime registration — the six core types
+# are stable and the table is small enough to read at a glance).
+_CORE_TYPE_MAP: dict[str, type[DataObject]] = {
+    "Array": Array,
+    "DataFrame": DataFrame,
+    "Series": Series,
+    "Text": Text,
+    "Artifact": Artifact,
+    "CompositeData": CompositeData,
+}
+
+
+class LoadData(IOBlock):
+    """One IOBlock subclass that loads any of the six core DataObject types.
+
+    The output port `data` advertises `[DataObject]` statically (for
+    backward-compatible registration) but its effective `accepted_types`
+    are narrowed per-instance via `get_effective_output_ports()`.
+    """
+
+    direction: ClassVar[str] = "input"
+    name: ClassVar[str] = "Load Data"
+    category: ClassVar[str] = "io"
+
+    # Static (broad) port declaration — what the registry sees at class
+    # definition time. The narrowed per-instance list comes from
+    # get_effective_output_ports() below.
+    output_ports: ClassVar[list[OutputPort]] = [
+        OutputPort(name="data", accepted_types=[DataObject]),
+    ]
+
+    # The dynamic-ports descriptor. The frontend `BlockNode` and the
+    # backend validator both consume this declaratively to render the
+    # enum-driven port colour and to validate connections live as the
+    # user edits the config panel.
+    dynamic_ports: ClassVar[dict[str, Any] | None] = {
+        "source_config_key": "core_type",
+        "output_port_mapping": {
+            "data": {
+                "Array": ["Array"],
+                "DataFrame": ["DataFrame"],
+                "Series": ["Series"],
+                "Text": ["Text"],
+                "Artifact": ["Artifact"],
+                "CompositeData": ["CompositeData"],
+            },
+        },
+    }
+
+    config_schema: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "core_type": {
+                "type": "string",
+                "enum": list(_CORE_TYPE_MAP.keys()),
+                "default": "DataFrame",
+                "ui_priority": 0,
+            },
+            "path": {"type": "string", "ui_priority": 1},
+        },
+        "required": ["core_type", "path"],
+    }
+
+    def get_effective_output_ports(self) -> list[OutputPort]:
+        """Return the per-instance output port for the configured core_type.
+
+        Reads ``self.config["core_type"]`` (defaulting to ``"DataFrame"``)
+        and returns a single ``OutputPort`` whose ``accepted_types`` is the
+        resolved Python class. Unknown enum values fall back to ``DataFrame``
+        so the validator never sees a malformed port; the run-time
+        ``load()`` call still raises ``ValueError`` on unknown values, so
+        the frontend can show the error path.
+        """
+        type_name = self.config.get("core_type", "DataFrame")
+        cls = _CORE_TYPE_MAP.get(type_name, DataFrame)
+        return [OutputPort(name="data", accepted_types=[cls])]
+
+    def load(self, config: BlockConfig) -> DataObject:
+        """Dispatch to one of the six private _load_* functions.
+
+        Per ADR-028 Addendum 1 §C9 the dispatch table is hardcoded and the
+        helper functions are module-level private functions, not helper
+        classes. Unknown enum values raise ValueError rather than silently
+        picking a default.
+        """
+        type_name = config.get("core_type", "DataFrame")
+        if type_name not in _CORE_TYPE_MAP:
+            raise ValueError(f"Unknown core_type: {type_name}")
+        # _load_array / _load_dataframe / etc. are module-level private
+        # functions in load_data.py — see the source for the full list.
+        return _DISPATCH[type_name](config)
+```
+
+Read the live source at `src/scieasy/blocks/io/loaders/load_data.py` for the
+six private `_load_*` functions, the pickle-opt-in `allow_pickle` flag, and the
+matching `SaveData` mirror at `src/scieasy/blocks/io/savers/save_data.py`.
+
+#### What dynamic ports do *not* cover
+
+The dynamic-port mechanism narrows the **type** of an existing static port. It
+does **not** add or remove ports based on config — `LoadData` always has
+exactly one output port named `data`. For variadic *port count* (e.g., a
+"merge N inputs" block where the number of input ports is itself a config
+field), see **ADR-029** (currently draft, deferred from Phase 11). Until
+ADR-029 lands, blocks that need variadic counts should declare a fixed
+upper bound and accept `Optional` for the unused slots.
+
+#### Pointers
+
+- **ADR-028 Addendum 1 §C5** — the `dynamic_ports` descriptor format and the
+  enum-only design rationale (why no expressions, no mini-DSL).
+- **ADR-028 Addendum 1 §C9** — the "private module-level dispatch functions
+  instead of helper classes" rule that `LoadData.load()` follows.
+- **ADR-028 Addendum 1 §B** — the GUI consequences (live port-colour updates
+  in `BlockNode.tsx` via `computeEffectivePorts`).
+- **`docs/specs/phase11-implementation-standards.md` T-TRK-007** — the LoadData
+  ticket that produced the canonical implementation.
+- **ADR-029** (draft, deferred) — variadic port count mechanism for the merge /
+  fan-in case.
+
 ---
 
 ## 4. Data Transport with Collection
@@ -547,7 +891,8 @@ It is a **homogeneous, ordered list of `DataObject` instances** with a declared
 
 ```python
 from scieasy.core.types.collection import Collection
-from scieasy.core.types.array import Image
+# Plugin-provided type (ADR-027 D2 — Image is not in core):
+from scieasy_blocks_imaging.types import Image
 
 # Create a Collection of Images
 images = Collection(items=[img1, img2, img3], item_type=Image)
@@ -573,6 +918,8 @@ count = len(images)
 ### Creating Collections
 
 ```python
+from scieasy_blocks_imaging.types import Image
+
 # From a list of DataObjects (item_type inferred from first item)
 col = Collection(items=[array1, array2])
 
@@ -594,7 +941,12 @@ Pack a list of `DataObject` instances into a Collection, auto-flushing each item
 to storage if it does not already have a `StorageReference`.
 
 ```python
-results = [Image(data=arr1), Image(data=arr2)]
+from scieasy_blocks_imaging.types import Image
+
+results = [
+    Image(axes=["y", "x"], shape=arr1.shape, dtype=arr1.dtype),
+    Image(axes=["y", "x"], shape=arr2.shape, dtype=arr2.dtype),
+]
 output_collection = self.pack(results, item_type=Image)
 ```
 
@@ -625,10 +977,16 @@ auto-flushed to storage. Returns a new Collection. Peak memory: one input item
 plus one output item per iteration step.
 
 ```python
-def blur(image):
+# Assumes `from scieasy_blocks_imaging.types import Image` at the top.
+
+def blur(image: Image) -> Image:
     from scipy.ndimage import gaussian_filter
     data = image.view().to_memory()
-    return Image(data=gaussian_filter(data, sigma=1.0))
+    result = gaussian_filter(data, sigma=1.0)
+    return Image(
+        axes=image.axes, shape=result.shape, dtype=result.dtype,
+        meta=image.meta,   # inherit domain metadata (ADR-027 D5)
+    )
 
 blurred = self.map_items(blur, inputs["images"])
 ```
@@ -653,19 +1011,259 @@ a function that transforms a single item, and the framework handles iteration,
 auto-flushing, and Collection construction.
 
 ```python
-def process_item(self, item: Any, config: BlockConfig) -> Any:
+from scieasy_blocks_imaging.types import Image
+
+def process_item(self, item: Image, config: BlockConfig, state=None) -> Image:
     data = item.view().to_memory()
     result = my_transform(data)
-    return Image(data=result)
+    return Image(
+        axes=item.axes, shape=result.shape, dtype=result.dtype,
+        meta=item.meta,   # domain metadata inheritance
+    )
 ```
 
 The `ProcessBlock.run()` default implementation does the following automatically:
 
-1. Takes the first (primary) input Collection.
-2. Iterates each item.
-3. Calls `self.process_item(item, config)` for each.
-4. Auto-flushes each result to storage.
-5. Packs all results into an output Collection on the first output port.
+1. Calls `self.setup(config)` once (see next subsection).
+2. Takes the first (primary) input Collection.
+3. Iterates each item.
+4. Calls `self.process_item(item, config, state)` for each.
+5. Auto-flushes each result to storage.
+6. Packs all results into an output Collection on the first output port.
+7. Calls `self.teardown(state)` in a `finally` block.
+
+### Setup and teardown hooks (ADR-027 D7)
+
+For blocks with expensive one-time initialisation — loading an ML model, opening
+a database connection, compiling a regex cache — override `setup(config)` and
+`teardown(state)`. The returned `state` is passed to every `process_item` call
+during this `run()`, and `teardown` runs in a `finally` block so cleanup always
+happens.
+
+```python
+from scieasy.blocks.process.process_block import ProcessBlock
+from scieasy.blocks.base.ports import InputPort, OutputPort
+from scieasy.engine.resources import ResourceRequest
+from scieasy.utils.constraints import has_axes
+from scieasy_blocks_imaging.types import Image
+
+
+class CellposeSegment(ProcessBlock):
+    name = "Cellpose Segment"
+    input_ports  = [InputPort(name="images", accepted_types=[Image],
+                              constraint=has_axes("y", "x"))]
+    output_ports = [OutputPort(name="masks", accepted_types=[Image])]
+    resource_request = ResourceRequest(
+        requires_gpu=True, gpu_memory_gb=4.0, cpu_cores=2,
+    )
+
+    def setup(self, config):
+        """Load the cellpose model once per run."""
+        from cellpose import models
+        return models.Cellpose(
+            model_type=config.get("model", "cyto2"),
+            gpu=True,
+        )
+
+    def process_item(self, item: Image, config, state):
+        """Segment one image; reuse the loaded model."""
+        img_2d = item.to_memory()
+        masks, _, _, _ = state.eval(img_2d, diameter=config.get("diameter", 30))
+        return Image(
+            axes=item.axes, shape=masks.shape, dtype=masks.dtype,
+            meta=item.meta,
+        )
+
+    def teardown(self, state):
+        """Release GPU resources."""
+        import torch
+        torch.cuda.empty_cache()
+```
+
+Rules:
+
+- `setup` receives **only** `config`. It does not see the input Collection. Data-
+  driven initialisation (e.g. "pick the model based on the first image's modality")
+  belongs inside `process_item` with lazy caching on the `state` object.
+- `setup` runs **inside the worker subprocess** (ADR-017), after `TypeRegistry.scan()`
+  has loaded plugin types. It is safe to `import cellpose`, `torch`, etc.
+- `teardown` runs in a `finally` block even when `process_item` raises. Put GPU
+  cleanup, file closes, DB disconnects here.
+- Blocks that do not need expensive setup ignore the hooks entirely — the defaults
+  are no-ops. Existing 2-arg `process_item(self, item, config)` overrides continue
+  to work because the new `state` parameter defaults to `None`.
+
+### Working with `item.meta` — domain metadata (ADR-027 D5)
+
+Every `DataObject` carries stratified metadata in three slots:
+
+- `framework: FrameworkMeta` — framework-managed (created_at, object_id, source,
+  derived_from parent). Read-only from block authors.
+- `meta: BaseModel` — **typed Pydantic model** declared per subtype. This is where
+  domain metadata lives: pixel size, channel list, acquisition date, objective,
+  instrument. The exact fields depend on the subtype.
+- `user: dict[str, Any]` — free-form escape hatch. Framework never interprets
+  these fields.
+
+Reading is a simple typed attribute access:
+
+```python
+from scieasy.core.units import PhysicalQuantity as Q
+
+def process_item(self, item: FluorImage, config, state=None) -> FluorImage:
+    # Typed access — IDE autocomplete, Pydantic validation already done.
+    if item.meta.pixel_size < Q(0.2, "um"):
+        # super-resolution path
+        ...
+
+    for channel in item.meta.channels:
+        print(channel.name, channel.excitation_nm, channel.emission_nm)
+    ...
+```
+
+Writing uses the immutable `with_meta` helper. The returned object is a new
+instance; the original is unchanged:
+
+```python
+# Change pixel size after resampling.
+resampled = item.with_meta(pixel_size=Q(0.216, "um"))
+
+# Drop channels not selected by the user.
+selected_names = config.get("channels", [])
+filtered = item.with_meta(
+    channels=[c for c in item.meta.channels if c.name in selected_names],
+)
+```
+
+**Automatic inheritance**: most blocks do not need to touch `meta` at all. The
+`iterate_over_axes` utility and the default `ProcessBlock.run()` loop preserve
+`meta` across iterations by reference. If a block's output has the same metadata
+as its input, just pass `meta=item.meta` into the new instance constructor.
+
+**Backward compatibility shim**: the old `DataObject.metadata` dict is still
+accessible as a property that returns `self.user` with a `DeprecationWarning`.
+It is removed after Phase 11. Migrate to `item.meta.<field>` and `item.with_meta()`.
+
+### Parallelising over a Collection — L2 fan-out pattern (ADR-027 D9, D13)
+
+SciEasy's recommended way to parallelise a block across N workers is **not** to
+spawn threads or process pools inside the block. Instead, use the workflow graph
+to fan out the Collection across N separate block instances via the built-in
+`SplitCollection` and `MergeCollection` blocks. Each branch is a separate
+subprocess under `ProcessRegistry` supervision, acquires its own GPU slot from
+`ResourceManager`, and participates in DAG-level cancellation (ADR-018).
+
+```
+[LoadImages]
+    └─ Collection[Image] length=100
+[SplitCollection n_parts=4]
+    ├─ out_0 → [Cellpose A] ─┐
+    ├─ out_1 → [Cellpose B] ─┤
+    ├─ out_2 → [Cellpose C] ─┤
+    └─ out_3 → [Cellpose D] ─┤
+                             ↓
+                    [MergeCollection]
+```
+
+Workflow YAML:
+
+```yaml
+nodes:
+  - id: split
+    block_type: SplitCollection
+    config: {n_parts: 4}
+  - id: seg_0
+    block_type: CellposeSegment
+    config: {model: cyto2, diameter: 30}
+  - id: seg_1
+    block_type: CellposeSegment
+    config: {model: cyto2, diameter: 30}
+  - id: seg_2
+    block_type: CellposeSegment
+    config: {model: cyto2, diameter: 30}
+  - id: seg_3
+    block_type: CellposeSegment
+    config: {model: cyto2, diameter: 30}
+  - id: merge
+    block_type: MergeCollection
+    config: {}
+edges:
+  - {source: "split:output_0", target: "seg_0:images"}
+  - {source: "split:output_1", target: "seg_1:images"}
+  - {source: "split:output_2", target: "seg_2:images"}
+  - {source: "split:output_3", target: "seg_3:images"}
+  - {source: "seg_0:masks",    target: "merge:input_0"}
+  - {source: "seg_1:masks",    target: "merge:input_1"}
+  - {source: "seg_2:masks",    target: "merge:input_2"}
+  - {source: "seg_3:masks",    target: "merge:input_3"}
+```
+
+With the scheduler concurrency fix from ADR-018 Addendum 1, the four Cellpose
+branches dispatch concurrently. `ResourceManager` gates dispatch by GPU slot
+count — if the user has one GPU, branches run sequentially; if they have four
+GPUs, all four run in parallel.
+
+**Why not block-internal parallelism?** L2 fan-out scales across multiple GPUs
+and (future) multiple machines; block-internal ThreadPool does not. L2 fan-out
+respects `ResourceManager` gating; block-internal pools do not. L2 fan-out gives
+you DAG-level cancellation for free; block-internal pools require manual cleanup
+on cancel. Threads and process pools inside a block are still *allowed* as an
+escape hatch (see Thread policy below), but they are not the recommended path.
+
+**Library-native parallelism is fine**: if your library (cellpose, torch,
+tensorflow) has its own batched execution API, use it directly in `run()`. For
+example, cellpose's `model.eval([img1, img2, ...], batch_size=N)` uses GPU
+batching internally and is the best way to saturate a single GPU. Override `run()`
+in Tier 2 style and feed the whole Collection to the library's batch method.
+
+### Thread policy inside blocks (ADR-027 D8)
+
+Block authors **may** use `threading.Thread`, `concurrent.futures.ThreadPoolExecutor`,
+or any other thread-based concurrency inside their own `run()`. The core runtime
+(scheduler, ResourceManager, ProcessRegistry, event bus) does NOT use threads.
+
+**When threads work**:
+
+- The library releases the GIL: numpy, scipy, torch, cellpose, and most C-extension
+  scientific libraries. Threads give real parallelism for these workloads.
+- The work is I/O-bound: file reads, network calls, subprocess waits.
+
+**When threads do not work**:
+
+- Pure-Python CPU-bound code. The GIL serialises execution; threads add overhead
+  without speedup.
+- You need sub-second cooperative cancellation. Python threads cannot be interrupted
+  mid-function — if your thread is 30 seconds into `cellpose.eval`, nothing short
+  of killing the whole subprocess will stop it.
+
+**Cancellation guarantees**:
+
+- A block's worker subprocess is **killable as a unit**. `ProcessHandle.terminate()`
+  sends SIGTERM (with grace period) followed by SIGKILL. All threads in the
+  subprocess die with it because process death releases all OS resources.
+- The framework does NOT provide a cooperative cancel token at the thread level.
+  If you need cancellation, rely on subprocess-level kill.
+
+**Declare your internal parallelism**: if a block uses a thread pool with N workers,
+set `max_internal_workers` on its `ResourceRequest` so the scheduler accounts
+for the actual CPU usage:
+
+```python
+class MyBlock(ProcessBlock):
+    resource_request = ResourceRequest(
+        cpu_cores=2,
+        max_internal_workers=4,   # ADR-027 D8: 2 × 4 = 8 CPU slots
+    )
+```
+
+`ResourceManager` uses `effective_cpu = cpu_cores * max_internal_workers` to gate
+dispatch. This prevents accidentally oversubscribing the CPU pool when many blocks
+each spawn their own pools.
+
+**In summary**: prefer L2 fan-out for Collection parallelism; use library-native
+batched APIs for single-node parallelism; use threads only when the library
+releases the GIL and you understand the cancellation trade-offs. Never use
+threads in core runtime code.
 
 ### Three-tier memory safety model
 
@@ -754,14 +1352,17 @@ You can also test blocks directly using `Collection` and `BlockConfig`:
 ```python
 import numpy as np
 from scieasy.blocks.base.config import BlockConfig
-from scieasy.core.types.array import Image
+from scieasy.core.types.array import Array
 from scieasy.core.types.collection import Collection
 
 def test_doubler_block():
     block = DoublerBlock()
     data = np.ones((100, 100))
-    img = Image(data=data)
-    inputs = {"data": Collection([img], item_type=Image)}
+    # Use the core Array directly when writing generic tests. If the block
+    # is imaging-specific, import the plugin type instead:
+    #     from scieasy_blocks_imaging.types import Image
+    arr = Array(axes=["y", "x"], shape=data.shape, dtype=data.dtype)
+    inputs = {"data": Collection([arr], item_type=Array)}
     config = BlockConfig(params={"factor": 2})
 
     outputs = block.run(inputs, config)
@@ -1033,42 +1634,110 @@ produce corrupt files.
 
 ## Appendix C: Custom Data Types
 
-External developers may define domain-specific types by subclassing core types:
+External developers define domain-specific types by subclassing **core** types
+(`Array`, `Series`, `DataFrame`, `Text`, `Artifact`, `CompositeData`). **Core
+ships no domain subtypes** (ADR-027 D2) — every `Image`, `Spectrum`, `PeakTable`,
+`AnnData`, etc. is provided by a plugin package. If you are writing an imaging
+block, your custom type goes in your own plugin package alongside your blocks,
+not in the core repo.
+
+Two levels of subclassing: intermediate "modality" types that live at the top
+of a plugin package, and further specialisations within that package.
 
 ```python
+# In scieasy-blocks-imaging/src/scieasy_blocks_imaging/types/image.py
 from typing import ClassVar
-from scieasy.core.types.array import Image
+from pydantic import BaseModel
+from scieasy.core.types.array import Array
+from scieasy.core.units import PhysicalQuantity
+
+
+class ChannelInfo(BaseModel):
+    name: str
+    dye: str | None = None
+    excitation_nm: float | None = None
+    emission_nm: float | None = None
+
+
+class Image(Array):
+    """Generic spatial image. Base for plugin-specific imaging types."""
+    required_axes:   ClassVar[frozenset[str]] = frozenset({"y", "x"})
+    allowed_axes:    ClassVar[frozenset[str]] = frozenset(
+        {"t", "z", "c", "lambda", "y", "x"}
+    )
+    canonical_order: ClassVar[tuple[str, ...]] = ("t", "z", "c", "lambda", "y", "x")
+
+    class Meta(BaseModel):
+        """Domain metadata — override per subtype."""
+        pixel_size: PhysicalQuantity | None = None
+
+    meta: "Image.Meta"
+
+
+class FluorImage(Image):
+    """Multichannel fluorescence image — channel axis mandatory."""
+    required_axes = frozenset({"y", "x", "c"})
+
+    class Meta(Image.Meta):
+        channels: list[ChannelInfo] = []
+        objective: str | None = None
+        acquisition_date: str | None = None
+
+    meta: "FluorImage.Meta"
+
 
 class SRSImage(Image):
     """SRS microscopy image with spectral wavenumber axis."""
-    axes: ClassVar[list[str] | None] = ["y", "x", "wavenumber"]
+    required_axes = frozenset({"y", "x", "lambda"})
+
+    class Meta(Image.Meta):
+        excitation_wavelength_nm: float | None = None
+        wavenumber_range_cm_1: tuple[float, float] | None = None
+
+    meta: "SRSImage.Meta"
 ```
 
 **Subclassing rules**:
 
 - Inherit from the nearest core type (`Array`, `DataFrame`, `Text`, etc.).
+  **Do not inherit from anything in `scieasy.core.types.array` that isn't
+  `Array` itself** — there is nothing else there (ADR-027 D2).
 - Storage backend is determined by the base type (`SRSImage` inherits `Array`'s
-  Zarr backend) -- no custom storage needed.
-- `axes` is a `ClassVar` that labels dimensions semantically, not their
-  coordinate values.
-- Instance-specific metadata (e.g., wavenumber coordinates, spatial calibration)
-  goes in `DataObject._metadata` dict.
+  Zarr backend) — no custom storage needed.
+- `axes` is **instance-level** (ADR-027 D1). At class level you declare
+  `required_axes`, `allowed_axes`, and `canonical_order` constraints only.
+  The base `Array.__init__` validates the passed-in `axes` against these.
+- Domain metadata goes in a nested `Meta` Pydantic `BaseModel` on the class
+  (ADR-027 D5). Override the parent's `Meta` to add more fields. Block authors
+  read via `img.meta.field` and write via `img.with_meta(field=new_value)`.
 - Maximum inheritance depth: 3 levels from `DataObject` (e.g.,
-  `DataObject -> Array -> Image -> SRSImage`).
+  `DataObject → Array → Image → SRSImage`).
 
-**Port type matching**: Uses `isinstance`, so `SRSImage` auto-matches ports
-expecting `Image` or `Array`. A port expecting `SRSImage` will NOT accept a
-plain `Image`.
+**Port type matching**: Uses `isinstance` + `TypeSignature` inheritance walk,
+so `SRSImage` auto-matches ports expecting `Image` or `Array`. A port expecting
+`SRSImage` will NOT accept a plain `Image`. For axis-level constraints use
+`has_axes(...)` from `scieasy.utils.constraints`.
 
 **Registration**: Custom types are registered via the `scieasy.types`
-entry-point group:
+entry-point group (ADR-025 callable protocol):
 
 ```python
-# In your package's types.py
+# In scieasy-blocks-imaging/src/scieasy_blocks_imaging/types/__init__.py
 def get_types():
-    from .types import SRSImage, RamanImage
-    return [SRSImage, RamanImage]
+    from .image import Image, FluorImage, SRSImage, HyperspectralImage
+    return [Image, FluorImage, SRSImage, HyperspectralImage]
 ```
+
+```toml
+# In scieasy-blocks-imaging/pyproject.toml
+[project.entry-points."scieasy.types"]
+imaging = "scieasy_blocks_imaging.types:get_types"
+```
+
+After `pip install scieasy-blocks-imaging`, the core `TypeRegistry` picks these
+types up automatically. The worker subprocess (ADR-027 D11) also scans the same
+entry points so `Image`, `FluorImage`, etc. are resolvable when reconstructing
+inputs from serialised `type_chain` metadata.
 
 ---
 
