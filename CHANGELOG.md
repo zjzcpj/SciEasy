@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- [#445] Visual polish: solid colored port handles by data type with subtype ring colors, solid edge lines, higher-contrast palette tags, collapsible type legend, updated landing tagline (@claude, 2026-04-08, branch: feat/visual-polish-445, session: 20260408-220708-feat-gui-visual-polish-445)
+
 ### Fixed
 
 - [#433] Allow dragging block nodes from any position, not just the title bar (@claude, 2026-04-08, branch: fix/frontend-fixes-433-434-438, session: 20260408-211501-fix-gui-frontend-ux-fixes-for-433-434-43)
