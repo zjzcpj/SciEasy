@@ -231,3 +231,13 @@ export interface FilesystemBrowseResponse {
   path: string;
   entries: FilesystemEntry[];
 }
+
+export interface TreeEntry {
+  name: string;
+  type: "file" | "directory";
+  size?: number | null;
+}
+
+export interface TreeResponse {
+  entries: TreeEntry[];
+}

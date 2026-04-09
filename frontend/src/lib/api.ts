@@ -12,6 +12,7 @@ import type {
   ExecuteFromResponse,
   FilesystemBrowseResponse,
   ProjectResponse,
+  TreeResponse,
   WorkflowExecutionResponse,
   WorkflowResponse,
 } from "../types/api";
@@ -163,4 +164,14 @@ export const api = {
     apiFetch<FilesystemBrowseResponse>(
       `/api/filesystem/browse?path=${encodeURIComponent(path)}`,
     ),
+  getProjectTree: (projectId: string, path = "") =>
+    apiFetch<TreeResponse>(
+      `/api/projects/${encodeURIComponent(projectId)}/tree?path=${encodeURIComponent(path)}`,
+    ),
+  revealInExplorer: (path: string) =>
+    apiFetch<{ status: string }>("/api/filesystem/reveal", {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ path }),
+    }),
 };
