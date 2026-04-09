@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#424] Add `_cancel_if_active()` and `rerun_block()` to `DAGScheduler`; update `reset_block` and `execute_from` to cancel active tasks/subprocesses before resetting state, preventing orphan processes on rerun (@claude, 2026-04-08, branch: fix/engine-core-fixes-424-435-436-437, session: 20260408-211448-fix-engine-core-engine-fixes-for-424-435)
+- [#435] Remove unsafe fallback in `_gather_inputs()` that passed entire upstream output dict when port key was missing; log warning and skip instead (@claude, 2026-04-08, branch: fix/engine-core-fixes-424-435-436-437, session: 20260408-211448-fix-engine-core-engine-fixes-for-424-435)
+- [#436] Add recursive CompositeData slot flushing in `_auto_flush()` so child DataObjects persist to storage before crossing subprocess boundary (@claude, 2026-04-08, branch: fix/engine-core-fixes-424-435-436-437, session: 20260408-211448-fix-engine-core-engine-fixes-for-424-435)
+- [#437] Verify `validate_connection()` subclass matching via `issubclass()` is correct; add comprehensive regression tests for port type inheritance (Mask -> Image) (@claude, 2026-04-08, branch: fix/engine-core-fixes-424-435-436-437, session: 20260408-211448-fix-engine-core-engine-fixes-for-424-435)
 - [#432] Log exchange output directory at INFO level and auto-open OS file manager when `AppBlock` transitions to PAUSED so users know where to save files (@claude, 2026-04-08, branch: fix/imaging-plugin-fixes-432-434-439, session: 20260408-211515-fix-imaging-plugin-fixes-for-432-434-439)
 - [#434] Support batch save in `SaveImage` for multi-item `Collection[Image]`; path is treated as directory with auto-numbered filenames (`image_0000.tif`, etc.) (@claude, 2026-04-08, branch: fix/imaging-plugin-fixes-432-434-439, session: 20260408-211515-fix-imaging-plugin-fixes-for-432-434-439)
 - [#439] Add dual output to `CellposeSegment`: new `masks` output port emits raw integer-label `Image` objects alongside the existing `labels` port (@claude, 2026-04-08, branch: fix/imaging-plugin-fixes-432-434-439, session: 20260408-211515-fix-imaging-plugin-fixes-for-432-434-439)
