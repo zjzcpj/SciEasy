@@ -138,6 +138,26 @@ def _load_preview_matrix(ref: StorageReference) -> Any:
     raise ValueError(f"Unsupported raster preview format for {path}")
 
 
+def _downsample_matrix(matrix: Any, max_dim: int = 256) -> list[list[float]]:
+    """Downsample a 2-D matrix to at most *max_dim* on the longest side.
+
+    Uses nearest-neighbour sampling via ``numpy.linspace`` indices so the
+    full spatial extent of the image is preserved in the thumbnail.
+    """
+    import numpy as np
+
+    h, w = int(matrix.shape[0]), int(matrix.shape[1])
+    if max(h, w) > max_dim:
+        scale = max_dim / max(h, w)
+        new_h, new_w = max(1, int(h * scale)), max(1, int(w * scale))
+        row_idx = np.linspace(0, h - 1, new_h, dtype=int)
+        col_idx = np.linspace(0, w - 1, new_w, dtype=int)
+        thumbnail_arr = matrix[np.ix_(row_idx, col_idx)]
+    else:
+        thumbnail_arr = matrix
+    return thumbnail_arr.tolist()
+
+
 @dataclass
 class KnownProject:
     """Persisted metadata for a known project workspace."""
@@ -674,12 +694,11 @@ class ApiRuntime:
                 matrix = _load_preview_matrix(ref)
                 while getattr(matrix, "ndim", 0) > 2:
                     matrix = matrix[0]
-                height = min(int(matrix.shape[0]), 64)
-                width = min(int(matrix.shape[1]), 64)
-                thumbnail = matrix[:height, :width].tolist()
+                full_shape = list(matrix.shape)
+                thumbnail = _downsample_matrix(matrix)
                 return {
                     "kind": "image",
-                    "shape": list(matrix.shape),
+                    "shape": full_shape,
                     "thumbnail": thumbnail,
                     "src": _image_data_uri_from_matrix(thumbnail),
                 }
@@ -714,6 +733,26 @@ class ApiRuntime:
             resolved_cls is not None and issubclass(resolved_cls, CompositeData)
         )
         if is_composite:
+            # Try to render the raster slot as an image preview (e.g. Label)
+            composite_path = Path(ref.path)
+            for slot_name in ("raster",):
+                slot_path = composite_path / slot_name
+                if slot_path.exists():
+                    try:
+                        slot_ref = StorageReference(backend="zarr", path=str(slot_path))
+                        raster_matrix = _load_preview_matrix(slot_ref)
+                        while getattr(raster_matrix, "ndim", 0) > 2:
+                            raster_matrix = raster_matrix[0]
+                        full_shape = list(raster_matrix.shape)
+                        thumbnail = _downsample_matrix(raster_matrix)
+                        return {
+                            "kind": "image",
+                            "shape": full_shape,
+                            "thumbnail": thumbnail,
+                            "src": _image_data_uri_from_matrix(thumbnail),
+                        }
+                    except Exception:
+                        logger.debug("Failed to read raster slot '%s' for composite preview", slot_name, exc_info=True)
             return {
                 "kind": "composite",
                 "slots": record.metadata.get("slots", {}),

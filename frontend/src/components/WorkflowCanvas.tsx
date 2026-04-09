@@ -153,7 +153,6 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
       return {
         id: node.id,
         type: "block",
-        dragHandle: ".drag-handle",
         position,
         data: {
           label: resolveLabel(node, summary, schema),

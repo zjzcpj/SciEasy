@@ -227,11 +227,7 @@ function InlineConfigField({
                     if (result.paths.length === 1) {
                       onChange(key, result.paths[0]);
                     } else {
-                      // Find common directory prefix for multi-select
-                      const first = result.paths[0];
-                      const dir = first.substring(0, first.lastIndexOf("/") + 1) ||
-                                  first.substring(0, first.lastIndexOf("\\") + 1);
-                      onChange(key, dir || result.paths[0]);
+                      onChange(key, result.paths);
                     }
                   }
                 }
@@ -327,7 +323,7 @@ export function BlockNode({ data, selected }: NodeProps<Node<BlockNodeData>>) {
       {/* ----------------------------------------------------------------- */}
       {/* Header                                                            */}
       {/* ----------------------------------------------------------------- */}
-      <div className="drag-handle flex items-center justify-between gap-2 border-b border-stone-100 px-3 py-2">
+      <div className="flex items-center justify-between gap-2 border-b border-stone-100 px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <span className="text-base leading-none">{categoryIcon}</span>
           <span className="truncate font-display text-sm font-semibold text-ink">
