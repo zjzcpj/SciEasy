@@ -41,7 +41,7 @@ class AccuCorR(_LCMSBlockMixin, CodeBlock):
     """
 
     name: ClassVar[str] = "AccuCor (R)"
-    type_name: ClassVar[str] = "accucor_r"
+    type_name: ClassVar[str] = "lcms.accucor_r"
     category: ClassVar[str] = "external"
     description: ClassVar[str] = (
         "Run the AccuCor R package on a PeakTable to apply natural abundance correction and emit a typed MIDTable."

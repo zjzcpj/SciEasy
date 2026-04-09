@@ -19,6 +19,7 @@ class SRSBaseline(ProcessBlock):
     """Subtract a fitted baseline from each per-pixel spectrum."""
 
     name: ClassVar[str] = "SRS Baseline Correct"
+    type_name: ClassVar[str] = "srs.baseline"
     description: ClassVar[str] = (
         "Subtract a fitted spectral baseline (polynomial / rubber_band / rolling_ball_spectral). "
         "ALS is intentionally not supported."

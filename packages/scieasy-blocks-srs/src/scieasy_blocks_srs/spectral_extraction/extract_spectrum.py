@@ -39,6 +39,7 @@ class ExtractSpectrum(ProcessBlock):
     """
 
     name: ClassVar[str] = "Extract Spectrum"
+    type_name: ClassVar[str] = "srs.extract_spectrum"
     description: ClassVar[str] = (
         "Extract per-ROI mean spectra into a long-format DataFrame (region_id, wavenumber_cm1, intensity)."
     )

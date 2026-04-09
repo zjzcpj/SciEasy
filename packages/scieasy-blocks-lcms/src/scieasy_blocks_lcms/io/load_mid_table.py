@@ -73,7 +73,7 @@ class LoadMIDTable(_LCMSBlockMixin, IOBlock):
     """
 
     direction: ClassVar[str] = "input"
-    type_name: ClassVar[str] = "load_mid_table"
+    type_name: ClassVar[str] = "lcms.load_mid_table"
     name: ClassVar[str] = "Load MID Table"
     category: ClassVar[str] = "io"
     description: ClassVar[str] = (
