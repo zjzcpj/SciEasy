@@ -37,6 +37,7 @@ class SRSUnmix(ProcessBlock):
     """
 
     name: ClassVar[str] = "SRS Unmix"
+    type_name: ClassVar[str] = "srs.unmix"
     description: ClassVar[str] = "NNLS spectral unmixing with optional auto-VCA endmember extraction."
     version: ClassVar[str] = "0.1.0"
     category: ClassVar[str] = "component_analysis"

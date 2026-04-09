@@ -24,8 +24,8 @@ class CompareGroupMID(_LCMSBlockMixin, ProcessBlock):
     """Per-isotopologue statistical comparison of MID values between groups."""
 
     name: ClassVar[str] = "Compare Group MID"
-    type_name: ClassVar[str] = "compare_group_mid"
-    category: ClassVar[str] = "process"
+    type_name: ClassVar[str] = "lcms.compare_group_mid"
+    category: ClassVar[str] = "isotope_tracing"
     description: ClassVar[str] = (
         "Per-isotopologue statistical comparison of MID values between "
         "two sample groups. Supports t-test / Wilcoxon / Mann-Whitney "

@@ -30,7 +30,7 @@ class GraphPadBlock(_LCMSBlockMixin, AppBlock):
     """
 
     name: ClassVar[str] = "GraphPad Prism"
-    type_name: ClassVar[str] = "graphpad"
+    type_name: ClassVar[str] = "lcms.graphpad"
     category: ClassVar[str] = "external"
     description: ClassVar[str] = (
         "Open tables in GraphPad Prism for interactive figure creation. "

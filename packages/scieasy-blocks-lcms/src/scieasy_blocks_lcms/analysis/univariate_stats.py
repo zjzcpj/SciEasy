@@ -17,8 +17,8 @@ class UnivariateStats(_LCMSBlockMixin, ProcessBlock):
     """Per-metabolite univariate statistics with multiple-testing correction."""
 
     name: ClassVar[str] = "Univariate Stats"
-    type_name: ClassVar[str] = "univariate_stats"
-    category: ClassVar[str] = "process"
+    type_name: ClassVar[str] = "lcms.univariate_stats"
+    category: ClassVar[str] = "analysis"
     description: ClassVar[str] = (
         "Per-metabolite t-test / ANOVA / Wilcoxon with optional fold change "
         "and Bonferroni / FDR multiple-testing correction."

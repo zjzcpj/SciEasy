@@ -33,6 +33,7 @@ class SRSKMeansCluster(ProcessBlock):
     """K-means clustering of per-pixel spectra into a :class:`Label`."""
 
     name: ClassVar[str] = "SRS K-Means Cluster"
+    type_name: ClassVar[str] = "srs.kmeans"
     description: ClassVar[str] = "K-means clustering of per-pixel spectra."
     version: ClassVar[str] = "0.1.0"
     category: ClassVar[str] = "component_analysis"

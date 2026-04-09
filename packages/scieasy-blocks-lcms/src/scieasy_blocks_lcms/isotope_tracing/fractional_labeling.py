@@ -20,8 +20,8 @@ class FractionalLabeling(_LCMSBlockMixin, ProcessBlock):
     """Compute ``1 - M+0`` per compound per sample."""
 
     name: ClassVar[str] = "Fractional Labeling"
-    type_name: ClassVar[str] = "fractional_labeling"
-    category: ClassVar[str] = "process"
+    type_name: ClassVar[str] = "lcms.fractional_labeling"
+    category: ClassVar[str] = "isotope_tracing"
     description: ClassVar[str] = (
         "Compute fractional labeling (1 - M+0) per compound per sample. "
         "Multi-tracer M+0 = intersection of all tracer-atom columns being 0."

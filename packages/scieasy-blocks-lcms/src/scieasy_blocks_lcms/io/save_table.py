@@ -35,7 +35,7 @@ class SaveTable(_LCMSBlockMixin, IOBlock):
     """
 
     direction: ClassVar[str] = "output"
-    type_name: ClassVar[str] = "save_table"
+    type_name: ClassVar[str] = "lcms.save_table"
     name: ClassVar[str] = "Save Table"
     category: ClassVar[str] = "io"
     description: ClassVar[str] = (

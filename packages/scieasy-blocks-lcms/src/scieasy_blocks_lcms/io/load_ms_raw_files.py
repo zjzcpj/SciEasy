@@ -42,7 +42,7 @@ class LoadMSRawFiles(_LCMSBlockMixin, IOBlock):
     """
 
     direction: ClassVar[str] = "input"
-    type_name: ClassVar[str] = "load_ms_raw_files"
+    type_name: ClassVar[str] = "lcms.load_ms_raw_files"
     name: ClassVar[str] = "Load MS Raw Files"
     category: ClassVar[str] = "io"
     description: ClassVar[str] = (

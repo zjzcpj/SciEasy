@@ -20,6 +20,7 @@ class SRSCalibrate(ProcessBlock):
     """Invert the digitizer formula and re-type ``Image`` to ``SRSImage``."""
 
     name: ClassVar[str] = "SRS Calibrate"
+    type_name: ClassVar[str] = "srs.calibrate"
     description: ClassVar[str] = (
         "Invert digitizer formula and convert Image to SRSImage. Entry point of the SRS preprocessing pipeline."
     )

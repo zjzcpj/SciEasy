@@ -28,6 +28,7 @@ class SRSPCA(ProcessBlock):
     """PCA on per-pixel spectra of an :class:`SRSImage`."""
 
     name: ClassVar[str] = "SRS PCA"
+    type_name: ClassVar[str] = "srs.pca"
     description: ClassVar[str] = "Principal Component Analysis on per-pixel spectra."
     version: ClassVar[str] = "0.1.0"
     category: ClassVar[str] = "component_analysis"
