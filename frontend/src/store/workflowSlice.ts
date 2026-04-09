@@ -33,6 +33,7 @@ function mergeNodeConfig(node: WorkflowNode, config: Record<string, unknown>): W
 
 export const createWorkflowSlice: StateCreator<AppStore, [], [], WorkflowSlice> = (set, get) => ({
   workflowId: null,
+  workflowName: "Untitled",
   workflowDescription: "",
   workflowVersion: "1.0.0",
   workflowMetadata: {},
@@ -44,6 +45,7 @@ export const createWorkflowSlice: StateCreator<AppStore, [], [], WorkflowSlice> 
   setWorkflow: (workflow) =>
     set({
       workflowId: workflow?.id ?? null,
+      workflowName: workflow?.id ?? "Untitled",
       workflowDescription: workflow?.description ?? "",
       workflowVersion: workflow?.version ?? "1.0.0",
       workflowMetadata: workflow?.metadata ?? {},
@@ -53,6 +55,7 @@ export const createWorkflowSlice: StateCreator<AppStore, [], [], WorkflowSlice> 
       workflowHistory: [],
       workflowFuture: [],
     }),
+  setWorkflowName: (name) => set({ workflowName: name }),
   addNode: (block, position, defaultParams) =>
     set((state) => ({
       ...pushHistory(state),
