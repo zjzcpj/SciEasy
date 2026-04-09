@@ -53,8 +53,6 @@ export const api = {
     apiFetch<void>(`/api/projects/${encodeURIComponent(projectId)}`, {
       method: "DELETE",
     }),
-  browseDirectory: () => apiFetch<{ path: string | null }>("/api/projects/browse-directory", { method: "POST" }),
-  browseFiles: () => apiFetch<{ paths: string[] }>("/api/projects/browse-files", { method: "POST" }),
   listBlocks: () => apiFetch<BlockListResponse>("/api/blocks/"),
   getBlockSchema: (blockType: string) =>
     apiFetch<BlockSchemaResponse>(`/api/blocks/${encodeURIComponent(blockType)}/schema`),
@@ -70,7 +68,6 @@ export const api = {
       body: JSON.stringify(body),
     }),
   listWorkflows: () => apiFetch<string[]>("/api/workflows/list"),
-  browseWorkflowFile: () => apiFetch<{ path: string | null }>("/api/workflows/browse-workflow-file", { method: "POST" }),
   importWorkflowFile: async (file: File) => {
     const formData = new FormData();
     formData.append("file", file);

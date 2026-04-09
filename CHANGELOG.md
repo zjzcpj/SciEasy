@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#467] Fix macOS crash: ensure workflow dir exists + remove tkinter file dialogs (@claude, 2026-04-09, branch: fix/issue-467/macos-crash, session: wave2-macos-fix)
 - [#457] Fix toolbar button shift on dirty state toggle and block node config overflow with ellipsis truncation (@claude, 2026-04-09, branch: fix/issue-457/toolbar-node-overflow, session: wave1-gui-fixes)
 - [#463] Allow parentheses in command validator for Windows paths like `Program Files (x86)` (@claude, 2026-04-09, branch: fix/issue-463/command-validator-parens, session: wave1-gui-fixes)
 - [#466] Fix MiniMap rendering blank white by setting visible maskColor, background, and darker node color fallback (@claude, 2026-04-09, branch: fix/issue-466/minimap-blank, session: wave1-gui-fixes)

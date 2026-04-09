@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -81,32 +80,6 @@ async def import_workflow(file: UploadFile, runtime: RuntimeDep) -> WorkflowResp
         raise
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-def _pick_workflow_file() -> str | None:
-    """Open a native file picker filtered for YAML workflow files."""
-    try:
-        import tkinter as tk
-        from tkinter import filedialog
-
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes("-topmost", True)
-        path = filedialog.askopenfilename(
-            title="Select workflow file",
-            filetypes=[("YAML files", "*.yaml *.yml"), ("All files", "*.*")],
-        )
-        root.destroy()
-        return path if path else None
-    except Exception:
-        return None
-
-
-@router.post("/browse-workflow-file")
-async def browse_workflow_file() -> dict:
-    """Open a native file picker dialog filtered for YAML workflow files."""
-    path = await asyncio.get_event_loop().run_in_executor(None, _pick_workflow_file)
-    return {"path": path}
 
 
 @router.post("/import-path", response_model=WorkflowResponse)
