@@ -407,6 +407,38 @@ function InlineConfigField({
     uiWidget === "file_browser" || uiWidget === "directory_browser";
   const [browseOpen, setBrowseOpen] = useState(false);
 
+  const handleBrowseClick = async () => {
+    // Try native OS dialog first, fall back to in-app FileBrowserModal
+    const nativeMode = uiWidget === "directory_browser" ? "directory" : "file";
+    const currentVal = String(value ?? schema.default ?? "");
+    // Extract parent directory from current value for initial_dir
+    let initialDir: string | undefined;
+    if (currentVal) {
+      const sep = currentVal.includes("\\") ? "\\" : "/";
+      const parts = currentVal.split(sep);
+      if (parts.length > 1 && uiWidget === "file_browser") {
+        const last = parts[parts.length - 1];
+        if (last.includes(".")) {
+          initialDir = parts.slice(0, -1).join(sep);
+        } else {
+          initialDir = currentVal;
+        }
+      } else {
+        initialDir = currentVal;
+      }
+    }
+    try {
+      const result = await api.openNativeDialog(nativeMode, initialDir);
+      if (result.path) {
+        onChange(key, result.path);
+      }
+      // If result.path is null, user cancelled — do nothing
+    } catch {
+      // Native dialog failed — fall back to in-app FileBrowserModal
+      setBrowseOpen(true);
+    }
+  };
+
   return (
     <label className="flex items-center justify-between gap-2 text-xs">
       <span className="shrink-0 text-stone-500">{label}</span>
@@ -424,7 +456,7 @@ function InlineConfigField({
             type="button"
             className="nodrag shrink-0 rounded border border-stone-200 bg-white px-1.5 py-1 text-xs text-stone-600 hover:bg-stone-50"
             title="Browse filesystem"
-            onClick={() => setBrowseOpen(true)}
+            onClick={() => void handleBrowseClick()}
           >
             ...
           </button>
