@@ -6,7 +6,6 @@ Uses asyncio.run() pattern consistent with the project's test_scheduler.py.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 

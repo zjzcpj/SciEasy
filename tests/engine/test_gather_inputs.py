@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
-from scieasy.blocks.base.state import BlockState
 from scieasy.engine.events import EventBus
 from scieasy.engine.scheduler import DAGScheduler
 from scieasy.workflow.definition import EdgeDef, NodeDef, WorkflowDefinition

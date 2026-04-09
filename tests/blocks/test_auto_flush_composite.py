@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
 from scieasy.blocks.base.block import Block
@@ -19,14 +20,14 @@ class _StubDataObject(DataObject):
         self.storage_ref = StorageReference(backend="local", path=path, format="stub")
 
     @classmethod
-    def load(cls, path: str) -> "_StubDataObject":
+    def load(cls, path: str) -> _StubDataObject:
         return cls()
 
 
 class _StubComposite(CompositeData):
     """CompositeData with one expected slot."""
 
-    expected_slots = {"raster": _StubDataObject}
+    expected_slots: ClassVar[dict[str, type]] = {"raster": _StubDataObject}
 
 
 def test_auto_flush_recurses_into_composite_slots() -> None:
@@ -37,13 +38,15 @@ def test_auto_flush_recurses_into_composite_slots() -> None:
     composite = _StubComposite(slots={"raster": inner})
     assert composite._slots["raster"].storage_ref is None
 
-    with patch("scieasy.core.storage.flush_context.get_output_dir", return_value="/tmp/test_flush"):
-        with patch("scieasy.core.storage.backend_router.get_router") as mock_router:
-            router_inst = MagicMock()
-            router_inst.extension_for.return_value = ".dat"
-            mock_router.return_value = router_inst
+    with (
+        patch("scieasy.core.storage.flush_context.get_output_dir", return_value="/tmp/test_flush"),
+        patch("scieasy.core.storage.backend_router.get_router") as mock_router,
+    ):
+        router_inst = MagicMock()
+        router_inst.extension_for.return_value = ".dat"
+        mock_router.return_value = router_inst
 
-            result = Block._auto_flush(composite)
+        Block._auto_flush(composite)
 
     # The inner slot should now have a storage_ref after recursive flush.
     assert composite._slots["raster"].storage_ref is not None
@@ -58,13 +61,15 @@ def test_auto_flush_skips_already_flushed_slots() -> None:
 
     composite = _StubComposite(slots={"raster": inner})
 
-    with patch("scieasy.core.storage.flush_context.get_output_dir", return_value="/tmp/test_flush"):
-        with patch("scieasy.core.storage.backend_router.get_router") as mock_router:
-            router_inst = MagicMock()
-            router_inst.extension_for.return_value = ".dat"
-            mock_router.return_value = router_inst
+    with (
+        patch("scieasy.core.storage.flush_context.get_output_dir", return_value="/tmp/test_flush"),
+        patch("scieasy.core.storage.backend_router.get_router") as mock_router,
+    ):
+        router_inst = MagicMock()
+        router_inst.extension_for.return_value = ".dat"
+        mock_router.return_value = router_inst
 
-            Block._auto_flush(composite)
+        Block._auto_flush(composite)
 
     # storage_ref should be unchanged.
     assert inner.storage_ref.path == "/already/flushed"

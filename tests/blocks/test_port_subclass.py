@@ -5,7 +5,6 @@ from __future__ import annotations
 from scieasy.blocks.base.ports import InputPort, OutputPort, validate_connection
 from scieasy.core.types.base import DataObject
 
-
 # --- Stub type hierarchy for testing ---
 
 
@@ -16,7 +15,7 @@ class Image(DataObject):
         pass
 
     @classmethod
-    def load(cls, path: str) -> "Image":
+    def load(cls, path: str) -> Image:
         return cls()
 
 
@@ -39,7 +38,7 @@ class Table(DataObject):
         pass
 
     @classmethod
-    def load(cls, path: str) -> "Table":
+    def load(cls, path: str) -> Table:
         return cls()
 
 
@@ -69,7 +68,7 @@ def test_unrelated_types_rejected() -> None:
     src = OutputPort(name="out", accepted_types=[Table])
     tgt = InputPort(name="in", accepted_types=[Image])
 
-    ok, reason = validate_connection(src, tgt)
+    ok, _reason = validate_connection(src, tgt)
     assert not ok, "Table -> Image should be incompatible"
 
 
@@ -78,7 +77,7 @@ def test_superclass_to_subclass_rejected() -> None:
     src = OutputPort(name="out", accepted_types=[Image])
     tgt = InputPort(name="in", accepted_types=[Mask])
 
-    ok, reason = validate_connection(src, tgt)
+    ok, _reason = validate_connection(src, tgt)
     assert not ok, "Image -> Mask should be incompatible (superclass is not a subclass)"
 
 
