@@ -20,11 +20,11 @@ export function WelcomeScreen({
           <div>
             <p className="text-xs uppercase tracking-[0.35em] text-stone-500">SciEasy Studio</p>
             <h1 className="mt-4 max-w-xl font-display text-5xl leading-tight text-ink">
-              Build typed scientific workflows without handing the runtime to the browser.
+              Every tool. Every format. One workflow.
             </h1>
             <p className="mt-4 max-w-2xl text-lg leading-8 text-stone-600">
-              Projects stay backend-owned, workflows stay YAML-backed, and the canvas is free to focus on editing,
-              inspection, and orchestration.
+              Build typed scientific workflows that connect Python, R, CLI tools, and GUI applications
+              in a single backend-owned runtime.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <button

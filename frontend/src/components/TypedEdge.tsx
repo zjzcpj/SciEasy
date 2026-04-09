@@ -17,7 +17,7 @@ export function TypedEdge({ id, sourceX, sourceY, targetX, targetY, sourcePositi
       style={{
         stroke: (data as { color?: string } | undefined)?.color ?? style?.stroke ?? "#2d7891",
         strokeWidth: 2.2,
-        strokeDasharray: (data as { dashed?: boolean } | undefined)?.dashed ? "8 6" : undefined,
+        strokeDasharray: undefined,
       }}
     />
   );

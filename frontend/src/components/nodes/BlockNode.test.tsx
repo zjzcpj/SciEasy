@@ -382,7 +382,7 @@ describe("BlockNode — dynamic port live-update (ADR-028 Addendum 1 §D4)", () 
     expect(titles.some((t) => t.includes("Array"))).toBe(true);
     // The placeholder DataObject type must NOT be visible — the dynamic
     // override has replaced it.
-    expect(titles.some((t) => t.startsWith("data: DataObject"))).toBe(false);
+    expect(titles.some((t) => t.includes("DataObject"))).toBe(false);
   });
 
   it("renders the LoadData output port with accepted_types=['DataFrame'] when core_type=DataFrame", () => {
@@ -390,7 +390,7 @@ describe("BlockNode — dynamic port live-update (ADR-028 Addendum 1 §D4)", () 
     const handles = container.querySelectorAll('[data-handleid="data"]');
     const titles = Array.from(handles).map((h) => h.getAttribute("title") ?? "");
     expect(titles.some((t) => t.includes("DataFrame"))).toBe(true);
-    expect(titles.some((t) => t.startsWith("data: DataObject"))).toBe(false);
+    expect(titles.some((t) => t.includes("DataObject"))).toBe(false);
   });
 
   it("falls back to the placeholder type when core_type is unset", () => {
@@ -409,7 +409,8 @@ describe("BlockNode — dynamic port live-update (ADR-028 Addendum 1 §D4)", () 
     });
     const handles = container.querySelectorAll('[data-handleid="data"]');
     const titles = Array.from(handles).map((h) => h.getAttribute("title") ?? "");
-    expect(titles.some((t) => t.startsWith("data: DataObject"))).toBe(true);
+    // Title format changed in #445: now shows primary type name, not "portName: typeList"
+    expect(titles.some((t) => t.includes("DataObject"))).toBe(true);
   });
 
   it("renders the SaveData input port with accepted_types=['Series'] when core_type=Series", () => {

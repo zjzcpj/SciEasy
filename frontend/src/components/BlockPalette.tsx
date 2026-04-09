@@ -92,7 +92,7 @@ function BlockCard({ block, collapsed, onDragStart, onAddBlock, index }: BlockCa
         {collapsed ? null : (
           <>
             <p className="mt-1 text-xs text-stone-500">{block.description}</p>
-            <p className="mt-2 text-[11px] uppercase tracking-[0.25em] text-stone-400">
+            <p className="mt-2 text-[11px] uppercase tracking-[0.25em] text-stone-500">
               {block.input_ports.length} in / {block.output_ports.length} out
             </p>
           </>
@@ -127,8 +127,8 @@ function CategorySection({
           onClick={() => setIsCollapsed((prev) => !prev)}
           type="button"
         >
-          <span className="text-[10px] text-stone-400">{isCollapsed ? "▶" : "▼"}</span>
-          <span className="text-[10px] uppercase tracking-[0.25em] text-stone-400">{category}</span>
+          <span className="text-[10px] text-stone-500">{isCollapsed ? "▶" : "▼"}</span>
+          <span className="rounded-md border border-stone-300 bg-stone-100 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.25em] text-stone-600">{category}</span>
         </button>
       )}
       {isCollapsed && !paletteCollapsed ? null : (
@@ -174,8 +174,8 @@ function PackageSection({
           onClick={() => setIsCollapsed((prev) => !prev)}
           type="button"
         >
-          <span className="text-[11px] text-stone-500">{isCollapsed ? "▶" : "▼"}</span>
-          <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-stone-500">
+          <span className="text-[11px] text-stone-600">{isCollapsed ? "▶" : "▼"}</span>
+          <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-stone-700">
             {packageName}
           </span>
         </button>
