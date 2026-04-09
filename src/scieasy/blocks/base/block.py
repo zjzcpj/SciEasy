@@ -295,6 +295,17 @@ class Block(ABC):
 
         if not isinstance(obj, DataObject):
             return obj
+
+        # #436: Recursively flush CompositeData internal slots so that
+        # child DataObjects (e.g. Label's raster Array) persist across
+        # the subprocess boundary.
+        from scieasy.core.types.composite import CompositeData
+
+        if isinstance(obj, CompositeData):
+            for _slot_name, slot_obj in obj._slots.items():
+                if isinstance(slot_obj, DataObject) and slot_obj.storage_ref is None:
+                    Block._auto_flush(slot_obj)
+
         if obj.storage_ref is not None:
             return obj
 
