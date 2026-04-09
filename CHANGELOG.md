@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#463] Allow parentheses in AppBlock command validator for Windows paths like `C:\Program Files (x86)\` (@claude, 2026-04-09, branch: fix/issue-463/command-validator-parens, session: wave1-gui-fixes)
 - [#433] Allow dragging block nodes from any position, not just the title bar (@claude, 2026-04-08, branch: fix/frontend-fixes-433-434-438, session: 20260408-211501-fix-gui-frontend-ux-fixes-for-433-434-43)
 - [#434] Multi-file selection now sends full paths array instead of collapsing to parent directory (@claude, 2026-04-08, branch: fix/frontend-fixes-433-434-438, session: 20260408-211501-fix-gui-frontend-ux-fixes-for-433-434-43)
 - [#438] Image preview uses 256px downsampling instead of 64x64 crop; Label/CompositeData raster slot renders as image preview (@claude, 2026-04-08, branch: fix/frontend-fixes-433-434-438, session: 20260408-211501-fix-gui-frontend-ux-fixes-for-433-434-43)
