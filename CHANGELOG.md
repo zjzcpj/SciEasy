@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- [#468] Optimize CI: parallel jobs, single-version coverage, pytest-xdist (@claude, 2026-04-09, branch: perf/issue-468/ci-speedup, session: wave2-ci-perf)
+
 ### Added
 
 - [#446] Add workflow management toolbar: New, Save, Save As, Import buttons replace Export; backend endpoints for YAML workflow import and file browsing (@claude, 2026-04-08, branch: feat/issue-446/workflow-management, session: 20260408-220724-feat-gui-workflow-management-save-new-im)

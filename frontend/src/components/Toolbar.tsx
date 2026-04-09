@@ -173,7 +173,7 @@ export function Toolbar(props: ToolbarProps) {
             </p>
             <p className="truncate text-xs text-stone-500">
               {currentProject
-                ? `${workflowName}${workflowDirty ? " *" : ""}`
+                ? (<>{workflowName}<span style={{ visibility: workflowDirty ? "visible" : "hidden" }}>{" *"}</span></>)
                 : "Open or create a project"}
             </p>
           </div>
