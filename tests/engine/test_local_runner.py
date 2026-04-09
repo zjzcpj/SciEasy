@@ -127,25 +127,26 @@ class TestLocalRunnerCancel:
 
 
 class TestLocalRunnerRun:
-    @patch("scieasy.engine.runners.process_handle.subprocess.Popen")
-    def test_run_returns_parsed_output(self, mock_popen_cls: MagicMock) -> None:
+    def _make_async_proc(self, stdout: bytes, stderr: bytes, returncode: int, pid: int = 100) -> AsyncMock:
+        """Create a mock async subprocess process."""
+        mock_proc = AsyncMock()
+        mock_proc.pid = pid
+        mock_proc.returncode = returncode
+        mock_proc.communicate = AsyncMock(return_value=(stdout, stderr))
+        return mock_proc
+
+    @patch("scieasy.engine.runners.local.asyncio.create_subprocess_exec")
+    def test_run_returns_parsed_output(self, mock_create_sub: AsyncMock) -> None:
         """run() should return the worker output payload from subprocess stdout."""
         output_data = {"outputs": {"result": "42"}}
-        mock_proc = MagicMock()
-        mock_proc.pid = 100
-        mock_proc.communicate.return_value = (
-            json.dumps(output_data).encode(),
-            b"",
-        )
-        mock_proc.returncode = 0
-        mock_popen_cls.return_value = mock_proc
+        mock_proc = self._make_async_proc(json.dumps(output_data).encode(), b"", 0, pid=100)
+        mock_create_sub.return_value = mock_proc
 
         bus = MagicMock()
         bus.emit = AsyncMock()
         registry = ProcessRegistry()
         runner = LocalRunner(event_bus=bus, registry=registry)
 
-        # Create a fake block with a class path
         class FakeBlock:
             pass
 
@@ -155,21 +156,23 @@ class TestLocalRunnerRun:
         # After fix #120: envelope is unwrapped -- we get the inner dict.
         assert result == {"result": "42"}
         mock_proc.communicate.assert_called_once()
-        payload = json.loads(mock_proc.communicate.call_args.args[0].decode())
+        # Verify the stdin payload was passed correctly.
+        call_kwargs = mock_proc.communicate.call_args
+        stdin_payload = call_kwargs.kwargs.get("input") or call_kwargs.args[0] if call_kwargs.args else None
+        if stdin_payload is None:
+            stdin_payload = call_kwargs[1].get("input", b"")
+        payload = json.loads(stdin_payload.decode())
         assert payload["block_class"].endswith("FakeBlock")
         assert payload["inputs"] == {"input": "ref1"}
         assert payload["config"] == {"param": 1}
         assert payload["output_dir"]
         assert Path(payload["output_dir"]).exists()
 
-    @patch("scieasy.engine.runners.process_handle.subprocess.Popen")
-    def test_run_raises_on_nonzero_exit(self, mock_popen_cls: MagicMock) -> None:
+    @patch("scieasy.engine.runners.local.asyncio.create_subprocess_exec")
+    def test_run_raises_on_nonzero_exit(self, mock_create_sub: AsyncMock) -> None:
         """run() should raise when the subprocess exits with a non-zero code."""
-        mock_proc = MagicMock()
-        mock_proc.pid = 101
-        mock_proc.communicate.return_value = (b"", b"traceback here")
-        mock_proc.returncode = 1
-        mock_popen_cls.return_value = mock_proc
+        mock_proc = self._make_async_proc(b"", b"traceback here", 1, pid=101)
+        mock_create_sub.return_value = mock_proc
 
         bus = MagicMock()
         bus.emit = AsyncMock()
@@ -179,22 +182,18 @@ class TestLocalRunnerRun:
         class FakeBlock:
             pass
 
-        with patch("asyncio.to_thread", side_effect=lambda func, *args: func(*args)):
-            try:
-                asyncio.run(runner.run(FakeBlock(), {}, {}))
-            except RuntimeError as exc:
-                assert "traceback here" in str(exc)
-            else:
-                raise AssertionError("Expected LocalRunner.run() to raise RuntimeError")
+        try:
+            asyncio.run(runner.run(FakeBlock(), {}, {}))
+        except RuntimeError as exc:
+            assert "traceback here" in str(exc)
+        else:
+            raise AssertionError("Expected LocalRunner.run() to raise RuntimeError")
 
-    @patch("scieasy.engine.runners.process_handle.subprocess.Popen")
-    def test_run_returns_empty_dict_on_no_stdout(self, mock_popen_cls: MagicMock) -> None:
+    @patch("scieasy.engine.runners.local.asyncio.create_subprocess_exec")
+    def test_run_returns_empty_dict_on_no_stdout(self, mock_create_sub: AsyncMock) -> None:
         """run() should return empty dict when subprocess produces no stdout."""
-        mock_proc = MagicMock()
-        mock_proc.pid = 102
-        mock_proc.communicate.return_value = (b"", b"")
-        mock_proc.returncode = 0
-        mock_popen_cls.return_value = mock_proc
+        mock_proc = self._make_async_proc(b"", b"", 0, pid=102)
+        mock_create_sub.return_value = mock_proc
 
         bus = MagicMock()
         bus.emit = AsyncMock()
@@ -207,17 +206,13 @@ class TestLocalRunnerRun:
         result = asyncio.run(runner.run(FakeBlock(), {}, {}))
         assert result == {}
 
-    @patch("scieasy.engine.runners.process_handle.subprocess.Popen")
-    def test_run_unwraps_output_envelope(self, mock_popen_cls: MagicMock) -> None:
+    @patch("scieasy.engine.runners.local.asyncio.create_subprocess_exec")
+    def test_run_unwraps_output_envelope(self, mock_create_sub: AsyncMock) -> None:
         """run() should unwrap the {"outputs": ...} envelope (#120)."""
         inner = {"port_a": "value_a", "port_b": 123}
         envelope = {"outputs": inner}
-        mock_proc = MagicMock()
-        mock_proc.pid = 200
-        mock_proc.stdin = MagicMock()
-        mock_proc.communicate.return_value = (json.dumps(envelope).encode(), b"")
-        mock_proc.returncode = 0
-        mock_popen_cls.return_value = mock_proc
+        mock_proc = self._make_async_proc(json.dumps(envelope).encode(), b"", 0, pid=200)
+        mock_create_sub.return_value = mock_proc
 
         bus = MagicMock()
         bus.emit = AsyncMock()
@@ -229,16 +224,12 @@ class TestLocalRunnerRun:
         result = asyncio.run(runner.run(FakeBlock(), {}, {}))
         assert result == inner
 
-    @patch("scieasy.engine.runners.process_handle.subprocess.Popen")
-    def test_run_passes_through_non_envelope_json(self, mock_popen_cls: MagicMock) -> None:
+    @patch("scieasy.engine.runners.local.asyncio.create_subprocess_exec")
+    def test_run_passes_through_non_envelope_json(self, mock_create_sub: AsyncMock) -> None:
         """run() should return raw dict when no 'outputs' key is present."""
         raw = {"error": "something broke"}
-        mock_proc = MagicMock()
-        mock_proc.pid = 201
-        mock_proc.stdin = MagicMock()
-        mock_proc.communicate.return_value = (json.dumps(raw).encode(), b"")
-        mock_proc.returncode = 0
-        mock_popen_cls.return_value = mock_proc
+        mock_proc = self._make_async_proc(json.dumps(raw).encode(), b"", 0, pid=201)
+        mock_create_sub.return_value = mock_proc
 
         bus = MagicMock()
         bus.emit = AsyncMock()
@@ -422,19 +413,15 @@ class TestSpawnEmitScheduling:
 class TestLocalRunnerAsyncBehavior:
     """Verify LocalRunner.run() does not block the event loop (#162)."""
 
-    @patch("scieasy.engine.runners.process_handle.subprocess.Popen")
-    def test_event_loop_responsive_during_run(self, mock_popen_cls: MagicMock) -> None:
+    @patch("scieasy.engine.runners.local.asyncio.create_subprocess_exec")
+    def test_event_loop_responsive_during_run(self, mock_create_sub: AsyncMock) -> None:
         """A concurrent coroutine should complete while run() is in progress."""
         output_data = {"outputs": {"result": "ok"}}
-        mock_proc = MagicMock()
+        mock_proc = AsyncMock()
         mock_proc.pid = 400
-        mock_proc.stdin = MagicMock()
-        mock_proc.communicate.return_value = (
-            json.dumps(output_data).encode(),
-            b"",
-        )
         mock_proc.returncode = 0
-        mock_popen_cls.return_value = mock_proc
+        mock_proc.communicate = AsyncMock(return_value=(json.dumps(output_data).encode(), b""))
+        mock_create_sub.return_value = mock_proc
 
         bus = MagicMock()
         bus.emit = AsyncMock()
@@ -461,19 +448,18 @@ class TestLocalRunnerAsyncBehavior:
         asyncio.run(_test())
         assert concurrent_ran, "Concurrent coroutine should have completed during run()"
 
-    @patch("scieasy.engine.runners.process_handle.subprocess.Popen")
-    def test_run_uses_block_id_attribute(self, mock_popen_cls: MagicMock) -> None:
+    @patch("scieasy.engine.runners.local.asyncio.create_subprocess_exec")
+    def test_run_uses_block_id_attribute(self, mock_create_sub: AsyncMock) -> None:
         """run() should read block.id and use it as the ProcessHandle identifier (#163).
 
         PR #160 approach: DAGScheduler._instantiate_block() sets block.id = node_id,
         and LocalRunner.run() reads it via getattr(block, "id", ...).
         """
-        mock_proc = MagicMock()
+        mock_proc = AsyncMock()
         mock_proc.pid = 401
-        mock_proc.stdin = MagicMock()
-        mock_proc.communicate.return_value = (b'{"outputs": {}}', b"")
         mock_proc.returncode = 0
-        mock_popen_cls.return_value = mock_proc
+        mock_proc.communicate = AsyncMock(return_value=(b'{"outputs": {}}', b""))
+        mock_create_sub.return_value = mock_proc
 
         bus = MagicMock()
         bus.emit = AsyncMock()

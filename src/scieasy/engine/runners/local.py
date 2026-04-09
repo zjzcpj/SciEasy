@@ -1,7 +1,7 @@
 """LocalRunner -- subprocess execution on the local machine.
 
 ADR-017: All block execution in isolated subprocesses. No in-process execution.
-Uses spawn_block_process() as the single subprocess creation entry point.
+Uses async subprocess to avoid os.fork() deadlock on macOS (#483).
 """
 
 from __future__ import annotations
@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sys
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -69,8 +70,8 @@ class LocalRunner:
     ) -> dict[str, Any]:
         """Execute *block* in an isolated subprocess.
 
-        Delegates to spawn_block_process() and waits for the subprocess
-        to complete. Returns the parsed JSON output from the worker.
+        Uses ``asyncio.create_subprocess_exec`` to avoid ``os.fork()``
+        deadlock on macOS when native extensions have been imported (#483).
 
         Parameters
         ----------
@@ -87,40 +88,53 @@ class LocalRunner:
         dict[str, Any]
             Parsed JSON result from the subprocess worker.
         """
-        from scieasy.engine.runners.process_handle import ProcessRegistry, spawn_block_process
+        from scieasy.engine.runners.process_handle import (
+            ProcessRegistry,
+            build_worker_payload,
+            register_async_process,
+        )
 
         block_class_path = f"{block.__class__.__module__}.{block.__class__.__qualname__}"
         registry = self._registry if self._registry is not None else ProcessRegistry()
         block_id = getattr(block, "id", block_class_path)
         output_dir = _derive_output_dir(block, config)
 
-        handle = spawn_block_process(
+        # Build the serialized payload for the worker subprocess.
+        payload_bytes = build_worker_payload(
             block_class=block_class_path,
             inputs_refs=inputs,
             config=config,
-            event_bus=self._event_bus,
-            registry=registry,
-            block_id=block_id,
             output_dir=output_dir,
         )
 
-        # Wait for subprocess to complete by reading stdout.
-        # communicate() waits for the process to finish and returns
-        # (stdout, stderr) as bytes.
-        popen = handle._popen
-        if popen is None:
-            return {"error": "No subprocess handle available"}
+        # Launch via asyncio.create_subprocess_exec to avoid os.fork()
+        # deadlock on macOS after importing native extensions (#483).
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-m",
+            "scieasy.engine.runners.worker",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
+        )
 
-        stdin_payload = handle._stdin_payload
-        handle._stdin_payload = None
-        stdout, stderr = await asyncio.to_thread(popen.communicate, stdin_payload)
+        # Register the process in the ProcessRegistry for lifecycle tracking.
+        register_async_process(
+            pid=proc.pid,
+            block_id=block_id,
+            registry=registry,
+            event_bus=self._event_bus,
+        )
 
-        if popen.returncode != 0:
+        stdout, stderr = await proc.communicate(input=payload_bytes)
+
+        if proc.returncode != 0:
             error_msg = stderr.decode(errors="replace") if stderr else "unknown error"
             logger.error(
                 "Block subprocess %s exited with code %d: %s",
                 block_class_path,
-                popen.returncode,
+                proc.returncode,
                 error_msg,
             )
             # Try to parse stdout for structured error from worker
