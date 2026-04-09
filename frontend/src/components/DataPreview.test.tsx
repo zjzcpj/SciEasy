@@ -35,7 +35,7 @@ describe("DataPreview", () => {
     });
   });
 
-  it("renders image preview with zoom controls", () => {
+  it("renders image preview with zoom controls and LUT swatches", () => {
     render(
       <DataPreview
         blockOutputs={{
@@ -66,15 +66,18 @@ describe("DataPreview", () => {
     expect(screen.getByRole("button", { name: /zoom out/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /reset/i })).toBeInTheDocument();
 
-    // Brightness and contrast sliders
-    expect(screen.getByRole("slider", { name: /brightness/i })).toBeInTheDocument();
-    expect(screen.getByRole("slider", { name: /contrast/i })).toBeInTheDocument();
+    // Min/Max display range sliders
+    expect(screen.getByRole("slider", { name: /display minimum/i })).toBeInTheDocument();
+    expect(screen.getByRole("slider", { name: /display maximum/i })).toBeInTheDocument();
 
-    // Colormap selector
-    expect(screen.getByRole("combobox", { name: /colormap/i })).toBeInTheDocument();
+    // LUT gradient swatches (at least gray and fire)
+    expect(screen.getByRole("button", { name: /LUT gray/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /LUT fire/i })).toBeInTheDocument();
 
-    // Shape info
-    expect(screen.getByText(/100 × 200 × 3/)).toBeInTheDocument();
+    // Info badge showing shape and zoom
+    const badge = screen.getByTestId("image-info-badge");
+    expect(badge).toHaveTextContent(/100 × 200 × 3/);
+    expect(badge).toHaveTextContent(/100%/);
   });
 
   it("zoom in button increases scale display", () => {
@@ -95,17 +98,19 @@ describe("DataPreview", () => {
       />,
     );
 
-    // Default zoom is 100%
-    expect(screen.getByText("100%")).toBeInTheDocument();
+    // Default zoom is 100% (shown in controls text)
+    const zoomTexts = screen.getAllByText("100%");
+    expect(zoomTexts.length).toBeGreaterThanOrEqual(1);
 
     // Click zoom in
     fireEvent.click(screen.getByRole("button", { name: /zoom in/i }));
 
-    // Scale should have increased (125%)
-    expect(screen.getByText("125%")).toBeInTheDocument();
+    // Scale should have increased (125% in controls)
+    const updatedTexts = screen.getAllByText("125%");
+    expect(updatedTexts.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("renders table preview with sticky headers and row/column count", () => {
+  it("renders table preview with compact formatting and row/column count", () => {
     render(
       <DataPreview
         blockOutputs={{ "node-1": { output: { data_ref: "tbl-ref" } } }}
@@ -118,8 +123,8 @@ describe("DataPreview", () => {
               kind: "table",
               columns: ["A", "B", "C"],
               rows: [
-                { A: 1, B: 2, C: 3 },
-                { A: 4, B: 5, C: 6 },
+                { A: 1, B: 2.12345, C: 3 },
+                { A: 4, B: 5, C: 6.789012 },
               ],
             },
           } as never,
@@ -130,7 +135,7 @@ describe("DataPreview", () => {
       />,
     );
 
-    // Row/column count header
+    // Row/column count
     expect(screen.getByText(/2 rows × 3 columns/)).toBeInTheDocument();
 
     // Column headers
@@ -138,8 +143,40 @@ describe("DataPreview", () => {
     expect(screen.getByText("B")).toBeInTheDocument();
     expect(screen.getByText("C")).toBeInTheDocument();
 
-    // Data cells
+    // Integer cells remain integers
     expect(screen.getByText("1")).toBeInTheDocument();
-    expect(screen.getByText("6")).toBeInTheDocument();
+
+    // Floating-point cells formatted to 4 decimals
+    expect(screen.getByText("2.1235")).toBeInTheDocument();
+    expect(screen.getByText("6.7890")).toBeInTheDocument();
+  });
+
+  it("shows truncation label when 100+ rows", () => {
+    const manyRows = Array.from({ length: 100 }, (_, i) => ({ A: i, B: i * 2 }));
+
+    render(
+      <DataPreview
+        blockOutputs={{ "node-1": { output: { data_ref: "tbl-ref" } } }}
+        onCancelSelected={() => {}}
+        onLoadPreview={vi.fn(async () => {})}
+        onStartFromHere={() => {}}
+        previewCache={{
+          "tbl-ref": {
+            preview: {
+              kind: "table",
+              columns: ["A", "B"],
+              rows: manyRows,
+              row_count: 100,
+            },
+          } as never,
+        }}
+        previewLoading={{}}
+        selectedNodeId="node-1"
+        selectedNodeLabel="Table Block"
+      />,
+    );
+
+    // Should indicate truncation
+    expect(screen.getByText(/Showing 100 of 100\+/)).toBeInTheDocument();
   });
 });
