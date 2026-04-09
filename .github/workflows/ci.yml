@@ -178,7 +178,7 @@ jobs:
         run: npm ci && npm run build
       - name: Copy build output to Python package
         run: cp -r frontend/dist/ src/scieasy/api/static/
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: frontend-static
           path: src/scieasy/api/static/
