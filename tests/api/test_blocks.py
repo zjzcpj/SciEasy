@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 from fastapi.testclient import TestClient
 
 
@@ -86,21 +85,43 @@ def test_imaging_io_schema_exposes_item_types_and_collection_flags(client: TestC
 # ----------------------------------------------------------------------------
 
 
-@pytest.mark.skip(reason="Agent B implements in Stage 10.1 Part 2")
 def test_list_blocks_includes_source_and_package_name(client: TestClient) -> None:
-    """GET /api/blocks/ response items contain ``source`` and ``package_name``.
+    """GET /api/blocks/ response items contain ``source`` and ``package_name``."""
+    response = client.get("/api/blocks/")
+    assert response.status_code == 200
+    blocks = response.json()["blocks"]
+    assert len(blocks) > 0
+    for block in blocks:
+        assert "source" in block, f"Block {block['type_name']} missing 'source'"
+        assert "package_name" in block, f"Block {block['type_name']} missing 'package_name'"
 
-    After Agent B populates the fields in ``_summary``, every block in the
-    palette listing must expose these two keys (even if ``package_name`` is
-    an empty string for builtins).
-    """
 
-
-@pytest.mark.skip(reason="Agent B implements in Stage 10.1 Part 2")
 def test_list_blocks_source_values_enumerated(client: TestClient) -> None:
-    """Every block reports ``source`` in {"builtin", "package", "custom"}.
+    """Every block reports ``source`` in {"builtin", "package", "custom", ""}."""
+    response = client.get("/api/blocks/")
+    assert response.status_code == 200
+    blocks = response.json()["blocks"]
+    valid_sources = {"builtin", "package", "custom", ""}
+    for block in blocks:
+        assert block["source"] in valid_sources, f"Block {block['type_name']} has unexpected source={block['source']!r}"
+        # Raw internal labels must never leak to the API
+        assert block["source"] not in ("tier1", "entry_point", "monorepo"), (
+            f"Block {block['type_name']} leaks raw source={block['source']!r}"
+        )
 
-    After the source value rename, no block should report ``"tier1"`` or
-    ``"entry_point"``. The valid domain is the three-value enum documented
-    in docs/design/stage-10-1-palette.md §3.2.3.
-    """
+
+def test_lcms_srs_blocks_have_domain_prefix(client: TestClient) -> None:
+    """LCMS and SRS blocks must have dotted type_name prefixes for palette grouping."""
+    response = client.get("/api/blocks/")
+    assert response.status_code == 200
+    blocks = response.json()["blocks"]
+    lcms_blocks = [b for b in blocks if b.get("package_name") == "scieasy-blocks-lcms"]
+    srs_blocks = [b for b in blocks if b.get("package_name") == "scieasy-blocks-srs"]
+    for block in lcms_blocks:
+        assert block["type_name"].startswith("lcms."), (
+            f"LCMS block {block['name']} missing 'lcms.' prefix: {block['type_name']}"
+        )
+    for block in srs_blocks:
+        assert block["type_name"].startswith("srs."), (
+            f"SRS block {block['name']} missing 'srs.' prefix: {block['type_name']}"
+        )
