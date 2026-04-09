@@ -142,6 +142,74 @@ class ProcessRegistry:
                 )
 
 
+def build_worker_payload(
+    block_class: Any,
+    inputs_refs: dict[str, Any],
+    config: dict[str, Any],
+    output_dir: str | None = None,
+) -> bytes:
+    """Build the JSON payload sent to the worker subprocess via stdin.
+
+    Extracted from spawn_block_process() so that LocalRunner can use
+    ``asyncio.create_subprocess_exec`` while reusing the same serialization
+    logic (#483).
+    """
+    if isinstance(block_class, str):
+        block_class_path = block_class
+    else:
+        block_class_path = f"{block_class.__module__}.{block_class.__qualname__}"
+
+    payload = json.dumps(
+        {
+            "block_class": block_class_path,
+            "inputs": inputs_refs,
+            "config": config,
+            "output_dir": output_dir,
+        }
+    )
+    return payload.encode("utf-8")
+
+
+def register_async_process(
+    pid: int | None,
+    block_id: str,
+    registry: ProcessRegistry,
+    event_bus: Any | None = None,
+    resource_request: Any | None = None,
+) -> ProcessHandle:
+    """Create and register a ProcessHandle for an already-launched async subprocess.
+
+    Used by LocalRunner when processes are launched via
+    ``asyncio.create_subprocess_exec`` instead of ``subprocess.Popen`` (#483).
+    """
+    from scieasy.engine.events import PROCESS_SPAWNED, EngineEvent
+    from scieasy.engine.resources import ResourceRequest as ResReq
+
+    rr = resource_request if resource_request is not None else ResReq()
+    handle = ProcessHandle(
+        block_id=block_id,
+        pid=pid if pid is not None else -1,
+        start_time=datetime.now(),
+        resource_request=rr,
+    )
+
+    registry.register(handle)
+
+    if event_bus is not None:
+        _event = EngineEvent(
+            event_type=PROCESS_SPAWNED,
+            block_id=handle.block_id,
+            data={"pid": handle.pid},
+        )
+        try:
+            loop = asyncio.get_running_loop()
+            _task = loop.create_task(event_bus.emit(_event))  # noqa: RUF006
+        except RuntimeError:
+            logger.debug("No running event loop; PROCESS_SPAWNED event not emitted")
+
+    return handle
+
+
 def spawn_block_process(
     block_class: Any,
     inputs_refs: dict[str, Any],
