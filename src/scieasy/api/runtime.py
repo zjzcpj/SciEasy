@@ -797,6 +797,7 @@ class ApiRuntime:
             runner=self.runner,
             registry=self.block_registry,
             checkpoint_manager=checkpoint_manager,
+            project_dir=str(self.active_project.path) if self.active_project else None,
         )
 
         async def _run() -> None:

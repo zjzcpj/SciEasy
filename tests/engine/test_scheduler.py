@@ -117,7 +117,11 @@ class TestSchedulerLinear:
         args = runner.run.call_args
         assert args[0][0].id == "A"
         assert args[0][1] == {}
-        assert args[0][2] == {"param": "value"}
+        config = args[0][2]
+        # Original config key preserved; enriched keys injected by #444
+        assert config["param"] == "value"
+        assert config["block_id"] == "A"
+        assert "workflow_id" in config
 
 
 # ---------------------------------------------------------------------------
