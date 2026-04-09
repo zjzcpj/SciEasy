@@ -28,6 +28,7 @@ export interface ProjectSlice {
 
 export interface WorkflowSlice {
   workflowId: string | null;
+  workflowName: string;
   workflowDescription: string;
   workflowVersion: string;
   workflowMetadata: Record<string, unknown>;
@@ -37,6 +38,7 @@ export interface WorkflowSlice {
   workflowHistory: WorkflowHistoryEntry[];
   workflowFuture: WorkflowHistoryEntry[];
   setWorkflow: (workflow: WorkflowResponse | null) => void;
+  setWorkflowName: (name: string) => void;
   addNode: (block: BlockSummary, position: { x: number; y: number }, defaultParams?: Record<string, unknown>) => void;
   addAnnotationNode: (position: { x: number; y: number }) => void;
   addGroupNode: (position: { x: number; y: number }) => void;

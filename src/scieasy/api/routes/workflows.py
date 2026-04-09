@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
 
 from scieasy.api.deps import get_runtime
 from scieasy.api.runtime import ApiRuntime
@@ -42,6 +44,90 @@ def _workflow_response(definition: Any) -> WorkflowResponse:
         edges=[WorkflowEdge(source=edge.source, target=edge.target) for edge in definition.edges],
         metadata=definition.metadata,
     )
+
+
+@router.get("/list", response_model=list[str])
+async def list_workflows(runtime: RuntimeDep) -> list[str]:
+    """List workflow IDs available in the active project."""
+    try:
+        return runtime.list_project_workflows()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/import", response_model=WorkflowResponse)
+async def import_workflow(file: UploadFile, runtime: RuntimeDep) -> WorkflowResponse:
+    """Import an external YAML workflow file into the active project."""
+    if not file.filename or not file.filename.endswith((".yaml", ".yml")):
+        raise HTTPException(status_code=400, detail="Only .yaml/.yml files are accepted.")
+    try:
+        content = await file.read()
+        import tempfile
+
+        from scieasy.workflow.serializer import load_yaml, save_yaml
+
+        with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False, mode="wb") as tmp:
+            tmp.write(content)
+            tmp_path = Path(tmp.name)
+
+        try:
+            definition = load_yaml(tmp_path)
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+        save_yaml(definition, runtime.workflow_path(definition.id))
+        return _workflow_response(definition)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _pick_workflow_file() -> str | None:
+    """Open a native file picker filtered for YAML workflow files."""
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        path = filedialog.askopenfilename(
+            title="Select workflow file",
+            filetypes=[("YAML files", "*.yaml *.yml"), ("All files", "*.*")],
+        )
+        root.destroy()
+        return path if path else None
+    except Exception:
+        return None
+
+
+@router.post("/browse-workflow-file")
+async def browse_workflow_file() -> dict:
+    """Open a native file picker dialog filtered for YAML workflow files."""
+    path = await asyncio.get_event_loop().run_in_executor(None, _pick_workflow_file)
+    return {"path": path}
+
+
+@router.post("/import-path", response_model=WorkflowResponse)
+async def import_workflow_from_path(body: dict, runtime: RuntimeDep) -> WorkflowResponse:
+    """Import a workflow from a filesystem path (returned by the browse dialog)."""
+    file_path = body.get("path")
+    if not file_path:
+        raise HTTPException(status_code=400, detail="Missing 'path' field.")
+    path = Path(file_path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+    if path.suffix.lower() not in (".yaml", ".yml"):
+        raise HTTPException(status_code=400, detail="Only .yaml/.yml files are accepted.")
+    try:
+        from scieasy.workflow.serializer import load_yaml, save_yaml
+
+        definition = load_yaml(path)
+        save_yaml(definition, runtime.workflow_path(definition.id))
+        return _workflow_response(definition)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/", response_model=WorkflowResponse)

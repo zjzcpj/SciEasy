@@ -69,6 +69,25 @@ export const api = {
       headers: JSON_HEADERS,
       body: JSON.stringify(body),
     }),
+  listWorkflows: () => apiFetch<string[]>("/api/workflows/list"),
+  browseWorkflowFile: () => apiFetch<{ path: string | null }>("/api/workflows/browse-workflow-file", { method: "POST" }),
+  importWorkflowFile: async (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return apiFetch<WorkflowResponse>("/api/workflows/import", {
+      method: "POST",
+      body: formData,
+    });
+  },
+  importWorkflowFromPath: async (filePath: string) => {
+    // Read the file via fetch from the backend browse result, then re-upload
+    // For now, use a dedicated endpoint that accepts a path
+    return apiFetch<WorkflowResponse>("/api/workflows/import-path", {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ path: filePath }),
+    });
+  },
   createWorkflow: (body: WorkflowResponse) =>
     apiFetch<WorkflowResponse>("/api/workflows/", {
       method: "POST",
