@@ -1,0 +1,199 @@
+"""Tests for AIBlock MVP — run(), _serialize_input(), _describe_object()."""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock
+
+import pytest
+
+from scieasy.blocks.ai.ai_block import AIBlock
+from scieasy.blocks.base.config import BlockConfig
+from scieasy.core.types.text import Text
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def ai_block() -> AIBlock:
+    """Return a default AIBlock instance."""
+    return AIBlock()
+
+
+@pytest.fixture()
+def mock_provider(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """Monkeypatch ``get_provider`` to return a mock LLM provider.
+
+    The mock's ``generate()`` returns a fixed string so tests can assert
+    on the output without making real API calls.
+    """
+    provider = MagicMock()
+    provider.generate.return_value = "LLM response text"
+
+    def _fake_get_provider(config=None):
+        return provider
+
+    monkeypatch.setattr("scieasy.blocks.ai.ai_block.get_provider", _fake_get_provider, raising=False)
+    # The import happens inside run(), so we also patch the module it imports from.
+    monkeypatch.setattr("scieasy.ai.config.get_provider", _fake_get_provider)
+    return provider
+
+
+# ---------------------------------------------------------------------------
+# Instantiation
+# ---------------------------------------------------------------------------
+
+
+class TestAIBlockInstantiation:
+    """AIBlock can be constructed and has correct metadata."""
+
+    def test_instantiate_default(self, ai_block: AIBlock) -> None:
+        assert ai_block is not None
+        assert ai_block.name == "AI / LLM"
+        assert ai_block.category == "ai"
+        assert ai_block.type_name == "ai.llm"
+
+    def test_input_port_accepts_any(self, ai_block: AIBlock) -> None:
+        data_port = ai_block.input_ports[0]
+        assert data_port.name == "data"
+        assert data_port.accepted_types == []  # Any
+        assert data_port.required is False
+        assert data_port.is_collection is True
+
+    def test_output_port_is_text(self, ai_block: AIBlock) -> None:
+        result_port = ai_block.output_ports[0]
+        assert result_port.name == "result"
+        assert Text in result_port.accepted_types
+
+    def test_config_schema_has_prompt(self, ai_block: AIBlock) -> None:
+        props = ai_block.config_schema["properties"]
+        assert "prompt" in props
+        assert "prompt" in ai_block.config_schema.get("required", [])
+
+
+# ---------------------------------------------------------------------------
+# _serialize_input
+# ---------------------------------------------------------------------------
+
+
+class TestSerializeInput:
+    """_serialize_input converts various types to text for the LLM."""
+
+    def test_none_input(self, ai_block: AIBlock) -> None:
+        result = ai_block._serialize_input(None)
+        assert result == "(no input data)"
+
+    def test_text_input(self, ai_block: AIBlock) -> None:
+        text_obj = Text(content="Hello world", format="plain")
+        result = ai_block._serialize_input(text_obj)
+        assert "Text" in result
+        assert "Hello world" in result
+
+    def test_string_fallback(self, ai_block: AIBlock) -> None:
+        result = ai_block._serialize_input("raw string")
+        assert result == "raw string"
+
+    def test_collection_input(self, ai_block: AIBlock) -> None:
+        from scieasy.core.types.collection import Collection
+
+        items = [
+            Text(content="First", format="plain"),
+            Text(content="Second", format="plain"),
+        ]
+        col = Collection(items, item_type=Text)
+        result = ai_block._serialize_input(col)
+        assert "[Item 0]:" in result
+        assert "[Item 1]:" in result
+        assert "First" in result
+        assert "Second" in result
+
+    def test_array_input(self, ai_block: AIBlock) -> None:
+        from scieasy.core.types.array import Array
+
+        arr = Array(axes=["y", "x"], shape=(100, 200), dtype="uint8")
+        result = ai_block._serialize_input(arr)
+        assert "Array" in result
+        assert "axes=" in result
+        assert "shape=" in result
+
+    def test_dataframe_input(self, ai_block: AIBlock) -> None:
+        from scieasy.core.types.dataframe import DataFrame
+
+        df = DataFrame(columns=["a", "b"], row_count=10)
+        result = ai_block._serialize_input(df)
+        assert "DataFrame" in result
+        assert "columns=" in result
+        assert "rows=" in result
+
+
+# ---------------------------------------------------------------------------
+# run()
+# ---------------------------------------------------------------------------
+
+
+class TestAIBlockRun:
+    """AIBlock.run() calls the LLM provider and returns Text."""
+
+    def test_run_basic(self, ai_block: AIBlock, mock_provider: MagicMock) -> None:
+        config = BlockConfig(params={"prompt": "Summarize: {data}", "provider": "anthropic"})
+        text_input = Text(content="Some data", format="plain")
+        result = ai_block.run({"data": text_input}, config)
+
+        assert "result" in result
+        assert isinstance(result["result"], Text)
+        assert result["result"].content == "LLM response text"
+
+        # Verify provider was called with the substituted prompt.
+        call_args = mock_provider.generate.call_args
+        assert "Some data" in call_args.kwargs.get("prompt", call_args.args[0] if call_args.args else "")
+
+    def test_run_no_input(self, ai_block: AIBlock, mock_provider: MagicMock) -> None:
+        config = BlockConfig(params={"prompt": "Just answer: {data}", "provider": "anthropic"})
+        result = ai_block.run({}, config)
+
+        assert isinstance(result["result"], Text)
+        # The {data} placeholder should be replaced with the no-input marker.
+        call_args = mock_provider.generate.call_args
+        prompt_used = call_args.kwargs.get("prompt", call_args.args[0] if call_args.args else "")
+        assert "(no input data)" in prompt_used
+
+    def test_run_with_system_prompt(self, ai_block: AIBlock, mock_provider: MagicMock) -> None:
+        config = BlockConfig(
+            params={
+                "prompt": "Hello {data}",
+                "provider": "anthropic",
+                "system_prompt": "You are a scientist.",
+            }
+        )
+        ai_block.run({}, config)
+
+        call_args = mock_provider.generate.call_args
+        assert call_args.kwargs.get("system") == "You are a scientist."
+
+    def test_run_missing_prompt_raises(self, ai_block: AIBlock, mock_provider: MagicMock) -> None:
+        config = BlockConfig(params={})
+        with pytest.raises(ValueError, match=r"prompt.*required"):
+            ai_block.run({}, config)
+
+    def test_run_empty_prompt_raises(self, ai_block: AIBlock, mock_provider: MagicMock) -> None:
+        config = BlockConfig(params={"prompt": ""})
+        with pytest.raises(ValueError, match=r"prompt.*required"):
+            ai_block.run({}, config)
+
+    def test_run_passes_temperature_and_max_tokens(self, ai_block: AIBlock, mock_provider: MagicMock) -> None:
+        config = BlockConfig(
+            params={
+                "prompt": "Test {data}",
+                "provider": "anthropic",
+                "temperature": 0.8,
+                "max_tokens": 2048,
+            }
+        )
+        ai_block.run({}, config)
+
+        call_args = mock_provider.generate.call_args
+        ai_config = call_args.kwargs.get("config")
+        assert ai_config is not None
+        assert ai_config.temperature == 0.8
+        assert ai_config.max_tokens == 2048
