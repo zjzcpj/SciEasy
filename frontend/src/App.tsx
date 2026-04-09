@@ -11,6 +11,7 @@ import { BottomPanel } from "./components/BottomPanel";
 import { DataPreview } from "./components/DataPreview";
 import { ProjectDialog } from "./components/ProjectDialog";
 import { ProjectTree } from "./components/ProjectTree";
+import { TabBar } from "./components/TabBar";
 import { Toolbar } from "./components/Toolbar";
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { WorkflowCanvas } from "./components/WorkflowCanvas";
@@ -95,6 +96,13 @@ export default function App() {
   const chatMessages = useAppStore((state) => state.chatMessages);
   const pushChatMessage = useAppStore((state) => state.pushChatMessage);
 
+  const tabs = useAppStore((state) => state.tabs);
+  const activeTabId = useAppStore((state) => state.activeTabId);
+  const openTab = useAppStore((state) => state.openTab);
+  const switchTab = useAppStore((state) => state.switchTab);
+  const closeTab = useAppStore((state) => state.closeTab);
+  const syncActiveTab = useAppStore((state) => state.syncActiveTab);
+
   const [busy, setBusy] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
@@ -141,16 +149,18 @@ export default function App() {
   async function loadWorkflowForProject(project: ProjectResponse) {
     if (project.current_workflow_id) {
       const workflow = await api.getWorkflow(project.current_workflow_id);
-      startTransition(() => setWorkflow(workflow));
+      openTab(workflow);
       return;
     }
-    startTransition(() => setWorkflow(emptyWorkflow("main")));
+    const workflow = emptyWorkflow("main");
+    openTab(workflow);
   }
 
-  async function loadWorkflowById(workflowId: string) {
+  async function loadWorkflowById(wfId: string) {
     try {
-      const workflow = await api.getWorkflow(workflowId);
-      startTransition(() => setWorkflow(workflow));
+      const workflow = await api.getWorkflow(wfId);
+      // Open in a tab (or switch to existing tab for this workflow)
+      openTab(workflow);
       resetExecution();
       setLastError(null);
     } catch (error) {
@@ -226,14 +236,11 @@ export default function App() {
   }
 
   function newWorkflow() {
-    if (workflowDirty) {
-      const confirmed = window.confirm("You have unsaved changes. Discard them and create a new workflow?");
-      if (!confirmed) return;
-    }
     const name = window.prompt("Workflow name:", "Untitled");
     if (name === null) return; // cancelled
     const id = name.trim() || "Untitled";
-    setWorkflow(emptyWorkflow(id));
+    const workflow = emptyWorkflow(id);
+    openTab(workflow);
     resetExecution();
   }
 
@@ -248,7 +255,7 @@ export default function App() {
       if (!file) return;
       try {
         const workflow = await api.importWorkflowFile(file);
-        startTransition(() => setWorkflow(workflow));
+        openTab(workflow);
         resetExecution();
         setLastError(null);
 
@@ -281,7 +288,7 @@ export default function App() {
 
     try {
       const saved = await api.createWorkflow(payload);
-      startTransition(() => setWorkflow(saved));
+      openTab(saved);
       markWorkflowSaved();
       setCurrentProject({
         ...currentProject,
@@ -443,6 +450,13 @@ export default function App() {
     }, 800);
     return () => window.clearTimeout(timeout);
   }, [currentProject, workflowDirty, workflowPayload]);
+
+  // Sync active tab snapshot when workflow state changes
+  useEffect(() => {
+    if (activeTabId) {
+      syncActiveTab();
+    }
+  }, [workflowNodes, workflowEdges, workflowDirty, workflowDescription, selectedNodeId]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -686,8 +700,16 @@ export default function App() {
               </ResizablePanel>
               <ResizableHandle withHandle />
 
-              {/* Center: Canvas + Bottom Panel vertical split */}
+              {/* Center: Tab Bar + Canvas + Bottom Panel vertical split */}
               <ResizablePanel defaultSize="63%">
+                <div className="flex h-full flex-col">
+                <TabBar
+                  tabs={tabs}
+                  activeTabId={activeTabId}
+                  onSwitchTab={switchTab}
+                  onCloseTab={closeTab}
+                  onNewTab={() => newWorkflow()}
+                />
                 <ResizablePanelGroup
                   orientation="vertical"
                   className="min-h-0 flex-1"
@@ -765,6 +787,7 @@ export default function App() {
                     />
                   </ResizablePanel>
                 </ResizablePanelGroup>
+                </div>
               </ResizablePanel>
               <ResizableHandle withHandle />
 

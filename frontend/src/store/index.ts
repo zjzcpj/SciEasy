@@ -6,6 +6,7 @@ import { createExecutionSlice } from "./executionSlice";
 import { createPaletteSlice } from "./paletteSlice";
 import { createPreviewSlice } from "./previewSlice";
 import { createProjectSlice } from "./projectSlice";
+import { createTabSlice } from "./tabSlice";
 import type { AppStore } from "./types";
 import { createUISlice } from "./uiSlice";
 import { createWorkflowSlice } from "./workflowSlice";
@@ -20,6 +21,7 @@ export const useAppStore = create<AppStore>()(
       ...createPreviewSlice(...args),
       ...createPaletteSlice(...args),
       ...createChatSlice(...args),
+      ...createTabSlice(...args),
     }),
     {
       name: "scieasy-studio-ui",

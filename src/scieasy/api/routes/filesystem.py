@@ -224,3 +224,138 @@ async def reveal_in_explorer(body: RevealRequest) -> dict[str, str]:
         ) from exc
 
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Native OS file/directory dialog
+# ---------------------------------------------------------------------------
+
+
+class NativeDialogRequest(BaseModel):
+    """Request body for the native file/directory dialog."""
+
+    mode: str = Field(..., pattern="^(file|directory)$", description="Dialog type: 'file' or 'directory'")
+    initial_dir: str | None = Field(None, description="Optional starting directory for the dialog")
+
+
+class NativeDialogResponse(BaseModel):
+    """Response from the native dialog endpoint."""
+
+    path: str | None = Field(None, description="Selected path, or null if cancelled")
+
+
+# Per-session last-used directory (in-memory, resets on restart).
+_last_used_directory: str | None = None
+
+
+def _native_dialog_windows(mode: str, initial_dir: str | None) -> str | None:
+    """Open a native Windows file/directory dialog via PowerShell."""
+    if mode == "directory":
+        ps_script = (
+            "Add-Type -AssemblyName System.Windows.Forms;"
+            "$d = New-Object System.Windows.Forms.FolderBrowserDialog;"
+            f"$d.SelectedPath = '{initial_dir or ''}';"
+            "if ($d.ShowDialog() -eq 'OK') {{ $d.SelectedPath }} else {{ '' }}"
+        )
+    else:
+        ps_script = (
+            "Add-Type -AssemblyName System.Windows.Forms;"
+            "$d = New-Object System.Windows.Forms.OpenFileDialog;"
+            f"$d.InitialDirectory = '{initial_dir or ''}';"
+            "if ($d.ShowDialog() -eq 'OK') {{ $d.FileName }} else {{ '' }}"
+        )
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    selected = result.stdout.strip()
+    return selected if selected else None
+
+
+def _native_dialog_macos(mode: str, initial_dir: str | None) -> str | None:
+    """Open a native macOS file/directory dialog via osascript."""
+    if mode == "directory":
+        if initial_dir:
+            script = f'choose folder with prompt "Select Directory" default location POSIX file "{initial_dir}"'
+        else:
+            script = 'choose folder with prompt "Select Directory"'
+    else:
+        if initial_dir:
+            script = f'choose file with prompt "Select File" default location POSIX file "{initial_dir}"'
+        else:
+            script = 'choose file with prompt "Select File"'
+    result = subprocess.run(
+        ["osascript", "-e", script],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    selected = result.stdout.strip()
+    if not selected:
+        return None
+    # osascript returns "alias Macintosh HD:Users:foo:..." — convert to POSIX
+    if selected.startswith("alias "):
+        # Convert colon-separated HFS path to POSIX
+        parts = selected[len("alias ") :].split(":")
+        # First part is the volume name — on default installs, map to /
+        posix = "/" + "/".join(parts[1:])
+        # Remove trailing slash if present
+        return posix.rstrip("/") or "/"
+    return selected
+
+
+def _native_dialog_linux(mode: str, initial_dir: str | None) -> str | None:
+    """Open a native Linux file/directory dialog via zenity."""
+    cmd = ["zenity", "--file-selection"]
+    if mode == "directory":
+        cmd.append("--directory")
+    if initial_dir:
+        cmd.extend(["--filename", initial_dir + "/"])
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    selected = result.stdout.strip()
+    return selected if selected else None
+
+
+@router.post("/api/filesystem/native-dialog", response_model=NativeDialogResponse)
+async def native_file_dialog(body: NativeDialogRequest) -> NativeDialogResponse:
+    """Open a native OS file or directory dialog and return the selected path.
+
+    Uses platform-specific subprocess calls (PowerShell on Windows, osascript
+    on macOS, zenity on Linux). Returns ``{"path": null}`` if the user cancels.
+    """
+    global _last_used_directory
+
+    # Determine starting directory: request param > last-used > home
+    initial_dir = body.initial_dir
+    if not initial_dir or not Path(initial_dir).is_dir():
+        initial_dir = _last_used_directory
+    if not initial_dir or not Path(initial_dir).is_dir():
+        initial_dir = str(Path.home())
+
+    system = platform.system()
+    try:
+        if system == "Windows":
+            selected = _native_dialog_windows(body.mode, initial_dir)
+        elif system == "Darwin":
+            selected = _native_dialog_macos(body.mode, initial_dir)
+        else:
+            selected = _native_dialog_linux(body.mode, initial_dir)
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Native dialog command not available on this platform ({system})",
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(
+            status_code=504,
+            detail="Dialog timed out (user may have left the dialog open)",
+        ) from exc
+
+    # Track last-used directory for the session
+    if selected:
+        parent = str(Path(selected).parent) if Path(selected).is_file() else selected
+        _last_used_directory = parent
+
+    return NativeDialogResponse(path=selected)

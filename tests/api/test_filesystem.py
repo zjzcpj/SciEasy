@@ -98,6 +98,133 @@ class TestProjectTree:
         assert ".hidden_file" not in names
 
 
+class TestNativeDialog:
+    """Tests for POST /api/filesystem/native-dialog."""
+
+    def test_invalid_mode(self, client: TestClient) -> None:
+        """Mode must be 'file' or 'directory'."""
+        resp = client.post(
+            "/api/filesystem/native-dialog",
+            json={"mode": "invalid"},
+        )
+        assert resp.status_code == 422
+
+    def test_directory_dialog_returns_path(self, client: TestClient, opened_project: Path, monkeypatch: object) -> None:
+        """Successful directory dialog returns the selected path."""
+        import subprocess
+
+        import scieasy.api.routes.filesystem as fs_mod
+
+        fake_dir = str(opened_project / "data")
+
+        class FakeCompletedProcess:
+            stdout = fake_dir + "\n"
+            stderr = ""
+            returncode = 0
+
+        original_run = subprocess.run
+        fs_mod.subprocess.run = lambda *_args, **_kwargs: FakeCompletedProcess()  # type: ignore[assignment]
+        try:
+            resp = client.post(
+                "/api/filesystem/native-dialog",
+                json={"mode": "directory", "initial_dir": str(opened_project)},
+            )
+            assert resp.status_code == 200
+            assert resp.json()["path"] == fake_dir
+        finally:
+            fs_mod.subprocess.run = original_run  # type: ignore[assignment]
+
+    def test_file_dialog_returns_path(self, client: TestClient, opened_project: Path, monkeypatch: object) -> None:
+        """Successful file dialog returns the selected file path."""
+        import subprocess
+
+        import scieasy.api.routes.filesystem as fs_mod
+
+        fake_file = str(opened_project / "data" / "sample.csv")
+
+        class FakeCompletedProcess:
+            stdout = fake_file + "\n"
+            stderr = ""
+            returncode = 0
+
+        original_run = subprocess.run
+        fs_mod.subprocess.run = lambda *_args, **_kwargs: FakeCompletedProcess()  # type: ignore[assignment]
+        try:
+            resp = client.post(
+                "/api/filesystem/native-dialog",
+                json={"mode": "file"},
+            )
+            assert resp.status_code == 200
+            assert resp.json()["path"] == fake_file
+        finally:
+            fs_mod.subprocess.run = original_run  # type: ignore[assignment]
+
+    def test_cancelled_dialog_returns_null(self, client: TestClient, monkeypatch: object) -> None:
+        """Cancelled dialog returns path=null."""
+        import subprocess
+
+        import scieasy.api.routes.filesystem as fs_mod
+
+        class FakeCompletedProcess:
+            stdout = "\n"
+            stderr = ""
+            returncode = 1
+
+        original_run = subprocess.run
+        fs_mod.subprocess.run = lambda *_args, **_kwargs: FakeCompletedProcess()  # type: ignore[assignment]
+        try:
+            resp = client.post(
+                "/api/filesystem/native-dialog",
+                json={"mode": "directory"},
+            )
+            assert resp.status_code == 200
+            assert resp.json()["path"] is None
+        finally:
+            fs_mod.subprocess.run = original_run  # type: ignore[assignment]
+
+    def test_timeout_returns_504(self, client: TestClient, monkeypatch: object) -> None:
+        """Dialog timeout returns 504."""
+        import subprocess
+
+        import scieasy.api.routes.filesystem as fs_mod
+
+        original_run = subprocess.run
+
+        def timeout_run(*_args: object, **_kwargs: object) -> None:
+            raise subprocess.TimeoutExpired(cmd="dialog", timeout=120)
+
+        fs_mod.subprocess.run = timeout_run  # type: ignore[assignment]
+        try:
+            resp = client.post(
+                "/api/filesystem/native-dialog",
+                json={"mode": "file"},
+            )
+            assert resp.status_code == 504
+        finally:
+            fs_mod.subprocess.run = original_run  # type: ignore[assignment]
+
+    def test_missing_command_returns_500(self, client: TestClient, monkeypatch: object) -> None:
+        """Missing native command returns 500."""
+        import subprocess
+
+        import scieasy.api.routes.filesystem as fs_mod
+
+        original_run = subprocess.run
+
+        def not_found_run(*_args: object, **_kwargs: object) -> None:
+            raise FileNotFoundError("zenity not found")
+
+        fs_mod.subprocess.run = not_found_run  # type: ignore[assignment]
+        try:
+            resp = client.post(
+                "/api/filesystem/native-dialog",
+                json={"mode": "directory"},
+            )
+            assert resp.status_code == 500
+        finally:
+            fs_mod.subprocess.run = original_run  # type: ignore[assignment]
+
+
 class TestRevealInExplorer:
     """Tests for POST /api/filesystem/reveal."""
 
