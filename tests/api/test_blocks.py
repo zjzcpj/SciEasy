@@ -138,8 +138,7 @@ def test_core_blocks_have_empty_package_name(client: TestClient) -> None:
     builtin_blocks = [b for b in blocks if b["source"] == "builtin"]
     for block in builtin_blocks:
         assert block["package_name"] == "", (
-            f"Core block {block['type_name']} should have empty package_name, "
-            f"got {block['package_name']!r}"
+            f"Core block {block['type_name']} should have empty package_name, got {block['package_name']!r}"
         )
 
 
