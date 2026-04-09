@@ -174,4 +174,10 @@ export const api = {
       headers: JSON_HEADERS,
       body: JSON.stringify({ path }),
     }),
+  openNativeDialog: (mode: "file" | "directory", initialDir?: string) =>
+    apiFetch<{ path: string | null }>("/api/filesystem/native-dialog", {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ mode, initial_dir: initialDir }),
+    }),
 };

@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- [#494] Add native OS file/directory dialog for browse button with platform-specific subprocess calls (@claude, 2026-04-09, branch: feat/issue-494/native-file-dialog, session: 20260409-165203-native-os-file-dialog-for-browse-button)
 - [#497] Add multi-workflow tabs: open multiple workflows as tabs with per-tab state, dirty indicators, and close confirmation (@claude, 2026-04-09, branch: feat/issue-497/multi-workflow-tabs, session: 20260409-165642-multi-workflow-tabs-in-frontend-462)
 - [#484] Add universal filesystem browse button for all path config fields via ui_widget schema annotation (@claude, 2026-04-09, branch: feat/issue-484/universal-browse, session: 20260409-154209-universal-filesystem-browse-button-484)
 - [#465] Add project tree tab in left sidebar with lazy-loading file browser, right-click menu, and reveal-in-explorer (@claude, 2026-04-09, branch: feat/issue-465/project-tree, session: 20260409-150547-project-tree-tab-in-left-sidebar-465)
