@@ -66,7 +66,7 @@ class CodeBlock(Block):
                 "ui_priority": 2,
             },
             "code": {"type": "string", "title": "Inline Code", "ui_priority": 3},
-            "script_path": {"type": "string", "title": "Script Path", "ui_priority": 4},
+            "script_path": {"type": "string", "title": "Script Path", "ui_priority": 4, "ui_widget": "file_browser"},
         },
     }
 

@@ -10,6 +10,7 @@ import type {
   DataPreviewResponse,
   DataUploadResponse,
   ExecuteFromResponse,
+  FilesystemBrowseResponse,
   ProjectResponse,
   WorkflowExecutionResponse,
   WorkflowResponse,
@@ -158,4 +159,8 @@ export const api = {
       headers: JSON_HEADERS,
       body: JSON.stringify(body),
     }),
+  browseFilesystem: (path: string) =>
+    apiFetch<FilesystemBrowseResponse>(
+      `/api/filesystem/browse?path=${encodeURIComponent(path)}`,
+    ),
 };

@@ -166,6 +166,7 @@ class LoadImage(IOBlock):
                 "type": ["string", "array"],
                 "items": {"type": "string"},
                 "ui_priority": 0,
+                "ui_widget": "file_browser",
             },
             "axes": {"type": "string", "ui_priority": 1},
         },

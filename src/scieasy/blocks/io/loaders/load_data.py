@@ -102,6 +102,7 @@ class LoadData(IOBlock):
                 "type": ["string", "array"],
                 "items": {"type": "string"},
                 "ui_priority": 1,
+                "ui_widget": "file_browser",
             },
             "allow_pickle": {
                 "type": "boolean",

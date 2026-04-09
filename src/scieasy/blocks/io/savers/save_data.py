@@ -166,7 +166,7 @@ class SaveData(IOBlock):
                 "default": "DataFrame",
                 "ui_priority": 0,
             },
-            "path": {"type": "string", "ui_priority": 1},
+            "path": {"type": "string", "ui_priority": 1, "ui_widget": "directory_browser"},
             "allow_pickle": {
                 "type": "boolean",
                 "default": False,
