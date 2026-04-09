@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#499] Configure Python logging handlers so logger output is not silently discarded (@claude, 2026-04-09, branch: fix/issue-499/configure-logging, session: 20260409-180335-configure-logging-handlers-for-the-codeb)
 - [#461] Fix palette categorization: add type_name prefixes to LCMS/SRS blocks, refine subcategories, populate source/package_name for Custom group (@claude, 2026-04-09, branch: fix/issue-461/palette-categorization, session: 20260409-124810-fix-block-palette-categorization-461)
 - [#483] Fix macOS workflow execution: async subprocess, .app bundle support, checkpoint error message (@claude, 2026-04-09, branch: fix/issue-483/macos-execution, session: 20260409-151529-fix-macos-workflow-execution-483)
 - [#467] Fix macOS crash: ensure workflow dir exists + remove tkinter file dialogs (@claude, 2026-04-09, branch: fix/issue-467/macos-crash, session: wave2-macos-fix)
