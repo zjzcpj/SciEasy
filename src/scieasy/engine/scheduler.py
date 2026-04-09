@@ -81,6 +81,7 @@ class DAGScheduler:
         registry: BlockRegistry | None = None,
         checkpoint_manager: Any | None = None,
         lineage_recorder: LineageRecorder | None = None,
+        project_dir: str | None = None,
     ) -> None:
         self._workflow = workflow
         self._event_bus = event_bus
@@ -90,6 +91,7 @@ class DAGScheduler:
         self._registry = registry
         self._checkpoint_manager = checkpoint_manager
         self._lineage_recorder = lineage_recorder
+        self._project_dir = project_dir
 
         self._dag = build_dag(workflow)
         self._order = topological_sort(self._dag)
@@ -210,8 +212,15 @@ class DAGScheduler:
             self.save_checkpoint(self._checkpoint_manager)
             return
 
+        # Enrich the block config with runtime context (#444).
+        enriched_config = dict(node.config)
+        enriched_config["block_id"] = node_id
+        enriched_config["workflow_id"] = self._workflow.id
+        if self._project_dir:
+            enriched_config["project_dir"] = self._project_dir
+
         task = asyncio.create_task(
-            self._run_and_finalize(node_id, block, inputs, node.config),
+            self._run_and_finalize(node_id, block, inputs, enriched_config),
             name=f"dispatch:{node_id}",
         )
         self._active_tasks[node_id] = task

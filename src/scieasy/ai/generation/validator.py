@@ -10,8 +10,130 @@ Stage 5 -- Port contract check (input_ports/output_ports vs run() signature).
 from __future__ import annotations
 
 import ast
+import builtins as _builtins_module
 import re
+import threading
 from typing import Any
+
+# ---------------------------------------------------------------------------
+# Safe builtins for sandboxed exec() -- see issue #247
+# ---------------------------------------------------------------------------
+# EXCLUDED (dangerous): open, exec, eval, compile, globals,
+# locals, breakpoint, exit, quit, input, memoryview, vars, dir.
+# __import__ is replaced with a restricted version that only allows safe modules.
+
+_SAFE_IMPORT_MODULES: frozenset[str] = frozenset(
+    {
+        "typing",
+        "abc",
+        "dataclasses",
+        "enum",
+        "collections",
+        "collections.abc",
+        "functools",
+        "math",
+    }
+)
+
+# Module prefixes allowed in the sandbox.  These cover the SciEasy public
+# data-object hierarchy that AI-generated subtypes legitimately need to
+# import (e.g. ``from scieasy.core.types.array import Array``).  Only the
+# core type modules are exposed -- engine, storage, blocks, runners, and
+# IO adapters remain blocked.
+_SAFE_IMPORT_PREFIXES: tuple[str, ...] = ("scieasy.core.types",)
+
+
+def _is_safe_import(name: str) -> bool:
+    """Return True if *name* refers to a whitelisted module or prefix."""
+    if name in _SAFE_IMPORT_MODULES:
+        return True
+    return any(name == prefix or name.startswith(prefix + ".") for prefix in _SAFE_IMPORT_PREFIXES)
+
+
+def _safe_import(
+    name: str,
+    globals: dict[str, Any] | None = None,
+    locals: dict[str, Any] | None = None,
+    fromlist: tuple[str, ...] = (),
+    level: int = 0,
+) -> Any:
+    """Restricted import that only allows a whitelist of safe modules."""
+    if not _is_safe_import(name):
+        raise ImportError(
+            f"Import of '{name}' is not allowed in the sandbox. "
+            f"Allowed modules: {sorted(_SAFE_IMPORT_MODULES)}; "
+            f"allowed prefixes: {list(_SAFE_IMPORT_PREFIXES)}"
+        )
+    return __import__(name, globals, locals, fromlist, level)
+
+
+_SAFE_BUILTINS: dict[str, Any] = {
+    # Class/type construction (required for class definitions to work)
+    "__build_class__": _builtins_module.__build_class__,
+    "__name__": "__dry_run__",
+    "__import__": _safe_import,
+    "type": type,
+    "super": super,
+    "isinstance": isinstance,
+    "issubclass": issubclass,
+    "object": object,
+    "property": property,
+    "classmethod": classmethod,
+    "staticmethod": staticmethod,
+    # Basic types
+    "int": int,
+    "float": float,
+    "str": str,
+    "bool": bool,
+    "list": list,
+    "dict": dict,
+    "tuple": tuple,
+    "set": set,
+    "frozenset": frozenset,
+    "bytes": bytes,
+    "bytearray": bytearray,
+    "None": None,
+    "True": True,
+    "False": False,
+    # Safe operations
+    "len": len,
+    "range": range,
+    "enumerate": enumerate,
+    "zip": zip,
+    "map": map,
+    "filter": filter,
+    "sorted": sorted,
+    "reversed": reversed,
+    "min": min,
+    "max": max,
+    "sum": sum,
+    "abs": abs,
+    "round": round,
+    "any": any,
+    "all": all,
+    "hasattr": hasattr,
+    "getattr": getattr,
+    "setattr": setattr,
+    "repr": repr,
+    "hash": hash,
+    "id": id,
+    "callable": callable,
+    "iter": iter,
+    "next": next,
+    "print": print,
+    # Exceptions
+    "Exception": Exception,
+    "TypeError": TypeError,
+    "ValueError": ValueError,
+    "KeyError": KeyError,
+    "IndexError": IndexError,
+    "AttributeError": AttributeError,
+    "NotImplementedError": NotImplementedError,
+    "RuntimeError": RuntimeError,
+    "StopIteration": StopIteration,
+}
+
+_DRY_RUN_TIMEOUT_SECONDS: float = 5.0
 
 # ---------------------------------------------------------------------------
 # Block validation (stages 1-3, existing)
@@ -96,11 +218,21 @@ def validate_generated_code(code: str) -> dict[str, Any]:
 
 
 def dry_run_generated_code(code: str) -> dict[str, Any]:
-    """Stage 4: Execute generated code in a restricted namespace.
+    """Stage 4: Execute generated code in a sandboxed namespace with timeout.
 
-    Compiles and executes the code to verify it loads without runtime
-    errors.  The namespace is isolated -- only builtins are available
-    unless the code imports its own dependencies.
+    Security measures:
+
+    - ``__builtins__`` restricted to a safe subset.  Dangerous builtins
+      (``open``, ``exec``, ``eval``, ``compile``, ``globals``, etc.)
+      are excluded.  ``__import__`` is replaced with a restricted
+      version that only allows a whitelist of safe modules.
+    - Execution has a timeout (default 5 seconds) enforced via a
+      daemon thread.
+
+    Limitation: Thread-based timeout cannot truly kill the thread
+    (Python GIL limitation), but the daemon flag ensures abandoned
+    threads do not prevent process exit.  For true isolation, use
+    subprocess-based sandbox (future improvement).
 
     Parameters
     ----------
@@ -115,19 +247,43 @@ def dry_run_generated_code(code: str) -> dict[str, Any]:
     errors: list[str] = []
     warnings: list[str] = []
 
-    try:
-        namespace: dict[str, Any] = {}
-        exec(code, namespace)
+    namespace: dict[str, Any] = {"__builtins__": _SAFE_BUILTINS}
+
+    # Container to capture exceptions from the sandbox thread.
+    exc_holder: list[BaseException] = []
+
+    def _target() -> None:
+        try:
+            exec(code, namespace)
+        except BaseException as exc:
+            exc_holder.append(exc)
+
+    thread = threading.Thread(target=_target, daemon=True)
+    thread.start()
+    thread.join(timeout=_DRY_RUN_TIMEOUT_SECONDS)
+
+    if thread.is_alive():
+        # Thread still running -- treat as timeout.
+        errors.append(f"Code execution timeout: exceeded {_DRY_RUN_TIMEOUT_SECONDS}s")
+        return {"passed": False, "errors": errors, "warnings": warnings}
+
+    # Check for exceptions raised inside the sandbox.
+    if exc_holder:
+        exc = exc_holder[0]
+        if isinstance(exc, SyntaxError):
+            errors.append(f"Dry run syntax error: {exc}")
+        elif isinstance(exc, ImportError):
+            errors.append(f"Dry run import error: {exc}")
+        else:
+            errors.append(f"Dry run failed: {exc}")
+
+    if not errors:
         # Verify at least one class was defined.
-        classes = [v for v in namespace.values() if isinstance(v, type)]
+        classes = [
+            v for k, v in namespace.items() if isinstance(v, type) and k != "__builtins__" and not k.startswith("_")
+        ]
         if not classes:
             errors.append("Code executed but no class was defined.")
-    except SyntaxError as exc:
-        errors.append(f"Dry run syntax error: {exc}")
-    except ImportError as exc:
-        errors.append(f"Dry run import error: {exc}")
-    except Exception as exc:
-        errors.append(f"Dry run failed: {exc}")
 
     return {"passed": len(errors) == 0, "errors": errors, "warnings": warnings}
 
