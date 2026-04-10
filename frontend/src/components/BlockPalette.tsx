@@ -12,33 +12,6 @@ interface BlockPaletteProps {
 }
 
 /**
- * Expand io_block into separate Load Block / Save Block palette entries.
- * Both map to the same backend block type with different default direction.
- */
-function expandIOBlocks(blocks: BlockSummary[]): BlockSummary[] {
-  const result: BlockSummary[] = [];
-  for (const block of blocks) {
-    if (block.type_name === "io_block") {
-      result.push({
-        ...block,
-        name: "Load Block",
-        description: "Load data from a file (input)",
-        type_name: "io_block",
-      });
-      result.push({
-        ...block,
-        name: "Save Block",
-        description: "Save data to a file (output)",
-        type_name: "io_block",
-      });
-    } else {
-      result.push(block);
-    }
-  }
-  return result;
-}
-
-/**
  * Derive the display package name for a block.
  *
  * Priority:
@@ -255,11 +228,9 @@ export function BlockPalette({
 }: BlockPaletteProps) {
   const dragImageRef = useRef<HTMLDivElement | null>(null);
 
-  const expanded = expandIOBlocks(blocks);
-
   // When a search query is active, auto-expand all matching branches by filtering
   // to only blocks that match. groupBlocks then produces only the non-empty groups.
-  const filtered = expanded.filter((block) => {
+  const filtered = blocks.filter((block) => {
     const value = `${block.name} ${block.description} ${block.category}`.toLowerCase();
     return value.includes(search.toLowerCase());
   });
@@ -270,9 +241,6 @@ export function BlockPalette({
     const payload = { ...block };
     if (block.direction) {
       (payload as Record<string, unknown>)._default_direction = block.direction;
-    } else if (block.type_name === "io_block") {
-      (payload as Record<string, unknown>)._default_direction =
-        block.name === "Load Block" ? "input" : "output";
     }
     event.dataTransfer.setData("application/scieasy-block", JSON.stringify(payload));
     event.dataTransfer.effectAllowed = "copy";
