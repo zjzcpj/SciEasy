@@ -60,7 +60,7 @@ class FluxEstimate(_LCMSBlockMixin, ProcessBlock):
         OutputPort(
             name="flux",
             accepted_types=[DataFrame],
-            description="Long-format DataFrame: compound, group, labeling_rate, pool_size, estimated_flux",
+            description="Long-format DataFrame: compound, group, labeling_rate, intercept, r_squared, p_value, stderr, pool_size, estimated_flux",
         ),
     ]
 
@@ -70,13 +70,13 @@ class FluxEstimate(_LCMSBlockMixin, ProcessBlock):
             "time_points_column": {
                 "type": "string",
                 "default": "time_hours",
-                "title": "Time column in sample metadata",
+                "title": "Time Column Name",
                 "ui_priority": 1,
             },
             "group_column": {
                 "type": ["string", "null"],
                 "default": None,
-                "title": "Group column (optional, splits the linear fit)",
+                "title": "Group Column Name",
                 "ui_priority": 2,
             },
         },
@@ -89,7 +89,7 @@ class FluxEstimate(_LCMSBlockMixin, ProcessBlock):
         config: BlockConfig,
     ) -> dict[str, Collection]:
         """Compute the long-format flux estimate DataFrame."""
-        import numpy as np
+        from scipy.stats import linregress
 
         mid_table = _extract_single_item(inputs["mid_table"], MIDTable, "mid_table")
         sample_metadata = _extract_single_item(inputs["sample_metadata"], SampleMetadata, "sample_metadata")
@@ -157,16 +157,21 @@ class FluxEstimate(_LCMSBlockMixin, ProcessBlock):
             distinct_timepoints = group_frame[time_column].dropna().unique()
             if len(distinct_timepoints) < 2:
                 raise ValueError("FluxEstimate: each compound/group requires at least two distinct timepoints")
-            fit = np.polyfit(
-                group_frame[time_column].astype(float), group_frame["fractional_labeling"].astype(float), deg=1
+            result = linregress(
+                group_frame[time_column].astype(float),
+                group_frame["fractional_labeling"].astype(float),
             )
-            labeling_rate = float(fit[0])
+            labeling_rate = float(result.slope)
             pool_size = float(pool_sizes.get((compound, group), 1.0))
             rows.append(
                 {
                     "compound": compound,
                     "group": group,
                     "labeling_rate": labeling_rate,
+                    "intercept": float(result.intercept),
+                    "r_squared": float(result.rvalue**2),
+                    "p_value": float(result.pvalue),
+                    "stderr": float(result.stderr),
                     "pool_size": pool_size,
                     "estimated_flux": labeling_rate * pool_size,
                 }

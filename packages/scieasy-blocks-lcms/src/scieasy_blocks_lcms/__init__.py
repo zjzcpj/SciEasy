@@ -1,21 +1,13 @@
-"""SciEasy LC-MS plugin — Phase 11 skeleton.
+"""SciEasy LC-MS plugin — Phase 11.
 
 User-facing entry surface for ``scieasy-blocks-lcms``. Re-exports the
-four LC-MS types plus public block classes across the four sub-packages
-(``io``, ``external``, ``isotope_tracing``, ``analysis``).
+four LC-MS types plus public block classes across the sub-packages
+(``io``, ``external``, ``isotope_tracing``).
 """
 
 from __future__ import annotations
 
 from scieasy.blocks.base.package_info import PackageInfo
-from scieasy_blocks_lcms.analysis import (
-    ConsumptionSecretionAnalysis,
-    MatrixPreprocess,
-    MetaboliteMatrix,
-    MultivariateAnalysis,
-    PathwayEnrichment,
-    UnivariateStats,
-)
 from scieasy_blocks_lcms.external import AccuCorR, ElMAVENBlock
 from scieasy_blocks_lcms.io import (
     LoadMIDTable,
@@ -25,10 +17,7 @@ from scieasy_blocks_lcms.io import (
     SaveTable,
 )
 from scieasy_blocks_lcms.isotope_tracing import (
-    Calculate13CEnrichment,
-    CompareGroupMID,
     FluxEstimate,
-    FractionalLabeling,
     PoolSizeNormalize,
 )
 from scieasy_blocks_lcms.types import (
@@ -52,18 +41,8 @@ _LCMS_BLOCKS: tuple[type, ...] = (
     ElMAVENBlock,
     AccuCorR,
     # Isotope tracing
-    Calculate13CEnrichment,
-    FractionalLabeling,
-    CompareGroupMID,
     FluxEstimate,
     PoolSizeNormalize,
-    # Analysis
-    MetaboliteMatrix,
-    MatrixPreprocess,
-    UnivariateStats,
-    MultivariateAnalysis,
-    PathwayEnrichment,
-    ConsumptionSecretionAnalysis,
 )
 
 
@@ -89,27 +68,18 @@ def get_block_package() -> tuple[PackageInfo, list[type]]:
 
 __all__ = [
     "AccuCorR",
-    "Calculate13CEnrichment",
-    "CompareGroupMID",
-    "ConsumptionSecretionAnalysis",
     "ElMAVENBlock",
     "FluxEstimate",
-    "FractionalLabeling",
     "LoadMIDTable",
     "LoadMzMLFiles",
     "LoadPeakTable",
     "LoadSampleMetadata",
     "MIDTable",
     "MSRawFile",
-    "MatrixPreprocess",
-    "MetaboliteMatrix",
-    "MultivariateAnalysis",
-    "PathwayEnrichment",
     "PeakTable",
     "PoolSizeNormalize",
     "SampleMetadata",
     "SaveTable",
-    "UnivariateStats",
     "get_block_package",
     "get_blocks",
     "get_package_info",
