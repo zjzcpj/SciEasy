@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- [#555] Rewrite ElMAVEN block to follow standard AppBlock pattern -- fixes rerun deadlock (@claude, 2026-04-10, branch: refactor/issue-555/elmaven-standard-pattern, session: 20260410-005711-rewrite-elmaven-block-to-follow-standard)
 - [#538] LCMS app block audit: ElMAVEN cleanup, remove GraphPad skeleton, remove watch_timeout (@claude, 2026-04-10, branch: refactor/issue-538/lcms-app-audit, session: 20260410-000747-refactor-lcms-lcms-app-block-audit-elmav)
 - [#464] Improve preview panel: dark-bg image viewer with pan/zoom/LUT, compact table viewer with formatting (@claude, 2026-04-09, branch: feat/issue-464/preview-viewer, session: 20260409-124853-improve-preview-image-table-viewers-464)
 - [#476] Cache Python site-packages in CI to reduce install overhead (@claude, 2026-04-09, branch: perf/issue-476/ci-pip-cache, session: 20260409-124905-optimize-ci-pip-install-caching)
