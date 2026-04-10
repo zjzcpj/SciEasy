@@ -7,15 +7,19 @@ Per spec §8 Q-2 the block does **not** script ElMAVEN's UI — the user
 opens files, runs peak detection, and exports manually;
 :class:`FileWatcher` collects the exports.
 
-Issue #510: Refactored to pass raw file paths as CLI arguments so
-ElMAVEN opens with data pre-loaded (same pattern as FijiBlock #420).
+Issue #526: ElMAVEN does not accept positional file CLI args (unlike
+Fiji). Raw file paths are staged as symlinks in the exchange directory
+and recorded in the manifest. The PIPE deadlock from bridge.py is fixed
+by switching to DEVNULL.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import subprocess
 import tempfile
+from contextlib import suppress
 from pathlib import Path
 from typing import Any, ClassVar, cast
 
@@ -113,13 +117,12 @@ class ElMAVENBlock(_LCMSBlockMixin, AppBlock):
         inputs: dict[str, Collection],
         config: BlockConfig,
     ) -> dict[str, Collection]:
-        """Stage raw files and launch ElMAVEN with file paths as CLI args.
+        """Stage raw files and launch ElMAVEN for interactive peak picking.
 
-        Issue #510: Instead of delegating to ``AppBlock.run()`` (which
-        passes the exchange directory to the app), we follow the
-        FijiBlock pattern (#420): resolve the raw file paths and pass
-        them directly as ``launch_args`` so ElMAVEN opens with data
-        pre-loaded.
+        Issue #526: ElMAVEN's CLI does not accept positional file args
+        (unlike Fiji), so we stage the raw file paths as symlinks in the
+        exchange directory and write them to the manifest. The user opens
+        files manually from the exchange dir.
 
         After the user runs peak detection and exports results,
         :func:`_classify_export` routes each output file to either
@@ -166,13 +169,23 @@ class ElMAVENBlock(_LCMSBlockMixin, AppBlock):
             self.transition(BlockState.RUNNING)
         self.transition(BlockState.PAUSED)
 
-        # Launch ElMAVEN with raw file paths as CLI arguments (#510).
+        # Stage raw file paths into the exchange directory so the user
+        # can easily locate them.  ElMAVEN's CLI does not accept positional
+        # file arguments (unlike Fiji), so we do NOT pass argv_override.
+        # See issue #526.
+        for rp in raw_paths:
+            src = Path(rp)
+            if src.exists():
+                link = exchange_dir / "inputs" / src.name
+                if not link.exists():
+                    with suppress(OSError):
+                        link.symlink_to(src)
+
         bridge = FileExchangeBridge()
         timeout = int(config.get("watch_timeout", self.watch_timeout))
-        proc = bridge.launch(command, exchange_dir, argv_override=raw_paths)
+        proc = bridge.launch(command, exchange_dir)
         logger.info(
-            "ElMAVEN launched with %d raw files. Save exports to: %s",
-            len(raw_paths),
+            "ElMAVEN launched. Raw files staged in exchange dir. Save exports to: %s",
             output_dir,
         )
 
@@ -198,6 +211,8 @@ class ElMAVENBlock(_LCMSBlockMixin, AppBlock):
             }
         finally:
             watcher.stop()
+            with suppress(subprocess.TimeoutExpired):
+                proc.wait(timeout=5)
 
         if self.state == BlockState.PAUSED:
             self.transition(BlockState.RUNNING)
