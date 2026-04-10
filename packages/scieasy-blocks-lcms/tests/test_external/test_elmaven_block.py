@@ -14,7 +14,7 @@ from scieasy.core.types.collection import Collection
 
 def test_elmaven_block_class_config() -> None:
     block = ElMAVENBlock()
-    assert block.watch_timeout == 1800
+    assert block.app_command == ""
     assert block.output_patterns == ["*.csv", "*.tsv", "*.xlsx"]
     assert block.input_ports[0].accepted_types == [MSRawFile]
     assert block.output_ports[0].accepted_types == [PeakTable]
