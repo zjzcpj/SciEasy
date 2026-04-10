@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- [#543] Auto-assign port colors for plugin types via deterministic hashing (@claude, 2026-04-10, branch: feat/issue-543/port-color-hashing, session: 20260410-001558-feat-gui-auto-assign-port-colors-for-plu)
 - [#531] AI block: large prompt textarea widget + load prompt from file (.md/.txt) (@claude, 2026-04-10, branch: fix/issue-531/ai-block-textarea, session: 20260410-001127-feat-gui-ai-block-large-prompt-textarea)
 - [#494] Add native OS file/directory dialog for browse button with platform-specific subprocess calls (@claude, 2026-04-09, branch: feat/issue-494/native-file-dialog, session: 20260409-165203-native-os-file-dialog-for-browse-button)
 - [#497] Add multi-workflow tabs: open multiple workflows as tabs with per-tab state, dirty indicators, and close confirmation (@claude, 2026-04-09, branch: feat/issue-497/multi-workflow-tabs, session: 20260409-165642-multi-workflow-tabs-in-frontend-462)
