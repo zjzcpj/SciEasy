@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 import numpy as np
-from scipy.signal import savgol_filter
 
 from scieasy.blocks.base.block import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
@@ -82,6 +81,8 @@ class SRSSpectralDenoise(ProcessBlock):
             raise ValueError(
                 f"SRSSpectralDenoise: window_length ({window_length}) exceeds lambda axis size ({n_lambda})"
             )
+
+        from scipy.signal import savgol_filter
 
         denoised = savgol_filter(data, window_length=window_length, polyorder=polyorder, axis=lambda_axis)
         out_data = np.asarray(denoised, dtype=np.float32)
