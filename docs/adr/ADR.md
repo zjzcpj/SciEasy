@@ -7264,3 +7264,341 @@ behaviour, `CodeBlock` variadic behaviour, or "add port" / "remove
 port" GUI controls MUST reference this ADR explicitly and note that it
 is acting on preliminary assumptions. No merge without a decision.**
 Reviewers may cite this ADR to reject any such PR.
+
+---
+
+## ADR-030: config_schema MRO merge and base-class field injection
+
+**Status**: proposed
+**Date**: 2026-04-10
+**Issue**: #558
+
+### Context
+
+Every block class declares a `config_schema: ClassVar[dict[str, Any]]` — a
+JSON Schema dict whose `properties` map drives both the frontend inline config
+UI and the BottomPanel full config form. Because `ClassVar` is a plain Python
+class variable, a subclass that declares its own `config_schema` **completely
+replaces** the parent's — Python performs no merge.
+
+This creates three concrete problems.
+
+#### Problem 1 — IOBlock subclasses redundantly declare `path`
+
+`IOBlock` (the abstract base for all loaders and savers) declares a minimal
+`config_schema` with a `path` field, but without `ui_widget`:
+
+```python
+# src/scieasy/blocks/io/io_block.py line 56-60
+config_schema: ClassVar[dict[str, Any]] = {
+    "type": "object",
+    "properties": {"path": {"type": "string", "ui_priority": 1}},
+    "required": ["path"],
+}
+```
+
+Every concrete IOBlock subclass must redeclare `path` with the appropriate
+`ui_widget` to get the browse button. All 9 existing subclasses do this
+independently:
+
+| Block | Direction | path type | ui_widget | Correct? |
+|-------|-----------|-----------|-----------|----------|
+| LoadData | input | `["string", "array"]` | `file_browser` | ✓ |
+| LoadPeakTable | input | `["string", "array"]` | `file_browser` | ✓ |
+| LoadMIDTable | input | `["string", "array"]` | `file_browser` | ✓ |
+| LoadSampleMetadata | input | `["string", "array"]` | `file_browser` | ✓ |
+| LoadMzMLFiles | input | `["string", "array"]` | `file_browser` | ✓ |
+| LoadImage | input | `["string", "array"]` | `file_browser` | ✓ |
+| SaveData | output | `"string"` | `directory_browser` | ✓ |
+| SaveImage | output | `"string"` | `directory_browser` | ✓ |
+| SaveTable | output | `"string"` | `file_browser` | **✗** — saver should use `directory_browser` |
+
+All input-direction blocks converge on the same schema: `type: ["string", "array"]`,
+`ui_widget: "file_browser"`, `items: {"type": "string"}`. This is pure
+boilerplate that the base class should provide.
+
+Output-direction blocks should uniformly use `directory_browser`, but one
+block (SaveTable) incorrectly uses `file_browser`, precisely because there is
+no base-class enforcement.
+
+#### Problem 2 — AppBlock cannot inject `output_dir` into subclasses
+
+AppBlocks launch external GUI applications (Fiji, ElMAVEN, Napari, QuPath,
+CellProfiler). After launching, users must save their results to the
+exchange `outputs/` directory, but they have no way to know where that
+directory is. The solution is a "Save Outputs At" config field with a
+browse button and a copy-to-clipboard button, pre-filled with the exchange
+output path.
+
+This field belongs in `AppBlock.config_schema` so every AppBlock subclass
+inherits it automatically. But because `ClassVar` doesn't merge, every
+subclass that declares its own `config_schema` (all of them) would lose the
+injected field. Requiring every AppBlock author to manually include
+`output_dir` defeats the purpose.
+
+#### Problem 3 — No enforcement path for future base-class fields
+
+The same problem will recur for any future base-class field: `CodeBlock`
+might want a `timeout` field; `AIBlock` might want a `model` selector.
+Without a general merge mechanism, every such addition requires manually
+updating every subclass across every plugin package.
+
+### Decision
+
+#### D1 — Registry merges `config_schema` properties along MRO
+
+The block registry's `_spec_from_class()` function (line 553 in
+`src/scieasy/blocks/registry.py`) currently reads `config_schema` with a
+simple `getattr(cls, "config_schema", ...)`. This will be replaced by a
+merge function that walks the class's MRO and unions all `properties` dicts:
+
+```python
+def _merge_config_schema(cls: type) -> dict[str, Any]:
+    """Merge config_schema properties along MRO (child wins on conflict)."""
+    merged_properties: dict[str, Any] = {}
+    merged_required: list[str] = []
+    for klass in reversed(cls.__mro__):
+        schema = klass.__dict__.get("config_schema")  # __dict__, not getattr
+        if schema and isinstance(schema, dict):
+            merged_properties.update(schema.get("properties", {}))
+            merged_required.extend(schema.get("required", []))
+    return {
+        "type": "object",
+        "properties": merged_properties,
+        "required": list(dict.fromkeys(merged_required)),
+    }
+```
+
+Key semantics:
+- Uses `klass.__dict__` (own attributes only), not `getattr` (which would
+  follow MRO itself and return the same dict for all classes that don't
+  override).
+- Walks MRO in reverse (base first), so **child properties override parent
+  on name conflict**. A subclass that declares a `path` field overrides the
+  base class's `path`.
+- `required` lists are unioned and deduplicated.
+
+#### D2 — IOBlock base injects direction-aware `path` field
+
+The `IOBlock` base class `config_schema` will be updated to declare a
+`path` field appropriate for each direction. Since `direction` is a ClassVar
+that differs between input and output subclasses, the registry must read
+`direction` to resolve which path schema to inject.
+
+Two approaches were considered:
+
+**Option A — Two intermediate base classes**: Split `IOBlock` into
+`InputIOBlock` and `OutputIOBlock`, each with its own `config_schema`.
+Rejected: breaks the existing `IOBlock` contract and forces all subclasses
+to change their inheritance.
+
+**Option B — Registry post-processing based on direction**: After MRO
+merge, the registry checks `direction` and adjusts the `path` field's
+`ui_widget` and `type` accordingly. This is the chosen approach.
+
+The `IOBlock` base `config_schema` declares:
+
+```python
+# IOBlock.config_schema
+config_schema: ClassVar[dict[str, Any]] = {
+    "type": "object",
+    "properties": {
+        "path": {
+            "type": ["string", "array"],
+            "items": {"type": "string"},
+            "ui_priority": 0,
+            "ui_widget": "file_browser",
+        },
+    },
+    "required": ["path"],
+}
+```
+
+In `_merge_config_schema()`, after merging, if the block has
+`direction == "output"` and the `path` field was not overridden by the
+subclass (i.e., it came from a base class), apply output-direction defaults:
+
+```python
+if direction == "output" and "path" in merged_properties:
+    path_prop = merged_properties["path"]
+    # Only override if the subclass didn't explicitly declare path
+    if not _subclass_declares_field(cls, "path"):
+        path_prop["type"] = "string"
+        path_prop["ui_widget"] = "directory_browser"
+        path_prop.pop("items", None)
+```
+
+This ensures:
+- Input blocks: `path` is `["string", "array"]` with `file_browser` (multi-file select)
+- Output blocks: `path` is `"string"` with `directory_browser` (single directory select)
+- Subclass override: if a subclass explicitly declares `path` in its own
+  `config_schema`, that declaration wins (MRO merge semantics).
+
+#### D3 — AppBlock base injects `output_dir` field
+
+`AppBlock.config_schema` adds:
+
+```python
+"output_dir": {
+    "type": ["string", "null"],
+    "default": None,
+    "title": "Save Outputs At",
+    "ui_widget": "directory_browser",
+    "ui_priority": 0,
+},
+```
+
+In `AppBlock.run()`, the field controls the FileWatcher directory:
+
+```python
+custom_output_dir = config.get("output_dir")
+if custom_output_dir:
+    output_dir = Path(custom_output_dir)
+else:
+    output_dir = exchange_dir / "outputs"
+output_dir.mkdir(parents=True, exist_ok=True)
+```
+
+The imaging package's `_run_external_app()` helper must also read this field.
+
+#### D4 — Frontend: copy button + PAUSED toast for AppBlock
+
+When a block enters PAUSED state (via WebSocket event), the frontend shows a
+toast notification with the output path and a copy-to-clipboard button.
+
+The `directory_browser` widget gains a copy button alongside the existing
+browse (`...`) button. This benefits all blocks that use `directory_browser`,
+not just AppBlock.
+
+#### D5 — Subclass config_schema cleanup
+
+After MRO merge is implemented, IOBlock subclasses that only redeclare `path`
+to add `ui_widget` can remove that redundant declaration. Subclasses that
+declare `path` with additional fields (e.g., custom `title` like "Peak table
+file(s)") may keep their override — the child declaration wins on merge.
+
+The following subclasses can have their `path` field removed from
+`config_schema` (they add no information beyond what the base provides):
+
+- `LoadData` — path field is identical to base except for `ui_widget`
+- `LoadImage` — same
+- `SaveData` — same (for output direction)
+- `SaveImage` — same
+
+The following subclasses should keep `path` in their `config_schema` because
+they add a custom `title`:
+
+- `LoadPeakTable` — title: "Peak table file(s)"
+- `LoadMIDTable` — title: "MID table file(s)"
+- `LoadSampleMetadata` — title: "Sample metadata file(s)"
+- `LoadMzMLFiles` — title: "Raw file path(s)"
+- `SaveTable` — title: "Output file path" (but must change `ui_widget` to
+  `directory_browser`, or remove and let base handle it)
+
+### Alternatives considered
+
+#### A — Frontend-side injection
+
+Instead of merging in the registry, the frontend could detect block base
+types (AppBlock, IOBlock) and inject fields client-side.
+
+Rejected: duplicates block-type awareness between backend and frontend,
+creates a second source of truth for config schema, and doesn't solve the
+backend `config.get("output_dir")` problem (AppBlock.run() needs the field
+to actually be in the config).
+
+#### B — Explicit `_base_config_schema()` class method
+
+Each base class provides a `_base_config_schema()` that subclasses must
+call and merge manually:
+
+```python
+config_schema = {**AppBlock._base_config_schema(), **{...my fields...}}
+```
+
+Rejected: requires discipline from every block author, which is exactly the
+problem we're solving. MRO merge is automatic and invisible.
+
+#### C — Decorator-based schema composition
+
+A `@merge_parent_schema` decorator that walks MRO at class creation time.
+
+Rejected: adds metaclass-adjacent complexity. The registry already walks
+classes at registration time — doing the merge there is simpler and more
+debuggable.
+
+### Consequences
+
+#### Positive
+
+1. Block authors who subclass `IOBlock` get a working `path` field with the
+   correct browse button automatically, without declaring it.
+2. Block authors who subclass `AppBlock` get `output_dir` automatically.
+3. Future base-class config fields (e.g., `CodeBlock.timeout`) work the same
+   way — declare once in the base, all subclasses inherit.
+4. SaveTable's incorrect `file_browser` is fixed by removing its custom
+   `path` and letting the output-direction base handle it.
+5. Existing subclass overrides continue to work (child wins on conflict).
+
+#### Negative
+
+1. `__dict__`-based MRO walk is subtler than a simple `getattr`. Must be
+   well-tested and documented.
+2. A subclass that partially overrides a field (e.g., changes `title` but not
+   `ui_widget`) will fully replace the base field — there is no deep merge
+   within a single property. This is acceptable: JSON Schema properties are
+   self-contained.
+3. Debugging which class contributed which field requires understanding MRO.
+   Mitigated: the registry can log the merge result at DEBUG level.
+
+#### Migration
+
+The rollout is backward-compatible. Existing subclasses with redundant `path`
+declarations continue to work (their declaration wins on merge). Cleanup of
+redundant declarations is a separate follow-up, not a prerequisite.
+
+### Affected files
+
+#### Must change
+
+| File | Change |
+|------|--------|
+| `src/scieasy/blocks/registry.py` | Replace `getattr(cls, "config_schema", ...)` with `_merge_config_schema(cls)` in `_spec_from_class()`. Add direction-aware post-processing for IOBlock path field. |
+| `src/scieasy/blocks/io/io_block.py` | Update `config_schema` to declare `path` with full `ui_widget`, `type`, `items` for input direction. |
+| `src/scieasy/blocks/app/app_block.py` | Add `output_dir` field to `config_schema`. Update `run()` to use `config.get("output_dir")` for FileWatcher directory. |
+| `packages/scieasy-blocks-imaging/.../interactive/__init__.py` | Update `_run_external_app()` to read `config.get("output_dir")` and use as FileWatcher directory if set. |
+| `frontend/src/components/nodes/BlockNode.tsx` | Add copy-to-clipboard button for `directory_browser` widget. Add PAUSED toast for AppBlock. |
+| `frontend/src/store/executionSlice.ts` | Ensure PAUSED block state events surface for toast rendering. |
+
+#### Must verify / adapt
+
+| File | Reason |
+|------|--------|
+| `src/scieasy/workflow/serializer.py` | `_path_config_keys()` identifies path fields via `ui_widget` — verify `output_dir` is handled for relative path conversion (#506). |
+| `src/scieasy/api/runtime.py` | Path portability (relativify/absolutify) must work with merged schema. |
+| `frontend/src/components/BottomPanel.tsx` | Full config panel must render merged schema correctly. |
+
+#### Cleanup (follow-up, not blocking)
+
+| File | Change |
+|------|--------|
+| `src/scieasy/blocks/io/loaders/load_data.py` | Remove redundant `path` from `config_schema` — inherited from IOBlock. |
+| `src/scieasy/blocks/io/savers/save_data.py` | Remove redundant `path` — direction-aware injection provides `directory_browser`. |
+| `packages/scieasy-blocks-imaging/.../io/load_image.py` | Remove redundant `path`. |
+| `packages/scieasy-blocks-imaging/.../io/save_image.py` | Remove redundant `path`. |
+| `packages/scieasy-blocks-lcms/.../io/load_peak_table.py` | Keep `path` (custom title), but remove `ui_widget` and `type` — inherited from base. |
+| `packages/scieasy-blocks-lcms/.../io/load_mid_table.py` | Same as above. |
+| `packages/scieasy-blocks-lcms/.../io/load_sample_metadata.py` | Same as above. |
+| `packages/scieasy-blocks-lcms/.../io/load_mzml_files.py` | Same as above. |
+| `packages/scieasy-blocks-lcms/.../io/save_table.py` | Remove `path` entirely — let output-direction base handle `directory_browser`. Fixes incorrect `file_browser` usage. |
+
+### Implementation sequence
+
+1. Implement `_merge_config_schema()` in registry with direction-aware
+   post-processing. Add tests.
+2. Update `IOBlock.config_schema` with full path declaration.
+3. Update `AppBlock.config_schema` with `output_dir`. Update `run()`.
+4. Update imaging `_run_external_app()` to read `output_dir`.
+5. Frontend: add copy button to `directory_browser`, add PAUSED toast.
+6. Verify path portability (serializer, runtime).
+7. Follow-up PR: clean up redundant `path` declarations in subclasses.

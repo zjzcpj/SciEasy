@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - [#555] Rewrite ElMAVEN block to follow standard AppBlock pattern -- fixes rerun deadlock (@claude, 2026-04-10, branch: refactor/issue-555/elmaven-standard-pattern, session: 20260410-005711-rewrite-elmaven-block-to-follow-standard)
+- [#540] LCMS IO block audit: rename LoadMSRawFiles to LoadMzMLFiles, remove regex config from LoadMIDTable (@claude, 2026-04-10, branch: refactor/issue-540/lcms-io-audit, session: 20260410-001346-refactor-lcms-lcms-io-block-audit-rename)
 - [#545] Show spinning indicator on Run button during workflow execution (@claude, 2026-04-10, branch: feat/issue-545/run-button-spinner, session: 20260410-001118-show-spinning-indicator-on-run-button-du)
 - [#542] SRS block audit — remove Band Ratio and SRS Normalize, rename Denoise to Spectral Denoise with Savitzky-Golay, add Calibrate ui_priority, add Unmix mode selector (@claude, 2026-04-10, branch: refactor/issue-542/srs-block-audit, session: 20260410-000652-srs-block-audit-remove-band-ratio-and-sr)
 <<<<<<< fix/issue-530/palette-audit
