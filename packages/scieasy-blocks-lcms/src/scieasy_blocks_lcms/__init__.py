@@ -11,7 +11,7 @@ from scieasy.blocks.base.package_info import PackageInfo
 from scieasy_blocks_lcms.external import AccuCorR, ElMAVENBlock
 from scieasy_blocks_lcms.io import (
     LoadMIDTable,
-    LoadMSRawFiles,
+    LoadMzMLFiles,
     LoadPeakTable,
     LoadSampleMetadata,
     SaveTable,
@@ -32,7 +32,7 @@ __version__ = "0.1.0.dev0"
 
 _LCMS_BLOCKS: tuple[type, ...] = (
     # IO
-    LoadMSRawFiles,
+    LoadMzMLFiles,
     LoadPeakTable,
     LoadMIDTable,
     LoadSampleMetadata,
@@ -71,7 +71,7 @@ __all__ = [
     "ElMAVENBlock",
     "FluxEstimate",
     "LoadMIDTable",
-    "LoadMSRawFiles",
+    "LoadMzMLFiles",
     "LoadPeakTable",
     "LoadSampleMetadata",
     "MIDTable",
