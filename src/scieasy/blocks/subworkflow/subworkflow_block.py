@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from scieasy.blocks.base.block import Block
 from scieasy.blocks.base.config import BlockConfig
+from scieasy.blocks.base.ports import InputPort, OutputPort
 
 if TYPE_CHECKING:
     from scieasy.core.types.collection import Collection
-from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.base.state import BlockState
 from scieasy.core.types.base import DataObject
 
@@ -51,6 +51,19 @@ class SubWorkflowBlock(Block):
 
     name: ClassVar[str] = "Sub-Workflow"
     description: ClassVar[str] = "Encapsulate a full workflow as a single block"
+
+    config_schema: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "workflow_path": {
+                "type": "string",
+                "title": "Workflow YAML path",
+                "ui_widget": "file_browser",
+                "ui_priority": 0,
+            },
+        },
+        "required": ["workflow_path"],
+    }
 
     input_ports: ClassVar[list[InputPort]] = [
         InputPort(name="data", accepted_types=[DataObject], required=False, description="Input to child workflow"),

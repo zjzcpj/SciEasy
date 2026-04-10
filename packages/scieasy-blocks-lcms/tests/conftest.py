@@ -23,7 +23,3 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "requires_elmaven: skip unless ElMAVEN is installed (T-LCMS-007).",
     )
-    config.addinivalue_line(
-        "markers",
-        "requires_graphpad: skip unless GraphPad Prism is installed (T-LCMS-019).",
-    )
