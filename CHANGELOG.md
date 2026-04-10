@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- [#540] LCMS IO block audit: rename LoadMSRawFiles to LoadMzMLFiles, remove regex config from LoadMIDTable (@claude, 2026-04-10, branch: refactor/issue-540/lcms-io-audit, session: 20260410-001346-refactor-lcms-lcms-io-block-audit-rename)
 - [#464] Improve preview panel: dark-bg image viewer with pan/zoom/LUT, compact table viewer with formatting (@claude, 2026-04-09, branch: feat/issue-464/preview-viewer, session: 20260409-124853-improve-preview-image-table-viewers-464)
 - [#476] Cache Python site-packages in CI to reduce install overhead (@claude, 2026-04-09, branch: perf/issue-476/ci-pip-cache, session: 20260409-124905-optimize-ci-pip-install-caching)
 - [#468] Optimize CI: parallel jobs, single-version coverage, pytest-xdist (@claude, 2026-04-09, branch: perf/issue-468/ci-speedup, session: wave2-ci-perf)
