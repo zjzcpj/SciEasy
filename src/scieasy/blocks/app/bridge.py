@@ -106,8 +106,8 @@ class FileExchangeBridge:
         return subprocess.Popen(
             cmd,
             cwd=str(exchange_dir),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             shell=False,
         )
 
