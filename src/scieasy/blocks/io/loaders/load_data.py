@@ -63,7 +63,7 @@ class LoadData(IOBlock):
 
     direction: ClassVar[str] = "input"
     type_name: ClassVar[str] = "load_data"
-    name: ClassVar[str] = "Load Data"
+    name: ClassVar[str] = "Load"
     description: ClassVar[str] = (
         "Load a single core DataObject (Array, DataFrame, Series, Text, "
         "Artifact, or CompositeData) from a file. The output port type "
