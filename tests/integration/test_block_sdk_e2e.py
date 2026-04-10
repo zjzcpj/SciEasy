@@ -326,9 +326,9 @@ class {class_name}(ProcessBlock):
         reg.scan()
 
         specs = reg.all_specs()
-        # Built-ins should be present.
-        assert "Merge" in specs
-        assert "Split" in specs
+        # Core builtins should be present (LoadData/SaveData/AIBlock/SubWorkflow).
+        assert "Load" in specs
+        assert "Save" in specs
         # Drop-in should also be present.
         assert "Dropin Block" in specs
 
@@ -607,5 +607,5 @@ class TestFullIntegration:
         assert specs["Tier2Integ"].source == "entry_point"
         assert specs["Tier2Integ"].package_name == "IntegPkg"
 
-        # Built-ins also present.
-        assert "Merge" in specs
+        # Built-ins also present (core builtins: Load, Save, AI, SubWorkflow).
+        assert "Load" in specs

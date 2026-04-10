@@ -298,7 +298,7 @@ class TestBlockSchemaResponseSerialization:
 
     def test_serializes_dynamic_ports_and_direction(self) -> None:
         response = BlockSchemaResponse(
-            name="Load Data",
+            name="Load",
             type_name="load_data",
             category="io",
             description="",
