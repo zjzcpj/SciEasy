@@ -90,6 +90,12 @@ class AIBlock(Block):
                 "default": 4096,
                 "minimum": 1,
             },
+            "prompt_file": {
+                "type": ["string", "null"],
+                "default": None,
+                "title": "Load prompt from file (.md / .txt)",
+                "ui_widget": "file_browser",
+            },
             "system_prompt": {
                 "type": ["string", "null"],
                 "default": None,
@@ -115,7 +121,20 @@ class AIBlock(Block):
         data_text = self._serialize_input(raw_data)
 
         # 2. Build prompt from template.
-        prompt_template = str(config.get("prompt", ""))
+        # If prompt_file is set and non-empty, read its content as the prompt
+        # (overrides the textarea prompt field). Supported: .md, .txt.
+        prompt_file = config.get("prompt_file")
+        if prompt_file and str(prompt_file).strip():
+            from pathlib import Path
+
+            pf = Path(str(prompt_file))
+            if not pf.exists():
+                raise FileNotFoundError(f"AIBlock: prompt_file not found: {pf}")
+            if pf.suffix.lower() not in {".md", ".txt"}:
+                raise ValueError(f"AIBlock: prompt_file must be .md or .txt, got {pf.suffix!r}")
+            prompt_template = pf.read_text(encoding="utf-8")
+        else:
+            prompt_template = str(config.get("prompt", ""))
         if not prompt_template:
             raise ValueError("AIBlock: 'prompt' config is required.")
 
