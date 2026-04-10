@@ -52,8 +52,9 @@ class LoadSampleMetadata(_LCMSBlockMixin, IOBlock):
         "type": "object",
         "properties": {
             "path": {
-                "type": "string",
-                "title": "Sample metadata file",
+                "type": ["string", "array"],
+                "items": {"type": "string"},
+                "title": "Sample metadata file(s)",
                 "ui_priority": 0,
                 "ui_widget": "file_browser",
             },
@@ -74,32 +75,40 @@ class LoadSampleMetadata(_LCMSBlockMixin, IOBlock):
     }
 
     def load(self, config: BlockConfig) -> DataObject | Collection:
-        """Read the metadata file and return :class:`SampleMetadata`.
+        """Read metadata file(s) and return :class:`Collection[SampleMetadata]`.
 
-        Implementation must:
+        Accepts ``config["path"]`` as a single string or a list of strings
+        (matching the :class:`LoadImage` multi-file pattern).
 
-        * raise :class:`FileNotFoundError` on missing file
-        * raise :class:`ValueError` if the configured
-          ``sample_id_column`` is not present in the loaded DataFrame
-        * preserve column order
+        Raises:
+            FileNotFoundError: If any path does not exist.
+            ValueError: If the sample ID column is missing or path config is invalid.
         """
-        path = Path(config.get("path"))
-        if not path.exists():
-            raise FileNotFoundError(f"LoadSampleMetadata: source file not found: {path}")
+        raw_path = config.get("path")
+        if isinstance(raw_path, list):
+            paths = [Path(p) for p in raw_path if isinstance(p, str) and p]
+        elif isinstance(raw_path, str) and raw_path:
+            paths = [Path(raw_path)]
+        else:
+            raise ValueError("LoadSampleMetadata: config['path'] must be a non-empty string or list of strings")
 
-        frame = _read_table(path, sheet_name=config.get("sheet_name"))
         sample_id_column = str(config.get("sample_id_column", "sample_id"))
-        if sample_id_column not in frame.columns:
-            raise ValueError(f"LoadSampleMetadata requires column '{sample_id_column}'")
-
-        metadata = SampleMetadata(
-            columns=[str(col) for col in frame.columns],
-            row_count=len(frame),
-            schema={str(col): str(dtype) for col, dtype in frame.dtypes.items()},
-            meta=SampleMetadata.Meta(sample_id_column=sample_id_column),
-        )
-        metadata.user["pandas_df"] = frame.copy()
-        return Collection(items=[metadata], item_type=SampleMetadata)
+        items: list[SampleMetadata] = []
+        for path in paths:
+            if not path.exists():
+                raise FileNotFoundError(f"LoadSampleMetadata: source file not found: {path}")
+            frame = _read_table(path, sheet_name=config.get("sheet_name"))
+            if sample_id_column not in frame.columns:
+                raise ValueError(f"LoadSampleMetadata requires column '{sample_id_column}'")
+            metadata = SampleMetadata(
+                columns=[str(col) for col in frame.columns],
+                row_count=len(frame),
+                schema={str(col): str(dtype) for col, dtype in frame.dtypes.items()},
+                meta=SampleMetadata.Meta(sample_id_column=sample_id_column),
+            )
+            metadata.user["pandas_df"] = frame.copy()
+            items.append(metadata)
+        return Collection(items=items, item_type=SampleMetadata)
 
     def save(self, obj: DataObject | Collection, config: BlockConfig) -> None:
         """Not supported — use :class:`SaveTable` for output."""

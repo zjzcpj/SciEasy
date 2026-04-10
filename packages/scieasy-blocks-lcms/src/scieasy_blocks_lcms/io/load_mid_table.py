@@ -93,8 +93,9 @@ class LoadMIDTable(_LCMSBlockMixin, IOBlock):
         "type": "object",
         "properties": {
             "path": {
-                "type": "string",
-                "title": "MID table file",
+                "type": ["string", "array"],
+                "items": {"type": "string"},
+                "title": "MID table file(s)",
                 "ui_priority": 0,
                 "ui_widget": "file_browser",
             },
@@ -122,52 +123,53 @@ class LoadMIDTable(_LCMSBlockMixin, IOBlock):
     }
 
     def load(self, config: BlockConfig) -> DataObject | Collection:
-        """Read the MID table and return a :class:`MIDTable`.
+        """Read MID table file(s) and return a :class:`Collection[MIDTable]`.
 
-        Implementation must:
+        Accepts ``config["path"]`` as a single string or a list of strings
+        (matching the :class:`LoadImage` multi-file pattern).
 
-        * raise :class:`FileNotFoundError` on missing file
-        * raise :class:`ValueError` on missing ``Compound`` column
-        * raise :class:`ValueError` on empty sample-column detection
-        * apply the regex override when ``sample_column_pattern`` is set
-        * fall back to the default heuristic
-          (``columns - _KNOWN_IDENTITY_COLUMNS - _KNOWN_ATOM_COLUMNS -
-          tracer_atoms``)
-        * preserve ``corrected=True`` and
-          ``correction_tool="AccuCor"`` defaults on the resulting
-          :class:`MIDTable.Meta`
+        Raises:
+            FileNotFoundError: If any path does not exist.
+            ValueError: If a required column is missing or path config is invalid.
         """
-        path = Path(config.get("path"))
-        if not path.exists():
-            raise FileNotFoundError(f"LoadMIDTable: source file not found: {path}")
-
-        frame = _read_table(path, sheet_name=config.get("sheet_name"))
-        compound_column = _find_compound_column(frame.columns)
-        if compound_column is None:
-            raise ValueError("LoadMIDTable requires a 'Compound' or 'compound' column")
+        raw_path = config.get("path")
+        if isinstance(raw_path, list):
+            paths = [Path(p) for p in raw_path if isinstance(p, str) and p]
+        elif isinstance(raw_path, str) and raw_path:
+            paths = [Path(raw_path)]
+        else:
+            raise ValueError("LoadMIDTable: config['path'] must be a non-empty string or list of strings")
 
         tracer_atoms = [str(atom) for atom in config.get("tracer_atoms", ["C13"])]
-        sample_columns = _detect_sample_columns(
-            frame.columns,
-            tracer_atoms=tracer_atoms,
-            pattern=config.get("sample_column_pattern"),
-        )
-        if not sample_columns:
-            raise ValueError("LoadMIDTable could not detect any sample columns")
-
-        table = MIDTable(
-            columns=[str(col) for col in frame.columns],
-            row_count=len(frame),
-            schema={str(col): str(dtype) for col, dtype in frame.dtypes.items()},
-            meta=MIDTable.Meta(
+        tables: list[MIDTable] = []
+        for path in paths:
+            if not path.exists():
+                raise FileNotFoundError(f"LoadMIDTable: source file not found: {path}")
+            frame = _read_table(path, sheet_name=config.get("sheet_name"))
+            compound_column = _find_compound_column(frame.columns)
+            if compound_column is None:
+                raise ValueError("LoadMIDTable requires a 'Compound' or 'compound' column")
+            sample_columns = _detect_sample_columns(
+                frame.columns,
                 tracer_atoms=tracer_atoms,
-                sample_columns=sample_columns,
-                corrected=True,
-                correction_tool="AccuCor",
-            ),
-        )
-        table.user["pandas_df"] = frame.copy()
-        return Collection(items=[table], item_type=MIDTable)
+                pattern=config.get("sample_column_pattern"),
+            )
+            if not sample_columns:
+                raise ValueError("LoadMIDTable could not detect any sample columns")
+            table = MIDTable(
+                columns=[str(col) for col in frame.columns],
+                row_count=len(frame),
+                schema={str(col): str(dtype) for col, dtype in frame.dtypes.items()},
+                meta=MIDTable.Meta(
+                    tracer_atoms=tracer_atoms,
+                    sample_columns=sample_columns,
+                    corrected=True,
+                    correction_tool="AccuCor",
+                ),
+            )
+            table.user["pandas_df"] = frame.copy()
+            tables.append(table)
+        return Collection(items=tables, item_type=MIDTable)
 
     def save(self, obj: DataObject | Collection, config: BlockConfig) -> None:
         """Not supported — use :class:`SaveTable` for output."""

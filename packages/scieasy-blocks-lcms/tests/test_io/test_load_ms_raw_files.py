@@ -29,7 +29,7 @@ def test_load_single_mzml_file(tmp_path: Path) -> None:
     path = tmp_path / "sample.mzML"
     _write_mzml(path)
 
-    result = LoadMSRawFiles().load(BlockConfig(params={"path": str(tmp_path), "pattern": "*.mzML"}))
+    result = LoadMSRawFiles().load(BlockConfig(params={"path": str(path)}))
     assert isinstance(result, Collection)
     assert len(result) == 1
     item = result[0]
@@ -40,39 +40,29 @@ def test_load_single_mzml_file(tmp_path: Path) -> None:
     assert item.meta.sample_id == "sample"
 
 
-def test_load_recursive_flag_controls_subdirs(tmp_path: Path) -> None:
-    nested = tmp_path / "nested"
-    nested.mkdir()
-    _write_mzml(nested / "deep.mzML", positive=False)
+def test_load_multiple_mzml_files(tmp_path: Path) -> None:
+    path_a = tmp_path / "a.mzML"
+    path_b = tmp_path / "b.mzML"
+    _write_mzml(path_a, positive=True)
+    _write_mzml(path_b, positive=False)
 
-    non_recursive = LoadMSRawFiles().load(
-        BlockConfig(params={"path": str(tmp_path), "pattern": "*.mzML", "recursive": False})
-    )
-    recursive = LoadMSRawFiles().load(
-        BlockConfig(params={"path": str(tmp_path), "pattern": "*.mzML", "recursive": True})
-    )
-
-    assert len(non_recursive) == 0
-    assert len(recursive) == 1
-    assert recursive[0].meta.polarity == "-"
-
-
-def test_load_raises_on_missing_directory(tmp_path: Path) -> None:
-    with pytest.raises(FileNotFoundError):
-        LoadMSRawFiles().load(BlockConfig(params={"path": str(tmp_path / "missing")}))
-
-
-def test_load_empty_glob_returns_empty_collection(tmp_path: Path) -> None:
-    result = LoadMSRawFiles().load(BlockConfig(params={"path": str(tmp_path), "pattern": "*.mzML"}))
+    result = LoadMSRawFiles().load(BlockConfig(params={"path": [str(path_a), str(path_b)]}))
     assert isinstance(result, Collection)
-    assert len(result) == 0
+    assert len(result) == 2
+    assert result[0].meta.polarity == "+"
+    assert result[1].meta.polarity == "-"
+
+
+def test_load_raises_on_missing_file(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        LoadMSRawFiles().load(BlockConfig(params={"path": str(tmp_path / "missing.mzML")}))
 
 
 def test_load_raw_file_records_path_only(tmp_path: Path) -> None:
     raw_path = tmp_path / "sample.raw"
     raw_path.write_bytes(b"RAW")
 
-    result = LoadMSRawFiles().load(BlockConfig(params={"path": str(tmp_path), "pattern": "*.raw"}))
+    result = LoadMSRawFiles().load(BlockConfig(params={"path": str(raw_path)}))
     assert result[0].file_path == raw_path
     assert result[0].meta.format == "raw"
     assert result[0].meta.instrument is None
@@ -82,16 +72,19 @@ def test_load_d_folder_records_path_only(tmp_path: Path) -> None:
     d_path = tmp_path / "sample.d"
     d_path.mkdir()
 
-    result = LoadMSRawFiles().load(BlockConfig(params={"path": str(tmp_path), "pattern": "*.d"}))
+    result = LoadMSRawFiles().load(BlockConfig(params={"path": str(d_path)}))
     assert result[0].file_path == d_path
     assert result[0].meta.format == "d"
 
 
-def test_format_hint_override(tmp_path: Path) -> None:
-    path = tmp_path / "sample.mzML"
-    _write_mzml(path)
+def test_load_invalid_path_raises_value_error() -> None:
+    with pytest.raises(ValueError, match="non-empty string"):
+        LoadMSRawFiles().load(BlockConfig(params={"path": ""}))
 
-    result = LoadMSRawFiles().load(
-        BlockConfig(params={"path": str(tmp_path), "pattern": "*.mzML", "format_hint": "mzXML"})
-    )
-    assert result[0].meta.format == "mzXML"
+
+def test_config_schema_uses_file_browser() -> None:
+    schema = LoadMSRawFiles.config_schema
+    path_prop = schema["properties"]["path"]
+    assert path_prop["ui_widget"] == "file_browser"
+    assert path_prop["type"] == ["string", "array"]
+    assert path_prop["items"] == {"type": "string"}

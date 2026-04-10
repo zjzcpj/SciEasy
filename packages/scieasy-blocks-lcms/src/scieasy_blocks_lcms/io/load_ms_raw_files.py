@@ -62,60 +62,46 @@ class LoadMSRawFiles(_LCMSBlockMixin, IOBlock):
         "type": "object",
         "properties": {
             "path": {
-                "type": "string",
-                "title": "Directory path",
+                "type": ["string", "array"],
+                "items": {"type": "string"},
+                "title": "Raw file path(s)",
                 "ui_priority": 0,
-                "ui_widget": "directory_browser",
-            },
-            "pattern": {
-                "type": "string",
-                "title": "Glob pattern",
-                "default": "*.mzML",
-                "ui_priority": 1,
-            },
-            "recursive": {
-                "type": "boolean",
-                "title": "Recursive",
-                "default": False,
-                "ui_priority": 2,
-            },
-            "format_hint": {
-                "type": ["string", "null"],
-                "enum": [None, "mzML", "mzXML", "raw", "d"],
-                "default": None,
-                "title": "Format hint",
-                "ui_priority": 3,
+                "ui_widget": "file_browser",
             },
         },
         "required": ["path"],
     }
 
     def load(self, config: BlockConfig) -> DataObject | Collection:
-        """Glob the configured path and return ``Collection[MSRawFile]``.
+        """Load file path(s) and return ``Collection[MSRawFile]``.
 
-        Implementation must:
+        Accepts ``config["path"]`` as a single string or a list of strings
+        (matching the :class:`LoadImage` multi-file pattern).
 
-        * raise :class:`FileNotFoundError` on missing directory
-        * respect ``recursive`` (``glob`` vs ``rglob``)
-        * call ``_probe_header`` to populate ``MSRawFile.Meta`` for
-          mzML/mzXML and skip header parsing for ``.raw``/``.d``
-        * fall back to ``path.stem`` for ``sample_id``
+        Each path is probed for lightweight header metadata via
+        :func:`_probe_header`.
 
         Returns:
             ``Collection[MSRawFile]`` (possibly empty).
+
+        Raises:
+            FileNotFoundError: If any specified path does not exist.
+            ValueError: If ``path`` is neither a string nor a list of strings.
         """
-        root = Path(config.get("path"))
-        if not root.exists():
-            raise FileNotFoundError(f"LoadMSRawFiles: path does not exist: {root}")
+        raw_path = config.get("path")
 
-        pattern = str(config.get("pattern", "*.mzML"))
-        recursive = bool(config.get("recursive", False))
-        format_hint = config.get("format_hint")
+        if isinstance(raw_path, list):
+            paths = [Path(p) for p in raw_path if isinstance(p, str) and p]
+        elif isinstance(raw_path, str) and raw_path:
+            paths = [Path(raw_path)]
+        else:
+            raise ValueError("LoadMSRawFiles: config['path'] must be a non-empty string or list of strings")
 
-        candidates = sorted(root.rglob(pattern) if recursive else root.glob(pattern))
         items: list[MSRawFile] = []
-        for path in candidates:
-            meta = _probe_header(path, format_hint=format_hint)
+        for path in paths:
+            if not path.exists():
+                raise FileNotFoundError(f"LoadMSRawFiles: path does not exist: {path}")
+            meta = _probe_header(path)
             items.append(
                 MSRawFile(
                     file_path=path,

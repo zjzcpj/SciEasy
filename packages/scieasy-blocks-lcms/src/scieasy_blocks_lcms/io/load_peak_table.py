@@ -64,8 +64,9 @@ class LoadPeakTable(_LCMSBlockMixin, IOBlock):
         "type": "object",
         "properties": {
             "path": {
-                "type": "string",
-                "title": "Peak table file",
+                "type": ["string", "array"],
+                "items": {"type": "string"},
+                "title": "Peak table file(s)",
                 "ui_priority": 0,
                 "ui_widget": "file_browser",
             },
@@ -94,39 +95,44 @@ class LoadPeakTable(_LCMSBlockMixin, IOBlock):
     }
 
     def load(self, config: BlockConfig) -> DataObject | Collection:
-        """Read the peak table file and return a :class:`PeakTable`.
+        """Read peak table file(s) and return a :class:`Collection[PeakTable]`.
 
-        Implementation must:
+        Accepts ``config["path"]`` as a single string or a list of strings
+        (matching the :class:`LoadImage` multi-file pattern).
 
-        * raise :class:`FileNotFoundError` on missing file
-        * raise :class:`ValueError` on empty table
-        * detect ``.csv`` / ``.tsv`` / ``.xlsx`` / ``.xls`` by suffix
-        * resolve ``source="auto"`` via the heuristics in the module
-          docstring
-        * cache the pandas DataFrame under
-          ``peak_table.user["pandas_df"]`` for downstream reuse
+        Raises:
+            FileNotFoundError: If any path does not exist.
+            ValueError: If the table is empty or path config is invalid.
         """
-        path = Path(config.get("path"))
-        if not path.exists():
-            raise FileNotFoundError(f"LoadPeakTable: source file not found: {path}")
-
-        frame = _read_table(path, sheet_name=config.get("sheet_name"))
-        if frame.empty:
-            raise ValueError(f"LoadPeakTable: table is empty: {path}")
+        raw_path = config.get("path")
+        if isinstance(raw_path, list):
+            paths = [Path(p) for p in raw_path if isinstance(p, str) and p]
+        elif isinstance(raw_path, str) and raw_path:
+            paths = [Path(raw_path)]
+        else:
+            raise ValueError("LoadPeakTable: config['path'] must be a non-empty string or list of strings")
 
         source = str(config.get("source", "auto"))
-        resolved_source = _detect_source(frame.columns) if source == "auto" else source
-        table = PeakTable(
-            columns=[str(col) for col in frame.columns],
-            row_count=len(frame),
-            schema={str(col): str(dtype) for col, dtype in frame.dtypes.items()},
-            meta=PeakTable.Meta(
-                source=resolved_source,
-                polarity=config.get("polarity"),
-            ),
-        )
-        table.user["pandas_df"] = frame.copy()
-        return Collection(items=[table], item_type=PeakTable)
+        tables: list[PeakTable] = []
+        for path in paths:
+            if not path.exists():
+                raise FileNotFoundError(f"LoadPeakTable: source file not found: {path}")
+            frame = _read_table(path, sheet_name=config.get("sheet_name"))
+            if frame.empty:
+                raise ValueError(f"LoadPeakTable: table is empty: {path}")
+            resolved_source = _detect_source(frame.columns) if source == "auto" else source
+            table = PeakTable(
+                columns=[str(col) for col in frame.columns],
+                row_count=len(frame),
+                schema={str(col): str(dtype) for col, dtype in frame.dtypes.items()},
+                meta=PeakTable.Meta(
+                    source=resolved_source,
+                    polarity=config.get("polarity"),
+                ),
+            )
+            table.user["pandas_df"] = frame.copy()
+            tables.append(table)
+        return Collection(items=tables, item_type=PeakTable)
 
     def save(self, obj: DataObject | Collection, config: BlockConfig) -> None:
         """Not supported — use :class:`SaveTable` for output."""
