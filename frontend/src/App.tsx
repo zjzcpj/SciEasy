@@ -66,6 +66,7 @@ export default function App() {
   const blockOutputs = useAppStore((state) => state.blockOutputs);
   const blockErrors = useAppStore((state) => state.blockErrors);
   const logEntries = useAppStore((state) => state.logEntries);
+  const isRunning = useAppStore((state) => state.isRunning);
   const resetExecution = useAppStore((state) => state.resetExecution);
 
   const selectedNodeId = useAppStore((state) => state.selectedNodeId);
@@ -631,6 +632,7 @@ export default function App() {
             onStartFromSelected={() => void startFromSelected()}
             onAddAnnotation={() => addAnnotationNode({ x: 150 + Math.random() * 200, y: 150 + Math.random() * 200 })}
             onAddGroup={() => addGroupNode({ x: 150 + Math.random() * 200, y: 150 + Math.random() * 200 })}
+            isRunning={isRunning}
           />
 
           {lastError ? (
