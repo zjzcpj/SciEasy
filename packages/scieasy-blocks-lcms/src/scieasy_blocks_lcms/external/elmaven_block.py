@@ -65,11 +65,9 @@ class ElMAVENBlock(_LCMSBlockMixin, AppBlock):
         "exchange directory."
     )
 
-    app_command: ClassVar[str] = "elmaven"
+    app_command: ClassVar[str] = ""
     execution_mode: ClassVar[ExecutionMode] = ExecutionMode.EXTERNAL
     output_patterns: ClassVar[list[str]] = ["*.csv", "*.tsv", "*.xlsx"]
-    #: 30-minute window — ElMAVEN is interactive and slow.
-    watch_timeout: ClassVar[int] = 1800
 
     input_ports: ClassVar[list[InputPort]] = [
         InputPort(
@@ -99,15 +97,9 @@ class ElMAVENBlock(_LCMSBlockMixin, AppBlock):
             "elmaven_path": {
                 "type": ["string", "null"],
                 "default": None,
-                "title": "ElMAVEN executable path (overrides app_command)",
+                "title": "Executable Path",
                 "ui_priority": 0,
                 "ui_widget": "file_browser",
-            },
-            "watch_timeout": {
-                "type": "integer",
-                "default": 1800,
-                "title": "Watch timeout (seconds)",
-                "ui_priority": 1,
             },
         },
     }
@@ -182,7 +174,6 @@ class ElMAVENBlock(_LCMSBlockMixin, AppBlock):
                         link.symlink_to(src)
 
         bridge = FileExchangeBridge()
-        timeout = int(config.get("watch_timeout", self.watch_timeout))
         proc = bridge.launch(command, exchange_dir)
         logger.info(
             "ElMAVEN launched. Raw files staged in exchange dir. Save exports to: %s",
@@ -195,7 +186,7 @@ class ElMAVENBlock(_LCMSBlockMixin, AppBlock):
         watcher = FileWatcher(
             directory=output_dir,
             patterns=self.output_patterns,
-            timeout=timeout,
+            timeout=None,
             process_handle=_PopenProcessAdapter(proc),
             stability_period=stability_period,
             done_marker=str(done_marker) if done_marker is not None else None,
