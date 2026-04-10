@@ -99,8 +99,10 @@ class TestSaveDataClassShape:
         assert _CORE_TYPE_MAP["CompositeData"] is CompositeData
 
     def test_config_schema_required_fields(self) -> None:
+        # ADR-030: ``path`` is now inherited from IOBlock via MRO merge,
+        # so ``required`` on the SaveData class-level schema only lists ``core_type``.
         schema = SaveData.config_schema
-        assert schema["required"] == ["core_type", "path"]
+        assert schema["required"] == ["core_type"]
         assert schema["properties"]["core_type"]["default"] == "DataFrame"
         assert schema["properties"]["allow_pickle"]["default"] is False
         # core_type enum exposes all six core types.

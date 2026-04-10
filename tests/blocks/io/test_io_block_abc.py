@@ -73,7 +73,8 @@ class TestIOBlockConfigSchema:
         assert IOBlock.config_schema["required"] == ["path"]
 
     def test_path_has_ui_priority(self) -> None:
-        assert IOBlock.config_schema["properties"]["path"]["ui_priority"] == 1
+        # ADR-030: ui_priority changed from 1 to 0 for the base IOBlock path field.
+        assert IOBlock.config_schema["properties"]["path"]["ui_priority"] == 0
 
 
 class TestIOBlockSubclassDispatch:

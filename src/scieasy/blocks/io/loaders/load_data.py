@@ -98,19 +98,14 @@ class LoadData(IOBlock):
                 "default": "DataFrame",
                 "ui_priority": 0,
             },
-            "path": {
-                "type": ["string", "array"],
-                "items": {"type": "string"},
-                "ui_priority": 1,
-                "ui_widget": "file_browser",
-            },
+            # ADR-030: ``path`` is inherited from IOBlock base class via MRO merge.
             "allow_pickle": {
                 "type": "boolean",
                 "default": False,
                 "ui_priority": 2,
             },
         },
-        "required": ["core_type", "path"],
+        "required": ["core_type"],
     }
 
     def get_effective_output_ports(self) -> list[OutputPort]:

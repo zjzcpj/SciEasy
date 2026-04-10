@@ -137,22 +137,15 @@ class SaveImage(IOBlock):
     config_schema: ClassVar[dict[str, Any]] = {
         "type": "object",
         "properties": {
-            "path": {
-                "type": "string",
-                "description": (
-                    "Output file path for single images. "
-                    "For batch save (multi-item Collection), treated as a directory."
-                ),
-                "ui_priority": 0,
-                "ui_widget": "directory_browser",
-            },
+            # ADR-030: ``path`` is inherited from IOBlock base class via MRO merge.
+            # Direction-aware post-processing auto-switches to directory_browser.
             "format": {
                 "type": "string",
                 "enum": ["tiff", "zarr"],
                 "ui_priority": 1,
             },
         },
-        "required": ["path"],
+        "required": [],
     }
 
     def load(self, config: BlockConfig) -> DataObject | Collection:  # pragma: no cover - output block

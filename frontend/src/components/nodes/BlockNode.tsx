@@ -1,5 +1,5 @@
 import { type Node, Handle, Position, type NodeProps } from "@xyflow/react";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 import { resolveTypeColor, resolveRingColor, isAnyType, primaryTypeName } from "../../config/typeColorMap";
 import { api } from "../../lib/api";
@@ -479,6 +479,22 @@ function InlineConfigField({
             ...
           </button>
         )}
+        {uiWidget === "directory_browser" && (
+          <button
+            type="button"
+            className="nodrag shrink-0 rounded border border-stone-200 bg-white px-1.5 py-1 text-xs text-stone-600 hover:bg-stone-50"
+            title="Copy path to clipboard"
+            onClick={() => {
+              const val = String(value ?? schema.default ?? "");
+              if (val) void navigator.clipboard.writeText(val);
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <rect x="5" y="5" width="9" height="9" rx="1" />
+              <path d="M11 5V3a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h2" />
+            </svg>
+          </button>
+        )}
       </div>
       {browseOpen && hasBrowse && (
         <FileBrowserModal
@@ -542,6 +558,39 @@ function ErrorMessage({ message }: { message: string }) {
 // ---------------------------------------------------------------------------
 // BlockNode component
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// PausedToast — shown when an AppBlock enters PAUSED state
+// ---------------------------------------------------------------------------
+function PausedToast({ outputDir }: { outputDir: string }) {
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleCopy = () => {
+    if (outputDir) void navigator.clipboard.writeText(outputDir);
+    setCopied(true);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setCopied(false), 1500);
+  };
+
+  return (
+    <div className="mt-1 flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-700">
+      <span className="min-w-0 flex-1 truncate" title={outputDir}>
+        Save outputs to: {outputDir || "(exchange dir)"}
+      </span>
+      {outputDir && (
+        <button
+          type="button"
+          className="nodrag shrink-0 rounded border border-amber-300 bg-white px-1 py-0.5 text-[10px] text-amber-700 hover:bg-amber-50"
+          title="Copy output path"
+          onClick={handleCopy}
+        >
+          {copied ? "Copied" : "Copy"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function BlockNode({ data, selected }: NodeProps<Node<BlockNodeData>>) {
   // ADR-028 Addendum 1 §B fix #2 / §C11: hide the ``direction`` config
   // field for any IO block (not just the legacy abstract-base type_name).
@@ -715,11 +764,16 @@ export function BlockNode({ data, selected }: NodeProps<Node<BlockNodeData>>) {
       {/* ----------------------------------------------------------------- */}
       {/* Footer                                                            */}
       {/* ----------------------------------------------------------------- */}
-      <div className="flex min-w-0 items-center border-t border-stone-100 px-3 py-2">
-        <StatusBadge status={data.status} onErrorClick={data.onErrorClick} />
-        {data.status === "error" && data.errorMessage ? (
-          <ErrorMessage message={data.errorMessage} />
-        ) : null}
+      <div className="border-t border-stone-100 px-3 py-2">
+        <div className="flex min-w-0 items-center">
+          <StatusBadge status={data.status} onErrorClick={data.onErrorClick} />
+          {data.status === "error" && data.errorMessage ? (
+            <ErrorMessage message={data.errorMessage} />
+          ) : null}
+        </div>
+        {data.status === "paused" && data.category === "app" && (
+          <PausedToast outputDir={String(data.config?.output_dir ?? "")} />
+        )}
       </div>
     </div>
   );

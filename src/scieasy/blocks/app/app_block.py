@@ -68,6 +68,13 @@ class AppBlock(Block):
     config_schema: ClassVar[dict[str, Any]] = {
         "type": "object",
         "properties": {
+            "output_dir": {
+                "type": ["string", "null"],
+                "default": None,
+                "title": "Save Outputs At",
+                "ui_widget": "directory_browser",
+                "ui_priority": 0,
+            },
             "app_command": {"type": "string", "title": "Application Command", "ui_priority": 1},
             "output_patterns": {
                 "type": "string",
@@ -133,10 +140,12 @@ class AppBlock(Block):
         process_adapter = _PopenProcessAdapter(proc)
 
         # Step 3: Watch for outputs with process monitoring.
+        # ADR-030 D3: use user-selected output_dir if configured.
         from scieasy.blocks.app.watcher import FileWatcher, ProcessExitedWithoutOutputError
 
-        output_dir = exchange_dir / "outputs"
-        output_dir.mkdir(exist_ok=True)
+        custom_output_dir = config.get("output_dir")
+        output_dir = Path(custom_output_dir) if custom_output_dir else exchange_dir / "outputs"
+        output_dir.mkdir(parents=True, exist_ok=True)
         stability_period = float(config.get("stability_period", 2.0))
         done_marker = config.get("done_marker")
         watcher = FileWatcher(

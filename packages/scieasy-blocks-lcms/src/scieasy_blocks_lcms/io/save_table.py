@@ -57,12 +57,9 @@ class SaveTable(_LCMSBlockMixin, IOBlock):
     config_schema: ClassVar[dict[str, Any]] = {
         "type": "object",
         "properties": {
-            "path": {
-                "type": "string",
-                "title": "Output file path",
-                "ui_priority": 0,
-                "ui_widget": "file_browser",
-            },
+            # ADR-030: ``path`` is inherited from IOBlock base class via MRO merge.
+            # Direction-aware post-processing auto-switches to directory_browser,
+            # fixing the incorrect file_browser that was declared here previously.
             "format": {
                 "type": "string",
                 "enum": ["csv", "tsv", "xlsx"],
@@ -77,7 +74,7 @@ class SaveTable(_LCMSBlockMixin, IOBlock):
                 "ui_priority": 2,
             },
         },
-        "required": ["path"],
+        "required": [],
     }
 
     def load(self, config: BlockConfig) -> DataObject | Collection:
