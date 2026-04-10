@@ -8,7 +8,7 @@ four LC-MS types plus public block classes across the sub-packages
 from __future__ import annotations
 
 from scieasy.blocks.base.package_info import PackageInfo
-from scieasy_blocks_lcms.external import AccuCorR, ElMAVENBlock, GraphPadBlock
+from scieasy_blocks_lcms.external import AccuCorR, ElMAVENBlock
 from scieasy_blocks_lcms.io import (
     LoadMIDTable,
     LoadMSRawFiles,
@@ -40,7 +40,6 @@ _LCMS_BLOCKS: tuple[type, ...] = (
     # External
     ElMAVENBlock,
     AccuCorR,
-    GraphPadBlock,
     # Isotope tracing
     FluxEstimate,
     PoolSizeNormalize,
@@ -71,7 +70,6 @@ __all__ = [
     "AccuCorR",
     "ElMAVENBlock",
     "FluxEstimate",
-    "GraphPadBlock",
     "LoadMIDTable",
     "LoadMSRawFiles",
     "LoadPeakTable",

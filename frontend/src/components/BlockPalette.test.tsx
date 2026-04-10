@@ -36,7 +36,7 @@ describe("BlockPalette — Stage 10.1 Part 2", () => {
     const blocks: BlockSummary[] = [
       makeBlock({ type_name: "imaging.cellpose_segment", name: "Cellpose Segment", category: "segmentation" }),
       makeBlock({ type_name: "lcms.load_peak_table", name: "Load Peak Table", category: "io" }),
-      makeBlock({ type_name: "io_block", name: "io_block", category: "io" }),
+      makeBlock({ type_name: "load_data", name: "Load", category: "io" }),
     ];
 
     render(<BlockPalette {...defaultProps} blocks={blocks} />);
@@ -125,15 +125,16 @@ describe("BlockPalette — Stage 10.1 Part 2", () => {
     expect(screen.queryByText("segmentation")).not.toBeInTheDocument();
   });
 
-  it("IO block expansion still produces Load Block and Save Block", () => {
+  it("blocks render as-is without IO expansion", () => {
     const blocks: BlockSummary[] = [
-      makeBlock({ type_name: "io_block", name: "io_block", category: "io" }),
+      makeBlock({ type_name: "load_data", name: "Load", category: "io", direction: "input" }),
+      makeBlock({ type_name: "save_data", name: "Save", category: "io", direction: "output" }),
     ];
 
     render(<BlockPalette {...defaultProps} blocks={blocks} />);
 
-    // io_block gets expanded to two entries
-    expect(screen.getAllByText("Load Block").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Save Block").length).toBeGreaterThan(0);
+    // Blocks render with their actual names — no expansion
+    expect(screen.getAllByText("Load").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Save").length).toBeGreaterThan(0);
   });
 });

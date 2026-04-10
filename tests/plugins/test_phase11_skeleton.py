@@ -118,7 +118,6 @@ PLUGIN_MODULES: list[str] = [
     "scieasy_blocks_lcms.external",
     "scieasy_blocks_lcms.external.elmaven_block",
     "scieasy_blocks_lcms.external.accucor_r",
-    "scieasy_blocks_lcms.external.graphpad_block",
     "scieasy_blocks_lcms.isotope_tracing",
     "scieasy_blocks_lcms.isotope_tracing.flux_estimate",
     "scieasy_blocks_lcms.isotope_tracing.pool_size_normalize",
@@ -279,7 +278,7 @@ def test_lcms_block_skeletons_inherit_real_bases() -> None:
     ``AppBlock`` / ``CodeBlock``). Each entry below pairs a block
     class with the lowest-level real base it must subclass.
     """
-    from scieasy_blocks_lcms.external import AccuCorR, ElMAVENBlock, GraphPadBlock
+    from scieasy_blocks_lcms.external import AccuCorR, ElMAVENBlock
     from scieasy_blocks_lcms.io import (
         LoadMIDTable,
         LoadMSRawFiles,
@@ -305,7 +304,6 @@ def test_lcms_block_skeletons_inherit_real_bases() -> None:
         (SaveTable, IOBlock),
         (ElMAVENBlock, AppBlock),
         (AccuCorR, CodeBlock),
-        (GraphPadBlock, AppBlock),
         (FluxEstimate, ProcessBlock),
         (PoolSizeNormalize, ProcessBlock),
     ]
