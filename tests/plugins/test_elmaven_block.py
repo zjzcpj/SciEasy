@@ -1,9 +1,11 @@
-"""Tests for ElMAVEN block fixes (#510, #526).
+"""Tests for ElMAVEN block (#510, #526, #555).
 
-These tests verify the staging logic and bridge configuration without
-actually launching ElMAVEN (which requires a GUI application).
+These tests verify the staging logic, bridge configuration, and the
+standard AppBlock pattern refactoring without actually launching
+ElMAVEN (which requires a GUI application).
 
-Issue #526: verify PIPE→DEVNULL fix and removal of argv_override.
+Issue #555: verify ElMAVEN follows the standard AppBlock pattern
+(shared helpers for exchange dir, command resolution, app launch).
 """
 
 from __future__ import annotations
@@ -13,7 +15,13 @@ from pathlib import Path
 import pytest
 
 try:
-    from scieasy_blocks_lcms.external.elmaven_block import ElMAVENBlock, _classify_export
+    from scieasy_blocks_lcms.external.elmaven_block import (
+        ElMAVENBlock,
+        _classify_export,
+        _collect_elmaven_outputs,
+        _resolve_command,
+        _resolve_exchange_dir,
+    )
     from scieasy_blocks_lcms.types import MSRawFile
 
     HAS_LCMS = True
@@ -93,6 +101,31 @@ class TestElMAVENBlockManifest:
         assert len(raw_paths) == 2
         assert str(raw1) in raw_paths
         assert str(raw2) in raw_paths
+
+
+class TestSharedHelpers:
+    """Test the shared helpers introduced by #555 refactoring."""
+
+    def test_resolve_exchange_dir_creates_subdirs(self, tmp_path: Path) -> None:
+        from scieasy.blocks.base.config import BlockConfig
+
+        config = BlockConfig(params={"project_dir": str(tmp_path), "block_id": "test-blk"})
+        result = _resolve_exchange_dir(config, prefix="scieasy_elmaven_")
+        assert result == tmp_path / "data" / "exchange" / "test-blk"
+        assert (result / "inputs").is_dir()
+        assert (result / "outputs").is_dir()
+
+    def test_resolve_command_uses_override_key(self) -> None:
+        from scieasy.blocks.base.config import BlockConfig
+
+        config = BlockConfig(params={"elmaven_path": "/opt/elmaven/bin/elmaven"})
+        result = _resolve_command(config, app_command="elmaven", override_key="elmaven_path")
+        assert result == ["/opt/elmaven/bin/elmaven"]
+
+    def test_collect_elmaven_outputs_empty_returns_empty_collections(self) -> None:
+        result = _collect_elmaven_outputs([])
+        assert len(result["peak_table"]) == 0
+        assert len(result["mid_table"]) == 0
 
 
 class TestBridgeDevNull:
