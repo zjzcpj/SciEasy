@@ -324,6 +324,7 @@ class ApiRuntime:
             "data/zarr",
             "data/parquet",
             "data/artifacts",
+            "data/exchange",
             "blocks",
             "types",
             "checkpoints",
