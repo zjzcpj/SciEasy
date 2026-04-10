@@ -399,6 +399,24 @@ function InlineConfigField({
     );
   }
 
+  // Textarea widget — multi-line text editing (e.g. AI block prompt).
+  // Any block can opt in by declaring "ui_widget": "textarea" in its
+  // config_schema property.
+  if ((schema.ui_widget as string | undefined) === "textarea") {
+    return (
+      <label className="flex flex-col gap-1 text-xs">
+        <span className="text-stone-500">{label}</span>
+        <textarea
+          className="nodrag nowheel w-full resize-y rounded border border-stone-200 bg-white px-2 py-1 text-xs text-ink focus:border-sea focus:outline-none"
+          rows={6}
+          placeholder={`Enter ${label.toLowerCase()}...`}
+          value={String(value ?? schema.default ?? "")}
+          onChange={(e) => onChange(key, e.target.value)}
+        />
+      </label>
+    );
+  }
+
   // Default: text input. When ui_widget is "file_browser" or
   // "directory_browser", render a "..." browse button next to the input
   // that opens the FileBrowserModal (#484).
