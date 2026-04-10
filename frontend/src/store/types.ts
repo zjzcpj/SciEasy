@@ -59,6 +59,8 @@ export interface ExecutionSlice {
   blockErrors: Record<string, string>;
   executionMessages: string[];
   logEntries: LogEntry[];
+  /** True while a workflow execution is in progress. */
+  isRunning: boolean;
   consumeEvent: (event: WorkflowEventMessage) => void;
   appendLog: (entry: LogEntry) => void;
   resetExecution: () => void;
