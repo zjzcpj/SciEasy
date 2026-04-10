@@ -512,3 +512,268 @@ class TestStage101CategoryAndSource:
         After Agent B updates the comparison in ``hot_reload`` to
         ``spec.source == "custom"``, deleted drop-in files are still pruned.
         """
+
+
+# ----------------------------------------------------------------------------
+# ADR-030 — config_schema MRO merge tests
+# ----------------------------------------------------------------------------
+
+
+class TestMergeConfigSchema:
+    """ADR-030: _merge_config_schema() merges properties along the MRO."""
+
+    def test_child_properties_override_parent(self) -> None:
+        """When both parent and child declare the same field, child wins."""
+        from typing import Any, ClassVar
+
+        from scieasy.blocks.base.block import Block
+        from scieasy.blocks.registry import _merge_config_schema
+
+        class Parent(Block):
+            config_schema: ClassVar[dict[str, Any]] = {
+                "type": "object",
+                "properties": {
+                    "field_a": {"type": "string", "title": "Parent A"},
+                },
+                "required": ["field_a"],
+            }
+
+            def run(self, inputs, config):
+                return {}
+
+        class Child(Parent):
+            config_schema: ClassVar[dict[str, Any]] = {
+                "type": "object",
+                "properties": {
+                    "field_a": {"type": "string", "title": "Child A"},
+                },
+                "required": [],
+            }
+
+        merged = _merge_config_schema(Child)
+        assert merged["properties"]["field_a"]["title"] == "Child A"
+        assert "field_a" in merged["required"]
+
+    def test_parent_fields_appear_when_not_overridden(self) -> None:
+        """Fields declared only in parent appear in the merged schema."""
+        from typing import Any, ClassVar
+
+        from scieasy.blocks.base.block import Block
+        from scieasy.blocks.registry import _merge_config_schema
+
+        class Parent(Block):
+            config_schema: ClassVar[dict[str, Any]] = {
+                "type": "object",
+                "properties": {
+                    "parent_field": {"type": "string"},
+                },
+                "required": ["parent_field"],
+            }
+
+            def run(self, inputs, config):
+                return {}
+
+        class Child(Parent):
+            config_schema: ClassVar[dict[str, Any]] = {
+                "type": "object",
+                "properties": {
+                    "child_field": {"type": "number"},
+                },
+                "required": ["child_field"],
+            }
+
+        merged = _merge_config_schema(Child)
+        assert "parent_field" in merged["properties"]
+        assert "child_field" in merged["properties"]
+        assert "parent_field" in merged["required"]
+        assert "child_field" in merged["required"]
+
+    def test_direction_aware_path_for_output_ioblock(self) -> None:
+        """Output IOBlock subclass gets directory_browser + single-string path."""
+        from typing import Any, ClassVar
+
+        from scieasy.blocks.base.config import BlockConfig
+        from scieasy.blocks.io.io_block import IOBlock
+        from scieasy.blocks.registry import _merge_config_schema
+        from scieasy.core.types.base import DataObject
+        from scieasy.core.types.collection import Collection
+
+        class MySaver(IOBlock):
+            direction: ClassVar[str] = "output"
+
+            config_schema: ClassVar[dict[str, Any]] = {
+                "type": "object",
+                "properties": {
+                    "format": {"type": "string"},
+                },
+                "required": [],
+            }
+
+            def load(self, config: BlockConfig) -> DataObject | Collection:
+                raise NotImplementedError
+
+            def save(self, obj: DataObject | Collection, config: BlockConfig) -> None:
+                pass
+
+        merged = _merge_config_schema(MySaver)
+        path_prop = merged["properties"]["path"]
+        assert path_prop["type"] == "string"
+        assert path_prop["ui_widget"] == "directory_browser"
+        assert "items" not in path_prop
+
+    def test_input_ioblock_inherits_file_browser(self) -> None:
+        """Input IOBlock subclass inherits file_browser + array path from base."""
+        from typing import Any, ClassVar
+
+        from scieasy.blocks.base.config import BlockConfig
+        from scieasy.blocks.io.io_block import IOBlock
+        from scieasy.blocks.registry import _merge_config_schema
+        from scieasy.core.types.base import DataObject
+        from scieasy.core.types.collection import Collection
+
+        class MyLoader(IOBlock):
+            direction: ClassVar[str] = "input"
+
+            config_schema: ClassVar[dict[str, Any]] = {
+                "type": "object",
+                "properties": {
+                    "format": {"type": "string"},
+                },
+                "required": [],
+            }
+
+            def load(self, config: BlockConfig) -> DataObject | Collection:
+                raise NotImplementedError
+
+            def save(self, obj: DataObject | Collection, config: BlockConfig) -> None:
+                raise NotImplementedError
+
+        merged = _merge_config_schema(MyLoader)
+        path_prop = merged["properties"]["path"]
+        assert path_prop["type"] == ["string", "array"]
+        assert path_prop["ui_widget"] == "file_browser"
+        assert "items" in path_prop
+
+    def test_appblock_subclass_inherits_output_dir(self) -> None:
+        """AppBlock subclass inherits output_dir from the base class."""
+        from typing import Any, ClassVar
+
+        from scieasy.blocks.app.app_block import AppBlock
+        from scieasy.blocks.registry import _merge_config_schema
+
+        class MyApp(AppBlock):
+            app_command: ClassVar[str] = "fiji"
+
+            config_schema: ClassVar[dict[str, Any]] = {
+                "type": "object",
+                "properties": {
+                    "custom_field": {"type": "string"},
+                },
+                "required": [],
+            }
+
+        merged = _merge_config_schema(MyApp)
+        assert "output_dir" in merged["properties"]
+        assert merged["properties"]["output_dir"]["ui_widget"] == "directory_browser"
+        assert "custom_field" in merged["properties"]
+        assert "app_command" in merged["properties"]
+
+    def test_subclass_path_override_wins(self) -> None:
+        """When a leaf class explicitly declares path, its version wins."""
+        from typing import Any, ClassVar
+
+        from scieasy.blocks.base.config import BlockConfig
+        from scieasy.blocks.io.io_block import IOBlock
+        from scieasy.blocks.registry import _merge_config_schema
+        from scieasy.core.types.base import DataObject
+        from scieasy.core.types.collection import Collection
+
+        class CustomLoader(IOBlock):
+            direction: ClassVar[str] = "input"
+
+            config_schema: ClassVar[dict[str, Any]] = {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": ["string", "array"],
+                        "items": {"type": "string"},
+                        "title": "Custom Path Title",
+                        "ui_priority": 0,
+                        "ui_widget": "file_browser",
+                    },
+                },
+                "required": ["path"],
+            }
+
+            def load(self, config: BlockConfig) -> DataObject | Collection:
+                raise NotImplementedError
+
+            def save(self, obj: DataObject | Collection, config: BlockConfig) -> None:
+                raise NotImplementedError
+
+        merged = _merge_config_schema(CustomLoader)
+        assert merged["properties"]["path"]["title"] == "Custom Path Title"
+
+    def test_output_block_with_own_path_not_overridden(self) -> None:
+        """Output IOBlock that declares its own path keeps it as-is."""
+        from typing import Any, ClassVar
+
+        from scieasy.blocks.base.config import BlockConfig
+        from scieasy.blocks.io.io_block import IOBlock
+        from scieasy.blocks.registry import _merge_config_schema
+        from scieasy.core.types.base import DataObject
+        from scieasy.core.types.collection import Collection
+
+        class CustomSaver(IOBlock):
+            direction: ClassVar[str] = "output"
+
+            config_schema: ClassVar[dict[str, Any]] = {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "title": "My Output Path",
+                        "ui_widget": "file_browser",
+                    },
+                },
+                "required": ["path"],
+            }
+
+            def load(self, config: BlockConfig) -> DataObject | Collection:
+                raise NotImplementedError
+
+            def save(self, obj: DataObject | Collection, config: BlockConfig) -> None:
+                pass
+
+        merged = _merge_config_schema(CustomSaver)
+        # Subclass explicitly declared path, so direction-aware override is skipped.
+        assert merged["properties"]["path"]["ui_widget"] == "file_browser"
+        assert merged["properties"]["path"]["title"] == "My Output Path"
+
+    def test_required_deduplication(self) -> None:
+        """Duplicate required fields across MRO are deduplicated."""
+        from typing import Any, ClassVar
+
+        from scieasy.blocks.base.block import Block
+        from scieasy.blocks.registry import _merge_config_schema
+
+        class Parent(Block):
+            config_schema: ClassVar[dict[str, Any]] = {
+                "type": "object",
+                "properties": {"x": {"type": "string"}},
+                "required": ["x"],
+            }
+
+            def run(self, inputs, config):
+                return {}
+
+        class Child(Parent):
+            config_schema: ClassVar[dict[str, Any]] = {
+                "type": "object",
+                "properties": {"y": {"type": "string"}},
+                "required": ["x", "y"],
+            }
+
+        merged = _merge_config_schema(Child)
+        assert merged["required"].count("x") == 1
+        assert merged["required"].count("y") == 1

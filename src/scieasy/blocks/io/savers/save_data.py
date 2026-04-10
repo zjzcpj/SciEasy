@@ -166,14 +166,15 @@ class SaveData(IOBlock):
                 "default": "DataFrame",
                 "ui_priority": 0,
             },
-            "path": {"type": "string", "ui_priority": 1, "ui_widget": "directory_browser"},
+            # ADR-030: ``path`` is inherited from IOBlock base class via MRO merge.
+            # Direction-aware post-processing auto-switches to directory_browser.
             "allow_pickle": {
                 "type": "boolean",
                 "default": False,
                 "ui_priority": 2,
             },
         },
-        "required": ["core_type", "path"],
+        "required": ["core_type"],
     }
 
     def get_effective_input_ports(self) -> list[InputPort]:

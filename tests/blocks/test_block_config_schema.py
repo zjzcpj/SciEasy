@@ -59,4 +59,5 @@ class TestBlockConfigSchema:
                 return {}
 
         spec = _spec_from_class(PlainBlock, source="test")
-        assert spec.config_schema == {"type": "object", "properties": {}}
+        # ADR-030: _merge_config_schema always produces a ``required`` key.
+        assert spec.config_schema == {"type": "object", "properties": {}, "required": []}

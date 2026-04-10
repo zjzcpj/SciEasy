@@ -154,13 +154,16 @@ def _run_external_app(
     if block.state == BlockState.RUNNING:
         block.transition(BlockState.PAUSED)
 
-    output_dir = exchange_dir / "outputs"
+    # ADR-030 D3: use user-selected output_dir if configured.
+    custom_output_dir = config.get("output_dir")
+    output_dir = Path(str(custom_output_dir)) if custom_output_dir else exchange_dir / "outputs"
+    output_dir.mkdir(parents=True, exist_ok=True)
     logger.info("Waiting for external application output. Save files to: %s", output_dir)
     _open_file_manager(output_dir)
 
     proc = bridge.launch(command, exchange_dir, argv_override=launch_args)
     watcher = FileWatcher(
-        directory=exchange_dir / "outputs",
+        directory=output_dir,
         patterns=patterns,
         timeout=timeout,
         process_handle=_PopenProcessAdapter(proc),

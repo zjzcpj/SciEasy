@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- [#557] ADR-030 config_schema MRO merge: auto-inherit base class config fields, IOBlock path injection, AppBlock output_dir, directory_browser copy button, PAUSED toast (@claude, 2026-04-10, branch: feat/issue-557/config-schema-mro-merge, session: 20260410-024235-adr-030-config-schema-mro-merge-ioblock)
 - [#543] Auto-assign port colors for plugin types via deterministic hashing (@claude, 2026-04-10, branch: feat/issue-543/port-color-hashing, session: 20260410-001558-feat-gui-auto-assign-port-colors-for-plu)
 - [#531] AI block: large prompt textarea widget + load prompt from file (.md/.txt) (@claude, 2026-04-10, branch: fix/issue-531/ai-block-textarea, session: 20260410-001127-feat-gui-ai-block-large-prompt-textarea)
 - [#494] Add native OS file/directory dialog for browse button with platform-specific subprocess calls (@claude, 2026-04-09, branch: feat/issue-494/native-file-dialog, session: 20260409-165203-native-os-file-dialog-for-browse-button)

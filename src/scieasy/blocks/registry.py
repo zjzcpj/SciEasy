@@ -518,12 +518,69 @@ class BlockRegistry:
         return dict(self._registry)
 
 
+def _subclass_declares_field(cls: type, field_name: str) -> bool:
+    """Return True if the leaf class's own ``config_schema`` declares *field_name*.
+
+    Checks only ``cls.__dict__`` (the leaf class itself), not the MRO.
+    Used by direction-aware post-processing to decide whether to override
+    inherited path fields.
+    """
+    own_schema = cls.__dict__.get("config_schema")
+    if not isinstance(own_schema, dict):
+        return False
+    return field_name in own_schema.get("properties", {})
+
+
+def _merge_config_schema(cls: type) -> dict[str, Any]:
+    """Merge ``config_schema`` properties along the MRO (child wins on conflict).
+
+    ADR-030 D1: walks ``cls.__mro__`` in reverse (base first) and unions
+    all ``properties`` dicts.  Uses ``klass.__dict__`` (own attributes only),
+    not ``getattr``, so intermediate classes that do not declare their own
+    ``config_schema`` are skipped rather than inheriting the same dict
+    repeatedly.
+
+    After merging, applies direction-aware post-processing for IOBlock
+    subclasses (ADR-030 D2): if the block has ``direction == "output"``
+    and the ``path`` field was inherited (not declared in the leaf class),
+    the path field is converted to single-string ``directory_browser``.
+    """
+    import copy
+
+    merged_properties: dict[str, Any] = {}
+    merged_required: list[str] = []
+    for klass in reversed(cls.__mro__):
+        schema = klass.__dict__.get("config_schema")
+        if schema and isinstance(schema, dict):
+            # Deep-copy so post-processing mutations don't corrupt the
+            # class-level dict shared by all instances of the base class.
+            merged_properties.update(copy.deepcopy(schema.get("properties", {})))
+            merged_required.extend(schema.get("required", []))
+
+    # ADR-030 D2: direction-aware path adjustment for IOBlock output subclasses.
+    direction = getattr(cls, "direction", "")
+    if direction == "output" and "path" in merged_properties and not _subclass_declares_field(cls, "path"):
+        path_prop = merged_properties["path"]
+        path_prop["type"] = "string"
+        path_prop["ui_widget"] = "directory_browser"
+        path_prop.pop("items", None)
+
+    return {
+        "type": "object",
+        "properties": merged_properties,
+        "required": list(dict.fromkeys(merged_required)),
+    }
+
+
 def _spec_from_class(cls: type, source: str = "") -> BlockSpec:
     """Build a :class:`BlockSpec` from a Block subclass's class-level metadata.
 
     ADR-028 Addendum 1 D3: validates ``dynamic_ports`` shape at scan time and
     captures both ``direction`` (for IO blocks) and ``dynamic_ports`` (for
     enum-driven dynamic-port blocks) onto the spec.
+
+    ADR-030 D1: uses ``_merge_config_schema()`` instead of a simple
+    ``getattr`` to merge config_schema properties along the MRO.
     """
     # Fail loudly at scan time on malformed dynamic-port descriptors.
     BlockRegistry._validate_dynamic_ports(cls)
@@ -537,7 +594,7 @@ def _spec_from_class(cls: type, source: str = "") -> BlockSpec:
         category=_infer_category(cls),
         input_ports=list(getattr(cls, "input_ports", [])),
         output_ports=list(getattr(cls, "output_ports", [])),
-        config_schema=getattr(cls, "config_schema", {"type": "object", "properties": {}}),
+        config_schema=_merge_config_schema(cls),
         source=source,
         type_name=_type_name_for_class(cls),
         direction=getattr(cls, "direction", "") or "",

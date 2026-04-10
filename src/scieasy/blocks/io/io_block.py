@@ -55,7 +55,14 @@ class IOBlock(Block):
     ]
     config_schema: ClassVar[dict[str, Any]] = {
         "type": "object",
-        "properties": {"path": {"type": "string", "ui_priority": 1}},
+        "properties": {
+            "path": {
+                "type": ["string", "array"],
+                "items": {"type": "string"},
+                "ui_priority": 0,
+                "ui_widget": "file_browser",
+            },
+        },
         "required": ["path"],
     }
 

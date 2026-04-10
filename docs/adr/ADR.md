@@ -7269,7 +7269,7 @@ Reviewers may cite this ADR to reject any such PR.
 
 ## ADR-030: config_schema MRO merge and base-class field injection
 
-**Status**: proposed
+**Status**: accepted
 **Date**: 2026-04-10
 **Issue**: #558
 
