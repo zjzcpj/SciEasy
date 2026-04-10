@@ -16,7 +16,7 @@ imaging package's shared infrastructure:
 ElMAVEN-specific logic preserved:
   - Output classification via ``_classify_export()`` (column-header heuristic)
   - Two typed output ports: peak_table (PeakTable) and mid_table (MIDTable)
-  - Raw file paths staged as symlinks (ElMAVEN CLI does not accept positional args)
+  - Raw file paths staged as symlinks and passed as positional CLI args
 """
 
 from __future__ import annotations
@@ -107,8 +107,9 @@ def _prepare_elmaven_exchange(
 ) -> None:
     """Stage raw file symlinks in the exchange dir and write the manifest.
 
-    ElMAVEN's CLI does not accept positional file arguments (unlike Fiji),
-    so files are staged as symlinks for the user to open manually.
+    Raw files are staged as symlinks in the exchange directory for reference.
+    The files are also passed as positional CLI arguments so ElMAVEN loads
+    them automatically on launch.
     """
     input_dir = exchange_dir / "inputs"
     for rp in raw_paths:
@@ -330,13 +331,14 @@ class ElMAVENBlock(_LCMSBlockMixin, AppBlock):
         command = _resolve_command(config, app_command=self.app_command, override_key="elmaven_path")
 
         # 5. Launch and wait (shared helper manages state transitions).
-        # ElMAVEN CLI does not accept positional file args -- no launch_args.
+        # Pass raw file paths as positional args so ElMAVEN loads them on launch.
         output_files = _run_external_app(
             self,
             command=command,
             exchange_dir=exchange_dir,
             patterns=self.output_patterns,
             config=config,
+            launch_args=raw_paths,
         )
 
         # 6. Classify and load outputs.

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from scieasy_blocks_lcms.external.elmaven_block import (
@@ -93,6 +94,37 @@ def test_collect_elmaven_outputs_empty() -> None:
     result = _collect_elmaven_outputs([])
     assert len(result["peak_table"]) == 0
     assert len(result["mid_table"]) == 0
+
+
+def test_run_passes_raw_paths_as_launch_args(tmp_path: Path) -> None:
+    """run() must forward raw file paths as launch_args to _run_external_app."""
+    raw1 = tmp_path / "sample1.mzXML"
+    raw2 = tmp_path / "sample2.mzML"
+    raw1.write_text("<mzXML/>", encoding="utf-8")
+    raw2.write_text("<mzML/>", encoding="utf-8")
+
+    raw_files = Collection(
+        items=[
+            MSRawFile(file_path=raw1, meta=MSRawFile.Meta(format="mzXML")),
+            MSRawFile(file_path=raw2, meta=MSRawFile.Meta(format="mzML")),
+        ],
+        item_type=MSRawFile,
+    )
+
+    captured_kwargs: dict = {}
+
+    def fake_run_external_app(_block, **kwargs):  # type: ignore[no-untyped-def]
+        captured_kwargs.update(kwargs)
+        return []  # no output files
+
+    with patch(
+        "scieasy_blocks_lcms.external.elmaven_block._run_external_app",
+        side_effect=fake_run_external_app,
+    ):
+        ElMAVENBlock().run({"raw_files": raw_files}, BlockConfig(params={}))
+
+    assert "launch_args" in captured_kwargs, "launch_args not passed to _run_external_app"
+    assert captured_kwargs["launch_args"] == [str(raw1), str(raw2)]
 
 
 @pytest.mark.skipif(shutil.which("elmaven") is None, reason="ElMAVEN not installed")
