@@ -214,7 +214,7 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
         type: "typed",
         data: {
           color: resolveTypeColor(sourcePort?.accepted_types ?? [], sourceSchema?.type_hierarchy),
-          dashed: sourcePort?.is_collection ?? false,
+          dashed: false,
         },
       };
     });
