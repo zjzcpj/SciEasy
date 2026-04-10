@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - [#542] SRS block audit — remove Band Ratio and SRS Normalize, rename Denoise to Spectral Denoise with Savitzky-Golay, add Calibrate ui_priority, add Unmix mode selector (@claude, 2026-04-10, branch: refactor/issue-542/srs-block-audit, session: 20260410-000652-srs-block-audit-remove-band-ratio-and-sr)
+<<<<<<< fix/issue-530/palette-audit
+- [#530] Core block palette audit: remove base classes and placeholders from palette, rename Load Data/Save Data to Load/Save, add SubWorkflow config_schema (@claude, 2026-04-10, branch: fix/issue-530/palette-audit, session: 20260410-000636-refactor-gui-core-block-palette-audit-re)
+=======
+- [#538] LCMS app block audit: ElMAVEN cleanup, remove GraphPad skeleton, remove watch_timeout (@claude, 2026-04-10, branch: refactor/issue-538/lcms-app-audit, session: 20260410-000747-refactor-lcms-lcms-app-block-audit-elmav)
+>>>>>>> main
 - [#464] Improve preview panel: dark-bg image viewer with pan/zoom/LUT, compact table viewer with formatting (@claude, 2026-04-09, branch: feat/issue-464/preview-viewer, session: 20260409-124853-improve-preview-image-table-viewers-464)
 - [#476] Cache Python site-packages in CI to reduce install overhead (@claude, 2026-04-09, branch: perf/issue-476/ci-pip-cache, session: 20260409-124905-optimize-ci-pip-install-caching)
 - [#468] Optimize CI: parallel jobs, single-version coverage, pytest-xdist (@claude, 2026-04-09, branch: perf/issue-468/ci-speedup, session: wave2-ci-perf)
@@ -17,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- [#531] AI block: large prompt textarea widget + load prompt from file (.md/.txt) (@claude, 2026-04-10, branch: fix/issue-531/ai-block-textarea, session: 20260410-001127-feat-gui-ai-block-large-prompt-textarea)
 - [#494] Add native OS file/directory dialog for browse button with platform-specific subprocess calls (@claude, 2026-04-09, branch: feat/issue-494/native-file-dialog, session: 20260409-165203-native-os-file-dialog-for-browse-button)
 - [#497] Add multi-workflow tabs: open multiple workflows as tabs with per-tab state, dirty indicators, and close confirmation (@claude, 2026-04-09, branch: feat/issue-497/multi-workflow-tabs, session: 20260409-165642-multi-workflow-tabs-in-frontend-462)
 - [#484] Add universal filesystem browse button for all path config fields via ui_widget schema annotation (@claude, 2026-04-09, branch: feat/issue-484/universal-browse, session: 20260409-154209-universal-filesystem-browse-button-484)
@@ -27,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#534] Remove is_collection double-ring from port rendering (@claude, 2026-04-10, branch: fix/issue-534/remove-collection-double-ring, session: 20260410-000721-fix-gui-remove-is-collection-double-ring)
 - [#525] Switch LCMS load blocks from directory_browser/glob to file_browser with multi-file support (@claude, 2026-04-09, branch: fix/issue-525/load-blocks-file-browser, session: N/A)
 - [#526] Fix ElMAVEN block freeze — remove unused argv_override CLI args, fix PIPE deadlock with DEVNULL, add proc.wait (@claude, 2026-04-09, branch: fix/issue-526/elmaven-cli-pipe-deadlock, session: N/A)
 - [#524] Fix toolbar layout shift — use fixed-width name area and visibility-based dirty indicator (@claude, 2026-04-09, branch: fix/issue-524/toolbar-fixed-width, session: N/A)

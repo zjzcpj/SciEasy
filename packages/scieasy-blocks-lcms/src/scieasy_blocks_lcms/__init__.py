@@ -16,7 +16,7 @@ from scieasy_blocks_lcms.analysis import (
     PathwayEnrichment,
     UnivariateStats,
 )
-from scieasy_blocks_lcms.external import AccuCorR, ElMAVENBlock, GraphPadBlock
+from scieasy_blocks_lcms.external import AccuCorR, ElMAVENBlock
 from scieasy_blocks_lcms.io import (
     LoadMIDTable,
     LoadMSRawFiles,
@@ -51,7 +51,6 @@ _LCMS_BLOCKS: tuple[type, ...] = (
     # External
     ElMAVENBlock,
     AccuCorR,
-    GraphPadBlock,
     # Isotope tracing
     Calculate13CEnrichment,
     FractionalLabeling,
@@ -96,7 +95,6 @@ __all__ = [
     "ElMAVENBlock",
     "FluxEstimate",
     "FractionalLabeling",
-    "GraphPadBlock",
     "LoadMIDTable",
     "LoadMSRawFiles",
     "LoadPeakTable",
