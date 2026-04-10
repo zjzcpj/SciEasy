@@ -95,8 +95,7 @@ PLUGIN_MODULES: list[str] = [
     "scieasy_blocks_srs.preprocess",
     "scieasy_blocks_srs.preprocess.srs_calibrate",
     "scieasy_blocks_srs.preprocess.srs_baseline",
-    "scieasy_blocks_srs.preprocess.srs_denoise",
-    "scieasy_blocks_srs.preprocess.srs_normalize",
+    "scieasy_blocks_srs.preprocess.srs_spectral_denoise",
     "scieasy_blocks_srs.component_analysis",
     "scieasy_blocks_srs.component_analysis.srs_vca",
     "scieasy_blocks_srs.component_analysis.srs_unmix",
@@ -105,7 +104,6 @@ PLUGIN_MODULES: list[str] = [
     "scieasy_blocks_srs.component_analysis.srs_kmeans",
     "scieasy_blocks_srs.spectral_extraction",
     "scieasy_blocks_srs.spectral_extraction.extract_spectrum",
-    "scieasy_blocks_srs.spectral_extraction.band_ratio",
     # ── LC-MS ───────────────────────────────────────────────────────
     "scieasy_blocks_lcms",
     "scieasy_blocks_lcms.types",
@@ -722,12 +720,11 @@ def test_srs_types_impl_smoke() -> None:
 
 
 def test_srs_preprocess_impl_smoke() -> None:
-    """Smoke test that T-SRS-002..005 preprocess bodies are concrete."""
-    pytest.importorskip("sklearn")
+    """Smoke test that SRS preprocess bodies are concrete."""
     pytest.importorskip("scipy")
     import numpy as np
     from scieasy_blocks_imaging.types import Image
-    from scieasy_blocks_srs import SRSBaseline, SRSCalibrate, SRSDenoise, SRSImage, SRSNormalize
+    from scieasy_blocks_srs import SRSBaseline, SRSCalibrate, SRSImage, SRSSpectralDenoise
 
     from scieasy.blocks.base.config import BlockConfig
 
@@ -740,13 +737,12 @@ def test_srs_preprocess_impl_smoke() -> None:
         BlockConfig(params={"wavenumbers_cm1": [2850.0, 2865.0, 2880.0, 2895.0, 2910.0, 2930.0]}),
     )
     baseline = SRSBaseline().process_item(calibrated, BlockConfig(params={"method": "polynomial", "order": 2}))
-    denoised = SRSDenoise().process_item(baseline, BlockConfig(params={"method": "PCA_denoise", "n_components": 2}))
-    normalized = SRSNormalize().process_item(denoised, BlockConfig(params={"method": "SNV"}))
+    denoised = SRSSpectralDenoise().process_item(baseline, BlockConfig(params={"window_length": 5, "polyorder": 2}))
 
     assert isinstance(calibrated, SRSImage)
     assert baseline.shape == calibrated.shape
     assert denoised.shape == calibrated.shape
-    assert normalized.dtype == np.dtype(np.float32)
+    assert denoised.dtype == np.dtype(np.float32)
 
 
 def test_imaging_segmentation_core_impl_smoke() -> None:
@@ -890,7 +886,7 @@ def test_srs_component_analysis_impl_smoke() -> None:
     vca_df = SRSVCA().process_item(item, BlockConfig(params={"n_components": 2}))
     assert isinstance(vca_df, DataFrame) and vca_df.row_count == 2
 
-    unmix_out = SRSUnmix().run({"image": item}, BlockConfig(params={"auto_vca_n_components": 2}))
+    unmix_out = SRSUnmix().run({"image": item}, BlockConfig(params={"mode": "vca_nnls", "auto_vca_n_components": 2}))
     assert isinstance(unmix_out["abundance_maps"], Collection)
     assert isinstance(unmix_out["endmembers"], DataFrame)
 

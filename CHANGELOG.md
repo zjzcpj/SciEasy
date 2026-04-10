@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - [#540] LCMS IO block audit: rename LoadMSRawFiles to LoadMzMLFiles, remove regex config from LoadMIDTable (@claude, 2026-04-10, branch: refactor/issue-540/lcms-io-audit, session: 20260410-001346-refactor-lcms-lcms-io-block-audit-rename)
+- [#542] SRS block audit — remove Band Ratio and SRS Normalize, rename Denoise to Spectral Denoise with Savitzky-Golay, add Calibrate ui_priority, add Unmix mode selector (@claude, 2026-04-10, branch: refactor/issue-542/srs-block-audit, session: 20260410-000652-srs-block-audit-remove-band-ratio-and-sr)
 <<<<<<< fix/issue-530/palette-audit
 - [#530] Core block palette audit: remove base classes and placeholders from palette, rename Load Data/Save Data to Load/Save, add SubWorkflow config_schema (@claude, 2026-04-10, branch: fix/issue-530/palette-audit, session: 20260410-000636-refactor-gui-core-block-palette-audit-re)
 =======

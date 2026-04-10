@@ -189,13 +189,20 @@ def test_unmix_with_explicit_references() -> None:
         assert float(recovered.min()) >= -1e-6
 
 
-def test_unmix_no_references_falls_through_to_vca() -> None:
+def test_unmix_vca_nnls_mode() -> None:
     cube, _, _ = _synthetic_mixture(seed=11, n_endmembers=3)
     item = _make_srs_image(cube)
-    out = SRSUnmix().run({"image": item}, BlockConfig(params={"auto_vca_n_components": 3}))
+    out = SRSUnmix().run({"image": item}, BlockConfig(params={"mode": "vca_nnls", "auto_vca_n_components": 3}))
     maps = list(cast(Collection, out["abundance_maps"]))
     assert len(maps) == 3
     assert isinstance(out["endmembers"], DataFrame)
+
+
+def test_unmix_nnls_mode_requires_references() -> None:
+    cube, _, _ = _synthetic_mixture(seed=11, n_endmembers=3)
+    item = _make_srs_image(cube)
+    with pytest.raises(ValueError, match="mode='nnls' requires"):
+        SRSUnmix().run({"image": item}, BlockConfig(params={"mode": "nnls"}))
 
 
 def test_unmix_collection_item_type_is_image() -> None:
@@ -216,12 +223,12 @@ def test_unmix_abundance_axes_are_yx() -> None:
         assert img.axes == ["y", "x"]
 
 
-def test_unmix_logs_when_falling_through_to_vca(caplog: pytest.LogCaptureFixture) -> None:
+def test_unmix_vca_nnls_mode_logs(caplog: pytest.LogCaptureFixture) -> None:
     cube, _, _ = _synthetic_mixture(seed=14, n_endmembers=2)
     item = _make_srs_image(cube)
     caplog.set_level("INFO", logger="scieasy_blocks_srs.component_analysis.srs_unmix")
-    SRSUnmix().run({"image": item}, BlockConfig(params={"auto_vca_n_components": 2}))
-    assert any("no references" in rec.message for rec in caplog.records)
+    SRSUnmix().run({"image": item}, BlockConfig(params={"mode": "vca_nnls", "auto_vca_n_components": 2}))
+    assert any("vca_nnls" in rec.message for rec in caplog.records)
 
 
 def test_unmix_missing_image_raises() -> None:

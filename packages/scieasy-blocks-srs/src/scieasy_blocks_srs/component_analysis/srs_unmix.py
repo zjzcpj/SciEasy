@@ -1,8 +1,12 @@
-"""SRSUnmix — NNLS spectral unmixing with optional auto-VCA fallback.
+"""SRSUnmix — NNLS spectral unmixing with explicit mode selector.
 
 Two inputs (image, optional references) → two outputs (abundance maps,
 endmembers DataFrame). Overrides :meth:`run` directly because the default
 ``ProcessBlock.run`` only handles a single input port.
+
+Modes:
+- ``nnls``: requires ``references`` input; raises ``ValueError`` if missing.
+- ``vca_nnls``: extracts endmembers via VCA first, then NNLS; ignores references.
 
 See ``docs/specs/phase11-srs-block-spec.md`` §9 T-SRS-007.
 """
@@ -32,13 +36,13 @@ _LOGGER = logging.getLogger(__name__)
 class SRSUnmix(ProcessBlock):
     """NNLS unmixing of an :class:`SRSImage` against reference spectra.
 
-    If the optional ``references`` input is omitted, falls back to
-    :func:`_extract_endmembers` (VCA) with ``auto_vca_n_components``.
+    Use ``mode="nnls"`` for reference-based unmixing (references required).
+    Use ``mode="vca_nnls"`` for automatic endmember extraction via VCA.
     """
 
     name: ClassVar[str] = "SRS Unmix"
     type_name: ClassVar[str] = "srs.unmix"
-    description: ClassVar[str] = "NNLS spectral unmixing with optional auto-VCA endmember extraction."
+    description: ClassVar[str] = "NNLS spectral unmixing with explicit mode selector (nnls or vca_nnls)."
     version: ClassVar[str] = "0.1.0"
     category: ClassVar[str] = "component_analysis"
     algorithm: ClassVar[str] = "nnls_unmix"
@@ -54,7 +58,7 @@ class SRSUnmix(ProcessBlock):
         InputPort(
             name="references",
             accepted_types=[DataFrame],
-            description="Optional endmember reference DataFrame; auto-VCA fallback if omitted.",
+            description="Endmember reference DataFrame; required in nnls mode, ignored in vca_nnls mode.",
             required=False,
         ),
     ]
@@ -74,6 +78,14 @@ class SRSUnmix(ProcessBlock):
     config_schema: ClassVar[dict[str, Any]] = {
         "type": "object",
         "properties": {
+            "mode": {
+                "type": "string",
+                "enum": ["nnls", "vca_nnls"],
+                "default": "nnls",
+                "title": "Mode",
+                "description": "nnls: requires references input. vca_nnls: auto-extracts endmembers via VCA.",
+                "ui_priority": 0,
+            },
             "auto_vca_n_components": {"type": "integer", "default": 4, "minimum": 2},
         },
     }
@@ -127,19 +139,28 @@ class SRSUnmix(ProcessBlock):
         """
         from scipy.optimize import nnls
 
-        # Resolve reference endmembers.
+        # Resolve reference endmembers based on explicit mode.
+        mode = str(config.get("mode", "nnls"))
         references: np.ndarray
         wavenumbers: list[float]
-        ref_df = _first_reference_df(ref_input)
-        if ref_df is not None:
+
+        if mode == "nnls":
+            ref_df = _first_reference_df(ref_input)
+            if ref_df is None:
+                raise ValueError(
+                    "SRSUnmix: mode='nnls' requires the 'references' input to be connected. "
+                    "Either provide reference spectra or switch to mode='vca_nnls'."
+                )
             references, wavenumbers = _references_from_dataframe(ref_df)
-        else:
+        elif mode == "vca_nnls":
             n = int(config.get("auto_vca_n_components", 4))
             _LOGGER.info(
-                "SRSUnmix: no references provided, extracting %d endmembers via SRSVCA.",
+                "SRSUnmix: mode='vca_nnls', extracting %d endmembers via VCA.",
                 n,
             )
             references, wavenumbers = _extract_endmembers(item, n)
+        else:
+            raise ValueError(f"SRSUnmix: unknown mode {mode!r}; expected 'nnls' or 'vca_nnls'")
 
         n_endmembers, n_w_refs = references.shape
 
