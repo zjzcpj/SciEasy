@@ -238,6 +238,79 @@ class TestAppBlockExchangeDir:
             mock_mkdtemp.assert_called_once_with(prefix="scieasy_app_")
 
 
+class TestAppBlockWatchTimeout:
+    """#539: AppBlock.watch_timeout defaults to None (infinite wait)."""
+
+    def test_default_watch_timeout_is_none(self) -> None:
+        """AppBlock.watch_timeout ClassVar defaults to None."""
+        from scieasy.blocks.app.app_block import AppBlock
+
+        assert AppBlock.watch_timeout is None
+
+    def test_config_schema_watch_timeout_default_is_none(self) -> None:
+        """Config schema exposes watch_timeout with default None."""
+        from scieasy.blocks.app.app_block import AppBlock
+
+        schema_props = AppBlock.config_schema["properties"]
+        assert schema_props["watch_timeout"]["default"] is None
+
+    def test_subclass_can_override_watch_timeout(self) -> None:
+        """Subclasses can still set a finite watch_timeout."""
+        from scieasy.blocks.app.app_block import AppBlock
+
+        class CustomAppBlock(AppBlock):
+            watch_timeout = 600
+
+        assert CustomAppBlock.watch_timeout == 600
+        # Base class unchanged
+        assert AppBlock.watch_timeout is None
+
+    def test_run_passes_none_timeout_to_watcher(self, tmp_path: Path) -> None:
+        """When watch_timeout is None, FileWatcher receives timeout=None."""
+        from unittest.mock import MagicMock, patch
+
+        from scieasy.blocks.app.app_block import AppBlock
+        from scieasy.blocks.base.config import BlockConfig
+        from scieasy.blocks.base.state import BlockState
+
+        block = AppBlock()
+        block.transition(BlockState.READY)
+        block.transition(BlockState.RUNNING)
+
+        config = BlockConfig(
+            params={
+                "app_command": "echo hello",
+                "project_dir": str(tmp_path),
+                "block_id": "test_block",
+            }
+        )
+
+        with (
+            patch("scieasy.blocks.app.app_block.FileExchangeBridge") as mock_bridge_cls,
+            patch("scieasy.blocks.app.app_block.validate_app_command", return_value=["echo", "hello"]),
+        ):
+            mock_bridge = MagicMock()
+            mock_bridge_cls.return_value = mock_bridge
+            mock_proc = MagicMock()
+            mock_proc.poll.return_value = None
+            mock_proc.pid = 12345
+            mock_bridge.launch.return_value = mock_proc
+
+            with patch("scieasy.blocks.app.watcher.FileWatcher") as mock_watcher_cls:
+                mock_watcher = MagicMock()
+                mock_watcher_cls.return_value = mock_watcher
+                fake_output = tmp_path / "result.csv"
+                fake_output.write_text("a,b\n1,2\n")
+                mock_watcher.wait_for_output.return_value = [fake_output]
+                mock_bridge.collect.return_value = {}
+
+                block.run(inputs={}, config=config)
+
+                # Verify FileWatcher was called with timeout=None
+                watcher_call_kwargs = mock_watcher_cls.call_args[1]
+                assert watcher_call_kwargs["timeout"] is None
+
+
 class TestFileExchangeBridgeCollection:
     """ADR-020: Collection handling in bridge.prepare()."""
 
