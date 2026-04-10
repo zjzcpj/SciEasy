@@ -30,6 +30,22 @@ class TestBlockConfig:
         config = BlockConfig(params={"a": 1}, custom_field="hello")
         assert config.custom_field == "hello"  # type: ignore[attr-defined]
 
+    def test_get_finds_extra_fields(self) -> None:
+        """Enriched runtime keys (block_id, project_dir) are accessible via get() (#565)."""
+        config = BlockConfig(params={"a": 1}, block_id="blk-42", project_dir="/proj")
+        assert config.get("block_id") == "blk-42"
+        assert config.get("project_dir") == "/proj"
+
+    def test_get_params_takes_priority_over_extra(self) -> None:
+        """If a key exists in both params and extra fields, params wins."""
+        config = BlockConfig(params={"key": "from_params"}, key="from_extra")
+        assert config.get("key") == "from_params"
+
+    def test_get_extra_field_default(self) -> None:
+        """Default is returned when key is in neither params nor extra fields."""
+        config = BlockConfig(params={}, block_id="blk-1")
+        assert config.get("missing", "fallback") == "fallback"
+
 
 class TestBlockResult:
     """BlockResult — single block execution outcome."""

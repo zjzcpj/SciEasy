@@ -19,5 +19,15 @@ class BlockConfig(BaseModel):
     params: dict[str, Any] = {}
 
     def get(self, key: str, default: Any = None) -> Any:
-        """Return a parameter value by *key*, falling back to *default*."""
-        return self.params.get(key, default)
+        """Return a parameter value by *key*, falling back to *default*.
+
+        Checks ``params`` first, then Pydantic extra fields so that
+        runtime-enriched keys (``block_id``, ``project_dir``, …) injected
+        by the scheduler are discoverable via the same accessor (#565).
+        """
+        if key in self.params:
+            return self.params[key]
+        extras = self.__pydantic_extra__ or {}
+        if key in extras:
+            return extras[key]
+        return default

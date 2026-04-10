@@ -49,6 +49,10 @@ def test_project_crud_and_path_opening(client: TestClient, project_parent: Path)
     assert by_path.status_code == 200
     assert by_path.json()["id"] == second_payload["id"]
 
+    # Verify data/exchange is created alongside other data subdirs (#565).
+    project_path = Path(second_payload["path"])
+    assert (project_path / "data" / "exchange").is_dir()
+
     deleted = client.delete(f"/api/projects/{first_payload['id']}")
     assert deleted.status_code == 204
     assert not Path(first_payload["path"]).exists()
