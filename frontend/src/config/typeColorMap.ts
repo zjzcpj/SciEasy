@@ -30,6 +30,59 @@ export const subtypeRingColorMap: Record<string, string> = {
   PeakTable: "#ef4444",
 };
 
+// ---------------------------------------------------------------------------
+// Deterministic hash palette for unknown/plugin types (#543)
+// ~20 visually distinct hues, avoiding colors too close to core type palette.
+// ---------------------------------------------------------------------------
+const HASH_PALETTE: string[] = [
+  "#e11d48", // rose-600
+  "#0891b2", // cyan-600
+  "#7c3aed", // violet-600
+  "#ea580c", // orange-600
+  "#059669", // emerald-600
+  "#d946ef", // fuchsia-500
+  "#ca8a04", // yellow-600
+  "#4f46e5", // indigo-600
+  "#dc2626", // red-600
+  "#0d9488", // teal-600
+  "#9333ea", // purple-600
+  "#c2410c", // orange-700
+  "#0284c7", // sky-600
+  "#65a30d", // lime-600
+  "#db2777", // pink-600
+  "#2563eb", // blue-600
+  "#b45309", // amber-700
+  "#7c2d12", // orange-900
+  "#4338ca", // indigo-700
+  "#15803d", // green-700
+];
+
+/**
+ * Deterministic djb2 hash of a type name string.
+ * Returns a non-negative 32-bit integer.
+ */
+export function hashTypeName(name: string): number {
+  let hash = 5381;
+  for (let i = 0; i < name.length; i++) {
+    hash = ((hash << 5) + hash + name.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+}
+
+/**
+ * Darken a hex color by a given amount (0-1) for ring color derivation.
+ */
+function darkenHex(hex: string, amount: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  const factor = 1 - amount;
+  const dr = Math.round(r * factor);
+  const dg = Math.round(g * factor);
+  const db = Math.round(b * factor);
+  return `#${dr.toString(16).padStart(2, "0")}${dg.toString(16).padStart(2, "0")}${db.toString(16).padStart(2, "0")}`;
+}
+
 /**
  * Resolve the fill color for a port given its accepted_types list and
  * optional type hierarchy from the schema.
@@ -48,6 +101,11 @@ export function resolveTypeColor(
         return typeColorMap[entry.base_type];
       }
     }
+  }
+  // Hash-based fallback for unknown/plugin types (#543)
+  if (typeNames.length > 0) {
+    const idx = hashTypeName(typeNames[0]) % HASH_PALETTE.length;
+    return HASH_PALETTE[idx];
   }
   return typeColorMap.DataObject;
 }
@@ -71,6 +129,18 @@ export function resolveRingColor(
       if (entry?.ui_ring_color) {
         return entry.ui_ring_color;
       }
+    }
+  }
+  // Auto-derive ring color for hash-palette types (#543)
+  // Only apply if the type is not in the manual maps (i.e. it would get a hash color)
+  if (typeNames.length > 0 && !typeColorMap[typeNames[0]]) {
+    const isKnownViaHierarchy = typeHierarchy?.some((t) => {
+      if (t.name !== typeNames[0]) return false;
+      return t.base_type && typeColorMap[t.base_type];
+    });
+    if (!isKnownViaHierarchy) {
+      const idx = hashTypeName(typeNames[0]) % HASH_PALETTE.length;
+      return darkenHex(HASH_PALETTE[idx], 0.3);
     }
   }
   return undefined;
