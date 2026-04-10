@@ -19,7 +19,7 @@ from scieasy_blocks_lcms.analysis import (
 from scieasy_blocks_lcms.external import AccuCorR, ElMAVENBlock, GraphPadBlock
 from scieasy_blocks_lcms.io import (
     LoadMIDTable,
-    LoadMSRawFiles,
+    LoadMzMLFiles,
     LoadPeakTable,
     LoadSampleMetadata,
     SaveTable,
@@ -43,7 +43,7 @@ __version__ = "0.1.0.dev0"
 
 _LCMS_BLOCKS: tuple[type, ...] = (
     # IO
-    LoadMSRawFiles,
+    LoadMzMLFiles,
     LoadPeakTable,
     LoadMIDTable,
     LoadSampleMetadata,
@@ -98,7 +98,7 @@ __all__ = [
     "FractionalLabeling",
     "GraphPadBlock",
     "LoadMIDTable",
-    "LoadMSRawFiles",
+    "LoadMzMLFiles",
     "LoadPeakTable",
     "LoadSampleMetadata",
     "MIDTable",

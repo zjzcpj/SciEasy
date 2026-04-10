@@ -16,7 +16,6 @@ Spec sections referenced:
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -106,17 +105,11 @@ class LoadMIDTable(_LCMSBlockMixin, IOBlock):
                 "title": "Tracer atoms",
                 "ui_priority": 1,
             },
-            "sample_column_pattern": {
-                "type": ["string", "null"],
-                "default": None,
-                "title": "Sample-column regex (override default heuristic)",
-                "ui_priority": 2,
-            },
             "sheet_name": {
                 "type": ["string", "integer", "null"],
                 "default": None,
                 "title": "XLSX sheet (name or index)",
-                "ui_priority": 3,
+                "ui_priority": 2,
             },
         },
         "required": ["path"],
@@ -152,7 +145,6 @@ class LoadMIDTable(_LCMSBlockMixin, IOBlock):
             sample_columns = _detect_sample_columns(
                 frame.columns,
                 tracer_atoms=tracer_atoms,
-                pattern=config.get("sample_column_pattern"),
             )
             if not sample_columns:
                 raise ValueError("LoadMIDTable could not detect any sample columns")
@@ -200,11 +192,6 @@ def _detect_sample_columns(
     columns: pd.Index,
     *,
     tracer_atoms: list[str],
-    pattern: str | None,
 ) -> list[str]:
-    if pattern is not None:
-        regex = re.compile(pattern)
-        return [str(column) for column in columns if regex.search(str(column))]
-
     exclude = set(_KNOWN_IDENTITY_COLUMNS) | set(_KNOWN_ATOM_COLUMNS) | set(tracer_atoms)
     return [str(column) for column in columns if str(column) not in exclude]

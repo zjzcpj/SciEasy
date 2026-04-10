@@ -110,7 +110,7 @@ PLUGIN_MODULES: list[str] = [
     "scieasy_blocks_lcms",
     "scieasy_blocks_lcms.types",
     "scieasy_blocks_lcms.io",
-    "scieasy_blocks_lcms.io.load_ms_raw_files",
+    "scieasy_blocks_lcms.io.load_mzml_files",
     "scieasy_blocks_lcms.io.load_peak_table",
     "scieasy_blocks_lcms.io.load_mid_table",
     "scieasy_blocks_lcms.io.load_sample_metadata",
@@ -212,7 +212,7 @@ def test_lcms_foundation_chunk1_impl_smoke(tmp_path: Path) -> None:
     pytest.importorskip("pandas")
     from scieasy_blocks_lcms.external.accucor_r import AccuCorR
     from scieasy_blocks_lcms.io.load_mid_table import LoadMIDTable
-    from scieasy_blocks_lcms.io.load_ms_raw_files import LoadMSRawFiles
+    from scieasy_blocks_lcms.io.load_mzml_files import LoadMzMLFiles
     from scieasy_blocks_lcms.io.load_peak_table import LoadPeakTable
     from scieasy_blocks_lcms.io.load_sample_metadata import LoadSampleMetadata
     from scieasy_blocks_lcms.types import MSRawFile
@@ -225,7 +225,7 @@ def test_lcms_foundation_chunk1_impl_smoke(tmp_path: Path) -> None:
         '<cvParam accession="MS:1000130" /></run></mzML>',
         encoding="utf-8",
     )
-    raw_files = LoadMSRawFiles().load(BlockConfig(params={"path": str(tmp_path), "pattern": "*.mzML"}))
+    raw_files = LoadMzMLFiles().load(BlockConfig(params={"path": str(tmp_path), "pattern": "*.mzML"}))
     assert isinstance(raw_files[0], MSRawFile)
 
     peak_path = tmp_path / "peak.csv"
@@ -299,7 +299,7 @@ def test_lcms_block_skeletons_inherit_real_bases() -> None:
     from scieasy_blocks_lcms.external import AccuCorR, ElMAVENBlock, GraphPadBlock
     from scieasy_blocks_lcms.io import (
         LoadMIDTable,
-        LoadMSRawFiles,
+        LoadMzMLFiles,
         LoadPeakTable,
         LoadSampleMetadata,
         SaveTable,
@@ -318,7 +318,7 @@ def test_lcms_block_skeletons_inherit_real_bases() -> None:
     from scieasy.blocks.process.process_block import ProcessBlock
 
     expected: list[tuple[type, type]] = [
-        (LoadMSRawFiles, IOBlock),
+        (LoadMzMLFiles, IOBlock),
         (LoadPeakTable, IOBlock),
         (LoadMIDTable, IOBlock),
         (LoadSampleMetadata, IOBlock),

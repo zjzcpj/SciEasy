@@ -11,7 +11,7 @@ import pytest
 
 try:
     from scieasy_blocks_lcms.io.load_mid_table import LoadMIDTable
-    from scieasy_blocks_lcms.io.load_ms_raw_files import LoadMSRawFiles
+    from scieasy_blocks_lcms.io.load_mzml_files import LoadMzMLFiles
     from scieasy_blocks_lcms.io.load_peak_table import LoadPeakTable
     from scieasy_blocks_lcms.io.load_sample_metadata import LoadSampleMetadata
 
@@ -25,7 +25,7 @@ pytestmark = pytest.mark.skipif(not HAS_LCMS, reason="scieasy_blocks_lcms not in
 @pytest.mark.parametrize(
     "block_cls",
     [
-        pytest.param("LoadMSRawFiles", id="LoadMSRawFiles"),
+        pytest.param("LoadMzMLFiles", id="LoadMzMLFiles"),
         pytest.param("LoadPeakTable", id="LoadPeakTable"),
         pytest.param("LoadMIDTable", id="LoadMIDTable"),
         pytest.param("LoadSampleMetadata", id="LoadSampleMetadata"),
@@ -33,7 +33,7 @@ pytestmark = pytest.mark.skipif(not HAS_LCMS, reason="scieasy_blocks_lcms not in
 )
 def test_path_config_uses_file_browser(block_cls: str) -> None:
     cls_map = {
-        "LoadMSRawFiles": LoadMSRawFiles,
+        "LoadMzMLFiles": LoadMzMLFiles,
         "LoadPeakTable": LoadPeakTable,
         "LoadMIDTable": LoadMIDTable,
         "LoadSampleMetadata": LoadSampleMetadata,

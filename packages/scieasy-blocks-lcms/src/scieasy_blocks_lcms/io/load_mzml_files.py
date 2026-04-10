@@ -1,4 +1,4 @@
-"""LoadMSRawFiles — batch loader for raw LC-MS acquisition files (T-LCMS-003).
+"""LoadMzMLFiles — batch loader for mzML LC-MS acquisition files (T-LCMS-003).
 
 Skeleton @ c08a885. Per ``docs/specs/phase11-lcms-block-spec.md`` §9
 T-LCMS-003.
@@ -33,7 +33,7 @@ _MZML_POLARITY_NEGATIVE = re.compile(r"MS:1000129")
 _MZML_INSTRUMENT_RE = re.compile(r'<instrumentConfiguration[^>]*name="([^"]+)"')
 
 
-class LoadMSRawFiles(_LCMSBlockMixin, IOBlock):
+class LoadMzMLFiles(_LCMSBlockMixin, IOBlock):
     """Batch loader that records paths to raw LC-MS acquisition files.
 
     See spec §9 T-LCMS-003 for the full specification, including the
@@ -42,8 +42,8 @@ class LoadMSRawFiles(_LCMSBlockMixin, IOBlock):
     """
 
     direction: ClassVar[str] = "input"
-    type_name: ClassVar[str] = "lcms.load_ms_raw_files"
-    name: ClassVar[str] = "Load MS Raw Files"
+    type_name: ClassVar[str] = "lcms.load_mzml_files"
+    name: ClassVar[str] = "Load mzML Files"
     category: ClassVar[str] = "io"
     description: ClassVar[str] = (
         "Batch loader for raw LC-MS acquisition files (mzML/mzXML/raw/d). "
@@ -95,12 +95,12 @@ class LoadMSRawFiles(_LCMSBlockMixin, IOBlock):
         elif isinstance(raw_path, str) and raw_path:
             paths = [Path(raw_path)]
         else:
-            raise ValueError("LoadMSRawFiles: config['path'] must be a non-empty string or list of strings")
+            raise ValueError("LoadMzMLFiles: config['path'] must be a non-empty string or list of strings")
 
         items: list[MSRawFile] = []
         for path in paths:
             if not path.exists():
-                raise FileNotFoundError(f"LoadMSRawFiles: path does not exist: {path}")
+                raise FileNotFoundError(f"LoadMzMLFiles: path does not exist: {path}")
             meta = _probe_header(path)
             items.append(
                 MSRawFile(
@@ -113,8 +113,8 @@ class LoadMSRawFiles(_LCMSBlockMixin, IOBlock):
         return Collection(items=cast(list[DataObject], items), item_type=MSRawFile)
 
     def save(self, obj: DataObject | Collection, config: BlockConfig) -> None:
-        """Not supported — :class:`LoadMSRawFiles` is input-only."""
-        raise NotImplementedError("T-LCMS-003 LoadMSRawFiles is direction='input'; save() is unreachable.")
+        """Not supported — :class:`LoadMzMLFiles` is input-only."""
+        raise NotImplementedError("T-LCMS-003 LoadMzMLFiles is direction='input'; save() is unreachable.")
 
 
 def _probe_header(path: Path, *, format_hint: str | None = None) -> MSRawFile.Meta:

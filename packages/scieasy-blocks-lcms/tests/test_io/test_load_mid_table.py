@@ -56,14 +56,6 @@ def test_multi_tracer_c13_h2(tmp_path: Path) -> None:
     assert "H2" not in result[0].meta.sample_columns
 
 
-def test_sample_column_detection_regex_override(tmp_path: Path) -> None:
-    path = tmp_path / "mid.csv"
-    _mid_df().to_csv(path, index=False)
-
-    result = LoadMIDTable().load(BlockConfig(params={"path": str(path), "sample_column_pattern": r"^UL\d$"}))
-    assert result[0].meta.sample_columns == ["UL0", "UL3", "UL2", "UL1"]
-
-
 def test_load_raises_on_missing_compound_column(tmp_path: Path) -> None:
     path = tmp_path / "mid.csv"
     pd.DataFrame({"C13": [0], "S1": [1.0]}).to_csv(path, index=False)
