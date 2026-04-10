@@ -8,6 +8,7 @@ export const createExecutionSlice: StateCreator<AppStore, [], [], ExecutionSlice
   blockErrors: {},
   executionMessages: [],
   logEntries: [],
+  isRunning: false,
   consumeEvent: (event) =>
     set((state) => {
       const nextStates = event.block_id
@@ -23,6 +24,14 @@ export const createExecutionSlice: StateCreator<AppStore, [], [], ExecutionSlice
               [event.block_id]: event.data.outputs as Record<string, unknown>,
             }
           : state.blockOutputs;
+
+      // Track workflow-level running state from lifecycle events.
+      let nextIsRunning = state.isRunning;
+      if (event.type === "workflow_started") {
+        nextIsRunning = true;
+      } else if (event.type === "workflow_completed") {
+        nextIsRunning = false;
+      }
 
       // Extract and store error message when a block_error event arrives.
       const isBlockError = event.type === "block_error" && event.block_id != null;
@@ -54,6 +63,7 @@ export const createExecutionSlice: StateCreator<AppStore, [], [], ExecutionSlice
         blockOutputs: outputs,
         blockErrors: nextErrors,
         logEntries: nextLogs,
+        isRunning: nextIsRunning,
         executionMessages: [...state.executionMessages, `${event.type}:${event.block_id ?? "workflow"}`].slice(-100),
       };
     }),
@@ -61,5 +71,5 @@ export const createExecutionSlice: StateCreator<AppStore, [], [], ExecutionSlice
     set((state) => ({
       logEntries: [...state.logEntries, entry].slice(-400),
     })),
-  resetExecution: () => set({ blockStates: {}, blockOutputs: {}, blockErrors: {}, executionMessages: [], logEntries: [] }),
+  resetExecution: () => set({ blockStates: {}, blockOutputs: {}, blockErrors: {}, executionMessages: [], logEntries: [], isRunning: false }),
 });
