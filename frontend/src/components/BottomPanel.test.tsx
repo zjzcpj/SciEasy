@@ -21,6 +21,7 @@ describe("BottomPanel", () => {
         activeTab="config"
         aiError={null}
         aiLoading={false}
+        blockErrors={{}}
         chatMessages={[]}
         logEntries={[]}
         onSendChat={() => {}}
@@ -65,6 +66,7 @@ describe("BottomPanel", () => {
         activeTab="config"
         aiError={null}
         aiLoading={false}
+        blockErrors={{}}
         chatMessages={[]}
         logEntries={[]}
         onSendChat={() => {}}

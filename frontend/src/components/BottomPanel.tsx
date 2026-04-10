@@ -8,6 +8,7 @@ interface BottomPanelProps {
   activeTab: BottomTab;
   selectedNode: WorkflowNode | null;
   selectedSchema?: BlockSchemaResponse;
+  blockErrors: Record<string, string>;
   chatMessages: ChatMessage[];
   logEntries: LogEntry[];
   aiLoading: boolean;
@@ -131,6 +132,51 @@ function LogViewer({ entries }: { entries: LogEntry[] }) {
   );
 }
 
+function ProblemsPanel({ blockErrors }: { blockErrors: Record<string, string> }) {
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const entries = Object.entries(blockErrors);
+
+  const copyToClipboard = (blockId: string, text: string) => {
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopiedId(blockId);
+      setTimeout(() => setCopiedId(null), 2000);
+    });
+  };
+
+  if (entries.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-sm text-stone-400">No errors.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full flex-col gap-3 overflow-y-auto">
+      {entries.map(([blockId, errorText]) => (
+        <div key={blockId} className="rounded-xl border border-red-200 bg-red-50/50 p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-xs font-semibold text-red-700">
+              Block: {blockId}
+            </span>
+            <button
+              type="button"
+              className="rounded px-2 py-1 text-xs text-red-600 transition-colors hover:bg-red-100"
+              onClick={() => copyToClipboard(blockId, errorText)}
+              title="Copy full error to clipboard"
+            >
+              {copiedId === blockId ? "Copied!" : "Copy"}
+            </button>
+          </div>
+          <pre className="whitespace-pre-wrap break-words text-xs leading-relaxed text-red-900">
+            {errorText}
+          </pre>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function PlaceholderTab() {
   return (
     <div className="flex h-full items-center justify-center">
@@ -143,6 +189,7 @@ export function BottomPanel({
   activeTab,
   selectedNode,
   selectedSchema,
+  blockErrors,
   chatMessages,
   logEntries,
   aiLoading,
@@ -183,6 +230,8 @@ export function BottomPanel({
             <ConfigPanel onUpdateConfig={onUpdateConfig} schema={selectedSchema} selectedNode={selectedNode} />
           ) : activeTab === "logs" ? (
             <LogViewer entries={logEntries} />
+          ) : activeTab === "problems" ? (
+            <ProblemsPanel blockErrors={blockErrors} />
           ) : (
             <PlaceholderTab />
           )}
