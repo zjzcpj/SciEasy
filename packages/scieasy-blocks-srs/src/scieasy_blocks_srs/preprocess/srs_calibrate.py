@@ -48,14 +48,15 @@ class SRSCalibrate(ProcessBlock):
     config_schema: ClassVar[dict[str, Any]] = {
         "type": "object",
         "properties": {
-            "bit_depth": {"type": "integer", "default": 4096, "minimum": 1},
-            "voltage_range": {"type": "number", "default": 10.0},
-            "offset": {"type": "number", "default": 0.0},
-            "scale": {"type": "number", "default": 1.0},
+            "scale": {"type": "number", "default": 1.0, "ui_priority": 0},
+            "offset": {"type": "number", "default": 0.0, "ui_priority": 1},
+            "bit_depth": {"type": "integer", "default": 4096, "minimum": 1, "ui_priority": 10},
+            "voltage_range": {"type": "number", "default": 10.0, "ui_priority": 11},
             "wavenumbers_cm1": {
                 "type": ["array", "null"],
                 "items": {"type": "number"},
                 "default": None,
+                "ui_priority": 12,
             },
         },
     }
