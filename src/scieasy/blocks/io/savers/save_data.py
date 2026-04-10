@@ -119,7 +119,7 @@ class SaveData(IOBlock):
 
     direction: ClassVar[str] = "output"
     type_name: ClassVar[str] = "save_data"
-    name: ClassVar[str] = "Save Data"
+    name: ClassVar[str] = "Save"
     description: ClassVar[str] = (
         "Save a core DataObject (Array / DataFrame / Series / Text / Artifact / CompositeData) to disk."
     )
