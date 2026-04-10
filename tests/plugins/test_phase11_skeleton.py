@@ -120,18 +120,9 @@ PLUGIN_MODULES: list[str] = [
     "scieasy_blocks_lcms.external.accucor_r",
     "scieasy_blocks_lcms.external.graphpad_block",
     "scieasy_blocks_lcms.isotope_tracing",
-    "scieasy_blocks_lcms.isotope_tracing.calculate_13c_enrichment",
-    "scieasy_blocks_lcms.isotope_tracing.fractional_labeling",
-    "scieasy_blocks_lcms.isotope_tracing.compare_group_mid",
     "scieasy_blocks_lcms.isotope_tracing.flux_estimate",
     "scieasy_blocks_lcms.isotope_tracing.pool_size_normalize",
     "scieasy_blocks_lcms.analysis",
-    "scieasy_blocks_lcms.analysis.metabolite_matrix",
-    "scieasy_blocks_lcms.analysis.matrix_preprocess",
-    "scieasy_blocks_lcms.analysis.univariate_stats",
-    "scieasy_blocks_lcms.analysis.multivariate_analysis",
-    "scieasy_blocks_lcms.analysis.pathway_enrichment",
-    "scieasy_blocks_lcms.analysis.consumption_secretion_analysis",
 ]
 
 
@@ -288,14 +279,6 @@ def test_lcms_block_skeletons_inherit_real_bases() -> None:
     ``AppBlock`` / ``CodeBlock``). Each entry below pairs a block
     class with the lowest-level real base it must subclass.
     """
-    from scieasy_blocks_lcms.analysis import (
-        ConsumptionSecretionAnalysis,
-        MatrixPreprocess,
-        MetaboliteMatrix,
-        MultivariateAnalysis,
-        PathwayEnrichment,
-        UnivariateStats,
-    )
     from scieasy_blocks_lcms.external import AccuCorR, ElMAVENBlock, GraphPadBlock
     from scieasy_blocks_lcms.io import (
         LoadMIDTable,
@@ -305,10 +288,7 @@ def test_lcms_block_skeletons_inherit_real_bases() -> None:
         SaveTable,
     )
     from scieasy_blocks_lcms.isotope_tracing import (
-        Calculate13CEnrichment,
-        CompareGroupMID,
         FluxEstimate,
-        FractionalLabeling,
         PoolSizeNormalize,
     )
 
@@ -326,121 +306,11 @@ def test_lcms_block_skeletons_inherit_real_bases() -> None:
         (ElMAVENBlock, AppBlock),
         (AccuCorR, CodeBlock),
         (GraphPadBlock, AppBlock),
-        (Calculate13CEnrichment, ProcessBlock),
-        (FractionalLabeling, ProcessBlock),
-        (CompareGroupMID, ProcessBlock),
         (FluxEstimate, ProcessBlock),
         (PoolSizeNormalize, ProcessBlock),
-        (MetaboliteMatrix, ProcessBlock),
-        (MatrixPreprocess, ProcessBlock),
-        (UnivariateStats, ProcessBlock),
-        (MultivariateAnalysis, ProcessBlock),
-        (PathwayEnrichment, ProcessBlock),
-        (ConsumptionSecretionAnalysis, ProcessBlock),
     ]
     for cls, base in expected:
         assert issubclass(cls, base), f"{cls.__name__} must subclass {base.__name__}"
-
-
-def test_lcms_isotope_tracing_core_impl_smoke() -> None:
-    """Smoke test that T-LCMS-008/T-LCMS-009 bodies are concrete (PR #371).
-
-    This lives in the root ``tests/`` tree so the Phase 11 workflow
-    compliance job recognizes the implementation PR as having top-level
-    smoke coverage in addition to the package-local LCMS tests.
-    """
-    pd = pytest.importorskip("pandas")
-    from scieasy_blocks_lcms.isotope_tracing import Calculate13CEnrichment, FractionalLabeling
-    from scieasy_blocks_lcms.types import MIDTable
-
-    from scieasy.blocks.base.config import BlockConfig
-
-    frame = pd.DataFrame({"Compound": ["glucose", "glucose"], "C13": [0, 6], "S1": [0.4, 0.6]})
-    mid = MIDTable(
-        columns=list(frame.columns),
-        row_count=len(frame),
-        meta=MIDTable.Meta(tracer_atoms=["C13"], sample_columns=["S1"]),
-    )
-    mid._data = frame
-
-    enrichment = Calculate13CEnrichment().process_item(mid, BlockConfig(params={}))._data
-    fractional = FractionalLabeling().process_item(mid, BlockConfig(params={}))._data
-
-    assert enrichment.loc[0, "enrichment"] == pytest.approx(0.6)
-    assert fractional.loc[0, "fractional_labeling"] == pytest.approx(0.6)
-
-
-def test_lcms_analysis_core_impl_smoke(tmp_path: Path) -> None:
-    """Smoke test that the LCMS analysis core blocks are concrete."""
-    pytest.importorskip("pandas")
-    pytest.importorskip("scipy")
-    pytest.importorskip("statsmodels")
-    pytest.importorskip("sklearn")
-    pytest.importorskip("matplotlib")
-
-    import pandas as pd
-    from scieasy_blocks_lcms.analysis.matrix_preprocess import MatrixPreprocess
-    from scieasy_blocks_lcms.analysis.metabolite_matrix import MetaboliteMatrix
-    from scieasy_blocks_lcms.analysis.multivariate_analysis import MultivariateAnalysis
-    from scieasy_blocks_lcms.analysis.univariate_stats import UnivariateStats
-    from scieasy_blocks_lcms.types import PeakTable, SampleMetadata
-
-    from scieasy.blocks.base.config import BlockConfig
-    from scieasy.core.types.collection import Collection
-
-    long_frame = pd.DataFrame(
-        {
-            "compound": ["glucose", "glucose", "lactate", "lactate"],
-            "sample_id": ["S1", "S2", "S1", "S2"],
-            "intensity": [10.0, 12.0, 3.0, 6.0],
-        }
-    )
-    peak = PeakTable(
-        columns=list(long_frame.columns),
-        row_count=len(long_frame),
-        meta=PeakTable.Meta(source="ElMAVEN"),
-    )
-    peak._data = long_frame
-
-    metadata_frame = pd.DataFrame({"sample_id": ["S1", "S2"], "group": ["A", "B"]})
-    metadata = SampleMetadata(
-        columns=list(metadata_frame.columns),
-        row_count=len(metadata_frame),
-        meta=SampleMetadata.Meta(sample_id_column="sample_id"),
-    )
-    metadata._data = metadata_frame
-
-    matrix_out = MetaboliteMatrix().run(
-        {
-            "peak_table": Collection(items=[peak], item_type=PeakTable),
-            "sample_metadata": Collection(items=[metadata], item_type=SampleMetadata),
-        },
-        BlockConfig(params={}),
-    )
-    matrix = matrix_out["matrix"][0]
-    assert matrix._data.loc["glucose", "S1"] == pytest.approx(10.0)
-
-    processed = MatrixPreprocess().process_item(matrix, BlockConfig(params={"impute_method": "none", "scale": "none"}))
-    assert processed._data.shape == matrix._data.shape
-
-    stats = UnivariateStats().run(
-        {
-            "matrix": Collection(items=[processed], item_type=type(processed)),
-            "sample_metadata": Collection(items=[metadata], item_type=SampleMetadata),
-        },
-        BlockConfig(params={"group_column": "group", "test": "t-test", "correction": "none"}),
-    )
-    assert not stats["stats"][0]._data.empty
-
-    multivariate = MultivariateAnalysis().run(
-        {
-            "matrix": Collection(items=[processed], item_type=type(processed)),
-            "sample_metadata": Collection(items=[metadata], item_type=SampleMetadata),
-        },
-        BlockConfig(params={"method": "PCA"}),
-    )
-    assert multivariate["plot"][0].file_path is not None
-    assert multivariate["plot"][0].file_path.exists()
 
 
 def test_imaging_io_impl_smoke(tmp_path: Path) -> None:

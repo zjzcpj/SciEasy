@@ -55,7 +55,7 @@ class PoolSizeNormalize(_LCMSBlockMixin, ProcessBlock):
             "reference_compound": {
                 "type": ["string", "null"],
                 "default": None,
-                "title": "Reference compound (required for IS mode)",
+                "title": "IS Reference Compound",
                 "ui_priority": 2,
             },
             "intensity_column": {

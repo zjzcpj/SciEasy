@@ -70,6 +70,12 @@ def test_flux_without_pool_size_uses_unit_pool_size() -> None:
     assert out.loc[0, "labeling_rate"] == pytest.approx(0.5)
     assert out.loc[0, "pool_size"] == pytest.approx(1.0)
     assert out.loc[0, "estimated_flux"] == pytest.approx(0.5)
+    # linregress output columns
+    assert "intercept" in out.columns
+    assert "r_squared" in out.columns
+    assert "p_value" in out.columns
+    assert "stderr" in out.columns
+    assert out.loc[0, "r_squared"] == pytest.approx(1.0)
 
 
 def test_flux_with_pool_size_table() -> None:
