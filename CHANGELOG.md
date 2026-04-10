@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#539] AppBlock default watch_timeout changed to None for infinite wait (@claude, 2026-04-10, branch: fix/issue-539/appblock-timeout-none, session: 20260410-001020-fix-app-appblock-default-watch-timeout-s)
 - [#525] Switch LCMS load blocks from directory_browser/glob to file_browser with multi-file support (@claude, 2026-04-09, branch: fix/issue-525/load-blocks-file-browser, session: N/A)
 - [#526] Fix ElMAVEN block freeze — remove unused argv_override CLI args, fix PIPE deadlock with DEVNULL, add proc.wait (@claude, 2026-04-09, branch: fix/issue-526/elmaven-cli-pipe-deadlock, session: N/A)
 - [#524] Fix toolbar layout shift — use fixed-width name area and visibility-based dirty indicator (@claude, 2026-04-09, branch: fix/issue-524/toolbar-fixed-width, session: N/A)
