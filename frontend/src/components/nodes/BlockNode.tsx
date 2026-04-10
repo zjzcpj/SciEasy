@@ -669,10 +669,6 @@ export function BlockNode({ data, selected }: NodeProps<Node<BlockNodeData>>) {
         const anyType = isAnyType(port.accepted_types);
         const typeName = primaryTypeName(port.accepted_types);
         const borderColor = ringColor ?? (anyType ? "#d1d5db" : fillColor);
-        const shadows: string[] = [];
-        if (port.is_collection) {
-          shadows.push(`0 0 0 2px white`, `0 0 0 4px ${fillColor}`);
-        }
         return (
           <Handle
             key={port.name}
@@ -687,7 +683,6 @@ export function BlockNode({ data, selected }: NodeProps<Node<BlockNodeData>>) {
               borderStyle: anyType ? "dashed" : "solid",
               left: -7,
               top: 80 + index * 20,
-              boxShadow: shadows.length > 0 ? shadows.join(", ") : undefined,
             }}
           />
         );
@@ -698,10 +693,6 @@ export function BlockNode({ data, selected }: NodeProps<Node<BlockNodeData>>) {
         const anyType = isAnyType(port.accepted_types);
         const typeName = primaryTypeName(port.accepted_types);
         const borderColor = ringColor ?? (anyType ? "#d1d5db" : fillColor);
-        const shadows: string[] = [];
-        if (port.is_collection) {
-          shadows.push(`0 0 0 2px white`, `0 0 0 4px ${fillColor}`);
-        }
         return (
           <Handle
             key={port.name}
@@ -716,7 +707,6 @@ export function BlockNode({ data, selected }: NodeProps<Node<BlockNodeData>>) {
               borderStyle: anyType ? "dashed" : "solid",
               right: -7,
               top: 80 + index * 20,
-              boxShadow: shadows.length > 0 ? shadows.join(", ") : undefined,
             }}
           />
         );

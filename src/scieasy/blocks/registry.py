@@ -198,36 +198,23 @@ class BlockRegistry:
                         )
 
     def _scan_builtins(self) -> None:
-        """Register built-in core blocks used by the API/frontend."""
+        """Register built-in core blocks used by the API/frontend.
+
+        Only concrete, user-facing blocks are registered here.  Base
+        classes (AppBlock, CodeBlock, IOBlock) and non-functional process
+        placeholders (Merge, Split, …) are excluded from the palette so
+        end users see only the blocks they can actually use.  The
+        excluded classes remain importable for plugin development and
+        tests.
+        """
         from scieasy.blocks.ai.ai_block import AIBlock
-        from scieasy.blocks.app.app_block import AppBlock
-        from scieasy.blocks.code.code_block import CodeBlock
-        from scieasy.blocks.io.io_block import IOBlock
-        from scieasy.blocks.process.builtins.filter_collection import FilterCollection
-        from scieasy.blocks.process.builtins.merge import MergeBlock
-        from scieasy.blocks.process.builtins.merge_collection import MergeCollection
-        from scieasy.blocks.process.builtins.slice_collection import SliceCollection
-        from scieasy.blocks.process.builtins.split import SplitBlock
-        from scieasy.blocks.process.builtins.split_collection import SplitCollection
+        from scieasy.blocks.io.loaders.load_data import LoadData
+        from scieasy.blocks.io.savers.save_data import SaveData
         from scieasy.blocks.subworkflow.subworkflow_block import SubWorkflowBlock
 
-        # Phase 11 / T-TRK-003: ``TransformBlock`` was relocated to
-        # ``tests/fixtures/noop_block.py`` as ``NoopBlock``. It is no
-        # longer registered as a core builtin. Tests that need a generic
-        # pass-through Process block under the legacy ``"process_block"``
-        # registry alias rely on the test-only registration hook in
-        # ``tests/conftest.py``.
-
         for cls in (
-            IOBlock,
-            MergeBlock,
-            SplitBlock,
-            MergeCollection,
-            SplitCollection,
-            FilterCollection,
-            SliceCollection,
-            CodeBlock,
-            AppBlock,
+            LoadData,
+            SaveData,
             AIBlock,
             SubWorkflowBlock,
         ):
