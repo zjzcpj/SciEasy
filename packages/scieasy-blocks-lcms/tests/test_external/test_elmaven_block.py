@@ -124,7 +124,42 @@ def test_run_passes_raw_paths_as_launch_args(tmp_path: Path) -> None:
         ElMAVENBlock().run({"raw_files": raw_files}, BlockConfig(params={}))
 
     assert "launch_args" in captured_kwargs, "launch_args not passed to _run_external_app"
-    assert captured_kwargs["launch_args"] == [str(raw1), str(raw2)]
+    # Paths must be resolved to absolute so they survive cwd changes in the bridge.
+    assert captured_kwargs["launch_args"] == [str(raw1.resolve()), str(raw2.resolve())]
+
+
+def test_run_resolves_relative_paths_to_absolute(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Relative file_path values must be resolved to absolute before launch."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    raw = data_dir / "sample.mzML"
+    raw.write_text("<mzML/>", encoding="utf-8")
+
+    # Store a *relative* path in the MSRawFile (simulates LoadMzMLFiles with relative config).
+    monkeypatch.chdir(tmp_path)
+    relative_path = Path("data/sample.mzML")
+
+    raw_files = Collection(
+        items=[MSRawFile(file_path=relative_path, meta=MSRawFile.Meta(format="mzML"))],
+        item_type=MSRawFile,
+    )
+
+    captured_kwargs: dict = {}
+
+    def fake_run_external_app(_block, **kwargs):  # type: ignore[no-untyped-def]
+        captured_kwargs.update(kwargs)
+        return []
+
+    with patch(
+        "scieasy_blocks_lcms.external.elmaven_block._run_external_app",
+        side_effect=fake_run_external_app,
+    ):
+        ElMAVENBlock().run({"raw_files": raw_files}, BlockConfig(params={}))
+
+    launch_args = captured_kwargs["launch_args"]
+    assert len(launch_args) == 1
+    assert Path(launch_args[0]).is_absolute(), f"Expected absolute path, got: {launch_args[0]}"
+    assert launch_args[0] == str(raw.resolve())
 
 
 @pytest.mark.skipif(shutil.which("elmaven") is None, reason="ElMAVEN not installed")

@@ -319,7 +319,7 @@ class ElMAVENBlock(_LCMSBlockMixin, AppBlock):
         """
         # 1. Extract raw file paths from input.
         raw_items = list(inputs.get("raw_files", Collection(items=[], item_type=MSRawFile)))
-        raw_paths = [str(item.file_path) for item in raw_items if item.file_path is not None]
+        raw_paths = [str(Path(item.file_path).resolve()) for item in raw_items if item.file_path is not None]
 
         # 2. Resolve exchange directory.
         exchange_dir = _resolve_exchange_dir(config, prefix="scieasy_elmaven_")
