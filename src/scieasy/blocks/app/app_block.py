@@ -55,7 +55,7 @@ class AppBlock(Block):
     app_command: ClassVar[str] = ""
     execution_mode: ClassVar[ExecutionMode] = ExecutionMode.EXTERNAL
     output_patterns: ClassVar[list[str]] = ["*"]
-    watch_timeout: ClassVar[int] = 300
+    watch_timeout: ClassVar[int | None] = None
 
     name: ClassVar[str] = "App Block"
     description: ClassVar[str] = "Delegate work to an external GUI application"
@@ -76,7 +76,12 @@ class AppBlock(Block):
                 "default": "*",
                 "ui_priority": 2,
             },
-            "watch_timeout": {"type": "integer", "title": "Watch Timeout (s)", "default": 300, "ui_priority": 3},
+            "watch_timeout": {
+                "type": ["integer", "null"],
+                "title": "Watch Timeout (s)",
+                "default": None,
+                "ui_priority": 3,
+            },
         },
         "required": ["app_command"],
     }
@@ -94,7 +99,8 @@ class AppBlock(Block):
             raise ValueError("AppBlock requires 'app_command' in config or as class variable")
 
         patterns = config.get("output_patterns") or self.output_patterns
-        timeout = int(config.get("watch_timeout", self.watch_timeout))
+        raw_timeout = config.get("watch_timeout", self.watch_timeout)
+        timeout = int(raw_timeout) if raw_timeout is not None else None
 
         # Create exchange directory.
         # Prefer project workspace for reboot-survivable exchange dirs.
