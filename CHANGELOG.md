@@ -14,11 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [#540] LCMS IO block audit: rename LoadMSRawFiles to LoadMzMLFiles, remove regex config from LoadMIDTable (@claude, 2026-04-10, branch: refactor/issue-540/lcms-io-audit, session: 20260410-001346-refactor-lcms-lcms-io-block-audit-rename)
 - [#545] Show spinning indicator on Run button during workflow execution (@claude, 2026-04-10, branch: feat/issue-545/run-button-spinner, session: 20260410-001118-show-spinning-indicator-on-run-button-du)
 - [#542] SRS block audit — remove Band Ratio and SRS Normalize, rename Denoise to Spectral Denoise with Savitzky-Golay, add Calibrate ui_priority, add Unmix mode selector (@claude, 2026-04-10, branch: refactor/issue-542/srs-block-audit, session: 20260410-000652-srs-block-audit-remove-band-ratio-and-sr)
-<<<<<<< fix/issue-530/palette-audit
 - [#530] Core block palette audit: remove base classes and placeholders from palette, rename Load Data/Save Data to Load/Save, add SubWorkflow config_schema (@claude, 2026-04-10, branch: fix/issue-530/palette-audit, session: 20260410-000636-refactor-gui-core-block-palette-audit-re)
-=======
 - [#538] LCMS app block audit: ElMAVEN cleanup, remove GraphPad skeleton, remove watch_timeout (@claude, 2026-04-10, branch: refactor/issue-538/lcms-app-audit, session: 20260410-000747-refactor-lcms-lcms-app-block-audit-elmav)
->>>>>>> main
 - [#464] Improve preview panel: dark-bg image viewer with pan/zoom/LUT, compact table viewer with formatting (@claude, 2026-04-09, branch: feat/issue-464/preview-viewer, session: 20260409-124853-improve-preview-image-table-viewers-464)
 - [#476] Cache Python site-packages in CI to reduce install overhead (@claude, 2026-04-09, branch: perf/issue-476/ci-pip-cache, session: 20260409-124905-optimize-ci-pip-install-caching)
 - [#468] Optimize CI: parallel jobs, single-version coverage, pytest-xdist (@claude, 2026-04-09, branch: perf/issue-468/ci-speedup, session: wave2-ci-perf)
@@ -38,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#563] Pass raw file paths as CLI arguments to ElMAVEN so files are pre-loaded on launch (@claude, 2026-04-10, branch: fix/issue-563/elmaven-file-args, session: 20260410-040343-fix-563-elmaven-block-does-not-pass-inpu)
 - [#534] Remove is_collection double-ring from port rendering (@claude, 2026-04-10, branch: fix/issue-534/remove-collection-double-ring, session: 20260410-000721-fix-gui-remove-is-collection-double-ring)
 - [#525] Switch LCMS load blocks from directory_browser/glob to file_browser with multi-file support (@claude, 2026-04-09, branch: fix/issue-525/load-blocks-file-browser, session: N/A)
 - [#526] Fix ElMAVEN block freeze — remove unused argv_override CLI args, fix PIPE deadlock with DEVNULL, add proc.wait (@claude, 2026-04-09, branch: fix/issue-526/elmaven-cli-pipe-deadlock, session: N/A)
