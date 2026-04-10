@@ -34,11 +34,7 @@ export function TabBar({
             <span className="min-w-0 flex-1 truncate" title={tab.workflowName}>
               {tab.workflowName}
             </span>
-            {tab.workflowDirty && (
-              <span className="shrink-0 text-[10px] text-amber-500" title="Unsaved changes">
-                *
-              </span>
-            )}
+            <span style={{ visibility: tab.workflowDirty ? "visible" : "hidden" }} className="shrink-0 text-[10px] text-amber-500" title="Unsaved changes">{" *"}</span>
             <button
               type="button"
               className="ml-1 shrink-0 rounded p-0.5 text-stone-400 opacity-0 transition-opacity hover:bg-stone-200 hover:text-stone-600 group-hover:opacity-100"

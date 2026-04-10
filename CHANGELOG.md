@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - [#525] Switch LCMS load blocks from directory_browser/glob to file_browser with multi-file support (@claude, 2026-04-09, branch: fix/issue-525/load-blocks-file-browser, session: N/A)
+- [#524] Fix toolbar layout shift — use fixed-width name area and visibility-based dirty indicator (@claude, 2026-04-09, branch: fix/issue-524/toolbar-fixed-width, session: N/A)
 - [#520] Fix block error messages truncated — add expandable error display with tooltip, Problems tab, and copy button (@claude, 2026-04-09, branch: fix/issue-507/expandable-block-errors, session: 20260409-192041-block-error-messages-truncated-need-expa)
 - [#517] Fix TabBar invisible on startup — always render tab bar, use openTab for new projects (@claude, 2026-04-09, branch: fix/issue-503/tabbar-startup, session: 20260409-191833-fix-tabbar-invisible-on-startup-no-initi)
 - [#510] Fix ElMAVEN block to pass raw file paths as CLI arguments so data is pre-loaded (@claude, 2026-04-09, branch: fix/issue-510/elmaven-data-injection, session: 20260409-192253-elmaven-block-opens-without-input-data-5)
