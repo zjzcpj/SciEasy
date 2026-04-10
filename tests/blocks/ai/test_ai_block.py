@@ -199,3 +199,100 @@ class TestAIBlockRun:
         assert ai_config is not None
         assert ai_config["temperature"] == 0.8
         assert ai_config["max_tokens"] == 2048
+
+
+# ---------------------------------------------------------------------------
+# prompt_file
+# ---------------------------------------------------------------------------
+
+
+class TestAIBlockPromptFile:
+    """AIBlock supports loading prompts from .md / .txt files."""
+
+    def test_prompt_file_overrides_prompt_field(
+        self,
+        ai_block: AIBlock,
+        mock_provider: MagicMock,
+        tmp_path: Path,  # noqa: F821
+    ) -> None:
+
+        prompt_file = tmp_path / "my_prompt.md"
+        prompt_file.write_text("File prompt: {data}", encoding="utf-8")
+
+        config = BlockConfig(
+            params={
+                "prompt": "Ignored prompt",
+                "prompt_file": str(prompt_file),
+                "provider": "anthropic",
+            }
+        )
+        ai_block.run({}, config)
+
+        call_args = mock_provider.generate.call_args
+        prompt_used = call_args.kwargs.get("prompt", call_args.args[0] if call_args.args else "")
+        assert "File prompt:" in prompt_used
+        assert "Ignored prompt" not in prompt_used
+
+    def test_prompt_file_txt_supported(
+        self,
+        ai_block: AIBlock,
+        mock_provider: MagicMock,
+        tmp_path: Path,  # noqa: F821
+    ) -> None:
+
+        prompt_file = tmp_path / "prompt.txt"
+        prompt_file.write_text("TXT prompt: {data}", encoding="utf-8")
+
+        config = BlockConfig(
+            params={
+                "prompt": "",
+                "prompt_file": str(prompt_file),
+                "provider": "anthropic",
+            }
+        )
+        ai_block.run({}, config)
+
+        call_args = mock_provider.generate.call_args
+        prompt_used = call_args.kwargs.get("prompt", call_args.args[0] if call_args.args else "")
+        assert "TXT prompt:" in prompt_used
+
+    def test_prompt_file_missing_raises(
+        self,
+        ai_block: AIBlock,
+        mock_provider: MagicMock,
+        tmp_path: Path,  # noqa: F821
+    ) -> None:
+        config = BlockConfig(
+            params={
+                "prompt": "",
+                "prompt_file": str(tmp_path / "nonexistent.md"),
+                "provider": "anthropic",
+            }
+        )
+        with pytest.raises(FileNotFoundError, match="prompt_file not found"):
+            ai_block.run({}, config)
+
+    def test_prompt_file_wrong_extension_raises(
+        self,
+        ai_block: AIBlock,
+        mock_provider: MagicMock,
+        tmp_path: Path,  # noqa: F821
+    ) -> None:
+
+        bad_file = tmp_path / "prompt.py"
+        bad_file.write_text("print('hello')", encoding="utf-8")
+
+        config = BlockConfig(
+            params={
+                "prompt": "",
+                "prompt_file": str(bad_file),
+                "provider": "anthropic",
+            }
+        )
+        with pytest.raises(ValueError, match=r"\.md or \.txt"):
+            ai_block.run({}, config)
+
+    def test_config_schema_has_prompt_file(self, ai_block: AIBlock) -> None:
+        props = ai_block.config_schema["properties"]
+        assert "prompt_file" in props
+        assert props["prompt_file"]["ui_widget"] == "file_browser"
