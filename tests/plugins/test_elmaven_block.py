@@ -1,7 +1,9 @@
-"""Tests for ElMAVEN block data injection fix (#510).
+"""Tests for ElMAVEN block fixes (#510, #526).
 
-These tests verify the staging and CLI-arg-passing logic without
+These tests verify the staging logic and bridge configuration without
 actually launching ElMAVEN (which requires a GUI application).
+
+Issue #526: verify PIPE→DEVNULL fix and removal of argv_override.
 """
 
 from __future__ import annotations
@@ -91,3 +93,17 @@ class TestElMAVENBlockManifest:
         assert len(raw_paths) == 2
         assert str(raw1) in raw_paths
         assert str(raw2) in raw_paths
+
+
+class TestBridgeDevNull:
+    """Test that FileExchangeBridge uses DEVNULL, not PIPE (#526)."""
+
+    def test_bridge_launch_uses_devnull(self) -> None:
+        """Verify the bridge source code uses DEVNULL to prevent PIPE deadlock."""
+        import inspect
+
+        from scieasy.blocks.app.bridge import FileExchangeBridge
+
+        source = inspect.getsource(FileExchangeBridge.launch)
+        assert "subprocess.DEVNULL" in source, "bridge.launch should use DEVNULL, not PIPE"
+        assert "subprocess.PIPE" not in source, "bridge.launch should NOT use PIPE (causes deadlock)"
