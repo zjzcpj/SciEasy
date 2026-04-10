@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -31,6 +32,35 @@ class TestBridgeGuessMime:
 
     def test_unknown_extension(self) -> None:
         assert _guess_mime(Path("file.xyz")) == "application/octet-stream"
+
+
+class TestBridgeLaunchArgvOverride:
+    """FileExchangeBridge.launch — argv_override appends file paths instead of exchange_dir."""
+
+    def test_argv_override_appends_file_paths(self, tmp_path: Path) -> None:
+        """When argv_override is given, those paths replace the default exchange_dir trailing arg."""
+        bridge = FileExchangeBridge()
+        file_paths = ["/data/sample1.mzXML", "/data/sample2.mzML"]
+
+        with patch("scieasy.blocks.app.bridge.subprocess.Popen") as mock_popen:
+            mock_popen.return_value.pid = 12345
+            bridge.launch(["echo"], tmp_path, argv_override=file_paths)
+
+        cmd = mock_popen.call_args[0][0]
+        # The command should end with the file paths, not the exchange dir
+        assert cmd[-2:] == file_paths
+        assert str(tmp_path) not in cmd
+
+    def test_no_argv_override_uses_exchange_dir(self, tmp_path: Path) -> None:
+        """Without argv_override, the exchange_dir is appended as trailing arg."""
+        bridge = FileExchangeBridge()
+
+        with patch("scieasy.blocks.app.bridge.subprocess.Popen") as mock_popen:
+            mock_popen.return_value.pid = 12345
+            bridge.launch(["echo"], tmp_path)
+
+        cmd = mock_popen.call_args[0][0]
+        assert cmd[-1] == str(tmp_path)
 
 
 class TestBridgePrepareExtended:
