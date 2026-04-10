@@ -15,6 +15,7 @@ import {
   BoxSelect,
   FilePlus2,
   SaveAll,
+  Loader2,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -62,6 +63,7 @@ interface ToolbarProps {
   onStartFromSelected: () => void;
   onAddAnnotation: () => void;
   onAddGroup: () => void;
+  isRunning: boolean;
 }
 
 function StatusPill({
@@ -95,6 +97,7 @@ function ToolbarButton({
   shortcut,
   disabled,
   variant = "toolbar",
+  iconClassName,
   onClick,
 }: {
   icon: React.ComponentType<{ className?: string }>;
@@ -102,6 +105,7 @@ function ToolbarButton({
   shortcut?: string;
   disabled?: boolean;
   variant?: "toolbar" | "toolbar-dark";
+  iconClassName?: string;
   onClick: () => void;
 }) {
   return (
@@ -114,7 +118,7 @@ function ToolbarButton({
           onClick={onClick}
           type="button"
         >
-          <Icon className="size-3.5" />
+          <Icon className={iconClassName ? `size-3.5 ${iconClassName}` : "size-3.5"} />
           {label}
         </Button>
       </TooltipTrigger>
@@ -157,6 +161,7 @@ export function Toolbar(props: ToolbarProps) {
     onStartFromSelected,
     onAddAnnotation,
     onAddGroup,
+    isRunning,
   } = props;
 
   return (
@@ -286,11 +291,12 @@ export function Toolbar(props: ToolbarProps) {
         {/* Group 3: Execution Controls */}
         <div className="flex items-center gap-1">
           <ToolbarButton
-            icon={Play}
-            label="Run"
+            icon={isRunning ? Loader2 : Play}
+            label={isRunning ? "Running" : "Run"}
             shortcut="Ctrl+Enter"
             variant="toolbar-dark"
-            disabled={!currentProject}
+            disabled={!currentProject || isRunning}
+            iconClassName={isRunning ? "animate-spin" : undefined}
             onClick={onRun}
           />
           <ToolbarButton
