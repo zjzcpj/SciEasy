@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - [#520] Fix block error messages truncated — add expandable error display with tooltip, Problems tab, and copy button (@claude, 2026-04-09, branch: fix/issue-507/expandable-block-errors, session: 20260409-192041-block-error-messages-truncated-need-expa)
+- [#517] Fix TabBar invisible on startup — always render tab bar, use openTab for new projects (@claude, 2026-04-09, branch: fix/issue-503/tabbar-startup, session: 20260409-191833-fix-tabbar-invisible-on-startup-no-initi)
 - [#510] Fix ElMAVEN block to pass raw file paths as CLI arguments so data is pre-loaded (@claude, 2026-04-09, branch: fix/issue-510/elmaven-data-injection, session: 20260409-192253-elmaven-block-opens-without-input-data-5)
 - [#506] Store relative paths in workflow YAML for cross-machine portability (@claude, 2026-04-09, branch: fix/issue-506/relative-paths, session: 20260409-191659-store-relative-paths-in-workflow-yaml-50)
 - [#509] Disable monorepo scanner for end users — gate behind SCIEASY_DEV=1 env var (@claude, 2026-04-09, branch: fix/issue-509/disable-monorepo-scanner, session: 20260409-191427-disable-monorepo-scanner-for-end-users-5)

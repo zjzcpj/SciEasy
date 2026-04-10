@@ -195,7 +195,7 @@ export default function App() {
           path: projectDialog.path,
         });
         setCurrentProject(project);
-        startTransition(() => setWorkflow(emptyWorkflow("main")));
+        openTab(emptyWorkflow("main"));
         await refreshProjects();
       } else {
         await openProject(projectDialog.path);

@@ -15,8 +15,6 @@ export function TabBar({
   onCloseTab,
   onNewTab,
 }: TabBarProps) {
-  if (tabs.length === 0) return null;
-
   return (
     <div className="flex items-center gap-0 border-b border-stone-200 bg-[linear-gradient(180deg,_rgba(255,255,255,0.95),_rgba(245,241,232,0.98))] px-1">
       {tabs.map((tab) => {
