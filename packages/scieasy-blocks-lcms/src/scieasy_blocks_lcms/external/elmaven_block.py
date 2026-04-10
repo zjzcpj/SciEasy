@@ -1,16 +1,22 @@
-"""ElMAVENBlock — AppBlock wrapper for ElMAVEN (T-LCMS-007 / part 1).
+"""ElMAVENBlock -- AppBlock wrapper for ElMAVEN (T-LCMS-007 / part 1).
 
-Skeleton @ c08a885. Per ``docs/specs/phase11-lcms-block-spec.md`` §9
-T-LCMS-007.
+Rewritten to follow the standard AppBlock pattern (Fiji reference).
+See issue #555 for context: the original hand-rolled state transitions,
+exchange dir setup, bridge.launch(), and FileWatcher caused rerun
+deadlocks because they bypassed the standard lifecycle.
 
-Per spec §8 Q-2 the block does **not** script ElMAVEN's UI — the user
-opens files, runs peak detection, and exports manually;
-:class:`FileWatcher` collects the exports.
+The block now delegates to module-level helpers that mirror the
+imaging package's shared infrastructure:
+  - ``_resolve_exchange_dir()``   -- exchange directory resolution
+  - ``_resolve_command()``        -- command resolution with config override
+  - ``_prepare_elmaven_exchange()`` -- stage raw files + write manifest
+  - ``_run_external_app()``       -- launch, watch, state transitions
+  - ``_collect_elmaven_outputs()`` -- classify + load exported files
 
-Issue #526: ElMAVEN does not accept positional file CLI args (unlike
-Fiji). Raw file paths are staged as symlinks in the exchange directory
-and recorded in the manifest. The PIPE deadlock from bridge.py is fixed
-by switching to DEVNULL.
+ElMAVEN-specific logic preserved:
+  - Output classification via ``_classify_export()`` (column-header heuristic)
+  - Two typed output ports: peak_table (PeakTable) and mid_table (MIDTable)
+  - Raw file paths staged as symlinks (ElMAVEN CLI does not accept positional args)
 """
 
 from __future__ import annotations
@@ -50,10 +56,201 @@ except ModuleNotFoundError:
 EmptyDataError = _PandasEmptyDataErrorImported
 
 
+# ---------------------------------------------------------------------------
+# Shared helpers (mirror imaging package's interactive/__init__.py)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_exchange_dir(config: BlockConfig, *, prefix: str) -> Path:
+    """Resolve the file-exchange directory, creating it if needed."""
+    explicit_dir = config.get("exchange_dir")
+    if explicit_dir:
+        exchange_dir = Path(str(explicit_dir))
+    else:
+        project_dir = config.get("project_dir")
+        block_id = config.get("block_id")
+        if project_dir and block_id:
+            exchange_dir = Path(str(project_dir)) / "data" / "exchange" / str(block_id)
+        else:
+            exchange_dir = Path(tempfile.mkdtemp(prefix=prefix))
+    exchange_dir.mkdir(parents=True, exist_ok=True)
+    (exchange_dir / "inputs").mkdir(exist_ok=True)
+    (exchange_dir / "outputs").mkdir(exist_ok=True)
+    return exchange_dir
+
+
+def _resolve_command(
+    config: BlockConfig,
+    *,
+    app_command: str,
+    override_key: str | None = None,
+) -> str | list[str]:
+    """Resolve the application command from config or class default."""
+    raw_command = config.get("app_command")
+    if raw_command is not None:
+        if isinstance(raw_command, list):
+            return [str(part) for part in raw_command]
+        if isinstance(raw_command, str):
+            return raw_command
+        raise ValueError(f"App command must be str or list[str], got {type(raw_command).__name__}")
+
+    executable = str(config.get(override_key) or app_command) if override_key is not None else app_command
+    return [executable]
+
+
+def _prepare_elmaven_exchange(
+    raw_paths: list[str],
+    exchange_dir: Path,
+    *,
+    tool_name: str,
+    config: BlockConfig,
+) -> None:
+    """Stage raw file symlinks in the exchange dir and write the manifest.
+
+    ElMAVEN's CLI does not accept positional file arguments (unlike Fiji),
+    so files are staged as symlinks for the user to open manually.
+    """
+    input_dir = exchange_dir / "inputs"
+    for rp in raw_paths:
+        src = Path(rp)
+        if src.exists():
+            link = input_dir / src.name
+            if not link.exists():
+                with suppress(OSError):
+                    link.symlink_to(src)
+
+    manifest = {
+        "tool": tool_name,
+        "input_files": raw_paths,
+        "output_dir": str(exchange_dir / "outputs"),
+        "config": dict(config.params),
+    }
+    (exchange_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, default=str), encoding="utf-8")
+
+
+def _run_external_app(
+    block: AppBlock,
+    *,
+    command: str | list[str],
+    exchange_dir: Path,
+    patterns: list[str],
+    config: BlockConfig,
+    launch_args: list[str] | None = None,
+) -> list[Path]:
+    """Launch an external application and wait for output files.
+
+    Mirrors the imaging package's ``_run_external_app()`` exactly:
+    state transitions, bridge launch, FileWatcher, cleanup.
+    """
+    bridge = FileExchangeBridge()
+    stability_period = float(config.get("stability_period", 2.0))
+    done_marker = config.get("done_marker")
+
+    if block.state == BlockState.RUNNING:
+        block.transition(BlockState.PAUSED)
+
+    output_dir = exchange_dir / "outputs"
+    logger.info(
+        "Waiting for external application output. Save files to: %s",
+        output_dir,
+    )
+
+    proc = bridge.launch(command, exchange_dir, argv_override=launch_args)
+    watcher = FileWatcher(
+        directory=output_dir,
+        patterns=patterns,
+        timeout=None,
+        process_handle=_PopenProcessAdapter(proc),
+        stability_period=stability_period,
+        done_marker=str(done_marker) if done_marker is not None else None,
+    )
+    watcher.start()
+    try:
+        output_files = watcher.wait_for_output()
+    except ProcessExitedWithoutOutputError:
+        if block.state == BlockState.PAUSED:
+            block.transition(BlockState.CANCELLED)
+        return []
+    except Exception:
+        if block.state == BlockState.PAUSED:
+            block.transition(BlockState.ERROR)
+        raise
+    finally:
+        watcher.stop()
+        with suppress(subprocess.TimeoutExpired):
+            proc.wait(timeout=5)
+
+    if block.state == BlockState.PAUSED:
+        block.transition(BlockState.RUNNING)
+    if block.state == BlockState.RUNNING:
+        block.transition(BlockState.DONE)
+    return output_files
+
+
+def _collect_elmaven_outputs(output_files: list[Path]) -> dict[str, Collection]:
+    """Classify and load exported files into typed output collections."""
+    peak_tables: list[PeakTable] = []
+    mid_tables: list[MIDTable] = []
+    for file_path in output_files:
+        if _classify_export(file_path) == "mid_table":
+            loaded = LoadMIDTable().load(BlockConfig(params={"path": str(file_path)}))
+            if isinstance(loaded, Collection):
+                mid_tables.extend(cast(list[MIDTable], list(loaded)))
+            else:
+                mid_tables.append(cast(MIDTable, loaded))
+        else:
+            loaded = LoadPeakTable().load(BlockConfig(params={"path": str(file_path), "source": "auto"}))
+            if isinstance(loaded, Collection):
+                peak_tables.extend(cast(list[PeakTable], list(loaded)))
+            else:
+                peak_tables.append(cast(PeakTable, loaded))
+
+    return {
+        "peak_table": Collection(items=cast(list[DataObject], peak_tables), item_type=PeakTable),
+        "mid_table": Collection(items=cast(list[DataObject], mid_tables), item_type=MIDTable),
+    }
+
+
+def _classify_export(path: Path) -> str:
+    """Return ``'mid_table'`` if *path* looks like a MID table, else ``'peak_table'``.
+
+    Heuristic: MID tables have a column named ``C13`` or ``H2`` in the
+    header row; peak tables typically have ``medMz`` / ``mz`` instead.
+    """
+    import pandas as pd
+
+    suffix = path.suffix.lower()
+    try:
+        if suffix == ".csv":
+            columns = pd.read_csv(path, nrows=0).columns
+        elif suffix == ".tsv":
+            columns = pd.read_csv(path, sep="\t", nrows=0).columns
+        elif suffix in {".xlsx", ".xls"}:
+            columns = pd.read_excel(path, nrows=0).columns
+        else:
+            return "peak_table"
+    except (EmptyDataError, ValueError):
+        return "peak_table"
+
+    names = {str(column) for column in columns}
+    if {"C13", "H2"} & names:
+        return "mid_table"
+    return "peak_table"
+
+
+# ---------------------------------------------------------------------------
+# Block definition
+# ---------------------------------------------------------------------------
+
+
 class ElMAVENBlock(_LCMSBlockMixin, AppBlock):
     """Launch ElMAVEN for interactive peak picking on a batch of raw files.
 
-    See spec §9 T-LCMS-007 for the 7 acceptance criteria.
+    Follows the standard AppBlock pattern (same as FijiBlock): delegates
+    exchange dir setup, command resolution, app launch, file watching, and
+    state transitions to shared helpers. ElMAVEN-specific logic is limited
+    to input staging (symlinks) and output classification (peak_table vs
+    mid_table).
     """
 
     name: ClassVar[str] = "ElMAVEN"
@@ -65,7 +262,7 @@ class ElMAVENBlock(_LCMSBlockMixin, AppBlock):
         "exchange directory."
     )
 
-    app_command: ClassVar[str] = ""
+    app_command: ClassVar[str] = "elmaven"
     execution_mode: ClassVar[ExecutionMode] = ExecutionMode.EXTERNAL
     output_patterns: ClassVar[list[str]] = ["*.csv", "*.tsv", "*.xlsx"]
 
@@ -111,154 +308,36 @@ class ElMAVENBlock(_LCMSBlockMixin, AppBlock):
     ) -> dict[str, Collection]:
         """Stage raw files and launch ElMAVEN for interactive peak picking.
 
-        Issue #526: ElMAVEN's CLI does not accept positional file args
-        (unlike Fiji), so we stage the raw file paths as symlinks in the
-        exchange directory and write them to the manifest. The user opens
-        files manually from the exchange dir.
-
-        After the user runs peak detection and exports results,
-        :func:`_classify_export` routes each output file to either
-        ``peak_table`` or ``mid_table`` based on the column-header
-        heuristic.
+        Follows the standard AppBlock pattern:
+        1. Extract input data
+        2. Resolve exchange directory
+        3. Prepare exchange (stage files + manifest)
+        4. Resolve command
+        5. Launch app via shared helper (handles state, watcher, cleanup)
+        6. Collect and classify outputs
         """
+        # 1. Extract raw file paths from input.
         raw_items = list(inputs.get("raw_files", Collection(items=[], item_type=MSRawFile)))
         raw_paths = [str(item.file_path) for item in raw_items if item.file_path is not None]
 
-        # Resolve command.
-        patched_params = dict(config.params)
-        elmaven_path = patched_params.pop("elmaven_path", None)
-        command = elmaven_path or self.app_command
+        # 2. Resolve exchange directory.
+        exchange_dir = _resolve_exchange_dir(config, prefix="scieasy_elmaven_")
 
-        # Resolve exchange directory.
-        explicit_dir = config.get("exchange_dir")
-        if explicit_dir:
-            exchange_dir = Path(str(explicit_dir))
-        else:
-            project_dir = config.get("project_dir")
-            block_id = config.get("block_id", "")
-            if project_dir and block_id:
-                exchange_dir = Path(str(project_dir)) / "data" / "exchange" / str(block_id)
-            else:
-                exchange_dir = Path(tempfile.mkdtemp(prefix="scieasy_elmaven_"))
-        exchange_dir.mkdir(parents=True, exist_ok=True)
-        (exchange_dir / "inputs").mkdir(exist_ok=True)
-        output_dir = exchange_dir / "outputs"
-        output_dir.mkdir(exist_ok=True)
+        # 3. Stage raw files and write manifest.
+        _prepare_elmaven_exchange(raw_paths, exchange_dir, tool_name=self.type_name, config=config)
 
-        # Write manifest for traceability.
-        manifest = {
-            "tool": self.type_name,
-            "input_files": raw_paths,
-            "output_dir": str(output_dir),
-            "config": patched_params,
-        }
-        (exchange_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, default=str), encoding="utf-8")
+        # 4. Resolve command.
+        command = _resolve_command(config, app_command=self.app_command, override_key="elmaven_path")
 
-        # State transitions.
-        if self.state == BlockState.IDLE:
-            self.transition(BlockState.READY)
-        if self.state == BlockState.READY:
-            self.transition(BlockState.RUNNING)
-        self.transition(BlockState.PAUSED)
-
-        # Stage raw file paths into the exchange directory so the user
-        # can easily locate them.  ElMAVEN's CLI does not accept positional
-        # file arguments (unlike Fiji), so we do NOT pass argv_override.
-        # See issue #526.
-        for rp in raw_paths:
-            src = Path(rp)
-            if src.exists():
-                link = exchange_dir / "inputs" / src.name
-                if not link.exists():
-                    with suppress(OSError):
-                        link.symlink_to(src)
-
-        bridge = FileExchangeBridge()
-        proc = bridge.launch(command, exchange_dir)
-        logger.info(
-            "ElMAVEN launched. Raw files staged in exchange dir. Save exports to: %s",
-            output_dir,
-        )
-
-        # Watch for exported files.
-        stability_period = float(config.get("stability_period", 2.0))
-        done_marker = config.get("done_marker")
-        watcher = FileWatcher(
-            directory=output_dir,
+        # 5. Launch and wait (shared helper manages state transitions).
+        # ElMAVEN CLI does not accept positional file args -- no launch_args.
+        output_files = _run_external_app(
+            self,
+            command=command,
+            exchange_dir=exchange_dir,
             patterns=self.output_patterns,
-            timeout=None,
-            process_handle=_PopenProcessAdapter(proc),
-            stability_period=stability_period,
-            done_marker=str(done_marker) if done_marker is not None else None,
+            config=config,
         )
-        watcher.start()
-        try:
-            output_files = watcher.wait_for_output()
-        except ProcessExitedWithoutOutputError:
-            self.transition(BlockState.CANCELLED)
-            return {
-                "peak_table": Collection(items=[], item_type=PeakTable),
-                "mid_table": Collection(items=[], item_type=MIDTable),
-            }
-        finally:
-            watcher.stop()
-            with suppress(subprocess.TimeoutExpired):
-                proc.wait(timeout=5)
 
-        if self.state == BlockState.PAUSED:
-            self.transition(BlockState.RUNNING)
-
-        # Classify and load exported files.
-        peak_tables: list[PeakTable] = []
-        mid_tables: list[MIDTable] = []
-        for file_path in output_files:
-            if _classify_export(file_path) == "mid_table":
-                loaded = LoadMIDTable().load(BlockConfig(params={"path": str(file_path)}))
-                if isinstance(loaded, Collection):
-                    mid_tables.extend(cast(list[MIDTable], list(loaded)))
-                else:
-                    mid_tables.append(cast(MIDTable, loaded))
-            else:
-                loaded = LoadPeakTable().load(BlockConfig(params={"path": str(file_path), "source": "auto"}))
-                if isinstance(loaded, Collection):
-                    peak_tables.extend(cast(list[PeakTable], list(loaded)))
-                else:
-                    peak_tables.append(cast(PeakTable, loaded))
-
-        if self.state == BlockState.RUNNING:
-            self.transition(BlockState.DONE)
-
-        return {
-            "peak_table": Collection(items=cast(list[DataObject], peak_tables), item_type=PeakTable),
-            "mid_table": Collection(items=cast(list[DataObject], mid_tables), item_type=MIDTable),
-        }
-
-
-def _classify_export(path: Path) -> str:
-    """Return ``'mid_table'`` if *path* looks like a MID table, else ``'peak_table'``.
-
-    Heuristic: MID tables have a column named ``C13`` or ``H2`` in the
-    header row; peak tables typically have ``medMz`` / ``mz`` instead.
-
-    Implementation deferred to T-LCMS-007 impl ticket
-    (skeleton @ c08a885).
-    """
-    import pandas as pd
-
-    suffix = path.suffix.lower()
-    try:
-        if suffix == ".csv":
-            columns = pd.read_csv(path, nrows=0).columns
-        elif suffix == ".tsv":
-            columns = pd.read_csv(path, sep="\t", nrows=0).columns
-        elif suffix in {".xlsx", ".xls"}:
-            columns = pd.read_excel(path, nrows=0).columns
-        else:
-            return "peak_table"
-    except (EmptyDataError, ValueError):
-        return "peak_table"
-
-    names = {str(column) for column in columns}
-    if {"C13", "H2"} & names:
-        return "mid_table"
-    return "peak_table"
+        # 6. Classify and load outputs.
+        return _collect_elmaven_outputs(output_files)

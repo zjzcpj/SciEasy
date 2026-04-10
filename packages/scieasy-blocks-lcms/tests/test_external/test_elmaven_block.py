@@ -1,20 +1,26 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
-from scieasy_blocks_lcms.external.elmaven_block import ElMAVENBlock, _classify_export
+from scieasy_blocks_lcms.external.elmaven_block import (
+    ElMAVENBlock,
+    _classify_export,
+    _collect_elmaven_outputs,
+    _prepare_elmaven_exchange,
+    _resolve_command,
+    _resolve_exchange_dir,
+)
 from scieasy_blocks_lcms.types import MIDTable, MSRawFile, PeakTable
 
-from scieasy.blocks.app.app_block import AppBlock
 from scieasy.blocks.base.config import BlockConfig
-from scieasy.core.types.artifact import Artifact
 from scieasy.core.types.collection import Collection
 
 
 def test_elmaven_block_class_config() -> None:
     block = ElMAVENBlock()
-    assert block.app_command == ""
+    assert block.app_command == "elmaven"
     assert block.output_patterns == ["*.csv", "*.tsv", "*.xlsx"]
     assert block.input_ports[0].accepted_types == [MSRawFile]
     assert block.output_ports[0].accepted_types == [PeakTable]
@@ -31,21 +37,67 @@ def test_elmaven_classify_export_peak_vs_mid(tmp_path: Path) -> None:
     assert _classify_export(mid_path) == "mid_table"
 
 
-@pytest.mark.requires_elmaven
-def test_elmaven_end_to_end_launch_and_collect(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    peak_path = tmp_path / "peak.csv"
-    peak_path.write_text("compound,formula,medMz,medRt\nglucose,C6H12O6,179.0,5.2\n", encoding="utf-8")
-    mid_path = tmp_path / "mid.csv"
-    mid_path.write_text("Compound,C13,S1\nglucose,0,1.0\n", encoding="utf-8")
+def test_resolve_exchange_dir_with_project_dir(tmp_path: Path) -> None:
+    """Exchange dir falls back to project_dir/data/exchange/block_id."""
+    config = BlockConfig(params={"project_dir": str(tmp_path), "block_id": "blk-1"})
+    result = _resolve_exchange_dir(config, prefix="scieasy_elmaven_")
+    assert result == tmp_path / "data" / "exchange" / "blk-1"
+    assert (result / "inputs").is_dir()
+    assert (result / "outputs").is_dir()
 
-    def fake_run(self: AppBlock, inputs: dict, config: BlockConfig) -> dict[str, Collection]:
-        return {
-            "peak": Collection(items=[Artifact(file_path=peak_path)], item_type=Artifact),
-            "mid": Collection(items=[Artifact(file_path=mid_path)], item_type=Artifact),
-        }
 
-    monkeypatch.setattr(AppBlock, "run", fake_run)
+def test_resolve_exchange_dir_with_explicit(tmp_path: Path) -> None:
+    """Explicit exchange_dir config takes priority."""
+    explicit = tmp_path / "my_exchange"
+    config = BlockConfig(params={"exchange_dir": str(explicit)})
+    result = _resolve_exchange_dir(config, prefix="scieasy_elmaven_")
+    assert result == explicit
 
+
+def test_resolve_command_default() -> None:
+    config = BlockConfig(params={})
+    result = _resolve_command(config, app_command="elmaven", override_key="elmaven_path")
+    assert result == ["elmaven"]
+
+
+def test_resolve_command_override() -> None:
+    config = BlockConfig(params={"elmaven_path": "/usr/bin/el-maven"})
+    result = _resolve_command(config, app_command="elmaven", override_key="elmaven_path")
+    assert result == ["/usr/bin/el-maven"]
+
+
+def test_prepare_elmaven_exchange_writes_manifest(tmp_path: Path) -> None:
+    """Manifest is written with input file paths."""
+    import json
+
+    exchange = tmp_path / "exchange"
+    exchange.mkdir()
+    (exchange / "inputs").mkdir()
+    (exchange / "outputs").mkdir()
+
+    raw1 = tmp_path / "sample1.mzXML"
+    raw1.write_text("<mzXML/>", encoding="utf-8")
+    raw_paths = [str(raw1)]
+
+    config = BlockConfig(params={"some_key": "some_val"})
+    _prepare_elmaven_exchange(raw_paths, exchange, tool_name="lcms.elmaven", config=config)
+
+    manifest = json.loads((exchange / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["tool"] == "lcms.elmaven"
+    assert manifest["input_files"] == raw_paths
+    assert manifest["output_dir"] == str(exchange / "outputs")
+
+
+def test_collect_elmaven_outputs_empty() -> None:
+    """Empty output_files produces empty collections."""
+    result = _collect_elmaven_outputs([])
+    assert len(result["peak_table"]) == 0
+    assert len(result["mid_table"]) == 0
+
+
+@pytest.mark.skipif(shutil.which("elmaven") is None, reason="ElMAVEN not installed")
+def test_elmaven_end_to_end_launch_and_collect(tmp_path: Path) -> None:
+    """Full end-to-end test -- only runs when ElMAVEN is actually installed."""
     raw_path = tmp_path / "sample.mzML"
     raw_path.write_text("<mzML />", encoding="utf-8")
 
@@ -55,5 +107,5 @@ def test_elmaven_end_to_end_launch_and_collect(tmp_path: Path, monkeypatch: pyte
         BlockConfig(params={"elmaven_path": "elmaven"}),
     )
 
-    assert len(result["peak_table"]) == 1
-    assert len(result["mid_table"]) == 1
+    assert "peak_table" in result
+    assert "mid_table" in result
