@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from scieasy_blocks_srs import SRSBaseline, SRSCalibrate, SRSDenoise, SRSImage, SRSNormalize
+from scieasy_blocks_srs import SRSBaseline, SRSCalibrate, SRSImage, SRSSpectralDenoise
 
 from scieasy.blocks.base.block import BlockConfig
 from scieasy.core.types.collection import Collection
@@ -262,75 +262,27 @@ def test_baseline_dtype_float32() -> None:
     assert np.asarray(out._data).dtype == np.float32
 
 
-def test_denoise_smoke_pca() -> None:
-    image = _spectral_cube(shape=(6, 6, 12))
-    out = SRSDenoise().process_item(image, _config(method="PCA_denoise", n_components=3))
+# ---------------------------------------------------------------------------
+# SRS Spectral Denoise (Savitzky-Golay)
+# ---------------------------------------------------------------------------
+
+
+def test_spectral_denoise_smoke() -> None:
+    image = _spectral_cube(shape=(4, 4, 12))
+    out = SRSSpectralDenoise().process_item(image, _config(window_length=5, polyorder=2))
 
     assert out.shape == image.shape
     assert isinstance(out, SRSImage)
 
 
-def test_denoise_smoke_svd_truncation() -> None:
-    image = _spectral_cube(shape=(6, 6, 12))
-    out = SRSDenoise().process_item(image, _config(method="SVD_truncation", n_components=3))
+def test_spectral_denoise_default_config() -> None:
+    image = _spectral_cube(shape=(4, 4, 12))
+    out = SRSSpectralDenoise().process_item(image, _config())
 
     assert out.shape == image.shape
 
 
-def test_denoise_smoke_wavelet() -> None:
-    pytest.importorskip("pywt")
-    image = _spectral_cube(shape=(4, 4, 16))
-    out = SRSDenoise().process_item(image, _config(method="wavelet", wavelet="db2"))
-
-    assert out.shape == image.shape
-
-
-def test_denoise_smoke_bm4d() -> None:
-    pytest.importorskip("bm4d")
-    image = _spectral_cube(shape=(8, 8, 8))
-    out = SRSDenoise().process_item(image, _config(method="BM4D"))
-
-    assert out.shape == image.shape
-
-
-def test_denoise_unknown_method_raises() -> None:
-    image = _spectral_cube()
-
-    with pytest.raises(ValueError, match="unknown method"):
-        SRSDenoise().process_item(image, _config(method="bogus"))
-
-
-def test_denoise_n_components_validation() -> None:
-    image = _spectral_cube(shape=(4, 4, 6))
-
-    with pytest.raises(ValueError, match="exceeds"):
-        SRSDenoise().process_item(image, _config(method="PCA_denoise", n_components=7))
-
-
-def test_denoise_meta_preserved() -> None:
-    image = _spectral_cube(shape=(6, 6, 12))
-    out = SRSDenoise().process_item(image, _config(method="PCA_denoise", n_components=3))
-
-    assert out.meta == image.meta
-
-
-def test_denoise_dtype_float32() -> None:
-    image = _spectral_cube(shape=(6, 6, 12))
-    out = SRSDenoise().process_item(image, _config(method="PCA_denoise", n_components=3))
-
-    assert out.dtype == np.dtype(np.float32)
-    assert np.asarray(out._data).dtype == np.float32
-
-
-def test_denoise_5d_with_c() -> None:
-    image = _spectral_cube(axes=["t", "c", "lambda", "y", "x"], shape=(2, 3, 10, 4, 5))
-    out = SRSDenoise().process_item(image, _config(method="SVD_truncation", n_components=3))
-
-    assert out.axes == image.axes
-    assert out.shape == image.shape
-
-
-def test_denoise_pca_reduces_noise() -> None:
+def test_spectral_denoise_reduces_noise() -> None:
     wavelengths = np.linspace(2850.0, 2930.0, 20, dtype=np.float32)
     clean = np.sin(np.linspace(0.0, np.pi, 20, dtype=np.float32))
     base = np.tile(clean, (8, 8, 1)).astype(np.float32)
@@ -338,91 +290,52 @@ def test_denoise_pca_reduces_noise() -> None:
     noisy = base + rng.normal(0.0, 0.2, size=base.shape).astype(np.float32)
     image = _srs_image(noisy, meta=SRSImage.Meta(wavenumbers_cm1=list(wavelengths)))
 
-    denoised = np.asarray(SRSDenoise().process_item(image, _config(method="PCA_denoise", n_components=2))._data)
+    denoised = np.asarray(SRSSpectralDenoise().process_item(image, _config(window_length=7, polyorder=3))._data)
     noisy_error = float(np.sqrt(np.mean((noisy - base) ** 2)))
     denoised_error = float(np.sqrt(np.mean((denoised - base) ** 2)))
 
     assert denoised_error < noisy_error
 
 
-def test_normalize_snv() -> None:
-    data = np.array(
-        [
-            [[1.0, 2.0, 3.0, 4.0], [2.0, 3.0, 4.0, 5.0]],
-            [[4.0, 5.0, 6.0, 7.0], [5.0, 6.0, 7.0, 8.0]],
-        ],
-        dtype=np.float32,
-    )
-    out = SRSNormalize().process_item(_srs_image(data), _config(method="SNV"))
-    flat = np.asarray(out._data).reshape(-1, 4)
+def test_spectral_denoise_even_window_raises() -> None:
+    image = _spectral_cube(shape=(4, 4, 12))
 
-    np.testing.assert_allclose(flat.mean(axis=1), 0.0, atol=1e-6)
-    np.testing.assert_allclose(flat.std(axis=1), 1.0, atol=1e-6)
+    with pytest.raises(ValueError, match="odd"):
+        SRSSpectralDenoise().process_item(image, _config(window_length=4))
 
 
-def test_normalize_msc() -> None:
-    reference = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
-    data = np.stack(
-        [
-            2.0 * reference + 5.0,
-            0.5 * reference - 1.5,
-        ],
-        axis=0,
-    ).reshape(1, 2, 4)
-    out = SRSNormalize().process_item(_srs_image(data), _config(method="MSC"))
-    corrected = np.asarray(out._data).reshape(2, 4)
+def test_spectral_denoise_polyorder_ge_window_raises() -> None:
+    image = _spectral_cube(shape=(4, 4, 12))
 
-    np.testing.assert_allclose(corrected[0], corrected[1], atol=1e-5)
+    with pytest.raises(ValueError, match="polyorder"):
+        SRSSpectralDenoise().process_item(image, _config(window_length=5, polyorder=5))
 
 
-def test_normalize_vector() -> None:
-    out = SRSNormalize().process_item(_srs_image(np.array([[[3.0, 4.0]]], dtype=np.float32)), _config(method="vector"))
-    norm = float(np.linalg.norm(np.asarray(out._data).reshape(-1, 2), axis=1)[0])
+def test_spectral_denoise_window_exceeds_lambda_raises() -> None:
+    image = _spectral_cube(shape=(4, 4, 4))
 
-    assert norm == pytest.approx(1.0)
-
-
-def test_normalize_area() -> None:
-    out = SRSNormalize().process_item(
-        _srs_image(np.array([[[1.0, 1.0, 2.0]]], dtype=np.float32)), _config(method="area")
-    )
-    total = float(np.asarray(out._data).sum())
-
-    assert total == pytest.approx(1.0)
+    with pytest.raises(ValueError, match="exceeds"):
+        SRSSpectralDenoise().process_item(image, _config(window_length=7))
 
 
-def test_normalize_peak_area_with_reference_peak() -> None:
-    data = np.array([[[2.0, 4.0, 8.0]]], dtype=np.float32)
-    image = _srs_image(data, meta=SRSImage.Meta(wavenumbers_cm1=[2850.0, 2880.0, 2930.0]))
-    out = SRSNormalize().process_item(image, _config(method="peak_area", reference_peak_cm1=2880.0))
-
-    np.testing.assert_allclose(np.asarray(out._data), np.array([[[0.5, 1.0, 2.0]]], dtype=np.float32))
-
-
-def test_normalize_peak_area_requires_wavenumbers() -> None:
-    image = _srs_image(np.array([[[2.0, 4.0, 8.0]]], dtype=np.float32), meta=SRSImage.Meta())
-
-    with pytest.raises(ValueError, match="wavenumbers_cm1"):
-        SRSNormalize().process_item(image, _config(method="peak_area", reference_peak_cm1=2880.0))
-
-
-def test_normalize_unknown_method_raises() -> None:
-    image = _spectral_cube()
-
-    with pytest.raises(ValueError, match="unknown method"):
-        SRSNormalize().process_item(image, _config(method="bogus"))
-
-
-def test_normalize_meta_preserved() -> None:
-    image = _spectral_cube()
-    out = SRSNormalize().process_item(image, _config(method="SNV"))
+def test_spectral_denoise_meta_preserved() -> None:
+    image = _spectral_cube(shape=(4, 4, 12))
+    out = SRSSpectralDenoise().process_item(image, _config())
 
     assert out.meta == image.meta
 
 
-def test_normalize_dtype_float32() -> None:
-    image = _spectral_cube()
-    out = SRSNormalize().process_item(image, _config(method="SNV"))
+def test_spectral_denoise_dtype_float32() -> None:
+    image = _spectral_cube(shape=(4, 4, 12))
+    out = SRSSpectralDenoise().process_item(image, _config())
 
     assert out.dtype == np.dtype(np.float32)
     assert np.asarray(out._data).dtype == np.float32
+
+
+def test_spectral_denoise_5d_with_c() -> None:
+    image = _spectral_cube(axes=["t", "c", "lambda", "y", "x"], shape=(2, 3, 10, 4, 5))
+    out = SRSSpectralDenoise().process_item(image, _config(window_length=5, polyorder=2))
+
+    assert out.axes == image.axes
+    assert out.shape == image.shape
