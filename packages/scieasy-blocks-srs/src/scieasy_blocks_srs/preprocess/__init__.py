@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from scieasy_blocks_srs.preprocess.srs_baseline import SRSBaseline
 from scieasy_blocks_srs.preprocess.srs_calibrate import SRSCalibrate
-from scieasy_blocks_srs.preprocess.srs_denoise import SRSDenoise
-from scieasy_blocks_srs.preprocess.srs_normalize import SRSNormalize
+from scieasy_blocks_srs.preprocess.srs_spectral_denoise import SRSSpectralDenoise
 
-__all__ = ["SRSBaseline", "SRSCalibrate", "SRSDenoise", "SRSNormalize"]
+__all__ = ["SRSBaseline", "SRSCalibrate", "SRSSpectralDenoise"]

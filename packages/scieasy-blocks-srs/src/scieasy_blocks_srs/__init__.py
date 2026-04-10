@@ -10,8 +10,7 @@ from scieasy_blocks_srs.component_analysis import (
     SRSKMeansCluster,
     SRSUnmix,
 )
-from scieasy_blocks_srs.preprocess import SRSBaseline, SRSCalibrate, SRSDenoise, SRSNormalize
-from scieasy_blocks_srs.spectral_extraction.band_ratio import BandRatio
+from scieasy_blocks_srs.preprocess import SRSBaseline, SRSCalibrate, SRSSpectralDenoise
 from scieasy_blocks_srs.spectral_extraction.extract_spectrum import ExtractSpectrum
 from scieasy_blocks_srs.types import SRSImage, get_types
 
@@ -19,9 +18,8 @@ __version__ = "0.1.0.dev0"
 
 _SRS_BLOCKS: tuple[type, ...] = (
     # Preprocess
-    SRSDenoise,
+    SRSSpectralDenoise,
     SRSBaseline,
-    SRSNormalize,
     SRSCalibrate,
     # Component analysis
     SRSPCA,
@@ -30,7 +28,6 @@ _SRS_BLOCKS: tuple[type, ...] = (
     SRSUnmix,
     SRSKMeansCluster,
     # Spectral extraction
-    BandRatio,
     ExtractSpectrum,
 )
 
@@ -59,14 +56,12 @@ __all__ = [
     "SRSICA",
     "SRSPCA",
     "SRSVCA",
-    "BandRatio",
     "ExtractSpectrum",
     "SRSBaseline",
     "SRSCalibrate",
-    "SRSDenoise",
     "SRSImage",
     "SRSKMeansCluster",
-    "SRSNormalize",
+    "SRSSpectralDenoise",
     "SRSUnmix",
     "get_block_package",
     "get_blocks",
