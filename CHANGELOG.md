@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#534] Remove is_collection double-ring from port rendering (@claude, 2026-04-10, branch: fix/issue-534/remove-collection-double-ring, session: 20260410-000721-fix-gui-remove-is-collection-double-ring)
 - [#525] Switch LCMS load blocks from directory_browser/glob to file_browser with multi-file support (@claude, 2026-04-09, branch: fix/issue-525/load-blocks-file-browser, session: N/A)
 - [#526] Fix ElMAVEN block freeze — remove unused argv_override CLI args, fix PIPE deadlock with DEVNULL, add proc.wait (@claude, 2026-04-09, branch: fix/issue-526/elmaven-cli-pipe-deadlock, session: N/A)
 - [#524] Fix toolbar layout shift — use fixed-width name area and visibility-based dirty indicator (@claude, 2026-04-09, branch: fix/issue-524/toolbar-fixed-width, session: N/A)
