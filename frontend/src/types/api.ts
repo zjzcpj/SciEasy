@@ -61,11 +61,9 @@ export interface BlockSummary {
   name: string;
   type_name: string;
   // #588: base_category is always one of 6 base types (io, process, code,
-  // app, ai, subworkflow).  subcategory is the optional palette grouping
-  // label.  category is kept as a backward-compat alias for base_category.
+  // app, ai, subworkflow).  subcategory is the optional palette grouping label.
   base_category: string;
   subcategory: string;
-  category: string;
   description: string;
   version: string;
   input_ports: BlockPortResponse[];

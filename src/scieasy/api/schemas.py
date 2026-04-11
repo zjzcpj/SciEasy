@@ -87,11 +87,9 @@ class BlockSummary(BaseModel):
     name: str
     type_name: str
     # #588: base_category is always one of 6 base types (io, process, code,
-    # app, ai, subworkflow).  subcategory is the optional palette grouping
-    # label.  category is kept as a backward-compat alias for base_category.
+    # app, ai, subworkflow).  subcategory is the optional palette grouping label.
     base_category: str = ""
     subcategory: str = ""
-    category: str = ""
     description: str = ""
     version: str = "0.1.0"
     input_ports: list[BlockPortResponse] = Field(default_factory=list)

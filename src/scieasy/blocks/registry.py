@@ -41,8 +41,6 @@ class BlockSpec:
     file_mtime: float | None = None
     base_category: str = ""
     subcategory: str = ""
-    # Backward compat alias — equals base_category.
-    category: str = ""
     input_ports: list[Any] = field(default_factory=list)
     output_ports: list[Any] = field(default_factory=list)
     config_schema: dict[str, Any] = field(default_factory=dict)
@@ -627,7 +625,6 @@ def _spec_from_class(cls: type, source: str = "") -> BlockSpec:
         class_name=cls.__name__,
         base_category=base_cat,
         subcategory=sub_cat,
-        category=base_cat,  # backward compat alias
         input_ports=list(getattr(cls, "input_ports", [])),
         output_ports=list(getattr(cls, "output_ports", [])),
         config_schema=_merge_config_schema(cls),

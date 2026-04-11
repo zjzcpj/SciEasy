@@ -16,7 +16,6 @@ function makeBlock(overrides: Partial<BlockSummary> & { type_name: string; name:
     type_name: overrides.type_name,
     base_category,
     subcategory,
-    category: overrides.category ?? base_category,
     description: overrides.description ?? "A block",
     version: "0.1.0",
     input_ports: [],

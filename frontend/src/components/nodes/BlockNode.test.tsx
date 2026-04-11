@@ -45,7 +45,6 @@ function makeSchema(
     type_name: "test_block",
     base_category: "process",
     subcategory: "",
-    category: "process",
     description: "",
     version: "1.0",
     input_ports: [],
@@ -55,7 +54,7 @@ function makeSchema(
     dynamic_ports: null,
     direction: null,
     ...overrides,
-  } as BlockSchemaResponse;
+  };
 }
 
 function renderNode(
@@ -142,7 +141,7 @@ describe("BlockNode — Browse buttons removed (#467, tkinter crash on macOS)", 
       category: "io",
       blockType: "load_data",
       schema: makeSchema({
-        category: "io",
+        base_category: "io",
         type_name: "load_data",
         direction: "input",
         config_schema: {
@@ -159,7 +158,7 @@ describe("BlockNode — Browse buttons removed (#467, tkinter crash on macOS)", 
       category: "io",
       blockType: "load_image",
       schema: makeSchema({
-        category: "io",
+        base_category: "io",
         type_name: "load_image",
         direction: "input",
         config_schema: {
@@ -182,7 +181,7 @@ describe("BlockNode — hidden direction field (ADR-028 Addendum 1 §B fix #2)",
     renderNode({
       category: "io",
       schema: makeSchema({
-        category: "io",
+        base_category: "io",
         direction: "input",
         config_schema: {
           type: "object",
@@ -210,7 +209,7 @@ describe("BlockNode — hidden direction field (ADR-028 Addendum 1 §B fix #2)",
     renderNode({
       category: "process",
       schema: makeSchema({
-        category: "process",
+        base_category: "process",
         config_schema: {
           type: "object",
           properties: {
@@ -239,7 +238,7 @@ describe("BlockNode — Browse buttons removed (#467, tkinter crash on macOS)", 
       category: "io",
       blockType: "save_data",
       schema: makeSchema({
-        category: "io",
+        base_category: "io",
         type_name: "save_data",
         direction: "output",
         config_schema: {
@@ -257,7 +256,7 @@ describe("BlockNode — Browse buttons removed (#467, tkinter crash on macOS)", 
       category: "io",
       blockType: "load_data",
       schema: makeSchema({
-        category: "io",
+        base_category: "io",
         type_name: "load_data",
         direction: "input",
         config_schema: {
@@ -286,7 +285,7 @@ describe("BlockNode — dynamic port live-update (ADR-028 Addendum 1 §D4)", () 
       inputPorts: [],
       outputPorts: [makePort("data", "output", ["DataObject"])],
       schema: makeSchema({
-        category: "io",
+        base_category: "io",
         type_name: "load_data",
         direction: "input",
         input_ports: [],
@@ -326,7 +325,7 @@ describe("BlockNode — dynamic port live-update (ADR-028 Addendum 1 §D4)", () 
       config: {}, // no core_type
       outputPorts: [makePort("data", "output", ["DataObject"])],
       schema: makeSchema({
-        category: "io",
+        base_category: "io",
         direction: "input",
         output_ports: [makePort("data", "output", ["DataObject"])],
         dynamic_ports: LOAD_DATA_DYNAMIC,
@@ -346,7 +345,7 @@ describe("BlockNode — dynamic port live-update (ADR-028 Addendum 1 §D4)", () 
       inputPorts: [makePort("data", "input", ["DataObject"])],
       outputPorts: [],
       schema: makeSchema({
-        category: "io",
+        base_category: "io",
         type_name: "save_data",
         direction: "output",
         input_ports: [makePort("data", "input", ["DataObject"])],
@@ -364,7 +363,7 @@ describe("BlockNode — dynamic port live-update (ADR-028 Addendum 1 §D4)", () 
       category: "process",
       outputPorts: [makePort("result", "output", ["Image"])],
       schema: makeSchema({
-        category: "process",
+        base_category: "process",
         output_ports: [makePort("result", "output", ["Image"])],
         dynamic_ports: null,
       }),
