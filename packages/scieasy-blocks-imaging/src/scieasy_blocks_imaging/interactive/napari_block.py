@@ -47,15 +47,7 @@ class NapariBlock(AppBlock):
 
     config_schema: ClassVar[dict[str, Any]] = {
         "type": "object",
-        "properties": {
-            "napari_path": {
-                "type": ["string", "null"],
-                "default": None,
-                "title": "napari executable path (overrides app_command)",
-                "ui_widget": "file_browser",
-            },
-            "watch_timeout": {"type": "integer", "default": 1800},
-        },
+        "properties": {},
     }
 
     def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, Collection]:
