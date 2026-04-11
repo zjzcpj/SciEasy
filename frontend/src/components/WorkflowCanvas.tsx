@@ -178,7 +178,7 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
         data: {
           label: resolveLabel(node, summary, schema),
           blockType: node.block_type,
-          category: summary?.category ?? schema?.category ?? "custom",
+          category: summary?.base_category ?? schema?.base_category ?? summary?.category ?? schema?.category ?? "custom",
           summary,
           schema,
           config: params,

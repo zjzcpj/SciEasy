@@ -43,6 +43,8 @@ function makeSchema(
   return {
     name: "Test Block",
     type_name: "test_block",
+    base_category: "process",
+    subcategory: "",
     category: "process",
     description: "",
     version: "1.0",
@@ -53,7 +55,7 @@ function makeSchema(
     dynamic_ports: null,
     direction: null,
     ...overrides,
-  };
+  } as BlockSchemaResponse;
 }
 
 function renderNode(

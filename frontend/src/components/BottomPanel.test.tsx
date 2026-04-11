@@ -35,6 +35,8 @@ describe("BottomPanel", () => {
         selectedSchema={{
           name: "Process Block",
           type_name: "process_block",
+          base_category: "process",
+          subcategory: "",
           category: "process",
           description: "",
           version: "0.1.0",
@@ -80,6 +82,8 @@ describe("BottomPanel", () => {
         selectedSchema={{
           name: "Load Image",
           type_name: "imaging.load_image",
+          base_category: "io",
+          subcategory: "",
           category: "io",
           description: "",
           version: "0.1.0",
