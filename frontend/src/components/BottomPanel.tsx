@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import type { BlockSchemaResponse, ChatMessage, LogEntry, WorkflowNode } from "../types/api";
 import type { BottomTab } from "../types/ui";
 import { AIChat } from "./AIChat";
+import { type PortRow, PortEditorTable } from "./PortEditorTable";
 
 interface BottomPanelProps {
   activeTab: BottomTab;
@@ -42,22 +43,51 @@ function ConfigPanel({
   const params = ((selectedNode?.config.params as Record<string, unknown> | undefined) ?? {}) as Record<string, unknown>;
   const properties = schema?.config_schema.properties ?? {};
   const ordered = Object.entries(properties)
-    .filter(([key]) => {
+    .filter(([key, value]) => {
       // For io_block, hide "direction" — it is already determined by whether
       // the user dragged a Load Block or Save Block from the palette.
       if ((schema?.direction || selectedNode?.block_type === "io_block") && key === "direction") return false;
+      // Skip port_editor fields — rendered separately as PortEditorTable below.
+      if ((value as Record<string, unknown>).ui_widget === "port_editor") return false;
       return true;
     })
     .sort(([, left], [, right]) => {
       return Number(left.ui_priority ?? 99) - Number(right.ui_priority ?? 99);
     });
 
+  const isVariadicInputs = schema?.variadic_inputs === true;
+  const isVariadicOutputs = schema?.variadic_outputs === true;
+  const inputPorts = Array.isArray(params["input_ports"]) ? (params["input_ports"] as PortRow[]) : [];
+  const outputPorts = Array.isArray(params["output_ports"]) ? (params["output_ports"] as PortRow[]) : [];
+  const typeHierarchy = schema?.type_hierarchy ?? [];
+  const allowedInputTypes = schema?.allowed_input_types ?? [];
+  const allowedOutputTypes = schema?.allowed_output_types ?? [];
+
   if (!selectedNode || !schema) {
     return <div className="text-sm text-stone-500">Select a node to edit its JSON-schema-driven configuration.</div>;
   }
 
   return (
-    <div className="grid gap-4 md:grid-cols-2">
+    <div>
+      {isVariadicInputs && (
+        <PortEditorTable
+          allowedTypes={allowedInputTypes}
+          direction="input"
+          onChange={(ports) => onUpdateConfig({ input_ports: ports })}
+          ports={inputPorts}
+          typeHierarchy={typeHierarchy}
+        />
+      )}
+      {isVariadicOutputs && (
+        <PortEditorTable
+          allowedTypes={allowedOutputTypes}
+          direction="output"
+          onChange={(ports) => onUpdateConfig({ output_ports: ports })}
+          ports={outputPorts}
+          typeHierarchy={typeHierarchy}
+        />
+      )}
+      <div className="grid gap-4 md:grid-cols-2">
       {ordered.map(([key, value]) => {
         const currentValue = params[key] ?? value.default ?? "";
         if (Array.isArray(value.enum)) {
@@ -95,6 +125,7 @@ function ConfigPanel({
           </label>
         );
       })}
+      </div>
     </div>
   );
 }
