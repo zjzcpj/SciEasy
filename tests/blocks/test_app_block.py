@@ -529,3 +529,268 @@ class TestFileWatcherStability:
         assert len(files) == 1
         # Total elapsed should be at least 0.1 (delay) + stability_period.
         assert elapsed >= 0.1 + stability - 0.15  # tolerance
+
+
+# ---------------------------------------------------------------------------
+# #338: Subprocess leak — proc.wait() must be called after run()
+# #339: Tempfile exchange directory leak — temp dirs must be cleaned up
+# ---------------------------------------------------------------------------
+
+
+class TestAppBlockSubprocessCleanup:
+    """#338: Verify subprocess is properly waited on / terminated after run()."""
+
+    def _make_running_block(self):
+        """Create an AppBlock in RUNNING state."""
+        from scieasy.blocks.app.app_block import AppBlock
+        from scieasy.blocks.base.state import BlockState
+
+        block = AppBlock()
+        block.transition(BlockState.READY)
+        block.transition(BlockState.RUNNING)
+        return block
+
+    def test_proc_wait_called_on_normal_exit(self, tmp_path: Path) -> None:
+        """After successful run(), proc.wait() must be called to reap the process."""
+        from unittest.mock import MagicMock, patch
+
+        from scieasy.blocks.base.config import BlockConfig
+
+        block = self._make_running_block()
+        config = BlockConfig(params={"app_command": "echo hello"})
+
+        with (
+            patch("scieasy.blocks.app.app_block.FileExchangeBridge") as mock_bridge_cls,
+            patch("scieasy.blocks.app.app_block.validate_app_command", return_value=["echo", "hello"]),
+            patch(
+                "scieasy.blocks.app.app_block.tempfile.mkdtemp",
+                return_value=str(tmp_path / "temp_exchange"),
+            ),
+        ):
+            mock_bridge = MagicMock()
+            mock_bridge_cls.return_value = mock_bridge
+            mock_proc = MagicMock()
+            mock_proc.poll.return_value = None
+            mock_proc.pid = 12345
+            mock_proc.wait.return_value = 0
+            mock_bridge.launch.return_value = mock_proc
+
+            with patch("scieasy.blocks.app.watcher.FileWatcher") as mock_watcher_cls:
+                mock_watcher = MagicMock()
+                mock_watcher_cls.return_value = mock_watcher
+                fake_output = tmp_path / "result.csv"
+                fake_output.write_text("a,b\n1,2\n")
+                mock_watcher.wait_for_output.return_value = [fake_output]
+                mock_bridge.collect.return_value = {}
+
+                block.run(inputs={}, config=config)
+
+            # proc.wait() must have been called at least once (cleanup).
+            assert mock_proc.wait.called, "proc.wait() was never called — subprocess leak (#338)"
+
+    def test_proc_terminated_when_wait_times_out(self, tmp_path: Path) -> None:
+        """If proc.wait() times out, proc.terminate() must be called."""
+        import subprocess as _subprocess
+        from unittest.mock import MagicMock, patch
+
+        from scieasy.blocks.base.config import BlockConfig
+
+        block = self._make_running_block()
+        config = BlockConfig(params={"app_command": "echo hello"})
+
+        with (
+            patch("scieasy.blocks.app.app_block.FileExchangeBridge") as mock_bridge_cls,
+            patch("scieasy.blocks.app.app_block.validate_app_command", return_value=["echo", "hello"]),
+            patch(
+                "scieasy.blocks.app.app_block.tempfile.mkdtemp",
+                return_value=str(tmp_path / "temp_exchange"),
+            ),
+        ):
+            mock_bridge = MagicMock()
+            mock_bridge_cls.return_value = mock_bridge
+            mock_proc = MagicMock()
+            mock_proc.poll.return_value = None
+            mock_proc.pid = 12345
+            # First wait times out, second (after terminate) succeeds.
+            mock_proc.wait.side_effect = [
+                _subprocess.TimeoutExpired(cmd="echo", timeout=5),
+                0,  # after terminate
+            ]
+            mock_bridge.launch.return_value = mock_proc
+
+            with patch("scieasy.blocks.app.watcher.FileWatcher") as mock_watcher_cls:
+                mock_watcher = MagicMock()
+                mock_watcher_cls.return_value = mock_watcher
+                fake_output = tmp_path / "result.csv"
+                fake_output.write_text("a,b\n1,2\n")
+                mock_watcher.wait_for_output.return_value = [fake_output]
+                mock_bridge.collect.return_value = {}
+
+                block.run(inputs={}, config=config)
+
+            mock_proc.terminate.assert_called_once()
+
+    def test_proc_waited_on_process_exited_without_output(self, tmp_path: Path) -> None:
+        """On ProcessExitedWithoutOutputError, proc must still be waited on."""
+        from unittest.mock import MagicMock, patch
+
+        from scieasy.blocks.app.watcher import ProcessExitedWithoutOutputError
+        from scieasy.blocks.base.config import BlockConfig
+
+        block = self._make_running_block()
+        config = BlockConfig(params={"app_command": "echo hello"})
+
+        with (
+            patch("scieasy.blocks.app.app_block.FileExchangeBridge") as mock_bridge_cls,
+            patch("scieasy.blocks.app.app_block.validate_app_command", return_value=["echo", "hello"]),
+            patch(
+                "scieasy.blocks.app.app_block.tempfile.mkdtemp",
+                return_value=str(tmp_path / "temp_exchange"),
+            ),
+        ):
+            mock_bridge = MagicMock()
+            mock_bridge_cls.return_value = mock_bridge
+            mock_proc = MagicMock()
+            mock_proc.poll.return_value = None
+            mock_proc.pid = 12345
+            mock_proc.wait.return_value = 0
+            mock_bridge.launch.return_value = mock_proc
+
+            with patch("scieasy.blocks.app.watcher.FileWatcher") as mock_watcher_cls:
+                mock_watcher = MagicMock()
+                mock_watcher_cls.return_value = mock_watcher
+                mock_watcher.wait_for_output.side_effect = ProcessExitedWithoutOutputError("Process exited")
+                mock_bridge.collect.return_value = {}
+
+                result = block.run(inputs={}, config=config)
+
+            assert result == {}
+            assert mock_proc.wait.called, "proc.wait() not called on cancelled path (#338)"
+
+
+class TestAppBlockTempDirCleanup:
+    """#339: Verify temp exchange directories are cleaned up."""
+
+    def _make_running_block(self):
+        from scieasy.blocks.app.app_block import AppBlock
+        from scieasy.blocks.base.state import BlockState
+
+        block = AppBlock()
+        block.transition(BlockState.READY)
+        block.transition(BlockState.RUNNING)
+        return block
+
+    def test_temp_exchange_dir_cleaned_up(self, tmp_path: Path) -> None:
+        """Temp exchange dir (no project_dir) must be removed after run()."""
+        from unittest.mock import MagicMock, patch
+
+        from scieasy.blocks.base.config import BlockConfig
+
+        block = self._make_running_block()
+
+        temp_dir = tmp_path / "scieasy_app_temp"
+        config = BlockConfig(params={"app_command": "echo hello"})
+
+        with (
+            patch("scieasy.blocks.app.app_block.FileExchangeBridge") as mock_bridge_cls,
+            patch("scieasy.blocks.app.app_block.validate_app_command", return_value=["echo", "hello"]),
+            patch(
+                "scieasy.blocks.app.app_block.tempfile.mkdtemp",
+                return_value=str(temp_dir),
+            ),
+        ):
+            mock_bridge = MagicMock()
+            mock_bridge_cls.return_value = mock_bridge
+            mock_proc = MagicMock()
+            mock_proc.poll.return_value = None
+            mock_proc.pid = 12345
+            mock_proc.wait.return_value = 0
+            mock_bridge.launch.return_value = mock_proc
+
+            with patch("scieasy.blocks.app.watcher.FileWatcher") as mock_watcher_cls:
+                mock_watcher = MagicMock()
+                mock_watcher_cls.return_value = mock_watcher
+                fake_output = tmp_path / "result.csv"
+                fake_output.write_text("a,b\n1,2\n")
+                mock_watcher.wait_for_output.return_value = [fake_output]
+                mock_bridge.collect.return_value = {}
+
+                block.run(inputs={}, config=config)
+
+        # The temp dir should have been cleaned up.
+        assert not temp_dir.exists(), "Temp exchange dir was not cleaned up (#339)"
+
+    def test_project_exchange_dir_not_cleaned_up(self, tmp_path: Path) -> None:
+        """Project exchange dir (project_dir + block_id) must NOT be removed."""
+        from unittest.mock import MagicMock, patch
+
+        from scieasy.blocks.base.config import BlockConfig
+
+        block = self._make_running_block()
+
+        project_dir = tmp_path / "my_project"
+        project_dir.mkdir()
+        config = BlockConfig(
+            params={
+                "app_command": "echo hello",
+                "project_dir": str(project_dir),
+                "block_id": "block_123",
+            }
+        )
+
+        exchange_dir = project_dir / "data" / "exchange" / "block_123"
+
+        with (
+            patch("scieasy.blocks.app.app_block.FileExchangeBridge") as mock_bridge_cls,
+            patch("scieasy.blocks.app.app_block.validate_app_command", return_value=["echo", "hello"]),
+        ):
+            mock_bridge = MagicMock()
+            mock_bridge_cls.return_value = mock_bridge
+            mock_proc = MagicMock()
+            mock_proc.poll.return_value = None
+            mock_proc.pid = 12345
+            mock_proc.wait.return_value = 0
+            mock_bridge.launch.return_value = mock_proc
+
+            with patch("scieasy.blocks.app.watcher.FileWatcher") as mock_watcher_cls:
+                mock_watcher = MagicMock()
+                mock_watcher_cls.return_value = mock_watcher
+                fake_output = tmp_path / "result.csv"
+                fake_output.write_text("a,b\n1,2\n")
+                mock_watcher.wait_for_output.return_value = [fake_output]
+                mock_bridge.collect.return_value = {}
+
+                block.run(inputs={}, config=config)
+
+        # Project exchange dir must still exist.
+        assert exchange_dir.exists(), "Project exchange dir was incorrectly cleaned up (#339)"
+
+    def test_temp_dir_cleaned_up_on_error(self, tmp_path: Path) -> None:
+        """Temp exchange dir must be cleaned up even if run() raises."""
+        from unittest.mock import MagicMock, patch
+
+        from scieasy.blocks.base.config import BlockConfig
+
+        block = self._make_running_block()
+
+        temp_dir = tmp_path / "scieasy_app_error"
+        config = BlockConfig(params={"app_command": "echo hello"})
+
+        with (
+            patch("scieasy.blocks.app.app_block.FileExchangeBridge") as mock_bridge_cls,
+            patch("scieasy.blocks.app.app_block.validate_app_command", return_value=["echo", "hello"]),
+            patch(
+                "scieasy.blocks.app.app_block.tempfile.mkdtemp",
+                return_value=str(temp_dir),
+            ),
+        ):
+            mock_bridge = MagicMock()
+            mock_bridge_cls.return_value = mock_bridge
+            # bridge.launch raises an error.
+            mock_bridge.launch.side_effect = RuntimeError("launch failed")
+
+            with pytest.raises(RuntimeError, match="launch failed"):
+                block.run(inputs={}, config=config)
+
+        # Even on error, temp dir should be cleaned up.
+        assert not temp_dir.exists(), "Temp dir not cleaned up after error (#339)"
