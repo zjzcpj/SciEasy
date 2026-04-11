@@ -300,7 +300,7 @@ class TestBlockSchemaResponseSerialization:
         response = BlockSchemaResponse(
             name="Load",
             type_name="load_data",
-            category="io",
+            base_category="io",
             description="",
             version="0.1.0",
             input_ports=[],
@@ -322,7 +322,7 @@ class TestBlockSchemaResponseSerialization:
         response = BlockSchemaResponse(
             name="Static",
             type_name="static",
-            category="process",
+            base_category="process",
         )
         assert response.dynamic_ports is None
         assert response.direction is None
