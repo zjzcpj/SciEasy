@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- [#610] ADR-029 F2: Bottom Panel port editor table for variadic blocks -- PortEditorTable component renders editable input/output port lists (name input + type dropdown + remove button) in Config tab when selected block is variadic; syncs to canvas node config via onUpdateConfig (@claude, 2026-04-11, branch: feat/issue-610/bottom-panel-port-editor-table, session: 20260411-110757-f2-bottom-panel-port-editor-table-for-va)
+
 ### Changed
 
 - [#588] Split category into base_category + subcategory so AppBlock subclasses with custom palette labels retain correct base type detection (@claude, 2026-04-11, branch: refactor/issue-588/category-subcategory-split, session: 20260411-042819-split-category-into-base-category-subcat)
