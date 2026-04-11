@@ -40,7 +40,11 @@ def validate_app_command(command: str | list[str]) -> list[str]:
         # Check for shell metacharacters before splitting.
         if _SHELL_META.search(command):
             raise ValueError(f"Command contains shell metacharacters and was rejected: {command!r}")
-        parts = shlex.split(command)
+        # If the string is a bare filesystem path (e.g. selected via
+        # file_browser widget), treat it as a single executable token
+        # so shlex.split does not break paths with spaces like
+        # "C:\Program Files\Fiji\fiji.exe".
+        parts = [command] if Path(command).is_file() else shlex.split(command)
 
     if not parts:
         raise ValueError("Empty command")

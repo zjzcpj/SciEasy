@@ -51,6 +51,22 @@ class TestBlockConfigSchema:
         spec = _spec_from_class(MyBlock, source="test")
         assert spec.config_schema["properties"]["threshold"]["type"] == "number"
 
+    def test_appblock_schema_executable_path_and_output_dir(self) -> None:
+        """Issue #571: AppBlock config_schema has Executable Path (file_browser, priority 0)
+        and Save Outputs At (directory_browser, priority 1)."""
+        from scieasy.blocks.app.app_block import AppBlock
+
+        schema = AppBlock.config_schema
+        props = schema["properties"]
+        # app_command renamed to "Executable Path" with file_browser
+        assert props["app_command"]["title"] == "Executable Path"
+        assert props["app_command"]["ui_widget"] == "file_browser"
+        assert props["app_command"]["ui_priority"] == 0
+        # output_dir is "Save Outputs At" with directory_browser, priority 1
+        assert props["output_dir"]["title"] == "Save Outputs At"
+        assert props["output_dir"]["ui_widget"] == "directory_browser"
+        assert props["output_dir"]["ui_priority"] == 1
+
     def test_spec_from_class_default_when_no_schema(self) -> None:
         class PlainBlock(Block):
             name: ClassVar[str] = "Plain"

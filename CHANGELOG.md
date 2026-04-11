@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- [#571] Inject Executable Path (file_browser) + Save Outputs At with forced ui_priority ordering in AppBlock (@claude, 2026-04-11, branch: fix/issue-571/appblock-config-injection, session: 20260411-020155-fix-571-inject-executable-path-save-outp)
 - [#572] Clean up Fiji config after AppBlock MRO injection: remove redundant watch_timeout from config_schema (@claude, 2026-04-11, branch: fix/issue-572/fiji-elmaven-config-cleanup, session: 20260411-020318-clean-up-fiji-and-elmaven-config-after-a)
 - [#561] Fix Windows browse dialog bugs: PowerShell double-brace syntax, add multi-file select, modernize folder dialog, update frontend to paths array (@claude, 2026-04-11, branch: fix/issue-561/browse-dialog-bugs, session: 20260411-020115-fix-browse-dialog-bugs-on-windows-561)
 - [#569] Add ADR-029 variadic ports implementation roadmap with 8 detailed tickets (@claude, 2026-04-11, branch: docs/issue-569/adr-029-variadic-ports-roadmap, session: 20260411-013533-docs-adr-029-variadic-ports-implementati)
