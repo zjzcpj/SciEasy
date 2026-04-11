@@ -36,21 +36,10 @@
       ]
     },
     {
-      "id": "submit_pr",
-      "name": "Submit PR",
-      "description": "Open a pull request linking the issue",
-      "requires": ["create_branch"],
-      "artifacts": ["pr_number", "pr_url"],
-      "validations": [
-        "pr_number must be a positive integer",
-        "pr_url must be a valid GitHub URL"
-      ]
-    },
-    {
       "id": "update_docs",
       "name": "Update Documentation",
       "description": "Update relevant docs, specs, or ADRs",
-      "requires": ["submit_pr"],
+      "requires": ["create_branch"],
       "artifacts": ["docs_updated"],
       "validations": [
         "docs_updated must be a non-empty list of file paths"
@@ -64,6 +53,17 @@
       "artifacts": ["changelog_entry"],
       "validations": [
         "changelog_entry must be a non-empty string"
+      ]
+    },
+    {
+      "id": "submit_pr",
+      "name": "Submit PR",
+      "description": "Push branch and open a pull request linking the issue",
+      "requires": ["update_changelog"],
+      "artifacts": ["pr_number", "pr_url"],
+      "validations": [
+        "pr_number must be a positive integer",
+        "pr_url must be a valid GitHub URL"
       ]
     }
   ]
