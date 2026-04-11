@@ -40,7 +40,7 @@ def test_list_blocks_and_schema_alias_endpoints(client: TestClient) -> None:
     assert schema.status_code == 200
     schema_payload = schema.json()
     assert schema_payload["name"] == "Process Block"
-    assert schema_payload["category"] == "process"
+    assert schema_payload["base_category"] == "process"
     assert schema_payload["config_schema"]["properties"]["sleep_seconds"]["ui_priority"] == 1
     assert any(entry["name"] == "DataObject" for entry in schema_payload["type_hierarchy"])
 

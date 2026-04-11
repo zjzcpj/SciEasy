@@ -284,7 +284,7 @@ class {class_name}(ProcessBlock):
         assert "Discover Block" in specs
         spec = specs["Discover Block"]
         assert spec.source == "tier1"
-        assert spec.category == "process"
+        assert spec.base_category == "process"
         assert spec.version == "0.2.0"
 
     def test_tier1_instantiate_and_run(self, tmp_path: Path) -> None:

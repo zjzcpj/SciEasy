@@ -36,7 +36,7 @@ def test_block_spec_does_not_store_class_object() -> None:
 
 def test_block_spec_has_descriptor_fields() -> None:
     """``BlockSpec`` must store module_path and class_name for deferred import."""
-    required = {"name", "module_path", "class_name", "category", "source"}
+    required = {"name", "module_path", "class_name", "base_category", "source"}
     spec = BlockSpec(name="example", module_path="scieasy.blocks.io.io_block", class_name="IOBlock")
     actual = set(vars(spec).keys())
     assert required.issubset(actual), f"BlockSpec is missing fields: {required - actual}"
