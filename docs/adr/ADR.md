@@ -7509,6 +7509,101 @@ resolutions" section.
 
 ---
 
+## ADR-029 Addendum 1: Variadic port count limits
+
+**Status**: proposed
+**Date**: 2026-04-11
+**Parent**: ADR-029
+
+### Context
+
+ADR-029 defines variadic ports with `variadic_inputs: bool` /
+`variadic_outputs: bool` but provides no mechanism for block authors to
+constrain the minimum or maximum number of ports a user can add. Without
+limits, a user could add 100 input ports to a PairEditor (intended for
+2–8 inputs) or remove all ports from an AIBlock (which needs at least
+one input).
+
+Interactive blocks like PairEditor (#591) and DataRouter (#591) have
+practical UI limits — the drag-and-drop interface becomes unusable
+beyond ~8 ports. Other blocks have logical minimums (e.g. a merge block
+needs at least 2 inputs).
+
+### Decision
+
+#### D1 — Optional min/max ClassVar declarations on Block
+
+```python
+class Block(ABC):
+    # Existing:
+    variadic_inputs: ClassVar[bool] = False
+    variadic_outputs: ClassVar[bool] = False
+
+    # New — port count limits (None = no limit):
+    min_input_ports: ClassVar[int | None] = None
+    max_input_ports: ClassVar[int | None] = None
+    min_output_ports: ClassVar[int | None] = None
+    max_output_ports: ClassVar[int | None] = None
+```
+
+- `None` means no constraint (unlimited). This is the default on `Block`.
+- Subclasses declare limits only when needed.
+- When `variadic_inputs` is `False`, the limits are ignored (static port
+  list is fixed by the class).
+
+**Example**:
+
+```python
+class PairEditor(ProcessBlock):
+    variadic_inputs = True
+    variadic_outputs = False
+    min_input_ports = 2
+    max_input_ports = 8
+
+class DataRouter(ProcessBlock):
+    variadic_inputs = True
+    variadic_outputs = True
+    min_input_ports = 1
+    max_input_ports = 8
+    min_output_ports = 1
+    max_output_ports = 8
+
+class AIBlock(Block):
+    variadic_inputs = True
+    variadic_outputs = True
+    min_input_ports = 1     # need at least one input
+    min_output_ports = 1    # need at least one output
+    # max = None → unlimited
+```
+
+#### D2 — BlockSpec and frontend enforcement
+
+- `BlockSpec` carries the four limit fields (set from ClassVar at scan
+  time).
+- `BlockSchemaResponse` exposes them to the frontend.
+- Frontend: `[+]` button is disabled when current port count equals
+  `max_*_ports`. `[−]` button is disabled when current count equals
+  `min_*_ports`.
+- Validator rejects workflows where a variadic block has port count
+  outside `[min, max]`.
+
+### Consequences
+
+- Four new optional `ClassVar` fields on `Block`, all defaulting to
+  `None`. Fully backward-compatible — existing blocks are unaffected.
+- `BlockSpec` gains four optional `int | None` fields.
+- Frontend port editor respects limits.
+- No changes to scheduler, worker, or payload format.
+
+### Relationship to other ADRs
+
+- **Extends**: ADR-029 (variadic port count). This Addendum adds
+  constraints to the mechanism ADR-029 introduced.
+- **Motivated by**: #591 (DataRouter / PairEditor) which need bounded
+  port counts for usable interactive UIs.
+
+---
+
 ## ADR-030: config_schema MRO merge and base-class field injection
 
 **Status**: accepted
