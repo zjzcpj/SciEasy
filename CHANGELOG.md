@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#621] Serialize DataObject inputs before worker subprocess transport to restore storage_ref (@claude, 2026-04-11, branch: fix/issue-622/storage-ref-input-serialization, session: 20260411-110544-fix-p0-storage-ref-regression-welcome-sc)
+- [#620] Truncate long project paths on Welcome Screen to prevent layout overflow (@claude, 2026-04-11, branch: fix/issue-622/storage-ref-input-serialization, session: 20260411-110544-fix-p0-storage-ref-regression-welcome-sc)
 - [#598] Enforce max 50 open tabs (@claude, 2026-04-11, branch: fix/issue-614/batch-small-fixes, session: 20260411-102935-fix-5-small-issues-max-tabs-bidirectiona)
 - [#601] Allow bidirectional subclass port connections (@claude, 2026-04-11, branch: fix/issue-614/batch-small-fixes, session: 20260411-102935-fix-5-small-issues-max-tabs-bidirectiona)
 - [#590] Return HTTP 422 for workflow cycle validation errors (@claude, 2026-04-11, branch: fix/issue-614/batch-small-fixes, session: 20260411-102935-fix-5-small-issues-max-tabs-bidirectiona)
