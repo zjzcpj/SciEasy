@@ -128,6 +128,12 @@ class BlockSchemaResponse(BlockSummary):
     # a new port. Empty list means "any DataObject subclass".
     allowed_input_types: list[str] = Field(default_factory=list)
     allowed_output_types: list[str] = Field(default_factory=list)
+    # ADR-029 Addendum 1: optional min/max constraints on variadic port count.
+    # Frontend uses these to disable [+]/[-] buttons at limits.
+    min_input_ports: int | None = None
+    max_input_ports: int | None = None
+    min_output_ports: int | None = None
+    max_output_ports: int | None = None
 
 
 class BlockConnectionValidation(BaseModel):

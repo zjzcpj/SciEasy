@@ -61,6 +61,11 @@ class BlockSpec:
     # Empty list means "any DataObject subclass".
     allowed_input_types: list[str] = field(default_factory=list)
     allowed_output_types: list[str] = field(default_factory=list)
+    # ADR-029 Addendum 1: optional min/max constraints on variadic port count.
+    min_input_ports: int | None = None
+    max_input_ports: int | None = None
+    min_output_ports: int | None = None
+    max_output_ports: int | None = None
 
 
 class BlockRegistry:
@@ -649,6 +654,11 @@ def _spec_from_class(cls: type, source: str = "") -> BlockSpec:
         variadic_outputs=bool(getattr(cls, "variadic_outputs", False)),
         allowed_input_types=allowed_in,
         allowed_output_types=allowed_out,
+        # ADR-029 Addendum 1: port count limits.
+        min_input_ports=getattr(cls, "min_input_ports", None),
+        max_input_ports=getattr(cls, "max_input_ports", None),
+        min_output_ports=getattr(cls, "min_output_ports", None),
+        max_output_ports=getattr(cls, "max_output_ports", None),
     )
 
 

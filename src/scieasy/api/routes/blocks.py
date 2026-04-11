@@ -126,6 +126,11 @@ async def get_block_schema(
         # ADR-029 D11: variadic port type constraints for frontend port editor.
         allowed_input_types=list(getattr(spec, "allowed_input_types", []) or []),
         allowed_output_types=list(getattr(spec, "allowed_output_types", []) or []),
+        # ADR-029 Addendum 1: port count limits for variadic blocks.
+        min_input_ports=getattr(spec, "min_input_ports", None),
+        max_input_ports=getattr(spec, "max_input_ports", None),
+        min_output_ports=getattr(spec, "min_output_ports", None),
+        max_output_ports=getattr(spec, "max_output_ports", None),
     )
 
 
