@@ -180,4 +180,21 @@ export const api = {
       headers: JSON_HEADERS,
       body: JSON.stringify({ mode, initial_dir: initialDir }),
     }),
+  openNativeSaveDialog: (options: { initialDir?: string; defaultFilename?: string; fileFilter?: string }) =>
+    apiFetch<{ paths: string[] }>("/api/filesystem/native-dialog", {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({
+        mode: "save_file",
+        initial_dir: options.initialDir,
+        default_filename: options.defaultFilename,
+        file_filter: options.fileFilter,
+      }),
+    }),
+  exportWorkflowToPath: (workflowId: string, path: string) =>
+    apiFetch<{ status: string; path: string }>("/api/workflows/export-path", {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ workflow_id: workflowId, path }),
+    }),
 };

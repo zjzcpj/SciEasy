@@ -6,6 +6,7 @@ export const createExecutionSlice: StateCreator<AppStore, [], [], ExecutionSlice
   blockStates: {},
   blockOutputs: {},
   blockErrors: {},
+  blockErrorSummaries: {},
   executionMessages: [],
   logEntries: [],
   isRunning: false,
@@ -41,6 +42,14 @@ export const createExecutionSlice: StateCreator<AppStore, [], [], ExecutionSlice
         isBlockError && errorText != null
           ? { ...state.blockErrors, [event.block_id as string]: errorText }
           : state.blockErrors;
+      const summaryText =
+        isBlockError && typeof event.data.error_summary === "string"
+          ? event.data.error_summary
+          : undefined;
+      const nextSummaries =
+        isBlockError && summaryText != null
+          ? { ...state.blockErrorSummaries, [event.block_id as string]: summaryText }
+          : state.blockErrorSummaries;
 
       // Append a structured log entry for block_error so the Logs panel
       // shows the full error text alongside the standard log stream.
@@ -62,6 +71,7 @@ export const createExecutionSlice: StateCreator<AppStore, [], [], ExecutionSlice
         blockStates: nextStates,
         blockOutputs: outputs,
         blockErrors: nextErrors,
+        blockErrorSummaries: nextSummaries,
         logEntries: nextLogs,
         isRunning: nextIsRunning,
         executionMessages: [...state.executionMessages, `${event.type}:${event.block_id ?? "workflow"}`].slice(-100),
@@ -71,5 +81,5 @@ export const createExecutionSlice: StateCreator<AppStore, [], [], ExecutionSlice
     set((state) => ({
       logEntries: [...state.logEntries, entry].slice(-400),
     })),
-  resetExecution: () => set({ blockStates: {}, blockOutputs: {}, blockErrors: {}, executionMessages: [], logEntries: [], isRunning: false }),
+  resetExecution: () => set({ blockStates: {}, blockOutputs: {}, blockErrors: {}, blockErrorSummaries: {}, executionMessages: [], logEntries: [], isRunning: false }),
 });

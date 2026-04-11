@@ -872,8 +872,8 @@ export function BlockNode({ id: nodeId, data, selected }: NodeProps<Node<BlockNo
       <div className="border-t border-stone-100 px-3 py-2">
         <div className="flex min-w-0 items-center">
           <StatusBadge status={data.status} onErrorClick={data.onErrorClick} />
-          {data.status === "error" && data.errorMessage ? (
-            <ErrorMessage message={data.errorMessage} />
+          {data.status === "error" && (data.errorSummary ?? data.errorMessage) ? (
+            <ErrorMessage message={data.errorSummary ?? data.errorMessage!} />
           ) : null}
         </div>
         {data.status === "paused" && data.category === "app" && (

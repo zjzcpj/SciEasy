@@ -40,6 +40,7 @@ interface WorkflowCanvasProps {
   schemas: Record<string, BlockSchemaResponse>;
   blockStates: Record<string, string>;
   blockErrors: Record<string, string>;
+  blockErrorSummaries: Record<string, string>;
   selectedNodeId: string | null;
   minimapVisible: boolean;
   onSelectNode: (nodeId: string | null) => void;
@@ -61,6 +62,7 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
     schemas,
     blockStates,
     blockErrors,
+    blockErrorSummaries,
     edges,
     minimapVisible,
     nodes,
@@ -186,6 +188,7 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
           outputPorts: schema?.output_ports ?? summary?.output_ports ?? [],
           status: blockStates[node.id] ?? "idle",
           errorMessage: blockErrors[node.id],
+          errorSummary: blockErrorSummaries[node.id],
           selected: selectedNodeId === node.id,
           onRun: makeOnRun(node.id),
           onRestart: makeOnRestart(node.id),
@@ -196,7 +199,7 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
         selected: selectedNodeId === node.id,
       };
     });
-  }, [blocks, blockStates, blockErrors, dragPositions, makeOnDelete, makeOnErrorClick, makeOnRestart, makeOnRun, makeOnUpdateConfig, nodes, onUpdateNodeConfig, resolveLabel, schemas, selectedNodeId]);
+  }, [blocks, blockStates, blockErrors, blockErrorSummaries, dragPositions, makeOnDelete, makeOnErrorClick, makeOnRestart, makeOnRun, makeOnUpdateConfig, nodes, onUpdateNodeConfig, resolveLabel, schemas, selectedNodeId]);
 
   const flowEdges = useMemo<Array<Edge>>(() => {
     return edges.map((edge) => {
