@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- [#606] ADR-029 B3: extend introspect_script() with input_ports auto-inference from run() parameter type annotations; add _params_to_port_dicts() and _annotation_to_type_name() helpers (@claude, 2026-04-11, branch: feat/issue-606/codeblock-signature-auto-inference, session: 20260411-105722-b3-codeblock-python-signature-auto-infer)
 - [#588] Split category into base_category + subcategory so AppBlock subclasses with custom palette labels retain correct base type detection (@claude, 2026-04-11, branch: refactor/issue-588/category-subcategory-split, session: 20260411-042819-split-category-into-base-category-subcat)
 
 ### Fixed
