@@ -108,6 +108,9 @@ async def create_workflow(body: WorkflowCreate, runtime: RuntimeDep) -> Workflow
     """Create a new workflow from the supplied graph definition."""
     try:
         definition = runtime.save_workflow(body.model_dump())
+    except ValueError as exc:
+        # Cycle detection and other validation errors → 422
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _workflow_response(definition)
@@ -134,8 +137,39 @@ async def update_workflow(
     """Replace a workflow definition."""
     if workflow_id != body.id:
         raise HTTPException(status_code=400, detail="Workflow path/body IDs must match.")
-    definition = runtime.save_workflow(body.model_dump())
+    try:
+        definition = runtime.save_workflow(body.model_dump())
+    except ValueError as exc:
+        # Cycle detection and other validation errors → 422
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return _workflow_response(definition)
+
+
+@router.post("/export-path")
+async def export_workflow_to_path(body: dict, runtime: RuntimeDep) -> dict:
+    """Export / save a workflow YAML to an arbitrary filesystem path.
+
+    Expects ``{"workflow_id": str, "path": str}``.  The workflow must
+    already exist in the project.  The file is written using
+    ``save_yaml`` so the output is a valid SciEasy workflow YAML.
+    """
+    workflow_id = body.get("workflow_id")
+    file_path = body.get("path")
+    if not workflow_id or not file_path:
+        raise HTTPException(status_code=400, detail="Missing 'workflow_id' or 'path' field.")
+    try:
+        definition = runtime.load_workflow(workflow_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    from scieasy.workflow.serializer import save_yaml
+
+    target = Path(file_path)
+    try:
+        save_yaml(definition, target)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "ok", "path": str(target)}
 
 
 @router.delete("/{workflow_id}", status_code=204)

@@ -33,6 +33,21 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_MAX_ERROR_SUMMARY_LEN = 120
+
+
+def _extract_error_summary(error_text: str) -> str:
+    """Return a short summary from an error/traceback string.
+
+    Uses the last non-empty line (typically the actual exception message),
+    truncated to ``_MAX_ERROR_SUMMARY_LEN`` characters.
+    """
+    lines = [ln.strip() for ln in error_text.splitlines() if ln.strip()]
+    summary = lines[-1] if lines else error_text
+    if len(summary) > _MAX_ERROR_SUMMARY_LEN:
+        summary = summary[: _MAX_ERROR_SUMMARY_LEN - 1] + "\u2026"
+    return summary
+
 
 @dataclass
 class RunHandle:
@@ -202,11 +217,16 @@ class DAGScheduler:
             # skip propagation fires via the normal event path.
             logger.exception("Block %s failed to instantiate", node_id)
             self._block_states[node_id] = BlockState.ERROR
+            error_str = str(exc)
             await self._event_bus.emit(
                 EngineEvent(
                     event_type=BLOCK_ERROR,
                     block_id=node_id,
-                    data={"workflow_id": self._workflow.id, "error": str(exc)},
+                    data={
+                        "workflow_id": self._workflow.id,
+                        "error": error_str,
+                        "error_summary": _extract_error_summary(error_str),
+                    },
                 )
             )
             self.save_checkpoint(self._checkpoint_manager)
@@ -254,11 +274,16 @@ class DAGScheduler:
                     return
                 logger.exception("Block %s failed with exception", node_id)
                 self._block_states[node_id] = BlockState.ERROR
+                error_str = str(exc)
                 await self._event_bus.emit(
                     EngineEvent(
                         event_type=BLOCK_ERROR,
                         block_id=node_id,
-                        data={"workflow_id": self._workflow.id, "error": str(exc)},
+                        data={
+                            "workflow_id": self._workflow.id,
+                            "error": error_str,
+                            "error_summary": _extract_error_summary(error_str),
+                        },
                     )
                 )
                 self.save_checkpoint(self._checkpoint_manager)
@@ -535,7 +560,11 @@ class DAGScheduler:
                 EngineEvent(
                     event_type=BLOCK_ERROR,
                     block_id=block_id,
-                    data={"workflow_id": self._workflow.id, "error": error_detail},
+                    data={
+                        "workflow_id": self._workflow.id,
+                        "error": error_detail,
+                        "error_summary": _extract_error_summary(error_detail),
+                    },
                 )
             )
             # Retry any READY blocks that were previously throttled and

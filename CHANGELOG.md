@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#598] Enforce max 50 open tabs (@claude, 2026-04-11, branch: fix/issue-614/batch-small-fixes, session: 20260411-102935-fix-5-small-issues-max-tabs-bidirectiona)
+- [#601] Allow bidirectional subclass port connections (@claude, 2026-04-11, branch: fix/issue-614/batch-small-fixes, session: 20260411-102935-fix-5-small-issues-max-tabs-bidirectiona)
+- [#590] Return HTTP 422 for workflow cycle validation errors (@claude, 2026-04-11, branch: fix/issue-614/batch-small-fixes, session: 20260411-102935-fix-5-small-issues-max-tabs-bidirectiona)
+- [#596] Show error summary on block node instead of raw traceback (@claude, 2026-04-11, branch: fix/issue-614/batch-small-fixes, session: 20260411-102935-fix-5-small-issues-max-tabs-bidirectiona)
+- [#589] Save As opens native file dialog (@claude, 2026-04-11, branch: fix/issue-614/batch-small-fixes, session: 20260411-102935-fix-5-small-issues-max-tabs-bidirectiona)
 - [#612] Wire ADR-029 F1 variadic port [+]/[-] buttons via onUpdateConfig + useReactFlow, fix F2 PortEditorTable key (@claude, 2026-04-11, branch: fix/issue-612/variadic-port-f1f2-wiring, session: 20260411-095429-fix-adr-029-f1-f2-wire-variadic-port-but)
 - [#581] Remove redundant fiji_path/napari_path fields, inject ClassVar defaults into config_schema, remove auto-open file manager, add copy button feedback (@claude, 2026-04-11, branch: fix/issue-581/path-cleanup-copy-feedback)
 - [#580] Add WORKFLOW_STARTED to WebSocket outbound events so frontend Run button spinner activates (@claude, 2026-04-11, branch: fix/issue-580/workflow-started-ws, session: 20260411-032524-fix-580-add-workflow-started-to-websocke)

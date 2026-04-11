@@ -56,6 +56,12 @@ export const createTabSlice: StateCreator<AppStore, [], [], TabSlice> = (set, ge
       return;
     }
 
+    // Guard: enforce maximum tab limit (#598)
+    if (state.tabs.length >= 50) {
+      window.alert("Maximum 50 tabs reached.");
+      return;
+    }
+
     // Save current tab state before switching
     const updatedTabs = state.activeTabId
       ? state.tabs.map((t) => (t.id === state.activeTabId ? captureTab(state) : t))

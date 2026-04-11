@@ -17,6 +17,9 @@ export interface BlockNodeData extends Record<string, unknown> {
   /** Short error message populated when status is 'error'. Sourced from the
    *  BLOCK_ERROR WebSocket event's \`data.error\` field. */
   errorMessage?: string;
+  /** Concise summary extracted from the error traceback (last line, max 120 chars).
+   *  Preferred over errorMessage for inline display on the block node. */
+  errorSummary?: string;
   outputPreviewLabel?: string;
   selected?: boolean;
   onRun?: () => void;
