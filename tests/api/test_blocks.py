@@ -63,7 +63,10 @@ def test_validate_connection_endpoint_uses_registry_type_information(client: Tes
     assert compatible.status_code == 200
     assert compatible.json()["compatible"] is True
 
-    incompatible = client.post(
+    # #601: With bidirectional subclass check, DataObject (superclass) ->
+    # DataFrame (subclass) is now compatible since DataFrame is a subclass
+    # of DataObject. Use an unrelated type pair for the incompatibility test.
+    bidirectional = client.post(
         "/api/blocks/validate-connection",
         json={
             "source_block": "process_block",
@@ -72,9 +75,8 @@ def test_validate_connection_endpoint_uses_registry_type_information(client: Tes
             "target_port": "left",
         },
     )
-    assert incompatible.status_code == 200
-    assert incompatible.json()["compatible"] is False
-    assert incompatible.json()["reason"]
+    assert bidirectional.status_code == 200
+    assert bidirectional.json()["compatible"] is True
 
 
 def test_imaging_io_schema_exposes_item_types_and_collection_flags(client: TestClient) -> None:
