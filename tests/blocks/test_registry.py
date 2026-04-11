@@ -609,7 +609,7 @@ class TestMergeConfigSchema:
                 "required": [],
             }
 
-            def load(self, config: BlockConfig) -> DataObject | Collection:
+            def load(self, config: BlockConfig, output_dir: str = "") -> DataObject | Collection:
                 raise NotImplementedError
 
             def save(self, obj: DataObject | Collection, config: BlockConfig) -> None:
@@ -642,7 +642,7 @@ class TestMergeConfigSchema:
                 "required": [],
             }
 
-            def load(self, config: BlockConfig) -> DataObject | Collection:
+            def load(self, config: BlockConfig, output_dir: str = "") -> DataObject | Collection:
                 raise NotImplementedError
 
             def save(self, obj: DataObject | Collection, config: BlockConfig) -> None:
@@ -738,7 +738,7 @@ class TestMergeConfigSchema:
                 "required": ["path"],
             }
 
-            def load(self, config: BlockConfig) -> DataObject | Collection:
+            def load(self, config: BlockConfig, output_dir: str = "") -> DataObject | Collection:
                 raise NotImplementedError
 
             def save(self, obj: DataObject | Collection, config: BlockConfig) -> None:
@@ -772,7 +772,7 @@ class TestMergeConfigSchema:
                 "required": ["path"],
             }
 
-            def load(self, config: BlockConfig) -> DataObject | Collection:
+            def load(self, config: BlockConfig, output_dir: str = "") -> DataObject | Collection:
                 raise NotImplementedError
 
             def save(self, obj: DataObject | Collection, config: BlockConfig) -> None:

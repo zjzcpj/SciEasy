@@ -115,8 +115,12 @@ class LoadMIDTable(_LCMSBlockMixin, IOBlock):
         "required": ["path"],
     }
 
-    def load(self, config: BlockConfig) -> DataObject | Collection:
+    def load(self, config: BlockConfig, output_dir: str = "") -> DataObject | Collection:
         """Read MID table file(s) and return a :class:`Collection[MIDTable]`.
+
+        ADR-031 D4: uses :meth:`persist_table` to write the DataFrame
+        payload to arrow storage instead of storing a pandas DataFrame
+        in the ``user`` dict.
 
         Accepts ``config["path"]`` as a single string or a list of strings
         (matching the :class:`LoadImage` multi-file pattern).
@@ -148,6 +152,16 @@ class LoadMIDTable(_LCMSBlockMixin, IOBlock):
             )
             if not sample_columns:
                 raise ValueError("LoadMIDTable could not detect any sample columns")
+
+            # ADR-031 D4: persist to arrow storage instead of storing
+            # pandas DataFrame in user dict.
+            storage_ref = None
+            if output_dir:
+                import pyarrow as pa
+
+                arrow_table = pa.Table.from_pandas(frame)
+                storage_ref = self.persist_table(arrow_table, output_dir)
+
             table = MIDTable(
                 columns=[str(col) for col in frame.columns],
                 row_count=len(frame),
@@ -158,8 +172,9 @@ class LoadMIDTable(_LCMSBlockMixin, IOBlock):
                     corrected=True,
                     correction_tool="AccuCor",
                 ),
+                storage_ref=storage_ref,
             )
-            table.user["pandas_df"] = frame.copy()
+            # ADR-031: no longer store pandas_df in user dict.
             tables.append(table)
         return Collection(items=tables, item_type=MIDTable)
 

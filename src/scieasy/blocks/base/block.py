@@ -355,10 +355,20 @@ class Block(ABC):
         If no flush context output directory is configured, return as-is.
         Called internally by ``map_items``, ``parallel_map``, ``pack``, and
         the ``process_item`` default ``run()``.
+
+        ADR-031 D5: Artifact instances with ``file_path`` set use
+        path-only transport and are exempt from auto-flush. They should
+        NOT be read into memory and copied to managed storage.
         """
         from scieasy.core.types.base import DataObject
 
         if not isinstance(obj, DataObject):
+            return obj
+
+        # ADR-031 D5: Artifact with file_path uses path-only transport.
+        from scieasy.core.types.artifact import Artifact
+
+        if isinstance(obj, Artifact) and getattr(obj, "file_path", None) is not None:
             return obj
 
         # #436: Recursively flush CompositeData internal slots so that

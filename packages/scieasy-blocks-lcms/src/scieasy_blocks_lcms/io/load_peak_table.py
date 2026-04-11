@@ -94,8 +94,13 @@ class LoadPeakTable(_LCMSBlockMixin, IOBlock):
         "required": ["path"],
     }
 
-    def load(self, config: BlockConfig) -> DataObject | Collection:
+    def load(self, config: BlockConfig, output_dir: str = "") -> DataObject | Collection:
         """Read peak table file(s) and return a :class:`Collection[PeakTable]`.
+
+        ADR-031 D4: uses :meth:`persist_table` to write the DataFrame
+        payload to arrow storage instead of storing a pandas DataFrame
+        in the ``user`` dict (which violates JSON-serializability per
+        ADR-017).
 
         Accepts ``config["path"]`` as a single string or a list of strings
         (matching the :class:`LoadImage` multi-file pattern).
@@ -121,6 +126,16 @@ class LoadPeakTable(_LCMSBlockMixin, IOBlock):
             if frame.empty:
                 raise ValueError(f"LoadPeakTable: table is empty: {path}")
             resolved_source = _detect_source(frame.columns) if source == "auto" else source
+
+            # ADR-031 D4: persist to arrow storage instead of storing
+            # pandas DataFrame in user dict.
+            storage_ref = None
+            if output_dir:
+                import pyarrow as pa
+
+                arrow_table = pa.Table.from_pandas(frame)
+                storage_ref = self.persist_table(arrow_table, output_dir)
+
             table = PeakTable(
                 columns=[str(col) for col in frame.columns],
                 row_count=len(frame),
@@ -129,8 +144,10 @@ class LoadPeakTable(_LCMSBlockMixin, IOBlock):
                     source=resolved_source,
                     polarity=config.get("polarity"),
                 ),
+                storage_ref=storage_ref,
             )
-            table.user["pandas_df"] = frame.copy()
+            # ADR-031: no longer store pandas_df in user dict.
+            # The data is now in arrow storage via storage_ref.
             tables.append(table)
         return Collection(items=tables, item_type=PeakTable)
 

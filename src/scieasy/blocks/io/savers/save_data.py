@@ -189,7 +189,7 @@ class SaveData(IOBlock):
         cls = _CORE_TYPE_MAP.get(type_name, DataFrame)
         return [InputPort(name="data", accepted_types=[cls], required=True)]
 
-    def load(self, config: BlockConfig) -> DataObject | Collection:
+    def load(self, config: BlockConfig, output_dir: str = "") -> DataObject | Collection:
         """SaveData is output-only — :meth:`load` raises.
 
         Use :class:`scieasy.blocks.io.loaders.LoadData` for the
