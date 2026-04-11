@@ -449,10 +449,15 @@ function InlineConfigField({
     try {
       const result = await api.openNativeDialog(nativeMode, initialDir);
       if (result.paths.length > 0) {
-        // For file_browser, use the first selected file (multi-select may
-        // be supported in future via a dedicated list widget).
-        // For directory_browser, there is always at most one path.
-        onChange(key, result.paths[0]);
+        // For directory_browser, always a single path.
+        // For file_browser, pass the full array if multiple files selected,
+        // or a single string if only one file (matches config_schema type
+        // ["string", "array"] on IOBlock path fields).
+        if (nativeMode === "directory" || result.paths.length === 1) {
+          onChange(key, result.paths[0]);
+        } else {
+          onChange(key, result.paths);
+        }
       }
       // If paths is empty, user cancelled — do nothing
     } catch {
