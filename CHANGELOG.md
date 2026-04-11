@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- [#572] Clean up Fiji config after AppBlock MRO injection: remove redundant watch_timeout from config_schema (@claude, 2026-04-11, branch: fix/issue-572/fiji-elmaven-config-cleanup, session: 20260411-020318-clean-up-fiji-and-elmaven-config-after-a)
 - [#569] Add ADR-029 variadic ports implementation roadmap with 8 detailed tickets (@claude, 2026-04-11, branch: docs/issue-569/adr-029-variadic-ports-roadmap, session: 20260411-013533-docs-adr-029-variadic-ports-implementati)
 - [#555] Rewrite ElMAVEN block to follow standard AppBlock pattern -- fixes rerun deadlock (@claude, 2026-04-10, branch: refactor/issue-555/elmaven-standard-pattern, session: 20260410-005711-rewrite-elmaven-block-to-follow-standard)
 - [#541] LCMS process block audit: remove 9 premature/skeleton blocks, fix config labels, improve flux estimate with linregress (@claude, 2026-04-10, branch: refactor/issue-541/lcms-process-audit, session: 20260410-002151-refactor-lcms-lcms-process-block-audit-r)
