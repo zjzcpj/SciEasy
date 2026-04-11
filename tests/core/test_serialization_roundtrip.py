@@ -41,31 +41,40 @@ except ImportError:
 
 
 def _make_array(tmp_path: Path) -> Array:
-    """4x4 float32 array."""
-    arr = Array(axes=["y", "x"], shape=(4, 4), dtype="float32")
-    arr._data = np.random.rand(4, 4).astype(np.float32)  # type: ignore[attr-defined]
-    arr.save(str(tmp_path / "array.zarr"))
-    return arr
+    """4x4 float32 array — storage-backed (ADR-031 D2)."""
+    from scieasy.core.storage.ref import StorageReference
+    from scieasy.core.storage.zarr_backend import ZarrBackend
+
+    data = np.random.rand(4, 4).astype(np.float32)
+    zarr_path = str(tmp_path / "array.zarr")
+    ref = ZarrBackend().write(data, StorageReference(backend="zarr", path=zarr_path))
+    return Array(axes=["y", "x"], shape=(4, 4), dtype="float32", storage_ref=ref)
 
 
 def _make_series(tmp_path: Path) -> Series:
-    """3-element series."""
-    s = Series(index_name="wavenumber", value_name="intensity", length=3)
-    s._data = np.array([10.0, 20.0, 30.0])  # type: ignore[attr-defined]
-    # Series routes to zarr backend, so provide numpy data
-    s.save(str(tmp_path / "series.zarr"))
-    return s
+    """3-element series — storage-backed (ADR-031 D2)."""
+    import pyarrow as pa
+
+    from scieasy.core.storage.arrow_backend import ArrowBackend
+    from scieasy.core.storage.ref import StorageReference
+
+    table = pa.table({"intensity": [10.0, 20.0, 30.0]})
+    parquet_path = str(tmp_path / "series.parquet")
+    ref = ArrowBackend().write(table, StorageReference(backend="arrow", path=parquet_path))
+    return Series(index_name="wavenumber", value_name="intensity", length=3, storage_ref=ref)
 
 
 def _make_dataframe(tmp_path: Path) -> DataFrame:
-    """3-row DataFrame."""
+    """3-row DataFrame — storage-backed (ADR-031 D2)."""
     import pyarrow as pa
 
-    df = DataFrame(columns=["a", "b"], row_count=3)
+    from scieasy.core.storage.arrow_backend import ArrowBackend
+    from scieasy.core.storage.ref import StorageReference
+
     table = pa.table({"a": [1, 2, 3], "b": [4.0, 5.0, 6.0]})
-    df._arrow_table = table  # type: ignore[attr-defined]
-    df.save(str(tmp_path / "dataframe.parquet"))
-    return df
+    parquet_path = str(tmp_path / "dataframe.parquet")
+    ref = ArrowBackend().write(table, StorageReference(backend="arrow", path=parquet_path))
+    return DataFrame(columns=["a", "b"], row_count=3, storage_ref=ref)
 
 
 def _make_text(tmp_path: Path) -> Text:
@@ -85,10 +94,14 @@ def _make_artifact(tmp_path: Path) -> Artifact:
 
 
 def _make_composite(tmp_path: Path) -> CompositeData:
-    """CompositeData with one Array slot."""
-    inner = Array(axes=["y", "x"], shape=(2, 2), dtype="float32")
-    inner._data = np.ones((2, 2), dtype=np.float32)  # type: ignore[attr-defined]
-    inner.save(str(tmp_path / "composite_inner.zarr"))
+    """CompositeData with one Array slot — storage-backed (ADR-031 D2)."""
+    from scieasy.core.storage.ref import StorageReference
+    from scieasy.core.storage.zarr_backend import ZarrBackend
+
+    data = np.ones((2, 2), dtype=np.float32)
+    zarr_path = str(tmp_path / "composite_inner.zarr")
+    ref = ZarrBackend().write(data, StorageReference(backend="zarr", path=zarr_path))
+    inner = Array(axes=["y", "x"], shape=(2, 2), dtype="float32", storage_ref=ref)
 
     comp = CompositeData(slots={"raster": inner})
     comp.save(str(tmp_path / "composite"))

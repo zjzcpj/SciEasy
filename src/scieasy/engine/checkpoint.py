@@ -86,119 +86,27 @@ def _serialize_value(value: Any) -> Any:
 def deserialize_intermediate_refs(data: dict[str, Any]) -> dict[str, Any]:
     """Deserialize checkpoint intermediate_refs back to live objects.
 
-    .. deprecated::
-        This function is **not called** in the production execute-from path
-        and must not be introduced there.  The execute-from path in
-        :meth:`~scieasy.engine.scheduler.DAGScheduler.execute_from` assigns
-        ``checkpoint.intermediate_refs[node_id]`` directly to
-        ``_block_outputs[node_id]`` as a wire-format dict.  The downstream
-        worker subprocess then calls ``_reconstruct_one()`` (ADR-027 Addendum
-        1 §1) which reads ``metadata.type_chain`` from the wire-format dict
-        and reconstructs the typed object inside the sandboxed subprocess.
+    ADR-031: ViewProxy is eliminated.  This function returns the
+    serialized data as-is (wire-format dicts) so the caller can pass
+    the raw dicts directly to the worker subprocess for reconstruction
+    via :func:`~scieasy.core.types.serialization._reconstruct_one`.
 
-        Calling this function would produce :class:`~scieasy.core.proxy.ViewProxy`
-        objects that are **not JSON-serialisable** and would break
-        ``spawn_block_process()`` when the scheduler tries to ship inputs to
-        the worker via stdin/stdout.
-
-        The function is preserved (not deleted) for:
-        - historical reference and future testing utilities
-        - potential use in offline / introspection tooling that does not
-          route through the subprocess execution path
-
-        Do **not** call this from within the scheduler, runner, or any path
-        that feeds inputs to a worker subprocess.
-
-    Reconstructs :class:`ViewProxy` instances from serialized
-    StorageReference dicts, and preserves Collection structure with
-    ViewProxy items so that resumed workflows can feed data to blocks.
+    The function is preserved (not deleted) for offline / introspection
+    tooling.  Do **not** call this from the scheduler or any path that
+    feeds inputs to a worker subprocess — the execute-from path assigns
+    ``checkpoint.intermediate_refs[node_id]`` directly to
+    ``_block_outputs[node_id]`` as a wire-format dict without going
+    through this helper.
     """
-    result: dict[str, Any] = {}
-    for block_id, outputs in data.items():
-        if isinstance(outputs, dict):
-            result[block_id] = {port_name: _deserialize_value(value) for port_name, value in outputs.items()}
-        else:
-            result[block_id] = _deserialize_value(outputs)
-    return result
+    return dict(data)
 
 
 def _deserialize_value(value: Any) -> Any:
     """Deserialize a single value from checkpoint storage.
 
-    .. deprecated::
-        Only called by :func:`deserialize_intermediate_refs`, which is itself
-        deprecated.  See the deprecation notice on that function for the full
-        rationale.  Do not call this directly from scheduler or runner code.
+    ADR-031: ViewProxy eliminated.  Returns *value* unchanged so
+    callers receive the raw wire-format dict for worker reconstruction.
     """
-    if not isinstance(value, dict):
-        return value
-
-    # --- Collection structure ---
-    if value.get("_collection") is True:
-        if "items" not in value or "item_type" not in value:
-            logger.warning(
-                "Malformed _collection dict (missing 'items' or 'item_type'), returning raw data: %s",
-                list(value.keys()),
-            )
-            return value
-
-        from scieasy.core.proxy import ViewProxy
-        from scieasy.core.storage.ref import StorageReference
-        from scieasy.core.types.base import TypeSignature
-
-        item_type_name: str = value["item_type"]
-        proxies: list[ViewProxy] = []
-        for item_data in value["items"]:
-            if not isinstance(item_data, dict):
-                continue
-            if "_value" in item_data:
-                logger.warning(
-                    "Cannot fully reconstruct non-persisted item (type=%s, value=%s) — skipping",
-                    item_data.get("_type", "unknown"),
-                    item_data["_value"],
-                )
-                continue
-            if "backend" in item_data and "path" in item_data:
-                ref = StorageReference(
-                    backend=item_data["backend"],
-                    path=item_data["path"],
-                    format=item_data.get("format"),
-                    metadata=item_data.get("metadata"),
-                )
-                # #404: read type_chain from item metadata when available so
-                # ViewProxy carries the correct plugin type identity rather
-                # than falling back to just [item_type_name].
-                item_meta = item_data.get("metadata") or {}
-                item_chain = item_meta.get("type_chain") if isinstance(item_meta, dict) else None
-                if not (isinstance(item_chain, list) and item_chain):
-                    item_chain = [item_type_name]
-                sig = TypeSignature(type_chain=item_chain)
-                proxies.append(ViewProxy(storage_ref=ref, dtype_info=sig))
-
-        return {"_collection": True, "items": proxies, "item_type": item_type_name}
-
-    # --- Single StorageReference dict ---
-    if "backend" in value and "path" in value:
-        from scieasy.core.proxy import ViewProxy
-        from scieasy.core.storage.ref import StorageReference
-        from scieasy.core.types.base import TypeSignature
-
-        ref = StorageReference(
-            backend=value["backend"],
-            path=value["path"],
-            format=value.get("format"),
-            metadata=value.get("metadata"),
-        )
-        # #404: read type_chain from ref metadata when available so ViewProxy
-        # carries the correct plugin type identity rather than hardcoding
-        # ["DataObject"].
-        ref_meta = value.get("metadata") or {}
-        ref_chain = ref_meta.get("type_chain") if isinstance(ref_meta, dict) else None
-        if not (isinstance(ref_chain, list) and ref_chain):
-            ref_chain = ["DataObject"]
-        sig = TypeSignature(type_chain=ref_chain)
-        return ViewProxy(storage_ref=ref, dtype_info=sig)
-
     return value
 
 

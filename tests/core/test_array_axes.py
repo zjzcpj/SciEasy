@@ -57,10 +57,17 @@ class _RestrictedAxes(Array):
 
 
 def _backed_array(axes: list[str], data: np.ndarray) -> Array:
-    """Return a plain :class:`Array` with an in-memory ``_data`` payload."""
-    arr = Array(axes=axes, shape=data.shape, dtype=str(data.dtype))
-    arr._data = data  # type: ignore[attr-defined]
-    return arr
+    """Return a storage-backed :class:`Array` (ADR-031 D2)."""
+    import tempfile
+    import uuid
+    from pathlib import Path
+
+    from scieasy.core.storage.ref import StorageReference
+    from scieasy.core.storage.zarr_backend import ZarrBackend
+
+    zarr_path = str(Path(tempfile.gettempdir()) / f"{uuid.uuid4()}.zarr")
+    ref = ZarrBackend().write(data, StorageReference(backend="zarr", path=zarr_path))
+    return Array(axes=axes, shape=tuple(data.shape), dtype=str(data.dtype), storage_ref=ref)
 
 
 # ---------------------------------------------------------------------------
@@ -166,8 +173,19 @@ class TestArraySel:
 
     def test_sel_preserves_meta(self) -> None:
         meta = _TestArrayMeta(sample_id="s1", exposure_ms=12.5)
-        arr = _TestArray(axes=["y", "x"], shape=(5, 5), meta=meta)
-        arr._data = np.zeros((5, 5), dtype="float32")  # type: ignore[attr-defined]
+        arr = _backed_array(["y", "x"], np.zeros((5, 5), dtype="float32"))
+        # Rebuild as _TestArray to attach meta (storage_ref carries the data).
+        import tempfile
+        import uuid
+        from pathlib import Path as _Path
+
+        from scieasy.core.storage.ref import StorageReference
+        from scieasy.core.storage.zarr_backend import ZarrBackend
+
+        data = np.zeros((5, 5), dtype="float32")
+        zarr_path = str(_Path(tempfile.gettempdir()) / f"{uuid.uuid4()}.zarr")
+        ref = ZarrBackend().write(data, StorageReference(backend="zarr", path=zarr_path))
+        arr = _TestArray(axes=["y", "x"], shape=(5, 5), meta=meta, storage_ref=ref)
         result = arr.sel(y=0)
         assert result.meta is meta
 
@@ -187,15 +205,24 @@ class TestArraySel:
         assert result.framework.object_id != parent_id
 
     def test_sel_without_data_raises(self) -> None:
-        """Metadata-only instances cannot be sliced."""
+        """Metadata-only instances cannot be sliced (no storage_ref)."""
         arr = Array(axes=["y", "x"], shape=(10, 10))
-        with pytest.raises(ValueError, match="requires backing data"):
+        with pytest.raises(ValueError, match="requires a storage_ref"):
             arr.sel(y=0)
 
     def test_sel_returns_plain_array(self) -> None:
         """``sel`` deliberately returns a plain ``Array`` (not ``type(self)``)."""
-        arr = _TestArray(axes=["y", "x"], shape=(5, 5))
-        arr._data = np.zeros((5, 5), dtype="float32")  # type: ignore[attr-defined]
+        import tempfile
+        import uuid
+        from pathlib import Path as _Path
+
+        from scieasy.core.storage.ref import StorageReference
+        from scieasy.core.storage.zarr_backend import ZarrBackend
+
+        data = np.zeros((5, 5), dtype="float32")
+        zarr_path = str(_Path(tempfile.gettempdir()) / f"{uuid.uuid4()}.zarr")
+        ref = ZarrBackend().write(data, StorageReference(backend="zarr", path=zarr_path))
+        arr = _TestArray(axes=["y", "x"], shape=(5, 5), storage_ref=ref)
         result = arr.sel(y=0)
         assert type(result) is Array
 

@@ -21,17 +21,18 @@ shim for one phase: ``DataObject(metadata=...)`` and the
 from __future__ import annotations
 
 import warnings
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Self
+from typing import Any, ClassVar, Self
 
 from pydantic import BaseModel
 
 from scieasy.core.meta import FrameworkMeta
 from scieasy.core.storage.ref import StorageReference
 
-if TYPE_CHECKING:
-    from scieasy.core.proxy import ViewProxy
+# Warn when to_memory() would load more than this many bytes (2 GB).
+_SIZE_WARNING_THRESHOLD = 2 * 1024 * 1024 * 1024
 
 
 @dataclass
@@ -333,33 +334,88 @@ class DataObject:
         """Set the storage reference."""
         self._storage_ref = ref
 
-    # -- data access (unchanged from pre-T-005 contract) --------------------
-
-    def view(self) -> ViewProxy:
-        """Return a lazy :class:`ViewProxy` for this object's data."""
-        from scieasy.core.proxy import ViewProxy
-
-        if self._storage_ref is None:
-            raise ValueError("Cannot create ViewProxy without a storage reference.")
-        return ViewProxy(storage_ref=self._storage_ref, dtype_info=self.dtype_info)
+    # -- data access (ADR-031 D2: routes through storage_ref → backend) -----
 
     def to_memory(self) -> Any:
-        """Materialise the full data into an in-memory representation."""
-        return self.view().to_memory()
+        """Materialise the full data from storage into an in-memory representation.
+
+        ADR-031 D2: routes directly through the storage backend.  Emits a
+        :class:`ResourceWarning` when the estimated data size exceeds 2 GB.
+
+        Raises:
+            ValueError: if ``storage_ref`` is ``None`` (no backing storage).
+        """
+        if self._storage_ref is None:
+            raise ValueError(
+                f"{type(self).__name__}.to_memory() requires a storage_ref. "
+                "This instance has no backing storage."
+            )
+        from scieasy.core.storage.backend_router import _get_backend
+
+        backend = _get_backend(self._storage_ref)
+        meta = backend.get_metadata(self._storage_ref) if hasattr(backend, "get_metadata") else {}
+        size = meta.get("size")
+        if size is None:
+            shape = meta.get("shape")
+            if shape is not None:
+                import math
+
+                size = math.prod(shape) * 8  # rough 8 bytes/element estimate
+        if size is not None and size > _SIZE_WARNING_THRESHOLD:
+            warnings.warn(
+                f"Loading {size / (1024 ** 3):.1f} GB into memory. "
+                "Consider using .slice() or .iter_chunks() instead.",
+                ResourceWarning,
+                stacklevel=2,
+            )
+        return backend.read(self._storage_ref)
 
     def get_in_memory_data(self) -> Any:
         """Return raw in-memory data for persistence.
 
-        Subclasses should override this to return their specific data format.
-        The base implementation checks for common internal data attributes.
+        ADR-031 D2: delegates to :meth:`to_memory`.  Subclasses that carry
+        data outside ``storage_ref`` (e.g. :class:`Text` via ``content``,
+        :class:`Artifact` via ``file_path``) override this method directly.
 
-        Raises ``ValueError`` if no in-memory data is available.
+        Raises:
+            ValueError: if ``storage_ref`` is ``None``.
         """
-        if hasattr(self, "_data") and self._data is not None:
-            return self._data
-        if hasattr(self, "_arrow_table") and self._arrow_table is not None:
-            return self._arrow_table
-        raise ValueError(f"{type(self).__name__} has no in-memory data to persist.")
+        return self.to_memory()
+
+    def slice(self, *args: Any) -> Any:
+        """Return a sub-selection of the data without full materialisation.
+
+        ADR-031 D2: routes through the storage backend's ``slice()`` method.
+        For Zarr arrays: pass numpy-style index expressions.
+        For Arrow tables: pass a list of column names.
+        For filesystem: pass (offset, length).
+
+        Raises:
+            ValueError: if ``storage_ref`` is ``None``.
+        """
+        if self._storage_ref is None:
+            raise ValueError(
+                f"{type(self).__name__}.slice() requires a storage_ref."
+            )
+        from scieasy.core.storage.backend_router import _get_backend
+
+        return _get_backend(self._storage_ref).slice(self._storage_ref, *args)
+
+    def iter_chunks(self, chunk_size: int) -> Iterator[Any]:
+        """Yield successive chunks of the data from storage.
+
+        ADR-031 D2: routes through the storage backend's ``iter_chunks()`` method.
+
+        Raises:
+            ValueError: if ``storage_ref`` is ``None``.
+        """
+        if self._storage_ref is None:
+            raise ValueError(
+                f"{type(self).__name__}.iter_chunks() requires a storage_ref."
+            )
+        from scieasy.core.storage.backend_router import _get_backend
+
+        yield from _get_backend(self._storage_ref).iter_chunks(self._storage_ref, chunk_size)
 
     def save(self, path: str | Path) -> StorageReference:
         """Persist the data object to *path* using the appropriate backend.

@@ -162,20 +162,14 @@ class Array(DataObject):
         - ``user``: shallow copy.
         - ``axes``: reduced per the selection.
 
-        Laziness (Level 1): for in-memory-backed instances, the materialised
-        numpy view is sliced eagerly and stashed on the returned instance
-        via the ``_data`` attribute. For storage-backed instances, the
-        full data is materialised through :meth:`DataObject.to_memory`
-        once and then sliced with numpy (Level 1 laziness per ADR-027 D4
-        Question 4: "For other backends, falls back to
-        ``self.view().to_memory()`` then numpy indexing"). The Zarr-aware
-        partial-read path is deferred to a future T-006a per Question 4.
+        ADR-031 D1.3: the slice result is persisted to a temporary zarr
+        store and returned with ``storage_ref`` set.  No ``_data``
+        attribute is stashed on the returned instance.
 
         Raises:
             ValueError: if any kwarg key is not in ``self.axes``, if any
                 kwarg value is not ``int`` or ``slice``, or if the
-                instance has no backing data (no ``_data`` and no
-                ``storage_ref``).
+                instance has no ``storage_ref``.
         """
         # Validate kwargs refer to existing axes before doing anything.
         unknown = set(kwargs.keys()) - set(self.axes)
@@ -208,35 +202,45 @@ class Array(DataObject):
                 if self.shape is not None:
                     new_shape_list.append(self.shape[i])
 
-        # Materialise and slice the underlying data. Supports both
-        # in-memory (``_data`` attribute, e.g. from tiff_adapter or a
-        # previous sel result) and storage-backed instances.
-        if hasattr(self, "_data") and getattr(self, "_data", None) is not None:
-            full_data = self._data  # type: ignore[attr-defined]
-        elif self._storage_ref is not None:
-            full_data = self.to_memory()
-        else:
+        # Materialise and slice the underlying data via storage backend.
+        # ADR-031 D1.3: always read from storage_ref; no _data backdoor.
+        if self._storage_ref is None:
             raise ValueError(
-                f"{type(self).__name__}.sel() requires backing data. "
-                f"This instance has no in-memory data and no storage_ref."
+                f"{type(self).__name__}.sel() requires a storage_ref. "
+                f"This instance has no backing storage."
             )
+        full_data = self.to_memory()
         sliced_data = full_data[tuple(indexer)]
 
         # Metadata propagation per ADR-027 D5.
         new_framework = self._framework.derive()
 
-        # Compute the new shape. If we had a known shape, new_shape_list
-        # was populated alongside indexer; otherwise fall back to the
-        # sliced array's shape (may be None if sliced_data has no shape).
+        # Compute the new shape.
         if self.shape is not None:
             new_shape: tuple[int, ...] | None = tuple(new_shape_list) if new_shape_list else ()
         else:
             new_shape = tuple(getattr(sliced_data, "shape", ())) or None
 
+        # Persist the slice to a temporary zarr store so the returned
+        # instance is storage-backed (ADR-031 D1.3: no _data stashing).
+        import tempfile
+        import uuid
+
+        import numpy as np
+
+        from scieasy.core.storage.ref import StorageReference
+        from scieasy.core.storage.zarr_backend import ZarrBackend
+
+        tmp_dir = tempfile.gettempdir()
+        zarr_path = str(__import__("pathlib").Path(tmp_dir) / f"{uuid.uuid4()}.zarr")
+        arr_np = np.asarray(sliced_data)
+        zarr_ref = StorageReference(backend="zarr", path=zarr_path)
+        zarr_ref = ZarrBackend().write(arr_np, zarr_ref)
+
         # Always construct a plain Array instance (not type(self)) so
         # that required_axes violations do not trip _validate_axes on
         # reduced slices. See docstring for the rationale.
-        new_instance = Array(
+        return Array(
             axes=new_axes,
             shape=new_shape,
             dtype=self.dtype,
@@ -244,12 +248,8 @@ class Array(DataObject):
             framework=new_framework,
             meta=self._meta,
             user=dict(self._user),
-            storage_ref=None,
+            storage_ref=zarr_ref,
         )
-        # Stash the materialised data so to_memory / __array__ can reach
-        # it without hitting storage again.
-        new_instance._data = sliced_data  # type: ignore[attr-defined]
-        return new_instance
 
     def iter_over(self, axis: str) -> Iterator[Array]:
         """Yield sub-arrays along one named axis (ADR-027 D4).
@@ -261,8 +261,8 @@ class Array(DataObject):
 
         Memory: ``O(one slice per iteration step)`` — each yielded
         :class:`Array` has ``axis`` removed from its axes list, carries
-        metadata propagated per :meth:`sel`'s rules, and holds its
-        sliced data in an ``_data`` attribute.
+        metadata propagated per :meth:`sel`'s rules, and is backed by a
+        temporary zarr store (ADR-031 D1.3).
 
         Raises:
             ValueError: if ``axis`` is not in :attr:`axes` or if
@@ -319,21 +319,6 @@ class Array(DataObject):
             user=dict(self._user),
             storage_ref=self._storage_ref,
         )
-
-    # -- to_memory override that respects in-memory _data on slices -------
-
-    def to_memory(self) -> Any:
-        """Materialise the full data into an in-memory representation.
-
-        If this instance was created via :meth:`sel` or
-        :meth:`iter_over` and carries an in-memory ``_data`` attribute
-        (with ``storage_ref=None``), return that directly. Otherwise
-        delegate to :meth:`DataObject.to_memory`, which routes through
-        the storage backend.
-        """
-        if self._storage_ref is None and hasattr(self, "_data") and getattr(self, "_data", None) is not None:
-            return self._data  # type: ignore[attr-defined]
-        return super().to_memory()
 
     # -- worker subprocess reconstruction hooks (ADR-027 Addendum 1 §2) -----
 

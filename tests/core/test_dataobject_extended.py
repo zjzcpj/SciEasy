@@ -146,7 +146,7 @@ class TestDataObjectStorageRef:
 
 
 class TestDataObjectToMemory:
-    """DataObject.to_memory — delegates to view().to_memory()."""
+    """DataObject.to_memory — routes directly through storage backend (ADR-031 D2)."""
 
     def test_to_memory_delegates(self, tmp_path: Path) -> None:
         arr = np.array([1.0, 2.0, 3.0])
@@ -160,7 +160,7 @@ class TestDataObjectToMemory:
 
     def test_to_memory_without_ref_raises(self) -> None:
         obj = DataObject()
-        with pytest.raises(ValueError, match="Cannot create ViewProxy"):
+        with pytest.raises(ValueError, match="requires a storage_ref"):
             obj.to_memory()
 
 

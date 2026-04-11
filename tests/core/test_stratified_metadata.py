@@ -307,9 +307,10 @@ class TestExistingMethodsUnchanged:
     """T-005 only changes the metadata story; other methods are unchanged."""
 
     def test_view_without_storage_ref_still_raises(self) -> None:
+        """ADR-031: view() removed; to_memory() raises without storage_ref."""
         obj = DataObject()
-        with pytest.raises(ValueError, match="storage reference"):
-            obj.view()
+        with pytest.raises(ValueError, match="requires a storage_ref"):
+            obj.to_memory()
 
     def test_view_with_storage_ref_round_trip(self, tmp_path: Path) -> None:
         backend = ZarrBackend()

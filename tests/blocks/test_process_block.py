@@ -13,11 +13,18 @@ from scieasy.core.types.dataframe import DataFrame
 
 
 def _make_df(data: dict) -> DataFrame:
-    """Helper: create a DataFrame with an Arrow table attached."""
+    """Helper: create a storage-backed DataFrame (ADR-031 D2)."""
+    import tempfile
+    import uuid
+
+    from scieasy.core.storage.arrow_backend import ArrowBackend
+    from scieasy.core.storage.ref import StorageReference
+
     table = pa.table(data)
-    df = DataFrame(columns=table.column_names, row_count=table.num_rows)
-    df._arrow_table = table  # type: ignore[attr-defined]
-    return df
+    tmp_path = str(__import__("pathlib").Path(tempfile.gettempdir()) / f"{uuid.uuid4()}.parquet")
+    ref = StorageReference(backend="arrow", path=tmp_path)
+    ref = ArrowBackend().write(table, ref)
+    return DataFrame(columns=table.column_names, row_count=table.num_rows, storage_ref=ref)
 
 
 class TestMergeBlock:

@@ -113,7 +113,7 @@ def _register_fixture(cls: type) -> None:
 
 class TestReconstructOne:
     def test_returns_typed_instance_for_array_chain(self) -> None:
-        """type_chain=['DataObject','Array'] resolves to Array, not ViewProxy."""
+        """type_chain=['DataObject','Array'] resolves to Array (ADR-031 D2)."""
         payload = {
             "backend": "zarr",
             "path": "/data/x.zarr",
@@ -132,10 +132,6 @@ class TestReconstructOne:
         obj = _reconstruct_one(payload)
 
         assert isinstance(obj, Array)
-        # Critical assertion — T-014 replaces the ViewProxy path.
-        from scieasy.core.proxy import ViewProxy
-
-        assert not isinstance(obj, ViewProxy)
         assert obj.axes == ["y", "x"]
         assert obj.shape == (16, 16)
 
@@ -500,10 +496,8 @@ class TestReconstructInputs:
         assert isinstance(result["signal"], Series)
         assert result["signal"].length == 1024
 
-    def test_returns_typed_not_viewproxy(self) -> None:
-        """Regression guard: the return type is the typed class, not ViewProxy."""
-        from scieasy.core.proxy import ViewProxy
-
+    def test_returns_typed_instance(self) -> None:
+        """Regression guard: reconstruct_inputs returns typed DataObject (ADR-031 D2)."""
         payload = {
             "inputs": {
                 "image": {
@@ -518,7 +512,6 @@ class TestReconstructInputs:
         }
         result = reconstruct_inputs(payload)
         assert isinstance(result["image"], Array)
-        assert not isinstance(result["image"], ViewProxy)
 
     def test_collection_dispatch(self) -> None:
         """Collection payload is reconstructed into a Collection of typed items."""

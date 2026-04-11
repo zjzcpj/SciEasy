@@ -15,10 +15,8 @@ user pipelines and verifies that Collection auto-unpack/repack
    frame inside the script, and asserts the output is a length-3
    ``Collection`` of processed DataFrames.
 
-Both tests operate on data persisted through the real storage
-backends (Zarr for ``Array``, Arrow for ``DataFrame``) so that
-``Collection[i].view().to_memory()`` resolves through the production
-:class:`ViewProxy` path — no mocks.
+Both tests operate on data persisted through the real storage backends
+(Zarr for ``Array``, Arrow for ``DataFrame``) — ADR-031 D2.
 """
 
 from __future__ import annotations
@@ -41,13 +39,18 @@ if not TEST_IMAGES_DIR.exists():
     pytest.skip("test images unavailable", allow_module_level=True)
 
 
-def _load_tiff_as_array(path: Path) -> Array:
-    """Load a TIFF via tifffile and wrap it as an in-memory ``Array``."""
+def _load_tiff_as_array(path: Path, storage_dir: Path) -> Array:
+    """Load a TIFF via tifffile and persist to zarr (ADR-031 D2)."""
+    import uuid
+
+    from scieasy.core.storage.ref import StorageReference
+    from scieasy.core.storage.zarr_backend import ZarrBackend
+
     tifffile = pytest.importorskip("tifffile")
     data = np.asarray(tifffile.imread(str(path)))
-    arr = Array(axes=["y", "x"], shape=tuple(data.shape), dtype=str(data.dtype))
-    arr._data = data  # type: ignore[attr-defined]
-    return arr
+    zarr_path = str(storage_dir / f"{uuid.uuid4()}.zarr")
+    ref = ZarrBackend().write(data, StorageReference(backend="zarr", path=zarr_path))
+    return Array(axes=["y", "x"], shape=tuple(data.shape), dtype=str(data.dtype), storage_ref=ref)
 
 
 def test_codeblock_python_skimage_workflow(tmp_path: Path) -> None:
@@ -61,12 +64,9 @@ def test_codeblock_python_skimage_workflow(tmp_path: Path) -> None:
     pytest.importorskip("skimage")
     pytest.importorskip("zarr")
 
-    # Persist both segmentation images through the real Zarr backend so
-    # that ``view().to_memory()`` inside LazyList hits production code.
     stored: list[DataObject] = []
-    for i, img_path in enumerate(SEGMENTATION_IMAGES):
-        arr = _load_tiff_as_array(img_path)
-        arr.save((tmp_path / f"seg_{i}.zarr").as_posix())
+    for img_path in SEGMENTATION_IMAGES:
+        arr = _load_tiff_as_array(img_path, tmp_path)
         stored.append(arr)
     assert len(stored) == 2, "T-TRK-003 should provide exactly two segmentation images"
 
@@ -75,16 +75,22 @@ def test_codeblock_python_skimage_workflow(tmp_path: Path) -> None:
     # Inline script: iterate the LazyList, gaussian-filter, Otsu-threshold,
     # wrap each mask back into an Array, and return a list.
     script = (
+        "import tempfile, uuid\n"
         "import numpy as np\n"
         "from skimage.filters import gaussian, threshold_otsu\n"
         "from scieasy.core.types.array import Array\n"
+        "from scieasy.core.storage.zarr_backend import ZarrBackend\n"
+        "from scieasy.core.storage.ref import StorageReference\n"
+        "from pathlib import Path\n"
         "processed = []\n"
         "for item in data:\n"
         "    raw = np.asarray(item)\n"
         "    smoothed = gaussian(raw, sigma=1.0, preserve_range=True)\n"
         "    mask = smoothed > threshold_otsu(smoothed)\n"
-        "    out = Array(axes=['y', 'x'], shape=tuple(mask.shape), dtype=str(mask.dtype))\n"
-        "    out._data = mask.astype(np.uint8)\n"
+        "    arr = mask.astype(np.uint8)\n"
+        "    p = str(Path(tempfile.gettempdir()) / f'{uuid.uuid4()}.zarr')\n"
+        "    ref = ZarrBackend().write(arr, StorageReference(backend='zarr', path=p))\n"
+        "    out = Array(axes=['y', 'x'], shape=tuple(arr.shape), dtype=str(arr.dtype), storage_ref=ref)\n"
         "    processed.append(out)\n"
     )
 
@@ -113,6 +119,9 @@ def test_codeblock_python_collection_unpack(tmp_path: Path) -> None:
     pa = pytest.importorskip("pyarrow")
 
     # Build three distinct DataFrames, persist each to its own Arrow file.
+    from scieasy.core.storage.arrow_backend import ArrowBackend
+    from scieasy.core.storage.ref import StorageReference
+
     source: list[DataObject] = []
     tables = [
         pa.table({"x": [1, 2, 3], "y": [10, 20, 30]}),
@@ -120,26 +129,29 @@ def test_codeblock_python_collection_unpack(tmp_path: Path) -> None:
         pa.table({"x": [7, 8, 9], "y": [70, 80, 90]}),
     ]
     for i, tbl in enumerate(tables):
-        df = DataFrame(columns=["x", "y"], row_count=tbl.num_rows)
-        df._arrow_table = tbl  # type: ignore[attr-defined]
-        df.save((tmp_path / f"df_{i}.parquet").as_posix())
+        ref = ArrowBackend().write(tbl, StorageReference(backend="arrow", path=str(tmp_path / f"df_{i}.parquet")))
+        df = DataFrame(columns=["x", "y"], row_count=tbl.num_rows, storage_ref=ref)
         source.append(df)
 
     input_collection = Collection(source, item_type=DataFrame)
 
-    # Script: for each loaded table, add a 'sum' column, build a new
-    # DataFrame wrapping the derived Arrow table, and collect.
+    # Script: for each loaded table, add a 'sum' column, persist, and collect.
     script = (
+        "import tempfile, uuid\n"
         "import pyarrow as pa\n"
         "import pyarrow.compute as pc\n"
+        "from pathlib import Path\n"
         "from scieasy.core.types.dataframe import DataFrame\n"
+        "from scieasy.core.storage.arrow_backend import ArrowBackend\n"
+        "from scieasy.core.storage.ref import StorageReference\n"
         "processed = []\n"
         "for item in data:\n"
-        "    tbl = item if isinstance(item, pa.Table) else pa.table(item)\n"
+        "    tbl = item.to_memory()\n"
         "    s = pc.add(tbl.column('x'), tbl.column('y'))\n"
         "    new_tbl = tbl.append_column('sum', s)\n"
-        "    out = DataFrame(columns=list(new_tbl.column_names), row_count=new_tbl.num_rows)\n"
-        "    out._arrow_table = new_tbl\n"
+        "    p = str(Path(tempfile.gettempdir()) / f'{uuid.uuid4()}.parquet')\n"
+        "    ref = ArrowBackend().write(new_tbl, StorageReference(backend='arrow', path=p))\n"
+        "    out = DataFrame(columns=list(new_tbl.column_names), row_count=new_tbl.num_rows, storage_ref=ref)\n"
         "    processed.append(out)\n"
     )
 

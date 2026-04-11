@@ -342,12 +342,12 @@ class TestDataObjectMetadata:
 
 
 class TestDataObjectView:
-    """Verify view() requires a storage reference."""
+    """Verify to_memory() requires a storage_ref (ADR-031: view() removed)."""
 
     def test_view_without_ref_raises(self) -> None:
         obj = DataObject()
-        with pytest.raises(ValueError, match="storage reference"):
-            obj.view()
+        with pytest.raises(ValueError, match="requires a storage_ref"):
+            obj.to_memory()
 
 
 # ---------------------------------------------------------------------------
@@ -737,7 +737,7 @@ class TestArrayProtocol:
         np.testing.assert_array_equal(result, data.astype(np.float64))
 
     def test_array_protocol_without_storage_raises(self) -> None:
-        """Array.__array__() raises when no storage reference is set."""
+        """Array.__array__() raises when no storage_ref is set."""
         arr = Array(axes=["y", "x"], shape=(2, 2), dtype="float32")
-        with pytest.raises(ValueError, match="storage reference"):
+        with pytest.raises(ValueError, match="requires a storage_ref"):
             np.asarray(arr)

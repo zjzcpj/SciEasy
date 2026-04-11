@@ -160,11 +160,18 @@ def _make_arrow_table() -> pa.Table:
 
 
 def _make_dataframe() -> DataFrame:
-    """Build a DataFrame DataObject with an in-memory _arrow_table."""
+    """Build a storage-backed DataFrame DataObject (ADR-031 D2)."""
+    import tempfile
+    import uuid
+
+    from scieasy.core.storage.arrow_backend import ArrowBackend
+    from scieasy.core.storage.ref import StorageReference
+
     table = _make_arrow_table()
-    df = DataFrame(columns=table.column_names, row_count=table.num_rows)
-    df._arrow_table = table  # type: ignore[attr-defined]
-    return df
+    tmp_path = str(Path(tempfile.gettempdir()) / f"{uuid.uuid4()}.parquet")
+    ref = StorageReference(backend="arrow", path=tmp_path)
+    ref = ArrowBackend().write(table, ref)
+    return DataFrame(columns=table.column_names, row_count=table.num_rows, storage_ref=ref)
 
 
 class TestRoundTripDataFrame:
@@ -228,14 +235,30 @@ class TestRoundTripArray:
     """SaveData → file → manual read round-trip for Array."""
 
     def _make_1d_array(self) -> Array:
-        arr = Array(axes=["x"], shape=(5,), dtype=np.dtype("float64"))
-        arr._data = np.array([1.0, 2.0, 3.0, 4.0, 5.0])  # type: ignore[attr-defined]
-        return arr
+        """Build a storage-backed 1-D Array (ADR-031 D2)."""
+        import tempfile
+        import uuid
+
+        from scieasy.core.storage.ref import StorageReference
+        from scieasy.core.storage.zarr_backend import ZarrBackend
+
+        data = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+        path = str(Path(tempfile.gettempdir()) / f"{uuid.uuid4()}.zarr")
+        ref = ZarrBackend().write(data, StorageReference(backend="zarr", path=path))
+        return Array(axes=["x"], shape=(5,), dtype=np.dtype("float64"), storage_ref=ref)
 
     def _make_2d_array(self) -> Array:
-        arr = Array(axes=["y", "x"], shape=(2, 3), dtype=np.dtype("int64"))
-        arr._data = np.array([[1, 2, 3], [4, 5, 6]])  # type: ignore[attr-defined]
-        return arr
+        """Build a storage-backed 2-D Array (ADR-031 D2)."""
+        import tempfile
+        import uuid
+
+        from scieasy.core.storage.ref import StorageReference
+        from scieasy.core.storage.zarr_backend import ZarrBackend
+
+        data = np.array([[1, 2, 3], [4, 5, 6]])
+        path = str(Path(tempfile.gettempdir()) / f"{uuid.uuid4()}.zarr")
+        ref = ZarrBackend().write(data, StorageReference(backend="zarr", path=path))
+        return Array(axes=["y", "x"], shape=(2, 3), dtype=np.dtype("int64"), storage_ref=ref)
 
     def test_array_round_trip_npy(self, tmp_path: Path) -> None:
         path = tmp_path / "arr.npy"
@@ -286,13 +309,19 @@ class TestRoundTripSeries:
     """SaveData → file → manual read round-trip for Series."""
 
     def _make_series(self) -> Series:
-        s = Series(
-            index_name="time",
-            value_name="intensity",
-            length=4,
-        )
-        s._data = [10.0, 20.0, 30.0, 40.0]  # type: ignore[attr-defined]
-        return s
+        """Build a storage-backed Series (ADR-031 D2)."""
+        import tempfile
+        import uuid
+
+        import pyarrow as pa
+
+        from scieasy.core.storage.arrow_backend import ArrowBackend
+        from scieasy.core.storage.ref import StorageReference
+
+        table = pa.table({"intensity": [10.0, 20.0, 30.0, 40.0]})
+        tmp_path = str(Path(tempfile.gettempdir()) / f"{uuid.uuid4()}.parquet")
+        ref = ArrowBackend().write(table, StorageReference(backend="arrow", path=tmp_path))
+        return Series(index_name="time", value_name="intensity", length=4, storage_ref=ref)
 
     def test_series_round_trip_csv(self, tmp_path: Path) -> None:
         path = tmp_path / "s.csv"

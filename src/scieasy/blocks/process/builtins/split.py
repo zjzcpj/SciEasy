@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import tempfile
+import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
 import pyarrow as pa
@@ -14,6 +17,21 @@ from scieasy.core.types.dataframe import DataFrame
 
 if TYPE_CHECKING:
     from scieasy.core.types.collection import Collection
+
+
+def _persist_arrow(table: pa.Table) -> DataFrame:
+    """Persist *table* to a temp parquet file and return a storage-backed DataFrame.
+
+    ADR-031 D2: no _arrow_table backdoor; derived DataFrames are always
+    backed by a StorageReference.
+    """
+    from scieasy.core.storage.arrow_backend import ArrowBackend
+    from scieasy.core.storage.ref import StorageReference
+
+    tmp_path = str(Path(tempfile.gettempdir()) / f"{uuid.uuid4()}.parquet")
+    ref = StorageReference(backend="arrow", path=tmp_path)
+    ref = ArrowBackend().write(table, ref)
+    return DataFrame(columns=table.column_names, row_count=table.num_rows, storage_ref=ref)
 
 
 class SplitBlock(ProcessBlock):
@@ -63,22 +81,16 @@ class SplitBlock(ProcessBlock):
         if mode == "head":
             n = int(config.get("n", 100))
             out_table = data.slice(0, n)
-            result = DataFrame(columns=out_table.column_names, row_count=out_table.num_rows)
-            result._arrow_table = out_table  # type: ignore[attr-defined]
-            return {"out": Collection([result], item_type=DataFrame)}
+            return {"out": Collection([_persist_arrow(out_table)], item_type=DataFrame)}
 
         elif mode == "ratio":
             ratio = float(config.get("ratio", 0.8))
             split_idx = int(data.num_rows * ratio)
             first = data.slice(0, split_idx)
             second = data.slice(split_idx)
-            r1 = DataFrame(columns=first.column_names, row_count=first.num_rows)
-            r1._arrow_table = first  # type: ignore[attr-defined]
-            r2 = DataFrame(columns=second.column_names, row_count=second.num_rows)
-            r2._arrow_table = second  # type: ignore[attr-defined]
             return {
-                "out": Collection([r1], item_type=DataFrame),
-                "remainder": Collection([r2], item_type=DataFrame),
+                "out": Collection([_persist_arrow(first)], item_type=DataFrame),
+                "remainder": Collection([_persist_arrow(second)], item_type=DataFrame),
             }
 
         elif mode == "filter":
@@ -90,9 +102,7 @@ class SplitBlock(ProcessBlock):
 
             mask = pc.equal(data.column(column), pa.scalar(value))
             filtered = data.filter(mask)
-            result = DataFrame(columns=filtered.column_names, row_count=filtered.num_rows)
-            result._arrow_table = filtered  # type: ignore[attr-defined]
-            return {"out": Collection([result], item_type=DataFrame)}
+            return {"out": Collection([_persist_arrow(filtered)], item_type=DataFrame)}
 
         else:
             raise ValueError(f"Unknown split mode: {mode}")

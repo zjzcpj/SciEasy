@@ -186,18 +186,10 @@ class LoadData(IOBlock):
     def _load_dataframe_with_persist(self, config: BlockConfig, output_dir: str) -> DataFrame:
         """Load DataFrame and persist to arrow storage.
 
-        ADR-031 D4: uses :meth:`persist_table` to write the arrow table
-        to storage and returns a reference-only DataFrame.
+        ADR-031 D2: _load_dataframe() now returns storage-backed DataFrames
+        directly; this method is a thin wrapper kept for the dispatch table.
         """
-        df = _load_dataframe(config)
-        # If the dataframe has an in-memory table, persist it.
-        table = getattr(df, "_arrow_table", None)
-        if table is not None and output_dir:
-            ref = self.persist_table(table, output_dir)
-            df._storage_ref = ref
-            # Clean up in-memory reference (the data is now in storage)
-            del df._arrow_table  # type: ignore[attr-defined]
-        return df
+        return _load_dataframe(config)
 
     def _load_series_with_persist(self, config: BlockConfig, output_dir: str) -> Series:
         """Load Series and persist to arrow storage.
@@ -229,6 +221,45 @@ class LoadData(IOBlock):
 # ``ValueError`` / ``FileNotFoundError`` so the calling block surfaces a
 # clear error to the workflow runtime instead of silently degrading.
 # ---------------------------------------------------------------------------
+
+
+def _persist_numpy_array(arr: Any, axes: list[str]) -> Array:
+    """Persist a numpy array to a temp zarr store and return a storage-backed Array.
+
+    ADR-031 D2: no _data backdoor; loaders must always return storage-backed objects.
+    """
+    import tempfile
+    import uuid
+    from pathlib import Path as _Path
+
+    import numpy as np
+
+    from scieasy.core.storage.ref import StorageReference
+    from scieasy.core.storage.zarr_backend import ZarrBackend
+
+    np_arr = np.asarray(arr)
+    zarr_path = str(_Path(tempfile.gettempdir()) / f"{uuid.uuid4()}.zarr")
+    ref = StorageReference(backend="zarr", path=zarr_path)
+    ref = ZarrBackend().write(np_arr, ref)
+    return Array(axes=axes, shape=tuple(np_arr.shape), dtype=str(np_arr.dtype), storage_ref=ref)
+
+
+def _persist_arrow_table(table: Any) -> DataFrame:
+    """Persist a pyarrow Table to a temp parquet file and return a storage-backed DataFrame.
+
+    ADR-031 D2: no _arrow_table backdoor; loaders must always return storage-backed objects.
+    """
+    import tempfile
+    import uuid
+    from pathlib import Path as _Path
+
+    from scieasy.core.storage.arrow_backend import ArrowBackend
+    from scieasy.core.storage.ref import StorageReference
+
+    parquet_path = str(_Path(tempfile.gettempdir()) / f"{uuid.uuid4()}.parquet")
+    ref = StorageReference(backend="arrow", path=parquet_path)
+    ref = ArrowBackend().write(table, ref)
+    return DataFrame(columns=list(table.column_names), row_count=int(table.num_rows), storage_ref=ref)
 
 
 def _resolve_path(config: BlockConfig) -> Path:
@@ -293,25 +324,13 @@ def _load_array(config: BlockConfig) -> Array:
         import numpy as np
 
         arr = np.asarray(obj)
-        result = Array(
-            axes=[f"axis_{i}" for i in range(arr.ndim)],
-            shape=tuple(arr.shape),
-            dtype=str(arr.dtype),
-        )
-        result._data = arr  # type: ignore[attr-defined]
-        return result
+        return _persist_numpy_array(arr, [f"axis_{i}" for i in range(arr.ndim)])
 
     if suffix == ".npy":
         import numpy as np
 
         arr = np.load(path)
-        result = Array(
-            axes=[f"axis_{i}" for i in range(arr.ndim)],
-            shape=tuple(arr.shape),
-            dtype=str(arr.dtype),
-        )
-        result._data = arr  # type: ignore[attr-defined]
-        return result
+        return _persist_numpy_array(arr, [f"axis_{i}" for i in range(arr.ndim)])
 
     if suffix == ".npz":
         import numpy as np
@@ -321,13 +340,7 @@ def _load_array(config: BlockConfig) -> Array:
             if not keys:
                 raise ValueError(f"LoadData: .npz archive is empty: {path}")
             arr = npz[keys[0]]
-        result = Array(
-            axes=[f"axis_{i}" for i in range(arr.ndim)],
-            shape=tuple(arr.shape),
-            dtype=str(arr.dtype),
-        )
-        result._data = arr  # type: ignore[attr-defined]
-        return result
+        return _persist_numpy_array(arr, [f"axis_{i}" for i in range(arr.ndim)])
 
     if suffix == ".zarr" or (path.is_dir() and ((path / ".zgroup").exists() or (path / ".zarray").exists())):
         # Build a metadata-only Array with a StorageReference; chunked data
@@ -364,13 +377,7 @@ def _load_array(config: BlockConfig) -> Array:
                 f"got {table.num_columns} columns in {path}"
             )
         arr = table.column(0).to_numpy()
-        result = Array(
-            axes=[f"axis_{i}" for i in range(arr.ndim)],
-            shape=tuple(arr.shape),
-            dtype=str(arr.dtype),
-        )
-        result._data = arr  # type: ignore[attr-defined]
-        return result
+        return _persist_numpy_array(arr, [f"axis_{i}" for i in range(arr.ndim)])
 
     raise ValueError(
         f"LoadData(core_type='Array') does not support extension {suffix!r}. "
@@ -386,10 +393,8 @@ def _load_dataframe(config: BlockConfig) -> DataFrame:
     :func:`_check_pickle_allowed` and uses :mod:`pickle` from the stdlib
     rather than pulling in pandas (which is not a core dependency).
 
-    The constructed :class:`DataFrame` carries the underlying pyarrow
-    Table on the ``_arrow_table`` attribute (matching the deleted
-    csv_adapter / parquet_adapter convention) so downstream blocks can
-    materialise data without re-parsing the file.
+    ADR-031 D2: returns a storage-backed :class:`DataFrame` with ``storage_ref``
+    set. No ``_arrow_table`` backdoor is used.
     """
     path = _resolve_path(config)
     if not path.exists():
@@ -415,23 +420,13 @@ def _load_dataframe(config: BlockConfig) -> DataFrame:
         delimiter = "\t" if suffix == ".tsv" else ","
         parse_opts = pcsv.ParseOptions(delimiter=delimiter)
         table = pcsv.read_csv(str(path), parse_options=parse_opts)
-        df = DataFrame(
-            columns=list(table.column_names),
-            row_count=int(table.num_rows),
-        )
-        df._arrow_table = table  # type: ignore[attr-defined]
-        return df
+        return _persist_arrow_table(table)
 
     if suffix in {".parquet", ".pq"}:
         import pyarrow.parquet as pq
 
         table = pq.read_table(str(path))
-        df = DataFrame(
-            columns=list(table.column_names),
-            row_count=int(table.num_rows),
-        )
-        df._arrow_table = table  # type: ignore[attr-defined]
-        return df
+        return _persist_arrow_table(table)
 
     if suffix == ".json":
         # pyarrow.json expects newline-delimited JSON records. For the
@@ -453,12 +448,7 @@ def _load_dataframe(config: BlockConfig) -> DataFrame:
                 f"LoadData(core_type='DataFrame'): JSON at {path} must be a list of records "
                 f"or a dict of columns, got {type(raw).__name__}"
             )
-        df = DataFrame(
-            columns=list(table.column_names),
-            row_count=int(table.num_rows),
-        )
-        df._arrow_table = table  # type: ignore[attr-defined]
-        return df
+        return _persist_arrow_table(table)
 
     raise ValueError(
         f"LoadData(core_type='DataFrame') does not support extension {suffix!r}. "
@@ -498,22 +488,18 @@ def _load_series(config: BlockConfig, block: Any = None, output_dir: str = "") -
 
     if suffix in {".csv", ".tsv", ".parquet", ".pq"}:
         # Reuse the dataframe loader and assert a single column.
+        # ADR-031 D2: _load_dataframe now returns storage-backed DataFrames.
         df = _load_dataframe(config)
         if df.columns is None or len(df.columns) != 1:
             raise ValueError(
                 f"LoadData(core_type='Series') expects a single-column tabular file, "
                 f"got {len(df.columns) if df.columns else 0} columns in {path}"
             )
-        # ADR-031: persist the arrow table to storage to fix payload loss.
-        table = getattr(df, "_arrow_table", None)
-        storage_ref = None
-        if table is not None and block is not None and output_dir:
-            storage_ref = block.persist_table(table, output_dir)
         return Series(
             index_name=None,
             value_name=df.columns[0],
             length=df.row_count,
-            storage_ref=storage_ref,
+            storage_ref=df.storage_ref,
         )
 
     raise ValueError(
@@ -691,14 +677,7 @@ def _load_composite_data(config: BlockConfig, block: Any = None, output_dir: str
                 "allow_pickle": bool(slot_decl.get("allow_pickle", False)),
             }
         )
-        slot_obj = inner_dispatch[slot_type](slot_config)
-        # ADR-031: persist DataFrame slots to arrow storage.
-        if slot_type == "DataFrame" and block is not None and output_dir:
-            table = getattr(slot_obj, "_arrow_table", None)
-            if table is not None:
-                ref = block.persist_table(table, output_dir)
-                slot_obj._storage_ref = ref
-                del slot_obj._arrow_table  # type: ignore[attr-defined]
-        loaded_slots[slot_name] = slot_obj
+        # ADR-031 D2: all loaders now return storage-backed objects directly.
+        loaded_slots[slot_name] = inner_dispatch[slot_type](slot_config)
 
     return CompositeData(slots=loaded_slots)

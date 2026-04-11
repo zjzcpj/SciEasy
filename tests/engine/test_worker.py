@@ -36,10 +36,9 @@ class TestReconstructInputs:
         assert result == {}
 
     def test_storage_ref_dict_becomes_typed_instance(self) -> None:
-        """ADR-027 Addendum 1 §1 (T-014): dicts with backend/path reconstruct
-        into typed DataObject instances, not ViewProxy.
+        """ADR-027 D11 + ADR-031: dicts with backend/path reconstruct
+        into typed DataObject instances.
         """
-        from scieasy.core.proxy import ViewProxy
         from scieasy.core.types.array import Array
 
         payload = {
@@ -60,13 +59,9 @@ class TestReconstructInputs:
         }
         result = reconstruct_inputs(payload)
 
-        # Typed Array instance — the critical T-014 behaviour.
         assert isinstance(result["image"], Array)
-        assert not isinstance(result["image"], ViewProxy)
         assert result["image"].axes == ["z", "y", "x"]
         assert result["image"].shape == (8, 16, 16)
-        # StorageReference is still populated so lazy loading works at
-        # the method level.
         assert result["image"].storage_ref is not None
         assert result["image"].storage_ref.backend == "zarr"
         assert result["image"].storage_ref.path == "/data/img.zarr"
@@ -144,11 +139,17 @@ class TestSerialiseOutputs:
         self,
         tmp_path: Path,
     ) -> None:
-        """An output_dir should activate auto-flush and produce a persisted ref."""
+        """A storage-backed Array serialises with backend/path populated."""
+        import numpy as np
+
+        from scieasy.core.storage.ref import StorageReference
+        from scieasy.core.storage.zarr_backend import ZarrBackend
         from scieasy.core.types.array import Array
 
-        arr = Array(axes=["y", "x"], shape=(2, 2), dtype="uint8")
-        arr._data = [[1, 2], [3, 4]]  # type: ignore[attr-defined]
+        data = np.array([[1, 2], [3, 4]], dtype="uint8")
+        zarr_path = str(tmp_path / "arr.zarr")
+        ref = ZarrBackend().write(data, StorageReference(backend="zarr", path=zarr_path))
+        arr = Array(axes=["y", "x"], shape=(2, 2), dtype="uint8", storage_ref=ref)
 
         result = serialise_outputs({"data": arr}, str(tmp_path))
 

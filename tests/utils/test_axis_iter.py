@@ -38,26 +38,35 @@ def _make_array(
     user: dict[str, Any] | None = None,
     array_cls: type[Array] = Array,
 ) -> Array:
-    """Build an Array with an in-memory ``_data`` stash.
+    """Build a storage-backed Array (ADR-031 D2).
 
-    Mirrors the T-006 ``Array.sel()`` pattern: the instance is
-    constructed without a storage_ref but with ``_data`` populated, so
-    ``to_memory()`` returns the array directly.
+    Persists the data to a temporary zarr store so that ``to_memory()``
+    routes through the storage backend rather than a ``_data`` backdoor.
     """
+    import tempfile
+    import uuid
+    from pathlib import Path
+
+    from scieasy.core.storage.ref import StorageReference
+    from scieasy.core.storage.zarr_backend import ZarrBackend
+
     if data is None:
         if fill is not None:
             data = np.full(shape, fill, dtype=dtype)
         else:
             data = np.arange(int(np.prod(shape)), dtype=dtype).reshape(shape)
-    arr = array_cls(
+
+    zarr_path = str(Path(tempfile.gettempdir()) / f"{uuid.uuid4()}.zarr")
+    ref = ZarrBackend().write(data, StorageReference(backend="zarr", path=zarr_path))
+
+    return array_cls(
         axes=axes,
         shape=shape,
         dtype=data.dtype,
         meta=meta,
         user=user,
+        storage_ref=ref,
     )
-    arr._data = data  # type: ignore[attr-defined]
-    return arr
 
 
 class _SubclassArray(Array):

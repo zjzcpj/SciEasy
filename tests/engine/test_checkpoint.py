@@ -292,13 +292,12 @@ class TestIntermediateRefsSerialization:
 
 
 class TestDeserializeIntermediateRefs:
-    """Tests for deserialize_intermediate_refs — ViewProxy reconstruction (#62)."""
+    """Tests for deserialize_intermediate_refs — ADR-031: returns wire-format dicts."""
 
     def test_roundtrip_collection_with_storage_refs(self) -> None:
-        """serialize → JSON → deserialize reconstructs ViewProxy items."""
+        """serialize → JSON → deserialize returns the wire-format dict unchanged."""
         import json
 
-        from scieasy.core.proxy import ViewProxy
         from scieasy.core.storage.ref import StorageReference
         from scieasy.core.types.collection import Collection
 
@@ -317,24 +316,18 @@ class TestDeserializeIntermediateRefs:
         raw = json.loads(json_str)
         restored = deserialize_intermediate_refs(raw)
 
+        # ADR-031: deserialize returns the wire-format dict as-is.
         coll_data = restored["block_a"]["result"]
         assert coll_data["_collection"] is True
         assert coll_data["item_type"] == "Image"
         assert len(coll_data["items"]) == 1
-
-        proxy = coll_data["items"][0]
-        assert isinstance(proxy, ViewProxy)
-        assert proxy.storage_ref.backend == "zarr"
-        assert proxy.storage_ref.path == "/tmp/test.zarr"
-        assert proxy.storage_ref.format == "ome-zarr"
-        assert proxy.storage_ref.metadata == {"axes": ["y", "x"]}
-        assert proxy.dtype_info.type_chain == ["Image"]
+        assert coll_data["items"][0]["backend"] == "zarr"
+        assert coll_data["items"][0]["path"] == "/tmp/test.zarr"
 
     def test_roundtrip_single_storage_ref(self) -> None:
-        """Single DataObject with storage_ref deserializes to ViewProxy."""
+        """Single DataObject with storage_ref returns wire-format dict unchanged."""
         import json
 
-        from scieasy.core.proxy import ViewProxy
         from scieasy.core.storage.ref import StorageReference
 
         img = Image(shape=(5, 5))
@@ -345,11 +338,10 @@ class TestDeserializeIntermediateRefs:
         raw = json.loads(json.dumps(serialized))
         restored = deserialize_intermediate_refs(raw)
 
-        proxy = restored["block_a"]["image"]
-        assert isinstance(proxy, ViewProxy)
-        assert proxy.storage_ref.backend == "zarr"
-        assert proxy.storage_ref.path == "/tmp/img.zarr"
-        assert proxy.dtype_info.type_chain == ["DataObject"]
+        ref_dict = restored["block_a"]["image"]
+        assert isinstance(ref_dict, dict)
+        assert ref_dict["backend"] == "zarr"
+        assert ref_dict["path"] == "/tmp/img.zarr"
 
     def test_scalar_passthrough(self) -> None:
         """Scalar values pass through deserialization unchanged."""
@@ -359,28 +351,19 @@ class TestDeserializeIntermediateRefs:
         assert restored["block_a"]["name"] == "test"
         assert restored["block_a"]["flag"] is True
 
-    def test_non_persisted_items_skipped_with_warning(self) -> None:
-        """Non-persisted _value items are skipped during deserialization."""
+    def test_passthrough_is_identity(self) -> None:
+        """deserialize_intermediate_refs returns input dict unchanged."""
         data = {
             "block_a": {
                 "result": {
                     "_collection": True,
-                    "items": [{"_value": "Image(shape=(3,3))", "_type": "Image"}],
+                    "items": [{"backend": "zarr", "path": "/tmp/x.zarr"}],
                     "item_type": "Image",
                 }
             }
         }
         restored = deserialize_intermediate_refs(data)
-        coll_data = restored["block_a"]["result"]
-        assert coll_data["_collection"] is True
-        assert len(coll_data["items"]) == 0
-
-    def test_malformed_collection_returns_raw(self) -> None:
-        """Malformed _collection dict without required keys returns raw data."""
-        data = {"block_a": {"result": {"_collection": True, "items": []}}}
-        restored = deserialize_intermediate_refs(data)
-        # Missing 'item_type' → returns raw
-        assert restored["block_a"]["result"] == {"_collection": True, "items": []}
+        assert restored == data
 
     def test_non_dict_block_output_passthrough(self) -> None:
         """Non-dict block outputs pass through unchanged."""
@@ -395,17 +378,14 @@ class TestDeserializeIntermediateRefs:
 
 
 class TestDeserializeTypeChain:
-    """Regression tests: _deserialize_value preserves type_chain from metadata.
+    """ADR-031: ViewProxy eliminated — deserialize_intermediate_refs is identity.
 
-    These cover the fix in #404: TypeSignature must be built from
-    metadata.type_chain rather than hardcoded ["DataObject"] or just
-    [item_type_name].
+    These tests verify that the function returns wire-format dicts unchanged,
+    preserving type_chain metadata for downstream typed reconstruction.
     """
 
-    def test_single_ref_preserves_type_chain(self) -> None:
-        """Single wire-format dict preserves type_chain in the ViewProxy."""
-        from scieasy.core.proxy import ViewProxy
-
+    def test_single_ref_with_type_chain_passes_through(self) -> None:
+        """Wire-format dict with type_chain is returned unchanged."""
         data = {
             "block_a": {
                 "result": {
@@ -420,14 +400,13 @@ class TestDeserializeTypeChain:
             }
         }
         restored = deserialize_intermediate_refs(data)
-        proxy = restored["block_a"]["result"]
-        assert isinstance(proxy, ViewProxy)
-        assert proxy.dtype_info.type_chain == ["DataObject", "Array", "Image"]
+        ref_dict = restored["block_a"]["result"]
+        assert isinstance(ref_dict, dict)
+        assert ref_dict["backend"] == "zarr"
+        assert ref_dict["metadata"]["type_chain"] == ["DataObject", "Array", "Image"]
 
     def test_single_ref_falls_back_to_dataobject_when_no_type_chain(self) -> None:
-        """Without type_chain in metadata, ViewProxy defaults to ['DataObject']."""
-        from scieasy.core.proxy import ViewProxy
-
+        """Wire-format dict without type_chain passes through unchanged."""
         data = {
             "block_a": {
                 "result": {
@@ -438,14 +417,13 @@ class TestDeserializeTypeChain:
             }
         }
         restored = deserialize_intermediate_refs(data)
-        proxy = restored["block_a"]["result"]
-        assert isinstance(proxy, ViewProxy)
-        assert proxy.dtype_info.type_chain == ["DataObject"]
+        ref_dict = restored["block_a"]["result"]
+        assert isinstance(ref_dict, dict)
+        assert ref_dict["backend"] == "zarr"
+        assert "type_chain" not in ref_dict
 
     def test_collection_items_preserve_type_chain_from_item_metadata(self) -> None:
-        """Collection item ViewProxies use type_chain from each item's metadata."""
-        from scieasy.core.proxy import ViewProxy
-
+        """Collection wire-format with type_chain in item metadata passes through unchanged."""
         data = {
             "block_a": {
                 "images": {
@@ -465,7 +443,6 @@ class TestDeserializeTypeChain:
                             "backend": "zarr",
                             "path": "/data/img_1.zarr",
                             "format": "zarr",
-                            # No type_chain in metadata — falls back to [item_type_name]
                             "metadata": {"axes": ["y", "x"]},
                         },
                     ],
@@ -477,10 +454,10 @@ class TestDeserializeTypeChain:
         assert coll["_collection"] is True
         assert len(coll["items"]) == 2
 
-        proxy0, proxy1 = coll["items"]
-        assert isinstance(proxy0, ViewProxy)
-        assert proxy0.dtype_info.type_chain == ["DataObject", "Array", "Image"]
+        item0 = coll["items"][0]
+        assert isinstance(item0, dict)
+        assert item0["metadata"]["type_chain"] == ["DataObject", "Array", "Image"]
 
-        assert isinstance(proxy1, ViewProxy)
-        # Fallback to [item_type_name] when no type_chain in item metadata
-        assert proxy1.dtype_info.type_chain == ["Image"]
+        item1 = coll["items"][1]
+        assert isinstance(item1, dict)
+        assert "type_chain" not in item1["metadata"]

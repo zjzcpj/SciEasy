@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import tempfile
+import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
 import pyarrow as pa
@@ -14,6 +17,20 @@ from scieasy.core.types.dataframe import DataFrame
 
 if TYPE_CHECKING:
     from scieasy.core.types.collection import Collection
+
+
+def _persist_arrow(table: pa.Table) -> DataFrame:
+    """Persist *table* to a temp parquet file and return a storage-backed DataFrame.
+
+    ADR-031 D2: no _arrow_table backdoor.
+    """
+    from scieasy.core.storage.arrow_backend import ArrowBackend
+    from scieasy.core.storage.ref import StorageReference
+
+    tmp_path = str(Path(tempfile.gettempdir()) / f"{uuid.uuid4()}.parquet")
+    ref = StorageReference(backend="arrow", path=tmp_path)
+    ref = ArrowBackend().write(table, ref)
+    return DataFrame(columns=table.column_names, row_count=table.num_rows, storage_ref=ref)
 
 
 class MergeBlock(ProcessBlock):
@@ -69,9 +86,4 @@ class MergeBlock(ProcessBlock):
         else:
             raise NotImplementedError(f"Join strategy '{how}' is not yet implemented; use 'concat'.")
 
-        result = DataFrame(
-            columns=merged.column_names,
-            row_count=merged.num_rows,
-        )
-        result._arrow_table = merged  # type: ignore[attr-defined]
-        return {"merged": Collection([result], item_type=DataFrame)}
+        return {"merged": Collection([_persist_arrow(merged)], item_type=DataFrame)}

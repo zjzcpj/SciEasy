@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from scieasy.core.storage.base import StorageBackend
+from scieasy.core.storage.ref import StorageReference
 
 
 class BackendRouter:
@@ -84,3 +87,27 @@ def get_router() -> BackendRouter:
     if _default_router is None:
         _default_router = _build_default_router()
     return _default_router
+
+
+def _get_backend(ref: StorageReference) -> Any:
+    """Return the appropriate backend instance for *ref*.
+
+    ADR-031 D2: module-level utility used by DataObject.to_memory(),
+    DataObject.slice(), and DataObject.iter_chunks() after ViewProxy was
+    eliminated.  Imported lazily inside DataObject to avoid circular
+    imports at module load time.
+    """
+    from scieasy.core.storage.arrow_backend import ArrowBackend
+    from scieasy.core.storage.composite_store import CompositeStore
+    from scieasy.core.storage.filesystem import FilesystemBackend
+    from scieasy.core.storage.zarr_backend import ZarrBackend
+
+    backends: dict[str, Any] = {
+        "zarr": ZarrBackend(),
+        "arrow": ArrowBackend(),
+        "filesystem": FilesystemBackend(),
+        "composite": CompositeStore(),
+    }
+    if ref.backend not in backends:
+        raise ValueError(f"Unknown backend: {ref.backend}")
+    return backends[ref.backend]

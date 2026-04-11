@@ -249,22 +249,25 @@ def _build_result(source: Array, data: np.ndarray) -> Array:
     - ``axes``: same as ``source.axes``.
     - ``shape`` / ``dtype``: taken from ``data``.
 
-    The materialised numpy array is stashed on the returned instance
-    via the ``_data`` attribute so that subsequent ``to_memory()`` /
-    ``__array__`` calls return it directly without re-hitting storage.
-    This matches the in-memory slice pattern established by
-    :meth:`Array.sel` in T-006.
-
-    The private attributes ``_framework``, ``_meta``, and ``_user`` are
-    accessed with explicit ``# type: ignore[attr-defined]`` comments
-    rather than via the public ``.framework`` / ``.meta`` / ``.user``
-    properties because the properties return read-only views while the
-    construction path needs the raw slots. Adding dedicated public
-    accessors would widen T-005's contract, which T-011 is explicitly
-    not in scope to do.
+    ADR-031 D1.3: the result array is persisted to a temporary zarr store
+    so the returned instance is storage-backed.  No ``_data`` attribute is
+    stashed on the returned instance.
     """
+    import tempfile
+    import uuid
+    from pathlib import Path
+
+    from scieasy.core.storage.ref import StorageReference
+    from scieasy.core.storage.zarr_backend import ZarrBackend
+
     new_framework = source._framework.derive()  # type: ignore[attr-defined]
-    result = type(source)(
+
+    tmp_dir = tempfile.gettempdir()
+    zarr_path = str(Path(tmp_dir) / f"{uuid.uuid4()}.zarr")
+    zarr_ref = StorageReference(backend="zarr", path=zarr_path)
+    zarr_ref = ZarrBackend().write(data, zarr_ref)
+
+    return type(source)(
         axes=list(source.axes),
         shape=tuple(data.shape),
         dtype=data.dtype,
@@ -272,12 +275,8 @@ def _build_result(source: Array, data: np.ndarray) -> Array:
         framework=new_framework,
         meta=source._meta,  # type: ignore[attr-defined]
         user=dict(source._user),  # type: ignore[attr-defined]
-        storage_ref=None,
+        storage_ref=zarr_ref,
     )
-    # Stash the materialised data so to_memory() / __array__ return it
-    # without going back to storage. Matches Array.sel()'s pattern.
-    result._data = data  # type: ignore[attr-defined]
-    return result
 
 
 __all__ = ["SliceFn", "iterate_over_axes"]
