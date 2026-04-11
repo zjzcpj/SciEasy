@@ -24,6 +24,10 @@ export interface BlockNodeData extends Record<string, unknown> {
   onDelete?: () => void;
   onUpdateConfig?: (patch: Record<string, unknown>) => void;
   onErrorClick?: () => void;
+  /** ADR-029 D2: add a new variadic port (input or output side). */
+  onAddPort?: (direction: "input" | "output") => void;
+  /** ADR-029 D2: remove a variadic port by name. Caller handles edge cleanup. */
+  onRemovePort?: (direction: "input" | "output", portName: string) => void;
 }
 
 export type BlockCanvasNode = Node<BlockNodeData>;

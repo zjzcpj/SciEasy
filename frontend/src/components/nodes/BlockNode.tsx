@@ -1,4 +1,4 @@
-import { type Node, Handle, Position, type NodeProps } from "@xyflow/react";
+import { type Node, Handle, Position, type NodeProps, useEdges } from "@xyflow/react";
 import { useState, useEffect, useCallback, useRef } from "react";
 
 import { resolveTypeColor, resolveRingColor, isAnyType, primaryTypeName } from "../../config/typeColorMap";
@@ -612,7 +612,7 @@ function PausedToast({ outputDir }: { outputDir: string }) {
   );
 }
 
-export function BlockNode({ data, selected }: NodeProps<Node<BlockNodeData>>) {
+export function BlockNode({ id: nodeId, data, selected }: NodeProps<Node<BlockNodeData>>) {
   // ADR-028 Addendum 1 §B fix #2 / §C11: hide the ``direction`` config
   // field for any IO block (not just the legacy abstract-base type_name).
   // ``direction`` is a ClassVar on the IOBlock subclass — it is not a
@@ -655,6 +655,30 @@ export function BlockNode({ data, selected }: NodeProps<Node<BlockNodeData>>) {
 
   const handleConfigChange = (key: string, value: unknown) => {
     data.onUpdateConfig?.({ [key]: value });
+  };
+
+  // ADR-029 D2: variadic port UI — [+] and [-] controls.
+  const edges = useEdges();
+  const isVariadicInputs = data.schema?.variadic_inputs === true;
+  const isVariadicOutputs = data.schema?.variadic_outputs === true;
+
+  const handleAddPort = (direction: "input" | "output") => {
+    data.onAddPort?.(direction);
+  };
+
+  const handleRemovePort = (direction: "input" | "output", portName: string) => {
+    const connected = edges.filter(
+      (e) =>
+        (direction === "input" && e.target === nodeId && e.targetHandle === portName) ||
+        (direction === "output" && e.source === nodeId && e.sourceHandle === portName),
+    );
+    if (connected.length > 0) {
+      const confirmed = window.confirm(
+        `This port has ${connected.length} connection(s). Remove port and disconnect?`,
+      );
+      if (!confirmed) return;
+    }
+    data.onRemovePort?.(direction, portName);
   };
 
   return (
@@ -739,48 +763,96 @@ export function BlockNode({ data, selected }: NodeProps<Node<BlockNodeData>>) {
         const anyType = isAnyType(port.accepted_types);
         const typeName = primaryTypeName(port.accepted_types);
         const borderColor = ringColor ?? (anyType ? "#d1d5db" : fillColor);
+        const portTop = 80 + index * 20;
         return (
-          <Handle
-            key={port.name}
-            id={port.name}
-            type="target"
-            position={Position.Left}
-            className="!h-3.5 !w-3.5 !border-2"
-            title={`${typeName}${port.description ? " \u2014 " + port.description : ""}`}
-            style={{
-              backgroundColor: anyType ? "#ffffff" : fillColor,
-              borderColor,
-              borderStyle: anyType ? "dashed" : "solid",
-              left: -7,
-              top: 80 + index * 20,
-            }}
-          />
+          <span key={port.name} className="group">
+            <Handle
+              id={port.name}
+              type="target"
+              position={Position.Left}
+              className="!h-3.5 !w-3.5 !border-2"
+              title={`${typeName}${port.description ? " \u2014 " + port.description : ""}`}
+              style={{
+                backgroundColor: anyType ? "#ffffff" : fillColor,
+                borderColor,
+                borderStyle: anyType ? "dashed" : "solid",
+                left: -7,
+                top: portTop,
+              }}
+            />
+            {isVariadicInputs && (
+              <button
+                type="button"
+                className="nodrag absolute flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-100 text-[9px] text-red-500 opacity-0 transition-opacity hover:bg-red-200 group-hover:opacity-100"
+                title={`Remove port "${port.name}"`}
+                style={{ left: 6, top: portTop - 1 }}
+                onClick={() => handleRemovePort("input", port.name)}
+              >
+                ×
+              </button>
+            )}
+          </span>
         );
       })}
+      {isVariadicInputs && (
+        <button
+          type="button"
+          className="nodrag absolute flex h-3.5 w-3.5 items-center justify-center rounded-full bg-stone-100 text-[9px] text-stone-500 transition-colors hover:bg-ember hover:text-white"
+          title="Add input port"
+          style={{ left: 6, top: 80 + effectiveInputPorts.length * 20 - 1 }}
+          onClick={() => handleAddPort("input")}
+        >
+          +
+        </button>
+      )}
       {effectiveOutputPorts.map((port, index) => {
         const fillColor = resolveTypeColor(port.accepted_types, typeHierarchy);
         const ringColor = resolveRingColor(port.accepted_types, typeHierarchy);
         const anyType = isAnyType(port.accepted_types);
         const typeName = primaryTypeName(port.accepted_types);
         const borderColor = ringColor ?? (anyType ? "#d1d5db" : fillColor);
+        const portTop = 80 + index * 20;
         return (
-          <Handle
-            key={port.name}
-            id={port.name}
-            type="source"
-            position={Position.Right}
-            className="!h-3.5 !w-3.5 !border-2"
-            title={`${typeName}${port.description ? " \u2014 " + port.description : ""}`}
-            style={{
-              backgroundColor: anyType ? "#ffffff" : fillColor,
-              borderColor,
-              borderStyle: anyType ? "dashed" : "solid",
-              right: -7,
-              top: 80 + index * 20,
-            }}
-          />
+          <span key={port.name} className="group">
+            <Handle
+              id={port.name}
+              type="source"
+              position={Position.Right}
+              className="!h-3.5 !w-3.5 !border-2"
+              title={`${typeName}${port.description ? " \u2014 " + port.description : ""}`}
+              style={{
+                backgroundColor: anyType ? "#ffffff" : fillColor,
+                borderColor,
+                borderStyle: anyType ? "dashed" : "solid",
+                right: -7,
+                top: portTop,
+              }}
+            />
+            {isVariadicOutputs && (
+              <button
+                type="button"
+                className="nodrag absolute flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-100 text-[9px] text-red-500 opacity-0 transition-opacity hover:bg-red-200 group-hover:opacity-100"
+                title={`Remove port "${port.name}"`}
+                style={{ right: 6, top: portTop - 1 }}
+                onClick={() => handleRemovePort("output", port.name)}
+              >
+                ×
+              </button>
+            )}
+          </span>
         );
       })}
+      {isVariadicOutputs && (
+        <button
+          type="button"
+          className="nodrag absolute flex h-3.5 w-3.5 items-center justify-center rounded-full bg-stone-100 text-[9px] text-stone-500 transition-colors hover:bg-ember hover:text-white"
+          title="Add output port"
+          style={{ right: 6, top: 80 + effectiveOutputPorts.length * 20 - 1 }}
+          onClick={() => handleAddPort("output")}
+        >
+          +
+        </button>
+      )}
 
       {/* ----------------------------------------------------------------- */}
       {/* Footer                                                            */}
