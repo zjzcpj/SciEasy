@@ -127,8 +127,14 @@ class LoadData(IOBlock):
         is_multi = isinstance(self.config.get("path"), list)
         return [OutputPort(name="data", accepted_types=[cls], is_collection=is_multi)]
 
-    def load(self, config: BlockConfig) -> DataObject | Collection:
+    def load(self, config: BlockConfig, output_dir: str = "") -> DataObject | Collection:
         """Dispatch to one of the six private ``_load_*`` functions.
+
+        ADR-031 D4: ``output_dir`` is passed through from :meth:`IOBlock.run`.
+        Loaders that produce tabular data use :meth:`persist_table` to
+        write to arrow storage. Array/npy loaders use the simple path
+        (base class auto-flush handles persistence). Artifact and Text
+        loaders are exempt.
 
         The selected function is determined by ``config["core_type"]``;
         unknown values raise ``ValueError`` rather than silently picking
@@ -146,11 +152,11 @@ class LoadData(IOBlock):
         type_name = config.get("core_type", "DataFrame")
         dispatch: dict[str, Any] = {
             "Array": _load_array,
-            "DataFrame": _load_dataframe,
-            "Series": _load_series,
+            "DataFrame": self._load_dataframe_with_persist,
+            "Series": self._load_series_with_persist,
             "Text": _load_text,
             "Artifact": _load_artifact,
-            "CompositeData": _load_composite_data,
+            "CompositeData": self._load_composite_with_persist,
         }
         if type_name not in dispatch:
             raise ValueError(f"Unknown core_type: {type_name}")
@@ -167,11 +173,40 @@ class LoadData(IOBlock):
             items: list[DataObject] = []
             for single_path in raw_path:
                 single_config = BlockConfig(params={**shared_params, "path": str(single_path)})
-                items.append(loader(single_config))
+                items.append(loader(single_config, output_dir))
             return Collection(items=items, item_type=item_cls)
 
-        result: DataObject = dispatch[type_name](config)
+        result: DataObject = dispatch[type_name](config, output_dir)
         return result
+
+    def _load_dataframe_with_persist(self, config: BlockConfig, output_dir: str) -> DataFrame:
+        """Load DataFrame and persist to arrow storage.
+
+        ADR-031 D4: uses :meth:`persist_table` to write the arrow table
+        to storage and returns a reference-only DataFrame.
+        """
+        df = _load_dataframe(config)
+        # If the dataframe has an in-memory table, persist it.
+        table = getattr(df, "_arrow_table", None)
+        if table is not None and output_dir:
+            ref = self.persist_table(table, output_dir)
+            df._storage_ref = ref
+            # Clean up in-memory reference (the data is now in storage)
+            del df._arrow_table  # type: ignore[attr-defined]
+        return df
+
+    def _load_series_with_persist(self, config: BlockConfig, output_dir: str) -> Series:
+        """Load Series and persist to arrow storage.
+
+        ADR-031: fixes the payload-loss bug where ``_load_series`` returned
+        a Series with no data. Now writes the underlying arrow table to
+        storage via :meth:`persist_table`.
+        """
+        return _load_series(config, self, output_dir)
+
+    def _load_composite_with_persist(self, config: BlockConfig, output_dir: str) -> CompositeData:
+        """Load CompositeData, passing output_dir for slot persistence."""
+        return _load_composite_data(config, self, output_dir)
 
     def save(self, obj: DataObject | Any, config: BlockConfig) -> None:
         """``LoadData`` is input-only; ``save()`` always raises.
@@ -427,8 +462,12 @@ def _load_dataframe(config: BlockConfig) -> DataFrame:
     )
 
 
-def _load_series(config: BlockConfig) -> Series:
+def _load_series(config: BlockConfig, block: Any = None, output_dir: str = "") -> Series:
     """Load Series from .csv / .tsv (single column) / .parquet / .pkl.
+
+    ADR-031: fixes the payload-loss bug. The underlying arrow table is
+    now persisted to storage via ``block.persist_table()`` and the
+    resulting :class:`Series` carries a ``storage_ref``.
 
     Delegates the heavy lifting to :func:`_load_dataframe` for tabular
     formats and then asserts a single column. Pickle is gated via
@@ -461,10 +500,16 @@ def _load_series(config: BlockConfig) -> Series:
                 f"LoadData(core_type='Series') expects a single-column tabular file, "
                 f"got {len(df.columns) if df.columns else 0} columns in {path}"
             )
+        # ADR-031: persist the arrow table to storage to fix payload loss.
+        table = getattr(df, "_arrow_table", None)
+        storage_ref = None
+        if table is not None and block is not None and output_dir:
+            storage_ref = block.persist_table(table, output_dir)
         return Series(
             index_name=None,
             value_name=df.columns[0],
             length=df.row_count,
+            storage_ref=storage_ref,
         )
 
     raise ValueError(
@@ -562,8 +607,11 @@ def _load_artifact(config: BlockConfig) -> Artifact:
     return artifact
 
 
-def _load_composite_data(config: BlockConfig) -> CompositeData:
+def _load_composite_data(config: BlockConfig, block: Any = None, output_dir: str = "") -> CompositeData:
     """Load CompositeData from a JSON manifest pointing at sidecar files.
+
+    ADR-031: accepts ``block`` and ``output_dir`` so that slot loaders
+    for DataFrame/Series types can persist data to storage.
 
     The manifest schema is::
 
@@ -608,7 +656,7 @@ def _load_composite_data(config: BlockConfig) -> CompositeData:
     inner_dispatch: dict[str, Any] = {
         "Array": _load_array,
         "DataFrame": _load_dataframe,
-        "Series": _load_series,
+        "Series": lambda cfg: _load_series(cfg, block, output_dir),
         "Text": _load_text,
         "Artifact": _load_artifact,
     }
@@ -639,6 +687,14 @@ def _load_composite_data(config: BlockConfig) -> CompositeData:
                 "allow_pickle": bool(slot_decl.get("allow_pickle", False)),
             }
         )
-        loaded_slots[slot_name] = inner_dispatch[slot_type](slot_config)
+        slot_obj = inner_dispatch[slot_type](slot_config)
+        # ADR-031: persist DataFrame slots to arrow storage.
+        if slot_type == "DataFrame" and block is not None and output_dir:
+            table = getattr(slot_obj, "_arrow_table", None)
+            if table is not None:
+                ref = block.persist_table(table, output_dir)
+                slot_obj._storage_ref = ref
+                del slot_obj._arrow_table  # type: ignore[attr-defined]
+        loaded_slots[slot_name] = slot_obj
 
     return CompositeData(slots=loaded_slots)

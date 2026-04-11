@@ -72,8 +72,12 @@ class LoadMzMLFiles(_LCMSBlockMixin, IOBlock):
         "required": ["path"],
     }
 
-    def load(self, config: BlockConfig) -> DataObject | Collection:
+    def load(self, config: BlockConfig, output_dir: str = "") -> DataObject | Collection:
         """Load file path(s) and return ``Collection[MSRawFile]``.
+
+        ADR-031 D4: ``output_dir`` accepted for signature compatibility.
+        MSRawFile is an Artifact subclass — path-only transport, exempt
+        from storage writes.
 
         Accepts ``config["path"]`` as a single string or a list of strings
         (matching the :class:`LoadImage` multi-file pattern).

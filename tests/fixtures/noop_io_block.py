@@ -47,7 +47,7 @@ class NoopIOBlock(IOBlock):
     name: ClassVar[str] = "IO Block"
     description: ClassVar[str] = "Test-only concrete IOBlock that creates lazy StorageReferences."
 
-    def load(self, config: BlockConfig) -> DataObject | Collection:
+    def load(self, config: BlockConfig, output_dir: str = "") -> DataObject | Collection:
         """Build a single-item :class:`Collection` of one
         :class:`DataObject` referencing the configured path."""
         path_str = config.get("path") or config.params.get("path")
