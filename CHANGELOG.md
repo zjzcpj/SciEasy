@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#600] Replace FolderBrowserDialog with modern IFileOpenDialog COM folder picker on Windows (@claude, 2026-04-11, branch: fix/issue-600/modern-folder-dialog, session: 20260411-104043-replace-windows-folderbrowserdialog-with)
 - [#598] Enforce max 50 open tabs (@claude, 2026-04-11, branch: fix/issue-614/batch-small-fixes, session: 20260411-102935-fix-5-small-issues-max-tabs-bidirectiona)
 - [#601] Allow bidirectional subclass port connections (@claude, 2026-04-11, branch: fix/issue-614/batch-small-fixes, session: 20260411-102935-fix-5-small-issues-max-tabs-bidirectiona)
 - [#590] Return HTTP 422 for workflow cycle validation errors (@claude, 2026-04-11, branch: fix/issue-614/batch-small-fixes, session: 20260411-102935-fix-5-small-issues-max-tabs-bidirectiona)

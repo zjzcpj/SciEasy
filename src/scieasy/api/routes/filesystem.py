@@ -266,17 +266,79 @@ def _native_dialog_windows(
     For save_file mode the list contains at most one element.
     """
     if mode == "directory":
-        # Bug 3 fix: EnableVisualStyles() forces the modern Vista-style dialog
-        # instead of the legacy Win2000 FolderBrowserDialog appearance.
-        # Bug 1 fix: braces in non-f-string fragments must be single `{ }`,
-        # not `{{ }}` (double braces are only needed inside f-strings).
+        # Use modern IFileOpenDialog COM with FOS_PICKFOLDERS for Vista+ style
+        # instead of the legacy Win2000-era FolderBrowserDialog.
+        # The C# source is compiled once per session by PowerShell Add-Type;
+        # the static FolderPicker.Pick() method shows the dialog and returns
+        # the selected path (or null on cancel).
+        # NOTE: COM interface method stubs follow vtable order — do NOT
+        # reorder or remove entries.
+        cs_source = r"""
+using System;
+using System.Runtime.InteropServices;
+
+[ComImport, Guid("DC1C5A9C-E88A-4DDE-A5A1-60F82A20AEF7"), ClassInterface(ClassInterfaceType.None)]
+public class FileOpenDialogClass { }
+
+[ComImport, Guid("42F85136-DB7E-439C-85F1-E4075D135FC8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IFileDialog {
+    [PreserveSig] int Show(IntPtr hwnd);
+    void SetFileTypes();
+    void SetFileTypeIndex();
+    void GetFileTypeIndex();
+    void Advise();
+    void Unadvise();
+    void SetOptions(uint fos);
+    void GetOptions(out uint pfos);
+    void SetDefaultFolder();
+    void SetFolder(IShellItem psi);
+    void GetFolder();
+    void GetCurrentSelection();
+    void SetFileName();
+    void GetFileName();
+    void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string pszTitle);
+    void SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string pszText);
+    void SetFileNameLabel();
+    void GetResult(out IShellItem ppsi);
+    void AddPlace();
+    void SetDefaultExtension();
+    void Close();
+    void SetClientGuid();
+    void ClearClientData();
+    void SetFilter();
+}
+
+[ComImport, Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IShellItem {
+    void BindToHandler();
+    void GetParent();
+    void GetDisplayName(uint sigdnName, [MarshalAs(UnmanagedType.LPWStr)] out string ppszName);
+    void GetAttributes();
+    void Compare();
+}
+
+public static class FolderPicker {
+    public static string Pick(string title) {
+        var dlg = (IFileDialog)new FileOpenDialogClass();
+        uint opts;
+        dlg.GetOptions(out opts);
+        dlg.SetOptions(opts | 0x20 | 0x40);
+        if (title != null) dlg.SetTitle(title);
+        int hr = dlg.Show(IntPtr.Zero);
+        if (hr != 0) return null;
+        IShellItem item;
+        dlg.GetResult(out item);
+        string path;
+        item.GetDisplayName(0x80058000, out path);
+        return path;
+    }
+}
+"""
+        # Pass C# source in a PowerShell single-quoted string (escape ' as '').
         ps_script = (
-            "Add-Type -AssemblyName System.Windows.Forms;"
-            "[System.Windows.Forms.Application]::EnableVisualStyles();"
-            "$d = New-Object System.Windows.Forms.FolderBrowserDialog;"
-            "$d.ShowNewFolderButton = $true;"
-            f"$d.SelectedPath = '{initial_dir or ''}';"
-            "if ($d.ShowDialog() -eq 'OK') { $d.SelectedPath } else { '' }"
+            "Add-Type -TypeDefinition '" + cs_source.replace("'", "''") + "';"
+            "$result = [FolderPicker]::Pick('Select Folder');"
+            "if ($result) { $result } else { '' }"
         )
     elif mode == "save_file":
         filter_str = file_filter or "YAML files (*.yaml)|*.yaml|All files (*.*)|*.*"
