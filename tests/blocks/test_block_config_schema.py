@@ -77,3 +77,89 @@ class TestBlockConfigSchema:
         spec = _spec_from_class(PlainBlock, source="test")
         # ADR-030: _merge_config_schema always produces a ``required`` key.
         assert spec.config_schema == {"type": "object", "properties": {}, "required": []}
+
+
+class TestVariadicPortEditorSchemaInjection:
+    """ADR-029 D12: port editor config_schema fields injected into AIBlock,
+    CodeBlock, AppBlock and propagated to leaf subclasses via MRO merge."""
+
+    def _assert_port_editor_fields(self, props: dict) -> None:
+        """Assert input_ports and output_ports port-editor fields are present."""
+        assert "input_ports" in props, "input_ports port editor field missing"
+        assert "output_ports" in props, "output_ports port editor field missing"
+        assert props["input_ports"]["type"] == "array"
+        assert props["input_ports"]["ui_widget"] == "port_editor"
+        assert props["output_ports"]["type"] == "array"
+        assert props["output_ports"]["ui_widget"] == "port_editor"
+
+    def test_aiblock_own_schema_has_port_editor_fields(self) -> None:
+        from scieasy.blocks.ai.ai_block import AIBlock
+
+        props = AIBlock.config_schema["properties"]
+        self._assert_port_editor_fields(props)
+
+    def test_codeblock_own_schema_has_port_editor_fields(self) -> None:
+        from scieasy.blocks.code.code_block import CodeBlock
+
+        props = CodeBlock.config_schema["properties"]
+        self._assert_port_editor_fields(props)
+
+    def test_appblock_own_schema_has_port_editor_fields(self) -> None:
+        from scieasy.blocks.app.app_block import AppBlock
+
+        props = AppBlock.config_schema["properties"]
+        self._assert_port_editor_fields(props)
+
+    def test_aiblock_mro_merged_schema_has_port_editor_fields(self) -> None:
+        from scieasy.blocks.ai.ai_block import AIBlock
+        from scieasy.blocks.registry import _merge_config_schema
+
+        merged = _merge_config_schema(AIBlock)
+        self._assert_port_editor_fields(merged["properties"])
+
+    def test_codeblock_mro_merged_schema_has_port_editor_fields(self) -> None:
+        from scieasy.blocks.code.code_block import CodeBlock
+        from scieasy.blocks.registry import _merge_config_schema
+
+        merged = _merge_config_schema(CodeBlock)
+        self._assert_port_editor_fields(merged["properties"])
+
+    def test_appblock_mro_merged_schema_has_port_editor_fields(self) -> None:
+        from scieasy.blocks.app.app_block import AppBlock
+        from scieasy.blocks.registry import _merge_config_schema
+
+        merged = _merge_config_schema(AppBlock)
+        self._assert_port_editor_fields(merged["properties"])
+
+    def test_aiblock_subclass_inherits_port_editor_via_mro(self) -> None:
+        """A subclass of AIBlock that declares no port editor fields gets them via MRO."""
+        from scieasy.blocks.ai.ai_block import AIBlock
+        from scieasy.blocks.registry import _merge_config_schema
+
+        class _MyAIBlock(AIBlock):
+            name: ClassVar[str] = "My AI"
+            config_schema: ClassVar[dict[str, Any]] = {
+                "type": "object",
+                "properties": {
+                    "custom_param": {"type": "string"},
+                },
+            }
+
+            def run(self, inputs: dict, config: Any) -> dict:
+                return {}
+
+        merged = _merge_config_schema(_MyAIBlock)
+        props = merged["properties"]
+        assert "custom_param" in props
+        self._assert_port_editor_fields(props)
+
+    def test_port_editor_fields_have_correct_item_schema(self) -> None:
+        """Each port entry must have name (string) and types (array of strings)."""
+        from scieasy.blocks.ai.ai_block import AIBlock
+
+        props = AIBlock.config_schema["properties"]
+        item_props = props["input_ports"]["items"]["properties"]
+        assert "name" in item_props
+        assert item_props["name"]["type"] == "string"
+        assert "types" in item_props
+        assert item_props["types"]["type"] == "array"

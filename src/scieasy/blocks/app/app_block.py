@@ -89,6 +89,37 @@ class AppBlock(Block):
                 "default": "*",
                 "ui_priority": 2,
             },
+            # ADR-029 D12: port editor fields injected via MRO merge (ADR-030).
+            # Leaf subclasses inherit these automatically; no subclass changes needed.
+            # ui_priority >= 10 ensures these appear after block-specific config.
+            "input_ports": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "types": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+                "default": [],
+                "title": "Input Ports",
+                "ui_widget": "port_editor",
+                "ui_priority": 10,
+            },
+            "output_ports": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "types": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+                "default": [],
+                "title": "Output Ports",
+                "ui_widget": "port_editor",
+                "ui_priority": 11,
+            },
         },
         "required": ["app_command"],
     }

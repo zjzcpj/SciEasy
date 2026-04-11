@@ -101,6 +101,36 @@ class AIBlock(Block):
                 "default": None,
                 "title": "System prompt (optional)",
             },
+            # ADR-029 D12: port editor fields injected via MRO merge (ADR-030).
+            # Leaf subclasses inherit these automatically; no subclass changes needed.
+            "input_ports": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "types": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+                "default": [],
+                "title": "Input Ports",
+                "ui_widget": "port_editor",
+                "ui_priority": 10,
+            },
+            "output_ports": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "types": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+                "default": [],
+                "title": "Output Ports",
+                "ui_widget": "port_editor",
+                "ui_priority": 11,
+            },
         },
         "required": ["prompt"],
     }

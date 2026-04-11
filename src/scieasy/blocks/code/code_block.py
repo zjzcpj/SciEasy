@@ -67,6 +67,36 @@ class CodeBlock(Block):
             },
             "code": {"type": "string", "title": "Inline Code", "ui_priority": 3},
             "script_path": {"type": "string", "title": "Script Path", "ui_priority": 4, "ui_widget": "file_browser"},
+            # ADR-029 D12: port editor fields injected via MRO merge (ADR-030).
+            # Leaf subclasses inherit these automatically; no subclass changes needed.
+            "input_ports": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "types": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+                "default": [],
+                "title": "Input Ports",
+                "ui_widget": "port_editor",
+                "ui_priority": 10,
+            },
+            "output_ports": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "types": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+                "default": [],
+                "title": "Output Ports",
+                "ui_widget": "port_editor",
+                "ui_priority": 11,
+            },
         },
     }
 

@@ -9,7 +9,13 @@ if TYPE_CHECKING:
     from scieasy.core.types.collection import Collection
 
 from scieasy.blocks.base.config import BlockConfig
-from scieasy.blocks.base.ports import InputPort, OutputPort, port_accepts_type, validate_port_constraint
+from scieasy.blocks.base.ports import (
+    InputPort,
+    OutputPort,
+    port_accepts_type,
+    ports_from_config_dicts,
+    validate_port_constraint,
+)
 from scieasy.blocks.base.state import BlockState, ExecutionMode
 
 # Valid state transitions (ADR-018: added CANCELLED, SKIPPED).
@@ -54,6 +60,23 @@ class Block(ABC):
 
     input_ports: ClassVar[list[InputPort]] = []
     output_ports: ClassVar[list[OutputPort]] = []
+
+    # ADR-029 D8 / D11: variadic port flags and type constraints.
+    # When ``variadic_inputs`` / ``variadic_outputs`` is True the block's port
+    # list is determined per-instance from ``self.config["input_ports"]`` /
+    # ``self.config["output_ports"]`` (list of ``{"name": str, "types": [str]}``)
+    # rather than from the class-level ClassVar.  ``allowed_input_types`` /
+    # ``allowed_output_types`` constrain the type dropdown in the port editor UI.
+    variadic_inputs: ClassVar[bool] = False
+    variadic_outputs: ClassVar[bool] = False
+
+    # Block authors override these on variadic subclasses to restrict which
+    # types users may choose in the port editor dropdown (e.g.
+    # ``allowed_input_types = [Image, DataFrame]``).  An empty list means
+    # "accept any DataObject subclass" — consistent with the port system's
+    # own semantics (``accepted_types = []`` accepts anything).
+    allowed_input_types: ClassVar[list[type]] = []
+    allowed_output_types: ClassVar[list[type]] = []
 
     # ADR-028 Addendum 1 D1: declarative dynamic-port override mechanism.
     # When non-None, must be a dict of the shape::
@@ -104,27 +127,41 @@ class Block(ABC):
     def get_effective_input_ports(self) -> list[InputPort]:
         """Return effective input ports for this instance.
 
-        Default implementation returns a copy of the class-level
-        ``input_ports`` ClassVar. Dynamic blocks (e.g. ``LoadData`` /
-        ``SaveData``) override this method to return instance-specific ports
-        computed from ``self.config``.
+        For variadic blocks (``variadic_inputs = True``), reads the port list
+        from ``self.config["input_ports"]`` and converts it to
+        :class:`InputPort` instances via :func:`ports_from_config_dicts`.
+        Falls back to the class-level ``input_ports`` ClassVar when no
+        per-instance config is present.
+
+        For non-variadic blocks, returns a copy of the class-level
+        ``input_ports`` ClassVar unchanged (ADR-028 Addendum 1 D2 behaviour).
 
         Framework callsites that need per-instance port information (e.g.
         :meth:`Block.validate`, ``ProcessBlock.run``,
         ``workflow/validator.py``) MUST go through this method instead of
         reading the ClassVar directly.
         """
+        if type(self).variadic_inputs:
+            config_ports = self.config.get("input_ports")
+            if config_ports and isinstance(config_ports, list):
+                return ports_from_config_dicts(config_ports, "input")  # type: ignore[return-value]
         return list(type(self).input_ports)
 
     def get_effective_output_ports(self) -> list[OutputPort]:
         """Return effective output ports for this instance.
 
-        Default implementation returns a copy of the class-level
-        ``output_ports`` ClassVar. Dynamic blocks override this method to
-        return instance-specific ports computed from ``self.config``.
+        For variadic blocks (``variadic_outputs = True``), reads the port list
+        from ``self.config["output_ports"]`` and converts it to
+        :class:`OutputPort` instances via :func:`ports_from_config_dicts`.
+        Falls back to the class-level ``output_ports`` ClassVar when no
+        per-instance config is present.
 
         See :meth:`get_effective_input_ports` for the framework rationale.
         """
+        if type(self).variadic_outputs:
+            config_ports = self.config.get("output_ports")
+            if config_ports and isinstance(config_ports, list):
+                return ports_from_config_dicts(config_ports, "output")  # type: ignore[return-value]
         return list(type(self).output_ports)
 
     # -- hooks -----------------------------------------------------------------
