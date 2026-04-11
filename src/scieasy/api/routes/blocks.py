@@ -77,7 +77,6 @@ def _summary(spec: Any) -> BlockSummary:
         type_name=spec.type_name,
         base_category=spec.base_category,
         subcategory=spec.subcategory,
-        category=spec.base_category,  # backward compat alias
         description=spec.description,
         version=spec.version,
         input_ports=[_port_response(port, direction="input") for port in spec.input_ports],
