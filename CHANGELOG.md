@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- [#572] Clean up Fiji config after AppBlock MRO injection: remove redundant watch_timeout from config_schema (@claude, 2026-04-11, branch: fix/issue-572/fiji-elmaven-config-cleanup, session: 20260411-020318-clean-up-fiji-and-elmaven-config-after-a)
 - [#561] Fix Windows browse dialog bugs: PowerShell double-brace syntax, add multi-file select, modernize folder dialog, update frontend to paths array (@claude, 2026-04-11, branch: fix/issue-561/browse-dialog-bugs, session: 20260411-020115-fix-browse-dialog-bugs-on-windows-561)
 - [#569] Add ADR-029 variadic ports implementation roadmap with 8 detailed tickets (@claude, 2026-04-11, branch: docs/issue-569/adr-029-variadic-ports-roadmap, session: 20260411-013533-docs-adr-029-variadic-ports-implementati)
 - [#555] Rewrite ElMAVEN block to follow standard AppBlock pattern -- fixes rerun deadlock (@claude, 2026-04-10, branch: refactor/issue-555/elmaven-standard-pattern, session: 20260410-005711-rewrite-elmaven-block-to-follow-standard)
