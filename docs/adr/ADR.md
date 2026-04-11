@@ -237,6 +237,8 @@ Some datasets (MSI, spatial transcriptomics) exceed 100 GB. Loading full dataset
 - ViewProxy integrates with Zarr chunking for efficient partial reads.
 - Storage backend is abstracted — switching from Zarr to a cloud store doesn't change block code.
 
+> **Note (ADR-031)**: ViewProxy has been eliminated. Its methods (`to_memory()`, `slice()`, `iter_chunks()`) are absorbed directly into `DataObject`. Blocks receive typed `DataObject` instances with `storage_ref` set and call data access methods directly -- no intermediary accessor class. See ADR-031 D2.
+
 ---
 
 ## ADR-008: Two-tier block and type distribution

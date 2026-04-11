@@ -108,7 +108,7 @@ class DoublerBlock(ProcessBlock):
 
     def process_item(self, item: Any, config: BlockConfig) -> Any:
         """Process a single Array item."""
-        data = item.view().to_memory()  # load numpy array into memory
+        data = item.to_memory()  # load numpy array from storage into memory
         doubled = data * 2
         return Array(data=doubled)
 ```
@@ -957,7 +957,7 @@ Unpack a Collection into a plain Python list of `DataObject` instances.
 ```python
 items = self.unpack(inputs["images"])
 for item in items:
-    data = item.view().to_memory()
+    data = item.to_memory()
     # ... process data ...
 ```
 
@@ -981,7 +981,7 @@ plus one output item per iteration step.
 
 def blur(image: Image) -> Image:
     from scipy.ndimage import gaussian_filter
-    data = image.view().to_memory()
+    data = image.to_memory()
     result = gaussian_filter(data, sigma=1.0)
     return Image(
         axes=image.axes, shape=result.shape, dtype=result.dtype,
@@ -1014,7 +1014,7 @@ auto-flushing, and Collection construction.
 from scieasy_blocks_imaging.types import Image
 
 def process_item(self, item: Image, config: BlockConfig, state=None) -> Image:
-    data = item.view().to_memory()
+    data = item.to_memory()
     result = my_transform(data)
     return Image(
         axes=item.axes, shape=result.shape, dtype=result.dtype,
@@ -1764,7 +1764,7 @@ class MyBlock(ProcessBlock):
     ]
 
     def process_item(self, item: Any, config: BlockConfig) -> Any:
-        data = item.view().to_memory()
+        data = item.to_memory()
         result = data + 1  # your logic here
         return Array(data=result)
 ```
