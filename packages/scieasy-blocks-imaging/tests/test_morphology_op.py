@@ -25,7 +25,7 @@ def test_t_img_012_module_importable() -> None:
 def test_t_img_012_class_has_required_classvars() -> None:
     assert MorphologyOp.type_name == "imaging.morphology_op"
     assert MorphologyOp.name == "Morphology Op"
-    assert MorphologyOp.category == "morphology"
+    assert MorphologyOp.category == "filter"
     assert "op" in MorphologyOp.config_schema["properties"]
 
 

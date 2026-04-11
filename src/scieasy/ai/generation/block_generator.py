@@ -96,7 +96,6 @@ _CATEGORY_KEYWORDS: dict[str, list[str]] = {
         "napari",
         "imagej",
         "fiji",
-        "cellprofiler",
         "ilastik",
         "manual",
     ],

@@ -2,7 +2,7 @@
 
 Phase 11 imaging plugin for SciEasy.
 
-The package ships 35 implemented imaging ticket deliverables covering 51
+The package ships 33 implemented imaging ticket deliverables covering 49
 concrete block classes across IO, preprocess, morphology, segmentation,
 measurement, registration, projection, math, visualization, and interactive
 AppBlocks. The primary public types are `Image`, `Mask`, and `Label`;
@@ -18,7 +18,7 @@ Blocks:
 - Projection: `AxisProjection`, `SelectSlice`
 - Math: `AddScalar`, `SubtractScalar`, `MultiplyScalar`, `DivideScalar`, `ImageCalculator`
 - Visualization: `RenderPseudoColor`, `RenderOverlay`, `RenderMontage`, `RenderMovie`, `RenderHistogram`
-- Interactive: `FijiBlock`, `NapariBlock`, `CellProfilerBlock`, `QuPathBlock`
+- Interactive: `FijiBlock`, `NapariBlock`
 
 Phase 12 deferrals remain unchanged: `Deconvolve` and `TrackObjects`.
 

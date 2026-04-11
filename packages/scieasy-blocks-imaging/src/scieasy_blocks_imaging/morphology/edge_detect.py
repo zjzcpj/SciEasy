@@ -21,7 +21,7 @@ class EdgeDetect(ProcessBlock):
     type_name: ClassVar[str] = "imaging.edge_detect"
     name: ClassVar[str] = "Edge Detect"
     description: ClassVar[str] = "Detect edges via Sobel / Scharr / Canny / Prewitt."
-    category: ClassVar[str] = "morphology"
+    category: ClassVar[str] = "filter"
     algorithm: ClassVar[str] = "edge_detect"
 
     input_ports: ClassVar[list[InputPort]] = [

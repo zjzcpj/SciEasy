@@ -621,10 +621,9 @@ def _spec_from_class(cls: type, source: str = "") -> BlockSpec:
 
 def _infer_category(cls: type) -> str:
     """Infer the block category from the class hierarchy."""
-    # TODO(agent-b, stage-10.1): check ``cls.category`` ClassVar override first.
-    # If ``getattr(cls, "category", "")`` is a non-empty string, return it
-    # verbatim before falling through to the hierarchy checks below.
-    # See docs/design/stage-10-1-palette.md §3.2.1 for the full resolution order.
+    explicit = getattr(cls, "category", "")
+    if explicit:
+        return explicit
     # Lazy imports to avoid circular dependencies.
     from scieasy.blocks.ai.ai_block import AIBlock
     from scieasy.blocks.app.app_block import AppBlock

@@ -22,7 +22,7 @@ class RemoveSmallObjects(ProcessBlock):
     name: ClassVar[str] = "Remove Small Objects"
     description: ClassVar[str] = "Drop labels/mask blobs below min_size pixels."
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "segmentation"
+    category: ClassVar[str] = "cleanup"
     algorithm: ClassVar[str] = "remove_small_objects"
 
     input_ports: ClassVar[list[InputPort]] = [
@@ -78,7 +78,7 @@ class RemoveBorderObjects(ProcessBlock):
     name: ClassVar[str] = "Remove Border Objects"
     description: ClassVar[str] = "Drop labels that touch the image border (clear_border)."
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "segmentation"
+    category: ClassVar[str] = "cleanup"
     algorithm: ClassVar[str] = "clear_border"
 
     input_ports: ClassVar[list[InputPort]] = [
@@ -108,7 +108,7 @@ class FillHoles(ProcessBlock):
     name: ClassVar[str] = "Fill Holes"
     description: ClassVar[str] = "Fill interior holes of a binary Mask (binary_fill_holes)."
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "segmentation"
+    category: ClassVar[str] = "cleanup"
     algorithm: ClassVar[str] = "binary_fill_holes"
 
     input_ports: ClassVar[list[InputPort]] = [
@@ -140,7 +140,7 @@ class ExpandLabels(ProcessBlock):
     name: ClassVar[str] = "Expand Labels"
     description: ClassVar[str] = "Dilate labels outwards by distance_px pixels."
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "segmentation"
+    category: ClassVar[str] = "cleanup"
     algorithm: ClassVar[str] = "expand_labels"
 
     input_ports: ClassVar[list[InputPort]] = [
@@ -182,7 +182,7 @@ class ShrinkLabels(ProcessBlock):
     name: ClassVar[str] = "Shrink Labels"
     description: ClassVar[str] = "Erode labels inwards by distance_px pixels."
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "segmentation"
+    category: ClassVar[str] = "cleanup"
     algorithm: ClassVar[str] = "shrink_labels"
 
     input_ports: ClassVar[list[InputPort]] = [

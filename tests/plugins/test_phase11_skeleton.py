@@ -87,8 +87,6 @@ PLUGIN_MODULES: list[str] = [
     "scieasy_blocks_imaging.interactive",
     "scieasy_blocks_imaging.interactive.fiji_block",
     "scieasy_blocks_imaging.interactive.napari_block",
-    "scieasy_blocks_imaging.interactive.cell_profiler_block",
-    "scieasy_blocks_imaging.interactive.qupath_block",
     # ── SRS ─────────────────────────────────────────────────────────
     "scieasy_blocks_srs",
     "scieasy_blocks_srs.types",
@@ -251,8 +249,6 @@ _CONTINUATION_B_MODULES = [
     "scieasy_blocks_imaging.visualization.render",
     "scieasy_blocks_imaging.interactive.fiji_block",
     "scieasy_blocks_imaging.interactive.napari_block",
-    "scieasy_blocks_imaging.interactive.cell_profiler_block",
-    "scieasy_blocks_imaging.interactive.qupath_block",
 ]
 
 
@@ -694,7 +690,6 @@ def test_imaging_finish_impl_smoke() -> None:
     pytest.importorskip("skimage")
     from scieasy_blocks_imaging import (
         AxisProjection,
-        CellProfilerBlock,
         ComputeRegistration,
         ConvertDType,
         ImageCalculator,
@@ -717,8 +712,7 @@ def test_imaging_finish_impl_smoke() -> None:
     assert AxisProjection in blocks
     assert ImageCalculator in blocks
     assert RenderPseudoColor in blocks
-    assert CellProfilerBlock in blocks
-    assert len(blocks) == 51
+    assert len(blocks) == 49
 
     for block_cls in (
         ConvertDType,
@@ -726,7 +720,6 @@ def test_imaging_finish_impl_smoke() -> None:
         AxisProjection,
         ImageCalculator,
         RenderPseudoColor,
-        CellProfilerBlock,
     ):
         block = block_cls()
         assert block.type_name

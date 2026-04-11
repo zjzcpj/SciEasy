@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 from scieasy.blocks.base.package_info import PackageInfo
-from scieasy_blocks_imaging.interactive.cell_profiler_block import CellProfilerBlock
 from scieasy_blocks_imaging.interactive.fiji_block import FijiBlock
 from scieasy_blocks_imaging.interactive.napari_block import NapariBlock
-from scieasy_blocks_imaging.interactive.qupath_block import QuPathBlock
 from scieasy_blocks_imaging.io.load_image import LoadImage
 from scieasy_blocks_imaging.io.save_image import SaveImage
 from scieasy_blocks_imaging.math.image_calculator import ImageCalculator
@@ -91,8 +89,6 @@ _IMAGING_BLOCKS: tuple[type, ...] = (
     RenderHistogram,
     FijiBlock,
     NapariBlock,
-    CellProfilerBlock,
-    QuPathBlock,
     RegionProps,
     PairwiseDistance,
     Colocalization,
@@ -142,7 +138,6 @@ __all__ = [
     "AxisSplit",
     "BackgroundSubtract",
     "BlobDetect",
-    "CellProfilerBlock",
     "CellposeSegment",
     "Colocalization",
     "ComputeRegistration",
@@ -169,7 +164,6 @@ __all__ = [
     "Normalize",
     "Pad",
     "PairwiseDistance",
-    "QuPathBlock",
     "RegionProps",
     "RegisterSeries",
     "RemoveBorderObjects",
