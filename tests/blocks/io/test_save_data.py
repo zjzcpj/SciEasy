@@ -58,8 +58,8 @@ class TestSaveDataClassShape:
     def test_type_name_is_save_data(self) -> None:
         assert SaveData.type_name == "save_data"
 
-    def test_category_is_io(self) -> None:
-        assert SaveData.category == "io"
+    def test_subcategory_is_io(self) -> None:
+        assert SaveData.subcategory == "io"
 
     def test_input_ports_have_one_data_port(self) -> None:
         assert len(SaveData.input_ports) == 1

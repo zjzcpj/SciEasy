@@ -53,7 +53,7 @@ class TestAIBlockInstantiation:
     def test_instantiate_default(self, ai_block: AIBlock) -> None:
         assert ai_block is not None
         assert ai_block.name == "AI / LLM"
-        assert ai_block.category == "ai"
+        assert ai_block.subcategory == "ai"
         assert ai_block.type_name == "ai.llm"
 
     def test_input_port_accepts_any(self, ai_block: AIBlock) -> None:
