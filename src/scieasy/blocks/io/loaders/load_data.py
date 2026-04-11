@@ -150,12 +150,16 @@ class LoadData(IOBlock):
         object return behavior is preserved.
         """
         type_name = config.get("core_type", "DataFrame")
+
+        # ADR-031: dispatch table. Functions that don't need output_dir
+        # are wrapped with lambdas to accept and ignore the parameter,
+        # keeping a uniform (config, output_dir) call signature.
         dispatch: dict[str, Any] = {
-            "Array": _load_array,
+            "Array": lambda cfg, od: _load_array(cfg),
             "DataFrame": self._load_dataframe_with_persist,
             "Series": self._load_series_with_persist,
-            "Text": _load_text,
-            "Artifact": _load_artifact,
+            "Text": lambda cfg, od: _load_text(cfg),
+            "Artifact": lambda cfg, od: _load_artifact(cfg),
             "CompositeData": self._load_composite_with_persist,
         }
         if type_name not in dispatch:
