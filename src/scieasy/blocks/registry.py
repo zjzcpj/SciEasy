@@ -565,6 +565,23 @@ def _merge_config_schema(cls: type) -> dict[str, Any]:
         path_prop["ui_widget"] = "directory_browser"
         path_prop.pop("items", None)
 
+    # Issue #571: enforce forced ordering for AppBlock subclasses.
+    # app_command must be ui_priority 0, output_dir must be ui_priority 1,
+    # and all other properties must have ui_priority >= 2.
+    from scieasy.blocks.app.app_block import AppBlock
+
+    if isinstance(cls, type) and issubclass(cls, AppBlock):
+        if "app_command" in merged_properties:
+            merged_properties["app_command"]["ui_priority"] = 0
+        if "output_dir" in merged_properties:
+            merged_properties["output_dir"]["ui_priority"] = 1
+        reserved_keys = {"app_command", "output_dir"}
+        for key, prop in merged_properties.items():
+            if key not in reserved_keys and isinstance(prop, dict):
+                current_priority = prop.get("ui_priority")
+                if isinstance(current_priority, (int, float)) and current_priority < 2:
+                    prop["ui_priority"] = 2
+
     return {
         "type": "object",
         "properties": merged_properties,

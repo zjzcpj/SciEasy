@@ -70,14 +70,19 @@ class AppBlock(Block):
     config_schema: ClassVar[dict[str, Any]] = {
         "type": "object",
         "properties": {
+            "app_command": {
+                "type": "string",
+                "title": "Executable Path",
+                "ui_widget": "file_browser",
+                "ui_priority": 0,
+            },
             "output_dir": {
                 "type": ["string", "null"],
                 "default": None,
                 "title": "Save Outputs At",
                 "ui_widget": "directory_browser",
-                "ui_priority": 0,
+                "ui_priority": 1,
             },
-            "app_command": {"type": "string", "title": "Application Command", "ui_priority": 1},
             "output_patterns": {
                 "type": "string",
                 "title": "Output File Patterns",
