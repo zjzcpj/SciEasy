@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- [#625] ADR-031 Phase 1: IOBlock loader rewrite — persist data to storage, return reference-only objects; fix Series payload loss; streaming TIFF load; reference-only Zarr; remove pandas from LCMS user dicts; Artifact auto-flush exemption (@claude, 2026-04-11, branch: refactor/issue-625/adr-031-phase1-loader-rewrite, session: 20260411-130407-adr-031-phase-1-ioblock-loader-rewrite-c)
 - [#606] ADR-029 B3: extend introspect_script() with input_ports auto-inference from run() parameter type annotations; add _params_to_port_dicts() and _annotation_to_type_name() helpers (@claude, 2026-04-11, branch: feat/issue-606/codeblock-signature-auto-inference, session: 20260411-105722-b3-codeblock-python-signature-auto-infer)
 - [#604] ADR-029 B2: inject input_ports/output_ports port editor fields into AIBlock, CodeBlock, AppBlock config_schema via ADR-030 MRO pattern (@claude, 2026-04-11, branch: feat/issue-604/mro-port-editor-config-schema, session: 20260411-105345-b2-mro-injection-port-editor-config-sche)
 - [#602] ADR-029 B1: add variadic_inputs/variadic_outputs ClassVars to Block ABC, ports_from_config_dicts() helper, BlockSpec variadic fields, BlockSchemaResponse allowed_input/output_types (@claude, 2026-04-11, branch: feat/issue-602/variadic-ports-block-abc-spec-registry, session: 20260411-104249-b1-block-abc-blockspec-registry-api-sche)
