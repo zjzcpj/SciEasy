@@ -20,6 +20,63 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def serialise_inputs(inputs: dict[str, Any], output_dir: str) -> dict[str, Any]:
+    """Serialize DataObject inputs to wire format before subprocess transport.
+
+    Mirrors :func:`worker.serialise_outputs` for the input direction.
+    In-memory :class:`DataObject` instances without a
+    :class:`StorageReference` are auto-flushed to *output_dir* (persisted
+    to zarr) and then converted to wire-format dicts that
+    :func:`worker.reconstruct_inputs` can round-trip.
+
+    Scalars, lists, dicts, and other non-DataObject values pass through
+    unchanged.  :class:`Collection` instances are handled recursively
+    (each item is auto-flushed and serialised).
+    """
+    from scieasy.blocks.base.block import Block
+    from scieasy.core.storage.flush_context import clear, get_output_dir, set_output_dir
+    from scieasy.core.types.base import DataObject
+    from scieasy.core.types.collection import Collection
+    from scieasy.core.types.serialization import _serialise_one
+
+    previous_output_dir = get_output_dir()
+    if output_dir:
+        set_output_dir(output_dir)
+    try:
+        result: dict[str, Any] = {}
+        for key, value in inputs.items():
+            if isinstance(value, Collection):
+                item_payloads: list[Any] = []
+                for item in value:
+                    flushed = Block._auto_flush(item)
+                    if isinstance(flushed, DataObject):
+                        item_payloads.append(_serialise_one(flushed))
+                    else:
+                        item_payloads.append({"_value": str(flushed)})
+                result[key] = {
+                    "_collection": True,
+                    "items": item_payloads,
+                    "item_type": value.item_type.__name__ if value.item_type is not None else "DataObject",
+                }
+            elif isinstance(value, DataObject):
+                flushed_obj = Block._auto_flush(value)
+                if isinstance(flushed_obj, DataObject):
+                    result[key] = _serialise_one(flushed_obj)
+                else:
+                    result[key] = str(flushed_obj)
+            elif isinstance(value, dict) and "backend" in value and "path" in value:
+                # Already in wire format (e.g. from a previous subprocess).
+                result[key] = value
+            else:
+                result[key] = value
+        return result
+    finally:
+        if previous_output_dir is None:
+            clear()
+        else:
+            set_output_dir(previous_output_dir)
+
+
 def _derive_output_dir(block: Any, config: dict[str, Any]) -> str:
     """Return a persistence directory for worker auto-flush outputs."""
     explicit_output_dir = config.get("output_dir")
@@ -99,10 +156,17 @@ class LocalRunner:
         block_id = getattr(block, "id", block_class_path)
         output_dir = _derive_output_dir(block, config)
 
+        # Serialize DataObject inputs to wire format before crossing the
+        # subprocess boundary (issue #621).  This mirrors what
+        # worker.serialise_outputs() does for outputs: auto-flush in-memory
+        # DataObjects to zarr and convert to wire-format dicts that
+        # reconstruct_inputs() can round-trip.
+        wire_inputs = serialise_inputs(inputs, output_dir)
+
         # Build the serialized payload for the worker subprocess.
         payload_bytes = build_worker_payload(
             block_class=block_class_path,
-            inputs_refs=inputs,
+            inputs_refs=wire_inputs,
             config=config,
             output_dir=output_dir,
         )

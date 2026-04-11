@@ -65,7 +65,7 @@ export function WelcomeScreen({
                   >
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-medium text-ink">{project.name}</span>
-                      <span className="mt-1 block truncate text-xs text-stone-500">{project.path}</span>
+                      <span className="mt-1 block max-w-[300px] truncate text-xs text-stone-500">{project.path}</span>
                     </span>
                     {onDeleteProject ? (
                       <span
