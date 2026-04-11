@@ -7943,8 +7943,12 @@ redundant declarations is a separate follow-up, not a prerequisite.
 7. Follow-up PR: clean up redundant `path` declarations in subclasses.
 ## ADR-031: Data Object Reference-Only Contract, ViewProxy Elimination, and Lazy Loading Enforcement
 
-**Status**: draft
+**Status**: Accepted (Phase 2 complete)
 **Date**: 2026-04-11
+**Implementation**:
+- Phase 1: PR #625 (IOBlock loader rewrite + storage enforcement) — ✅ merged
+- Phase 2: PR #626 (ViewProxy elimination + `_data`/`_arrow_table` cleanup) — ✅ complete
+- Phase 3: PR #627 (streaming optimization) — pending
 **Supersedes**: ADR-027 Addendum 1 (~~proposed~~ → **deprecated**)
 **Amends**: ADR-007 (implementation alignment), ADR-017 (transport contract), ADR-028 (IOBlock contract)
 
