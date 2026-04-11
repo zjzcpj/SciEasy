@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- [#608] ADR-029 F1: add variadic port [+]/[-] buttons to canvas BlockNode with edge cleanup confirmation dialog; add onAddPort/onRemovePort to BlockNodeData; add variadic_inputs/variadic_outputs to api.ts types (@claude, 2026-04-11, branch: feat/issue-608/canvas-variadic-port-buttons, session: 20260411-110037-f1-canvas-node-button-port-deletion-edge)
 - [#588] Split category into base_category + subcategory so AppBlock subclasses with custom palette labels retain correct base type detection (@claude, 2026-04-11, branch: refactor/issue-588/category-subcategory-split, session: 20260411-042819-split-category-into-base-category-subcat)
 
 ### Fixed
