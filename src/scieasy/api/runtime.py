@@ -361,7 +361,18 @@ class ApiRuntime:
 
     def list_projects(self) -> list[KnownProject]:
         self._load_known_projects()
-        return sorted(self.known_projects.values(), key=lambda item: item.name.lower())
+        # Prune entries whose project directory no longer exists on disk
+        stale_ids = [pid for pid, entry in self.known_projects.items() if not Path(entry.path).is_dir()]
+        if stale_ids:
+            for pid in stale_ids:
+                self.known_projects.pop(pid, None)
+            self._save_known_projects()
+        # Sort by last_opened descending (most recently opened first)
+        return sorted(
+            self.known_projects.values(),
+            key=lambda item: item.last_opened or "",
+            reverse=True,
+        )
 
     def _load_project_from_path(self, project_path: Path) -> KnownProject:
         project_file = project_path / "project.yaml"

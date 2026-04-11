@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import shutil
+import time
 from pathlib import Path
 from urllib.parse import quote
 
@@ -56,3 +58,51 @@ def test_project_crud_and_path_opening(client: TestClient, project_parent: Path)
     deleted = client.delete(f"/api/projects/{first_payload['id']}")
     assert deleted.status_code == 204
     assert not Path(first_payload["path"]).exists()
+
+
+def test_list_projects_sorted_by_last_opened(client: TestClient, project_parent: Path) -> None:
+    """list_projects should return projects sorted by last_opened descending."""
+    # Create two projects
+    first = client.post(
+        "/api/projects/",
+        json={"name": "Older", "description": "first", "path": str(project_parent)},
+    )
+    assert first.status_code == 200
+
+    # Small delay so timestamps differ
+    time.sleep(0.05)
+
+    second = client.post(
+        "/api/projects/",
+        json={"name": "Newer", "description": "second", "path": str(project_parent)},
+    )
+    assert second.status_code == 200
+
+    listed = client.get("/api/projects/")
+    assert listed.status_code == 200
+    names = [entry["name"] for entry in listed.json()]
+    # "Newer" was created (and thus opened) more recently, so it comes first
+    assert names.index("Newer") < names.index("Older")
+
+
+def test_list_projects_prunes_deleted_directories(client: TestClient, project_parent: Path) -> None:
+    """list_projects should prune entries whose project directory no longer exists."""
+    resp = client.post(
+        "/api/projects/",
+        json={"name": "Ephemeral", "description": "will be deleted", "path": str(project_parent)},
+    )
+    assert resp.status_code == 200
+    project_path = Path(resp.json()["path"])
+
+    # Verify project appears in listing
+    listed = client.get("/api/projects/")
+    ids = [entry["id"] for entry in listed.json()]
+    assert resp.json()["id"] in ids
+
+    # Delete the project directory outside the API (simulate external deletion)
+    shutil.rmtree(project_path)
+
+    # Next listing should prune the stale entry
+    listed2 = client.get("/api/projects/")
+    ids2 = [entry["id"] for entry in listed2.json()]
+    assert resp.json()["id"] not in ids2

@@ -1,3 +1,6 @@
+import { useState } from "react";
+
+import { api } from "../lib/api";
 import type { ProjectResponse } from "../types/api";
 
 interface ProjectDialogProps {
@@ -11,6 +14,7 @@ interface ProjectDialogProps {
   onChange: (patch: Partial<{ name: string; description: string; path: string }>) => void;
   onSubmit: () => void;
   onOpenRecent: (projectIdOrPath: string) => void;
+  onDeleteProject?: (projectId: string) => void;
 }
 
 export function ProjectDialog({
@@ -24,9 +28,44 @@ export function ProjectDialog({
   onChange,
   onSubmit,
   onOpenRecent,
+  onDeleteProject,
 }: ProjectDialogProps) {
+  const [pathError, setPathError] = useState<string | null>(null);
+
   if (!open) {
     return null;
+  }
+
+  async function handleBrowse() {
+    try {
+      const result = await api.openNativeDialog("directory");
+      if (result.paths.length > 0) {
+        onChange({ path: result.paths[0] });
+        setPathError(null);
+      }
+    } catch {
+      // Dialog cancelled or error — ignore
+    }
+  }
+
+  function handleSubmit() {
+    if (mode === "new" && !path.trim()) {
+      setPathError("Parent directory is required");
+      return;
+    }
+    if (mode === "open" && !path.trim()) {
+      setPathError("Project path is required");
+      return;
+    }
+    setPathError(null);
+    onSubmit();
+  }
+
+  function handleDeleteProject(event: React.MouseEvent, projectId: string, projectName: string) {
+    event.stopPropagation();
+    if (onDeleteProject && window.confirm(`Delete project '${projectName}'? This cannot be undone.`)) {
+      onDeleteProject(projectId);
+    }
   }
 
   return (
@@ -48,12 +87,21 @@ export function ProjectDialog({
           <label className="grid gap-2 text-sm text-stone-700">
             <span className="font-medium">{mode === "new" ? "Project name" : "Project ID or path"}</span>
             {mode === "open" ? (
-              <input
-                className="min-w-0 flex-1 rounded-2xl border border-stone-300 bg-white px-4 py-3 outline-none transition focus:border-ember"
-                onChange={(event) => onChange({ path: event.target.value })}
-                placeholder="C:\\research\\atlas-project"
-                value={path}
-              />
+              <div className="flex gap-2">
+                <input
+                  className="min-w-0 flex-1 rounded-2xl border border-stone-300 bg-white px-4 py-3 outline-none transition focus:border-ember"
+                  onChange={(event) => { onChange({ path: event.target.value }); setPathError(null); }}
+                  placeholder="C:\\research\\atlas-project"
+                  value={path}
+                />
+                <button
+                  className="shrink-0 rounded-2xl border border-stone-300 bg-white px-4 py-3 text-sm font-medium text-stone-600 transition hover:border-ember hover:text-ember"
+                  onClick={() => void handleBrowse()}
+                  type="button"
+                >
+                  Browse
+                </button>
+              </div>
             ) : (
               <input
                 className="rounded-2xl border border-stone-300 bg-white px-4 py-3 outline-none transition focus:border-ember"
@@ -64,15 +112,24 @@ export function ProjectDialog({
             )}
           </label>
           {mode === "new" ? (
-            <label className="grid gap-2 text-sm text-stone-700">
+            <div className="grid gap-2 text-sm text-stone-700">
               <span className="font-medium">Parent directory</span>
-              <input
-                className="min-w-0 flex-1 rounded-2xl border border-stone-300 bg-white px-4 py-3 outline-none transition focus:border-ember"
-                onChange={(event) => onChange({ path: event.target.value })}
-                placeholder="C:\\projects"
-                value={path}
-              />
-            </label>
+              <div className="flex gap-2">
+                <input
+                  className="min-w-0 flex-1 rounded-2xl border border-stone-300 bg-white px-4 py-3 outline-none transition focus:border-ember"
+                  onChange={(event) => { onChange({ path: event.target.value }); setPathError(null); }}
+                  placeholder="C:\\projects"
+                  value={path}
+                />
+                <button
+                  className="shrink-0 rounded-2xl border border-stone-300 bg-white px-4 py-3 text-sm font-medium text-stone-600 transition hover:border-ember hover:text-ember"
+                  onClick={() => void handleBrowse()}
+                  type="button"
+                >
+                  Browse
+                </button>
+              </div>
+            </div>
           ) : null}
           {mode === "new" ? (
             <label className="grid gap-2 text-sm text-stone-700 md:col-span-2">
@@ -87,23 +144,43 @@ export function ProjectDialog({
           ) : null}
         </div>
 
+        {pathError ? (
+          <p className="mt-2 text-sm text-red-600">{pathError}</p>
+        ) : null}
+
         <div className="mt-6 rounded-[1.5rem] border border-stone-200 bg-white/80 p-4">
           <p className="text-xs uppercase tracking-[0.3em] text-stone-500">Recent projects</p>
-          <div className="mt-3 flex flex-col gap-2">
+          <div className="mt-3 flex max-h-64 flex-col gap-2 overflow-y-auto">
             {recentProjects.length ? (
-              recentProjects.slice(0, 5).map((project) => (
+              recentProjects.map((project) => (
                 <button
                   className="flex items-center justify-between rounded-2xl border border-stone-200 px-4 py-3 text-left transition hover:border-pine hover:bg-pine/5"
                   key={project.id}
                   onClick={() => onOpenRecent(project.id)}
                   type="button"
                 >
-                  <span>
-                    <span className="block font-medium text-ink">{project.name}</span>
-                    <span className="block text-xs text-stone-500">{project.path}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium text-ink">{project.name}</span>
+                    <span className="block truncate text-xs text-stone-500">{project.path}</span>
                   </span>
-                  <span className="rounded-full bg-sand px-3 py-1 text-xs text-stone-700">
-                    {project.workflow_count} workflow{project.workflow_count === 1 ? "" : "s"}
+                  <span className="flex shrink-0 items-center gap-2">
+                    <span className="rounded-full bg-sand px-3 py-1 text-xs text-stone-700">
+                      {project.workflow_count} workflow{project.workflow_count === 1 ? "" : "s"}
+                    </span>
+                    {onDeleteProject ? (
+                      <span
+                        className="rounded-full p-1 text-stone-400 transition hover:bg-red-50 hover:text-red-600"
+                        onClick={(event) => handleDeleteProject(event, project.id, project.name)}
+                        onKeyDown={() => {}}
+                        role="button"
+                        tabIndex={0}
+                        title="Delete project"
+                      >
+                        <svg className="size-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                          <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </span>
+                    ) : null}
                   </span>
                 </button>
               ))
@@ -119,7 +196,7 @@ export function ProjectDialog({
           </button>
           <button
             className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-stone-50 transition hover:bg-pine"
-            onClick={onSubmit}
+            onClick={handleSubmit}
             type="button"
           >
             {mode === "new" ? "Create project" : "Open project"}

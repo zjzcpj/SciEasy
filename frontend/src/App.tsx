@@ -173,10 +173,19 @@ export default function App() {
     setBusy(true);
     try {
       const project = await api.openProject(projectIdOrPath);
+      // Bug 5: Clear current canvas state before loading new project.
+      // Reset workflow and clear all tabs so old project state is gone.
+      setWorkflow(null);
+      resetExecution();
+      // Force-clear all tabs from the store (useAppStore.setState is
+      // available via the bound set, but the simplest approach is to
+      // leverage the fact that openTab will create a fresh tab after
+      // we clear the tabs array here).
+      useAppStore.setState({ tabs: [], activeTabId: null });
+
       setCurrentProject(project);
       await refreshProjects();
       await loadWorkflowForProject(project);
-      resetExecution();
       setLastError(null);
       closeProjectDialog();
     } catch (error) {
@@ -208,6 +217,21 @@ export default function App() {
       setLastError((error as Error).message);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function deleteProject(projectId: string) {
+    try {
+      await api.deleteProject(projectId);
+      // If the deleted project is the current one, close it
+      if (currentProject?.id === projectId) {
+        setCurrentProject(null);
+        setWorkflow(null);
+        resetExecution();
+      }
+      await refreshProjects();
+    } catch (error) {
+      setLastError((error as Error).message);
     }
   }
 
@@ -611,6 +635,7 @@ export default function App() {
             recentProjects={recentProjects}
             onNewProject={() => openProjectDialog("new", { path: projectDialog.path })}
             onOpenProject={() => openProjectDialog("open")}
+            onOpenRecent={(project) => void openProject(project.id)}
             onCloseProject={() => {
               setCurrentProject(null);
               setWorkflow(emptyWorkflow());
@@ -676,12 +701,17 @@ export default function App() {
                         blocks={blocks}
                         collapsed={false}
                         onAddBlock={(block) => {
-                          const defaultParams: Record<string, unknown> | undefined = block.direction
-                            ? { direction: block.direction }
-                            : block.type_name === "io_block"
-                              ? { direction: block.name === "Load Block" ? "input" : "output" }
-                              : undefined;
-                          addNode(block, { x: 160, y: 160 }, defaultParams);
+                          const defaultParams: Record<string, unknown> = {};
+                          if (block.direction) {
+                            defaultParams.direction = block.direction;
+                          } else if (block.type_name === "io_block") {
+                            defaultParams.direction = block.name === "Load Block" ? "input" : "output";
+                          }
+                          // Bug 7: Set default output_dir for AppBlocks when a project is open
+                          if (block.category === "app" && currentProject) {
+                            defaultParams.output_dir = `${currentProject.path}/data/exchange/outputs`;
+                          }
+                          addNode(block, { x: 160, y: 160 }, Object.keys(defaultParams).length > 0 ? defaultParams : undefined);
                         }}
                         onReload={() => void refreshBlocks()}
                         onSearch={setPaletteSearch}
@@ -811,6 +841,7 @@ export default function App() {
           ) : (
             <div className="min-h-0 flex-1">
               <WelcomeScreen
+                onDeleteProject={(projectId) => void deleteProject(projectId)}
                 onNewProject={() => openProjectDialog("new")}
                 onOpenProject={() => openProjectDialog("open")}
                 onOpenRecent={(projectId) => void openProject(projectId)}
@@ -825,6 +856,7 @@ export default function App() {
             name={projectDialog.name}
             onChange={updateProjectDialog}
             onClose={closeProjectDialog}
+            onDeleteProject={(projectId) => void deleteProject(projectId)}
             onOpenRecent={(projectId) => void openProject(projectId)}
             onSubmit={() => void submitProjectDialog()}
             open={projectDialogOpen}
