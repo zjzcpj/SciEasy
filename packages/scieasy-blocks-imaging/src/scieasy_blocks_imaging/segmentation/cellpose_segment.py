@@ -28,7 +28,7 @@ class CellposeSegment(ProcessBlock):
         "Cellpose deep-learning cell segmentation (FLAGSHIP). "
         "Loads the cellpose model once per run via setup()/teardown()."
     )
-    category: ClassVar[str] = "segmentation"
+    subcategory: ClassVar[str] = "segmentation"
     algorithm: ClassVar[str] = "cellpose"
 
     input_ports: ClassVar[list[InputPort]] = [

@@ -31,7 +31,7 @@ class Rotate(ProcessBlock):
     type_name: ClassVar[str] = "imaging.rotate"
     name: ClassVar[str] = "Rotate"
     description: ClassVar[str] = "Rotate image by an arbitrary angle (degrees)."
-    category: ClassVar[str] = "geometry"
+    subcategory: ClassVar[str] = "geometry"
     algorithm: ClassVar[str] = "rotate"
 
     input_ports: ClassVar[list[InputPort]] = [
@@ -101,7 +101,7 @@ class Flip(ProcessBlock):
     type_name: ClassVar[str] = "imaging.flip"
     name: ClassVar[str] = "Flip"
     description: ClassVar[str] = "Flip an image along one axis."
-    category: ClassVar[str] = "geometry"
+    subcategory: ClassVar[str] = "geometry"
     algorithm: ClassVar[str] = "flip"
 
     input_ports: ClassVar[list[InputPort]] = [
@@ -138,7 +138,7 @@ class Crop(ProcessBlock):
     type_name: ClassVar[str] = "imaging.crop"
     name: ClassVar[str] = "Crop"
     description: ClassVar[str] = "Crop image to bounding box (or mask bbox)."
-    category: ClassVar[str] = "geometry"
+    subcategory: ClassVar[str] = "geometry"
     algorithm: ClassVar[str] = "crop"
 
     input_ports: ClassVar[list[InputPort]] = [
@@ -206,7 +206,7 @@ class Pad(ProcessBlock):
     type_name: ClassVar[str] = "imaging.pad"
     name: ClassVar[str] = "Pad"
     description: ClassVar[str] = "Pad image edges (constant / reflect / edge)."
-    category: ClassVar[str] = "geometry"
+    subcategory: ClassVar[str] = "geometry"
     algorithm: ClassVar[str] = "pad"
 
     input_ports: ClassVar[list[InputPort]] = [
@@ -263,7 +263,7 @@ class Resize(ProcessBlock):
     type_name: ClassVar[str] = "imaging.resize"
     name: ClassVar[str] = "Resize"
     description: ClassVar[str] = "Resize image to a target shape or scale factor."
-    category: ClassVar[str] = "geometry"
+    subcategory: ClassVar[str] = "geometry"
     algorithm: ClassVar[str] = "resize"
 
     input_ports: ClassVar[list[InputPort]] = [

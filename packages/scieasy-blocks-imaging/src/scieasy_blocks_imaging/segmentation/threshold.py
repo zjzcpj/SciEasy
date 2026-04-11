@@ -37,7 +37,7 @@ class Threshold(ProcessBlock):
     description: ClassVar[str] = (
         "Threshold an image into a binary mask (otsu/li/yen/isodata/mean/triangle/adaptive_otsu/manual)."
     )
-    category: ClassVar[str] = "segmentation"
+    subcategory: ClassVar[str] = "segmentation"
     algorithm: ClassVar[str] = "threshold"
 
     input_ports: ClassVar[list[InputPort]] = [

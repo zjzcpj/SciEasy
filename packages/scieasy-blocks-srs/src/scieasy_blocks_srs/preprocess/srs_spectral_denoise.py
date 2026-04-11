@@ -20,7 +20,7 @@ class SRSSpectralDenoise(ProcessBlock):
     type_name: ClassVar[str] = "srs.spectral_denoise"
     description: ClassVar[str] = "Per-pixel Savitzky-Golay smoothing along the spectral axis."
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "preprocessing"
+    subcategory: ClassVar[str] = "preprocessing"
     algorithm: ClassVar[str] = "savitzky_golay"
 
     input_ports: ClassVar[list[InputPort]] = [

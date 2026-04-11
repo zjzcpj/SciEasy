@@ -34,7 +34,7 @@ class AIBlock(Block):
     type_name: ClassVar[str] = "ai.llm"
     name: ClassVar[str] = "AI / LLM"
     description: ClassVar[str] = "Process data with a large language model."
-    category: ClassVar[str] = "ai"
+    subcategory: ClassVar[str] = "ai"
     version: ClassVar[str] = "0.1.0"
 
     model: ClassVar[str] = ""

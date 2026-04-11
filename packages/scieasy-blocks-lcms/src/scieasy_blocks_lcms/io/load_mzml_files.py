@@ -44,7 +44,7 @@ class LoadMzMLFiles(_LCMSBlockMixin, IOBlock):
     direction: ClassVar[str] = "input"
     type_name: ClassVar[str] = "lcms.load_mzml_files"
     name: ClassVar[str] = "Load mzML Files"
-    category: ClassVar[str] = "io"
+    subcategory: ClassVar[str] = "io"
     description: ClassVar[str] = (
         "Batch loader for raw LC-MS acquisition files (mzML/mzXML/raw/d). "
         "Records paths and minimal header metadata; does not parse scan data."

@@ -35,7 +35,7 @@ def test_t_img_002_class_has_required_classvars() -> None:
     """LoadImage declares the mandatory IOBlock ClassVars."""
     assert LoadImage.type_name == "imaging.load_image"
     assert LoadImage.name == "Load Image"
-    assert LoadImage.category == "io"
+    assert LoadImage.subcategory == "io"
     assert LoadImage.direction == "input"
     assert "path" in LoadImage.config_schema["properties"]
     assert LoadImage.config_schema["required"] == ["path"]

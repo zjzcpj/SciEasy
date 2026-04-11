@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- [#588] Split category into base_category + subcategory so AppBlock subclasses with custom palette labels retain correct base type detection (@claude, 2026-04-11, branch: refactor/issue-588/category-subcategory-split, session: 20260411-042819-split-category-into-base-category-subcat)
+
 ### Fixed
 
 - [#581] Remove redundant fiji_path/napari_path fields, inject ClassVar defaults into config_schema, remove auto-open file manager, add copy button feedback (@claude, 2026-04-11, branch: fix/issue-581/path-cleanup-copy-feedback)

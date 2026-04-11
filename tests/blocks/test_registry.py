@@ -66,7 +66,7 @@ class TestBlockRegistryTier1:
         specs = reg.all_specs()
         assert "My Custom" in specs
         assert specs["My Custom"].source == "tier1"
-        assert specs["My Custom"].category == "process"
+        assert specs["My Custom"].base_category == "process"
 
     def test_hot_reload_picks_up_new_file(self, tmp_path: Path) -> None:
         """hot_reload() discovers a file added after initial scan."""

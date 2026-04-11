@@ -42,7 +42,7 @@ def test_t_img_020_class_has_required_classvars() -> None:
     cls = mod.BlobDetect
     assert hasattr(cls, "type_name")
     assert hasattr(cls, "name")
-    assert hasattr(cls, "category")
+    assert hasattr(cls, "subcategory")
     assert hasattr(cls, "config_schema")
 
 

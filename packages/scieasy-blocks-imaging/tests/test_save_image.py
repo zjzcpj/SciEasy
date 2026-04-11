@@ -30,7 +30,7 @@ def test_t_img_003_class_has_required_classvars() -> None:
     """SaveImage declares the mandatory IOBlock ClassVars."""
     assert SaveImage.type_name == "imaging.save_image"
     assert SaveImage.name == "Save Image"
-    assert SaveImage.category == "io"
+    assert SaveImage.subcategory == "io"
     assert SaveImage.direction == "output"
     assert "path" in SaveImage.config_schema["properties"]
     assert len(SaveImage.input_ports) == 1

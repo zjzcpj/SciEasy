@@ -24,7 +24,7 @@ def test_t_img_006_module_importable() -> None:
 
 def test_t_img_006_class_has_required_classvars() -> None:
     assert Normalize.type_name == "imaging.normalize"
-    assert Normalize.category == "preprocess"
+    assert Normalize.subcategory == "preprocess"
 
 
 def test_normalize_minmax_2d_to_0_1() -> None:

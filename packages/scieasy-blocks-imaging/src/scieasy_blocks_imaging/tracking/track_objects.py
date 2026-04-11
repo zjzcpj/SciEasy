@@ -25,7 +25,7 @@ class TrackObjects(ProcessBlock):
         "Phase 12 placeholder: link Label objects across time. Currently raises NotImplementedError."
     )
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "tracking"
+    subcategory: ClassVar[str] = "tracking"
     algorithm: ClassVar[str] = "track_objects"
 
     input_ports: ClassVar[list[InputPort]] = [

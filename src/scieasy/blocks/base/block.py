@@ -45,12 +45,12 @@ class Block(ABC):
     description: ClassVar[str] = ""
     version: ClassVar[str] = "0.1.0"
 
-    # Stage 10.1 Part 1: optional explicit category override for the palette.
-    # Subclasses may set e.g. ``category = "segmentation"`` to override the
-    # hierarchy-based inference in ``registry._infer_category``. An empty
-    # string means "no explicit category" and hierarchy inference is used.
-    # See docs/design/stage-10-1-palette.md §3.1.1.
-    category: ClassVar[str] = ""
+    # #588: Palette display subcategory. Leave empty to use base_category for grouping.
+    # Subclasses may set e.g. ``subcategory = "segmentation"`` for fine-grained
+    # palette grouping. The base_category (io, process, code, app, ai,
+    # subworkflow) is always inferred from the class hierarchy and cannot be
+    # overridden by a ClassVar. See issue #588.
+    subcategory: ClassVar[str] = ""
 
     input_ports: ClassVar[list[InputPort]] = []
     output_ports: ClassVar[list[OutputPort]] = []

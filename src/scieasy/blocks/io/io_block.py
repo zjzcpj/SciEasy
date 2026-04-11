@@ -45,7 +45,7 @@ class IOBlock(Block):
     description: ClassVar[str] = "Abstract base for blocks that load or save data."
 
     direction: ClassVar[str] = "input"
-    category: ClassVar[str] = "io"
+    subcategory: ClassVar[str] = "io"
 
     input_ports: ClassVar[list[InputPort]] = [
         InputPort(name="data", accepted_types=[DataObject], required=False),

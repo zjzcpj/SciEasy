@@ -34,7 +34,7 @@ class AxisProjection(ProcessBlock):
         "Collapse one axis (max / mean / sum / min / std) and return a lower-dimensional Image."
     )
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "projection"
+    subcategory: ClassVar[str] = "projection"
     algorithm: ClassVar[str] = "axis_projection"
 
     input_ports: ClassVar[list[InputPort]] = [
@@ -80,7 +80,7 @@ class SelectSlice(ProcessBlock):
         "Select a single index along an axis (replaces SelectChannel / CropTimeRange / SelectZ)."
     )
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "projection"
+    subcategory: ClassVar[str] = "projection"
     algorithm: ClassVar[str] = "select_slice"
 
     input_ports: ClassVar[list[InputPort]] = [

@@ -22,7 +22,7 @@ class Colocalization(ProcessBlock):
     name: ClassVar[str] = "Colocalization"
     description: ClassVar[str] = "Compute Pearson / Manders / Costes colocalization metrics for two intensity channels."
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "measurement"
+    subcategory: ClassVar[str] = "measurement"
     algorithm: ClassVar[str] = "colocalization"
 
     input_ports: ClassVar[list[InputPort]] = [

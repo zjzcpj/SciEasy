@@ -26,7 +26,7 @@ class ConvertDType(ProcessBlock):
     type_name: ClassVar[str] = "imaging.convert_dtype"
     name: ClassVar[str] = "Convert DType"
     description: ClassVar[str] = "Convert image dtype (uint8/uint16/float32/float64/bool)."
-    category: ClassVar[str] = "preprocess"
+    subcategory: ClassVar[str] = "preprocess"
     algorithm: ClassVar[str] = "convert_dtype"
 
     input_ports: ClassVar[list[InputPort]] = [

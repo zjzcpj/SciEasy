@@ -36,7 +36,7 @@ class Normalize(ProcessBlock):
     type_name: ClassVar[str] = "imaging.normalize"
     name: ClassVar[str] = "Normalize"
     description: ClassVar[str] = "Rescale image intensities (minmax / zscore / percentile / histogram_match)."
-    category: ClassVar[str] = "preprocess"
+    subcategory: ClassVar[str] = "preprocess"
     algorithm: ClassVar[str] = "normalize"
 
     input_ports: ClassVar[list[InputPort]] = [

@@ -29,7 +29,7 @@ def test_t_img_005_module_importable() -> None:
 
 def test_t_img_005_class_has_required_classvars() -> None:
     assert BackgroundSubtract.type_name == "imaging.background_subtract"
-    assert BackgroundSubtract.category == "preprocess"
+    assert BackgroundSubtract.subcategory == "preprocess"
 
 
 def test_background_constant_subtracts_value() -> None:

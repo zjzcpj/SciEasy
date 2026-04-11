@@ -44,7 +44,7 @@ class SRSUnmix(ProcessBlock):
     type_name: ClassVar[str] = "srs.unmix"
     description: ClassVar[str] = "NNLS spectral unmixing with explicit mode selector (nnls or vca_nnls)."
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "component_analysis"
+    subcategory: ClassVar[str] = "component_analysis"
     algorithm: ClassVar[str] = "nnls_unmix"
 
     input_ports: ClassVar[list[InputPort]] = [

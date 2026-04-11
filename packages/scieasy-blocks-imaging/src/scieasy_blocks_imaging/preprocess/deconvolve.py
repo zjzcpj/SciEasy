@@ -28,7 +28,7 @@ class Deconvolve(ProcessBlock):
     type_name: ClassVar[str] = "imaging.deconvolve"
     name: ClassVar[str] = "Deconvolve"
     description: ClassVar[str] = "Image deconvolution (Phase 12 placeholder)."
-    category: ClassVar[str] = "preprocess"
+    subcategory: ClassVar[str] = "preprocess"
     algorithm: ClassVar[str] = "deconvolve"
 
     input_ports: ClassVar[list[InputPort]] = [

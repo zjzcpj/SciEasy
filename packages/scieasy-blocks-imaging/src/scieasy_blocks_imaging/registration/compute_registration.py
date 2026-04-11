@@ -30,7 +30,7 @@ class ComputeRegistration(ProcessBlock):
         "Estimate a Transform that aligns a moving Image to a fixed Image (rigid / affine / phase correlation)."
     )
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "registration"
+    subcategory: ClassVar[str] = "registration"
     algorithm: ClassVar[str] = "compute_registration"
 
     input_ports: ClassVar[list[InputPort]] = [

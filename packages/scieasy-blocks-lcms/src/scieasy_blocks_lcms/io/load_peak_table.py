@@ -46,7 +46,7 @@ class LoadPeakTable(_LCMSBlockMixin, IOBlock):
     direction: ClassVar[str] = "input"
     type_name: ClassVar[str] = "lcms.load_peak_table"
     name: ClassVar[str] = "Load Peak Table"
-    category: ClassVar[str] = "io"
+    subcategory: ClassVar[str] = "io"
     description: ClassVar[str] = (
         "Load a peak table (CSV/TSV/XLSX) into a typed PeakTable. "
         "Auto-detects ElMAVEN / MZmine / XCMS column-name conventions."

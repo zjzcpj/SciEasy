@@ -69,7 +69,7 @@ class LoadData(IOBlock):
         "Artifact, or CompositeData) from a file. The output port type "
         "follows the configured core_type."
     )
-    category: ClassVar[str] = "io"
+    subcategory: ClassVar[str] = "io"
 
     output_ports: ClassVar[list[OutputPort]] = [
         OutputPort(name="data", accepted_types=[DataObject]),

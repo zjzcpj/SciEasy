@@ -25,7 +25,7 @@ class SRSCalibrate(ProcessBlock):
         "Invert digitizer formula and convert Image to SRSImage. Entry point of the SRS preprocessing pipeline."
     )
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "preprocessing"
+    subcategory: ClassVar[str] = "preprocessing"
     algorithm: ClassVar[str] = "digitizer_inversion"
 
     input_ports: ClassVar[list[InputPort]] = [

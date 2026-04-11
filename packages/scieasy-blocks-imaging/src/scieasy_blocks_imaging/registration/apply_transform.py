@@ -28,7 +28,7 @@ class ApplyTransform(ProcessBlock):
     name: ClassVar[str] = "Apply Transform"
     description: ClassVar[str] = "Warp an Image using a precomputed Transform."
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "registration"
+    subcategory: ClassVar[str] = "registration"
     algorithm: ClassVar[str] = "apply_transform"
 
     input_ports: ClassVar[list[InputPort]] = [

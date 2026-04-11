@@ -23,7 +23,7 @@ class BlobDetect(ProcessBlock):
     type_name: ClassVar[str] = "imaging.blob_detect"
     name: ClassVar[str] = "Blob Detect"
     description: ClassVar[str] = "Blob detection via Laplacian-of-Gaussian / DoG / DoH."
-    category: ClassVar[str] = "segmentation"
+    subcategory: ClassVar[str] = "segmentation"
     algorithm: ClassVar[str] = "blob_detect"
 
     input_ports: ClassVar[list[InputPort]] = [

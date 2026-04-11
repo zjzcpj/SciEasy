@@ -38,7 +38,7 @@ class SRSICA(ProcessBlock):
     type_name: ClassVar[str] = "srs.ica"
     description: ClassVar[str] = "FastICA on per-pixel spectra."
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "component_analysis"
+    subcategory: ClassVar[str] = "component_analysis"
     algorithm: ClassVar[str] = "fastica"
 
     input_ports: ClassVar[list[InputPort]] = [

@@ -35,7 +35,7 @@ class RegisterSeries(ProcessBlock):
     name: ClassVar[str] = "Register Series"
     description: ClassVar[str] = "Register a time-series or z-stack so each frame aligns to a chosen reference frame."
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "registration"
+    subcategory: ClassVar[str] = "registration"
     algorithm: ClassVar[str] = "register_series"
 
     input_ports: ClassVar[list[InputPort]] = [

@@ -23,7 +23,7 @@ class AxisSplit(ProcessBlock):
     type_name: ClassVar[str] = "imaging.axis_split"
     name: ClassVar[str] = "Axis Split"
     description: ClassVar[str] = "Split an image along an axis into a Collection."
-    category: ClassVar[str] = "preprocess"
+    subcategory: ClassVar[str] = "preprocess"
     algorithm: ClassVar[str] = "axis_split"
 
     input_ports: ClassVar[list[InputPort]] = [
@@ -81,7 +81,7 @@ class AxisMerge(ProcessBlock):
     type_name: ClassVar[str] = "imaging.axis_merge"
     name: ClassVar[str] = "Axis Merge"
     description: ClassVar[str] = "Merge a Collection of images into a single N-D image."
-    category: ClassVar[str] = "preprocess"
+    subcategory: ClassVar[str] = "preprocess"
     algorithm: ClassVar[str] = "axis_merge"
 
     input_ports: ClassVar[list[InputPort]] = [

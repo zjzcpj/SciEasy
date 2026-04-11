@@ -75,7 +75,8 @@ def _summary(spec: Any) -> BlockSummary:
     return BlockSummary(
         name=spec.name,
         type_name=spec.type_name,
-        category=spec.category,
+        base_category=spec.base_category,
+        subcategory=spec.subcategory,
         description=spec.description,
         version=spec.version,
         input_ports=[_port_response(port, direction="input") for port in spec.input_ports],
@@ -90,7 +91,7 @@ def _summary(spec: Any) -> BlockSummary:
 async def list_blocks(registry: BlockRegistryDep) -> BlockListResponse:
     """Return the full block palette available in the current registry."""
     blocks = [_summary(spec) for spec in registry.all_specs().values()]
-    blocks.sort(key=lambda item: (item.category, item.name))
+    blocks.sort(key=lambda item: (item.base_category, item.subcategory, item.name))
     return BlockListResponse(blocks=blocks)
 
 

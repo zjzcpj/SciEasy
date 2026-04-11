@@ -23,7 +23,7 @@ class Watershed(ProcessBlock):
     type_name: ClassVar[str] = "imaging.watershed"
     name: ClassVar[str] = "Watershed"
     description: ClassVar[str] = "Watershed segmentation (distance / gradient / markers)."
-    category: ClassVar[str] = "segmentation"
+    subcategory: ClassVar[str] = "segmentation"
     algorithm: ClassVar[str] = "watershed"
 
     input_ports: ClassVar[list[InputPort]] = [

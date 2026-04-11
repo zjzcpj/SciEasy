@@ -34,7 +34,7 @@ class LoadSampleMetadata(_LCMSBlockMixin, IOBlock):
     direction: ClassVar[str] = "input"
     type_name: ClassVar[str] = "lcms.load_sample_metadata"
     name: ClassVar[str] = "Load Sample Metadata"
-    category: ClassVar[str] = "io"
+    subcategory: ClassVar[str] = "io"
     description: ClassVar[str] = (
         "Load per-sample metadata (group, timepoint, replicate, etc.) "
         "from CSV / TSV / XLSX into a typed SampleMetadata."

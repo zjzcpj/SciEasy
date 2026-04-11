@@ -708,7 +708,7 @@ export default function App() {
                             defaultParams.direction = block.name === "Load Block" ? "input" : "output";
                           }
                           // Bug 7: Set default output_dir for AppBlocks when a project is open
-                          if (block.category === "app" && currentProject) {
+                          if (block.base_category === "app" && currentProject) {
                             defaultParams.output_dir = `${currentProject.path}/data/exchange/outputs`;
                           }
                           addNode(block, { x: 160, y: 160 }, Object.keys(defaultParams).length > 0 ? defaultParams : undefined);
@@ -755,7 +755,7 @@ export default function App() {
                       blockStates={blockStates}
                       blockErrors={blockErrors}
                       blocks={blocks.filter((block) => {
-                        const value = `${block.name} ${block.description} ${block.category}`.toLowerCase();
+                        const value = `${block.name} ${block.description} ${block.subcategory || block.base_category}`.toLowerCase();
                         return value.includes(paletteSearch.toLowerCase());
                       })}
                       edges={workflowEdges}

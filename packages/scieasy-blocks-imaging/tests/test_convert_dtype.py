@@ -24,7 +24,7 @@ def test_t_img_009_module_importable() -> None:
 
 def test_t_img_009_class_has_required_classvars() -> None:
     assert ConvertDType.type_name == "imaging.convert_dtype"
-    assert ConvertDType.category == "preprocess"
+    assert ConvertDType.subcategory == "preprocess"
     assert "target_dtype" in ConvertDType.config_schema["properties"]
 
 

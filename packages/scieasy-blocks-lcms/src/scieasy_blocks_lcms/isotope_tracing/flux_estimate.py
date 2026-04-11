@@ -29,7 +29,7 @@ class FluxEstimate(_LCMSBlockMixin, ProcessBlock):
 
     name: ClassVar[str] = "Flux Estimate"
     type_name: ClassVar[str] = "lcms.flux_estimate"
-    category: ClassVar[str] = "isotope_tracing"
+    subcategory: ClassVar[str] = "isotope_tracing"
     description: ClassVar[str] = (
         "Naive steady-state flux estimate via linear fit to fractional "
         "labelling vs. time, multiplied by optional pool size. NOT a "
