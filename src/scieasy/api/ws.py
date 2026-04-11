@@ -24,6 +24,7 @@ from scieasy.engine.events import (
     CANCEL_BLOCK_REQUEST,
     CANCEL_WORKFLOW_REQUEST,
     WORKFLOW_COMPLETED,
+    WORKFLOW_STARTED,
     EngineEvent,
     EventBus,
 )
@@ -41,6 +42,7 @@ _OUTBOUND_EVENTS = frozenset(
         BLOCK_CANCELLED,
         BLOCK_SKIPPED,
         WORKFLOW_COMPLETED,
+        WORKFLOW_STARTED,
     }
 )
 
