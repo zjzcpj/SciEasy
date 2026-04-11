@@ -9,6 +9,7 @@ from scieasy.blocks.base.ports import (
     OutputPort,
     port_accepts_signature,
     port_accepts_type,
+    ports_from_config_dicts,
     validate_connection,
     validate_port_constraint,
 )
@@ -243,3 +244,65 @@ class TestCollectionTransparency:
         # type(c) is the Collection class, not a Collection instance
         # This should NOT match — Collection class is not a subclass of Image
         assert not port_accepts_type(port, type(c))
+
+
+class TestPortsFromConfigDicts:
+    """ADR-029 D1: ports_from_config_dicts — convert config dicts to port objects."""
+
+    def test_input_direction_creates_input_ports(self) -> None:
+        dicts = [{"name": "img", "types": ["DataObject"]}]
+        ports = ports_from_config_dicts(dicts, "input")
+        assert len(ports) == 1
+        assert isinstance(ports[0], InputPort)
+        assert ports[0].name == "img"
+
+    def test_output_direction_creates_output_ports(self) -> None:
+        dicts = [{"name": "result", "types": ["DataObject"]}]
+        ports = ports_from_config_dicts(dicts, "output")
+        assert len(ports) == 1
+        assert isinstance(ports[0], OutputPort)
+        assert ports[0].name == "result"
+
+    def test_empty_types_defaults_to_dataobject(self) -> None:
+        dicts = [{"name": "x", "types": []}]
+        ports = ports_from_config_dicts(dicts, "input")
+        assert ports[0].accepted_types == [DataObject]
+
+    def test_missing_types_key_defaults_to_dataobject(self) -> None:
+        dicts = [{"name": "x"}]
+        ports = ports_from_config_dicts(dicts, "input")
+        assert ports[0].accepted_types == [DataObject]
+
+    def test_unknown_type_name_falls_back_to_dataobject(self) -> None:
+        dicts = [{"name": "x", "types": ["NonExistentType99"]}]
+        ports = ports_from_config_dicts(dicts, "input")
+        assert ports[0].accepted_types == [DataObject]
+
+    def test_multiple_ports(self) -> None:
+        dicts = [
+            {"name": "a", "types": ["DataObject"]},
+            {"name": "b", "types": ["DataObject"]},
+        ]
+        ports = ports_from_config_dicts(dicts, "input")
+        assert len(ports) == 2
+        assert ports[0].name == "a"
+        assert ports[1].name == "b"
+
+    def test_duplicate_names_deduplicated(self) -> None:
+        dicts = [
+            {"name": "x", "types": ["DataObject"]},
+            {"name": "x", "types": ["DataObject"]},
+        ]
+        ports = ports_from_config_dicts(dicts, "input")
+        assert len(ports) == 1
+        assert ports[0].name == "x"
+
+    def test_empty_list_returns_empty(self) -> None:
+        ports = ports_from_config_dicts([], "input")
+        assert ports == []
+
+    def test_known_type_name_resolves_correctly(self) -> None:
+        """A registered type name like 'Array' or 'DataObject' resolves to the class."""
+        dicts = [{"name": "data", "types": ["DataObject"]}]
+        ports = ports_from_config_dicts(dicts, "input")
+        assert DataObject in ports[0].accepted_types

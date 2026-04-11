@@ -884,3 +884,91 @@ class TestAppBlockSubclassConfigCleanup:
         merged = _merge_config_schema(ElMAVENBlock)
         props = merged.get("properties", {})
         assert "app_command" in props, "app_command should be inherited via MRO merge from AppBlock"
+
+
+class TestVariadicPortsSpec:
+    """ADR-029 D8: _spec_from_class() populates variadic_inputs/outputs on BlockSpec."""
+
+    def test_static_block_spec_has_variadic_false(self) -> None:
+        """Non-variadic block yields variadic_inputs=False, variadic_outputs=False."""
+        from typing import Any, ClassVar
+
+        from scieasy.blocks.base.block import Block
+        from scieasy.blocks.base.config import BlockConfig
+        from scieasy.blocks.registry import _spec_from_class
+
+        class _StaticBlock(Block):
+            name: ClassVar[str] = "StaticTestBlock"
+
+            def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+                return {}
+
+        spec = _spec_from_class(_StaticBlock)
+        assert spec.variadic_inputs is False
+        assert spec.variadic_outputs is False
+
+    def test_variadic_block_spec_has_variadic_true(self) -> None:
+        """Variadic block yields variadic_inputs=True, variadic_outputs=True."""
+        from typing import Any, ClassVar
+
+        from scieasy.blocks.base.block import Block
+        from scieasy.blocks.base.config import BlockConfig
+        from scieasy.blocks.registry import _spec_from_class
+
+        class _VariadicBlock(Block):
+            name: ClassVar[str] = "VariadicTestBlock"
+            variadic_inputs: ClassVar[bool] = True
+            variadic_outputs: ClassVar[bool] = True
+
+            def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+                return {}
+
+        spec = _spec_from_class(_VariadicBlock)
+        assert spec.variadic_inputs is True
+        assert spec.variadic_outputs is True
+
+    def test_allowed_types_serialized_as_string_list(self) -> None:
+        """allowed_input/output_types ClassVars are serialized to class name strings."""
+        from typing import Any, ClassVar
+
+        from scieasy.blocks.base.block import Block
+        from scieasy.blocks.base.config import BlockConfig
+        from scieasy.blocks.base.ports import InputPort, OutputPort
+        from scieasy.blocks.registry import _spec_from_class
+        from scieasy.core.types.array import Array
+        from scieasy.core.types.dataframe import DataFrame
+
+        class _TypedVariadicBlock(Block):
+            name: ClassVar[str] = "TypedVariadicBlock"
+            variadic_inputs: ClassVar[bool] = True
+            variadic_outputs: ClassVar[bool] = True
+            allowed_input_types: ClassVar[list[type]] = [Array, DataFrame]
+            allowed_output_types: ClassVar[list[type]] = [Array]
+            input_ports: ClassVar[list[InputPort]] = []
+            output_ports: ClassVar[list[OutputPort]] = []
+
+            def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+                return {}
+
+        spec = _spec_from_class(_TypedVariadicBlock)
+        assert spec.allowed_input_types == ["Array", "DataFrame"]
+        assert spec.allowed_output_types == ["Array"]
+
+    def test_empty_allowed_types_yields_empty_list(self) -> None:
+        """Block with no allowed_types ClassVar yields empty allowed_input/output_types."""
+        from typing import Any, ClassVar
+
+        from scieasy.blocks.base.block import Block
+        from scieasy.blocks.base.config import BlockConfig
+        from scieasy.blocks.registry import _spec_from_class
+
+        class _DefaultAllowedBlock(Block):
+            name: ClassVar[str] = "DefaultAllowedBlock"
+            variadic_inputs: ClassVar[bool] = True
+
+            def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+                return {}
+
+        spec = _spec_from_class(_DefaultAllowedBlock)
+        assert spec.allowed_input_types == []
+        assert spec.allowed_output_types == []

@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - [#604] ADR-029 B2: inject input_ports/output_ports port editor fields into AIBlock, CodeBlock, AppBlock config_schema via ADR-030 MRO pattern (@claude, 2026-04-11, branch: feat/issue-604/mro-port-editor-config-schema, session: 20260411-105345-b2-mro-injection-port-editor-config-sche)
+- [#602] ADR-029 B1: add variadic_inputs/variadic_outputs ClassVars to Block ABC, ports_from_config_dicts() helper, BlockSpec variadic fields, BlockSchemaResponse allowed_input/output_types (@claude, 2026-04-11, branch: feat/issue-602/variadic-ports-block-abc-spec-registry, session: 20260411-104249-b1-block-abc-blockspec-registry-api-sche)
 - [#588] Split category into base_category + subcategory so AppBlock subclasses with custom palette labels retain correct base type detection (@claude, 2026-04-11, branch: refactor/issue-588/category-subcategory-split, session: 20260411-042819-split-category-into-base-category-subcat)
 
 ### Fixed
