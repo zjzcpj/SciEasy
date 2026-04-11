@@ -576,45 +576,29 @@ python .workflow/gate.py advance $TASK_ID create_branch \
 
 **You CANNOT proceed to Step 4 until `create_branch` gate is recorded.**
 
-### Step 4: Submit PR
+### Step 4: Update Documentation
 
 ```bash
-# 4a. Push and create PR
-git push -u origin HEAD
-gh pr create --title "feat(#$ISSUE_NUMBER): ..." \
-  --body "## Summary\n...\n## Related Issues\nCloses #$ISSUE_NUMBER"
-
-# 4b. Record gate completion
-python .workflow/gate.py advance $TASK_ID submit_pr \
-  --data '{"pr_number": 48, "pr_url": "https://github.com/.../pull/48"}'
-```
-
-**You CANNOT proceed to Step 5 until `submit_pr` gate is recorded.**
-
-### Step 5: Update Documentation
-
-```bash
-# 5a. Update relevant docs
+# 4a. Update relevant docs
 # - If new public API: update API reference in docs/
 # - If behavior change: update relevant spec in docs/specs/
 # - If architectural decision: write/update ADR in docs/adr/
 
-# 5b. Commit docs changes
+# 4b. Commit docs changes
 git add docs/
 git commit -m "docs(#$ISSUE_NUMBER): update documentation for ..."
-git push
 
-# 5c. Record gate completion
+# 4c. Record gate completion
 python .workflow/gate.py advance $TASK_ID update_docs \
   --data '{"docs_updated": ["docs/specs/pipeline.md"]}'
 ```
 
-**You CANNOT proceed to Step 6 until `update_docs` gate is recorded.**
+**You CANNOT proceed to Step 5 until `update_docs` gate is recorded.**
 
-### Step 6: Update Changelog
+### Step 5: Update Changelog
 
 ```bash
-# 6a. Add changelog entry under [Unreleased]
+# 5a. Add changelog entry under [Unreleased]
 # Format (ALL fields mandatory):
 #   - [#ISSUE] Description (@agent, YYYY-MM-DD, branch: BRANCH_NAME, session: TASK_ID)
 #
@@ -627,14 +611,28 @@ python .workflow/gate.py advance $TASK_ID update_docs \
 #   branch:    — the git branch name
 #   session:   — the workflow gate TASK_ID (from gate.py start output)
 
-# 6b. Commit
+# 5b. Commit
 git add CHANGELOG.md
 git commit -m "chore(#$ISSUE_NUMBER): update changelog"
-git push
 
-# 6c. Record gate completion
+# 5c. Record gate completion
 python .workflow/gate.py advance $TASK_ID update_changelog \
   --data '{"changelog_entry": "[#42] Add TIFF loader to pipeline (@claude, 2026-04-03, branch: feat/issue-42/tiff-loader, session: 20260403-013918-add-tiff-loader)"}'
+```
+
+**You CANNOT proceed to Step 6 until `update_changelog` gate is recorded.**
+
+### Step 6: Submit PR
+
+```bash
+# 6a. Push and create PR
+git push -u origin HEAD
+gh pr create --title "feat(#$ISSUE_NUMBER): ..." \
+  --body "## Summary\n...\n## Related Issues\nCloses #$ISSUE_NUMBER"
+
+# 6b. Record gate completion
+python .workflow/gate.py advance $TASK_ID submit_pr \
+  --data '{"pr_number": 48, "pr_url": "https://github.com/.../pull/48"}'
 ```
 
 ---
@@ -815,7 +813,7 @@ list. Every task that touches code must go through the 6-stage gate:
 
 ```
 gate.py start → create_issue → write_change_plan → create_branch
-  → submit_pr → update_docs → update_changelog
+  → update_docs → update_changelog → submit_pr
 ```
 
 ### Combined Workflow (Standard Operating Procedure)
@@ -836,9 +834,9 @@ Phase 2: Execute (Workflow Gate, per task)
     gate.py advance ... write_change_plan
     gate.py advance ... create_branch
     [implement the task]
-    gate.py advance ... submit_pr
     gate.py advance ... update_docs
     gate.py advance ... update_changelog
+    gate.py advance ... submit_pr
 ```
 
 ### When to Skip SpecKit
