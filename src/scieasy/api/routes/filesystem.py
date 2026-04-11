@@ -234,8 +234,12 @@ async def reveal_in_explorer(body: RevealRequest) -> dict[str, str]:
 class NativeDialogRequest(BaseModel):
     """Request body for the native file/directory dialog."""
 
-    mode: str = Field(..., pattern="^(file|directory)$", description="Dialog type: 'file' or 'directory'")
+    mode: str = Field(
+        ..., pattern="^(file|directory|save_file)$", description="Dialog type: 'file', 'directory', or 'save_file'"
+    )
     initial_dir: str | None = Field(None, description="Optional starting directory for the dialog")
+    default_filename: str | None = Field(None, description="Default filename for save_file mode")
+    file_filter: str | None = Field(None, description="File type filter description (e.g. 'YAML files (*.yaml)')")
 
 
 class NativeDialogResponse(BaseModel):
@@ -248,12 +252,18 @@ class NativeDialogResponse(BaseModel):
 _last_used_directory: str | None = None
 
 
-def _native_dialog_windows(mode: str, initial_dir: str | None) -> list[str]:
+def _native_dialog_windows(
+    mode: str,
+    initial_dir: str | None,
+    default_filename: str | None = None,
+    file_filter: str | None = None,
+) -> list[str]:
     """Open a native Windows file/directory dialog via PowerShell.
 
     Returns a list of selected paths (empty list if cancelled).
     For directory mode the list contains at most one element.
     For file mode the list may contain multiple files.
+    For save_file mode the list contains at most one element.
     """
     if mode == "directory":
         # Use modern IFileOpenDialog COM with FOS_PICKFOLDERS for Vista+ style
@@ -330,6 +340,17 @@ public static class FolderPicker {
             "$result = [FolderPicker]::Pick('Select Folder');"
             "if ($result) { $result } else { '' }"
         )
+    elif mode == "save_file":
+        filter_str = file_filter or "YAML files (*.yaml)|*.yaml|All files (*.*)|*.*"
+        ps_script = (
+            "Add-Type -AssemblyName System.Windows.Forms;"
+            "[System.Windows.Forms.Application]::EnableVisualStyles();"
+            "$d = New-Object System.Windows.Forms.SaveFileDialog;"
+            f"$d.InitialDirectory = '{initial_dir or ''}';"
+            f"$d.FileName = '{default_filename or ''}';"
+            f"$d.Filter = '{filter_str}';"
+            "if ($d.ShowDialog() -eq 'OK') { $d.FileName } else { '' }"
+        )
     else:
         # Bug 1 fix: single braces for non-f-string lines.
         # Bug 2 fix: enable Multiselect and return pipe-separated FileNames.
@@ -354,7 +375,12 @@ public static class FolderPicker {
     return [p for p in selected.split("|") if p]
 
 
-def _native_dialog_macos(mode: str, initial_dir: str | None) -> list[str]:
+def _native_dialog_macos(
+    mode: str,
+    initial_dir: str | None,
+    default_filename: str | None = None,
+    file_filter: str | None = None,
+) -> list[str]:
     """Open a native macOS file/directory dialog via osascript.
 
     Returns a list of selected paths (empty list if cancelled).
@@ -364,6 +390,10 @@ def _native_dialog_macos(mode: str, initial_dir: str | None) -> list[str]:
             script = f'choose folder with prompt "Select Directory" default location POSIX file "{initial_dir}"'
         else:
             script = 'choose folder with prompt "Select Directory"'
+    elif mode == "save_file":
+        name_part = f' default name "{default_filename}"' if default_filename else ""
+        loc_part = f' default location POSIX file "{initial_dir}"' if initial_dir else ""
+        script = f'choose file name with prompt "Save As"{name_part}{loc_part}'
     else:
         if initial_dir:
             script = (
@@ -401,7 +431,12 @@ def _native_dialog_macos(mode: str, initial_dir: str | None) -> list[str]:
     return [selected]
 
 
-def _native_dialog_linux(mode: str, initial_dir: str | None) -> list[str]:
+def _native_dialog_linux(
+    mode: str,
+    initial_dir: str | None,
+    default_filename: str | None = None,
+    file_filter: str | None = None,
+) -> list[str]:
     """Open a native Linux file/directory dialog via zenity.
 
     Returns a list of selected paths (empty list if cancelled).
@@ -409,6 +444,11 @@ def _native_dialog_linux(mode: str, initial_dir: str | None) -> list[str]:
     cmd = ["zenity", "--file-selection"]
     if mode == "directory":
         cmd.append("--directory")
+    elif mode == "save_file":
+        cmd.append("--save")
+        cmd.append("--confirm-overwrite")
+        if default_filename:
+            cmd.extend(["--filename", default_filename])
     else:
         cmd.append("--multiple")
         cmd.extend(["--separator", "|"])
@@ -440,11 +480,26 @@ async def native_file_dialog(body: NativeDialogRequest) -> NativeDialogResponse:
     system = platform.system()
     try:
         if system == "Windows":
-            selected_paths = _native_dialog_windows(body.mode, initial_dir)
+            selected_paths = _native_dialog_windows(
+                body.mode,
+                initial_dir,
+                body.default_filename,
+                body.file_filter,
+            )
         elif system == "Darwin":
-            selected_paths = _native_dialog_macos(body.mode, initial_dir)
+            selected_paths = _native_dialog_macos(
+                body.mode,
+                initial_dir,
+                body.default_filename,
+                body.file_filter,
+            )
         else:
-            selected_paths = _native_dialog_linux(body.mode, initial_dir)
+            selected_paths = _native_dialog_linux(
+                body.mode,
+                initial_dir,
+                body.default_filename,
+                body.file_filter,
+            )
     except FileNotFoundError as exc:
         raise HTTPException(
             status_code=500,

@@ -78,6 +78,14 @@ class Block(ABC):
     allowed_input_types: ClassVar[list[type]] = []
     allowed_output_types: ClassVar[list[type]] = []
 
+    # ADR-029 Addendum 1: optional min/max constraints on variadic port count.
+    # ``None`` means "no limit". Only meaningful when the corresponding
+    # ``variadic_inputs`` / ``variadic_outputs`` flag is ``True``.
+    min_input_ports: ClassVar[int | None] = None
+    max_input_ports: ClassVar[int | None] = None
+    min_output_ports: ClassVar[int | None] = None
+    max_output_ports: ClassVar[int | None] = None
+
     # ADR-028 Addendum 1 D1: declarative dynamic-port override mechanism.
     # When non-None, must be a dict of the shape::
     #
@@ -225,6 +233,26 @@ class Block(ABC):
             ok, desc = validate_port_constraint(port, value)
             if not ok:
                 raise ValueError(f"Port '{port.name}' constraint failed: {desc}")
+
+        # ADR-029 Addendum 1: validate variadic port count limits.
+        if type(self).variadic_inputs:
+            n_in = len(effective_input_ports)
+            min_in = type(self).min_input_ports
+            max_in = type(self).max_input_ports
+            if min_in is not None and n_in < min_in:
+                raise ValueError(f"Variadic input port count {n_in} is below minimum {min_in}.")
+            if max_in is not None and n_in > max_in:
+                raise ValueError(f"Variadic input port count {n_in} exceeds maximum {max_in}.")
+
+        if type(self).variadic_outputs:
+            effective_output_ports = self.get_effective_output_ports()
+            n_out = len(effective_output_ports)
+            min_out = type(self).min_output_ports
+            max_out = type(self).max_output_ports
+            if min_out is not None and n_out < min_out:
+                raise ValueError(f"Variadic output port count {n_out} is below minimum {min_out}.")
+            if max_out is not None and n_out > max_out:
+                raise ValueError(f"Variadic output port count {n_out} exceeds maximum {max_out}.")
 
         return True
 

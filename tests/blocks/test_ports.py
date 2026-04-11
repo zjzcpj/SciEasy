@@ -195,6 +195,28 @@ class TestValidateConnection:
         ok, _ = validate_connection(src, tgt)
         assert ok
 
+    def test_bidirectional_parent_to_child(self) -> None:
+        """#601: Source produces parent type, target accepts child type — allowed."""
+        src = OutputPort(name="out", accepted_types=[Array])
+        tgt = InputPort(name="in", accepted_types=[Image])
+        ok, _ = validate_connection(src, tgt)
+        assert ok
+
+    def test_bidirectional_child_to_parent(self) -> None:
+        """#601: Source produces child type, target accepts parent type — allowed (original direction)."""
+        src = OutputPort(name="out", accepted_types=[Image])
+        tgt = InputPort(name="in", accepted_types=[Array])
+        ok, _ = validate_connection(src, tgt)
+        assert ok
+
+    def test_bidirectional_unrelated_still_rejected(self) -> None:
+        """#601: Unrelated types still rejected even with bidirectional check."""
+        src = OutputPort(name="out", accepted_types=[DataFrame])
+        tgt = InputPort(name="in", accepted_types=[Array])
+        ok, reason = validate_connection(src, tgt)
+        assert not ok
+        assert "DataFrame" in reason
+
 
 class TestCollectionTransparency:
     """ADR-020: Collection-transparent type checking."""

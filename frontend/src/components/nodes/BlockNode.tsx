@@ -662,6 +662,16 @@ export function BlockNode({ id: nodeId, data, selected }: NodeProps<Node<BlockNo
   const isVariadicInputs = data.schema?.variadic_inputs === true;
   const isVariadicOutputs = data.schema?.variadic_outputs === true;
 
+  // ADR-029 Addendum 1: min/max port count limits.
+  const minInputPorts = data.schema?.min_input_ports ?? null;
+  const maxInputPorts = data.schema?.max_input_ports ?? null;
+  const minOutputPorts = data.schema?.min_output_ports ?? null;
+  const maxOutputPorts = data.schema?.max_output_ports ?? null;
+  const canAddInput = maxInputPorts == null || effectiveInputPorts.length < maxInputPorts;
+  const canRemoveInput = minInputPorts == null || effectiveInputPorts.length > minInputPorts;
+  const canAddOutput = maxOutputPorts == null || effectiveOutputPorts.length < maxOutputPorts;
+  const canRemoveOutput = minOutputPorts == null || effectiveOutputPorts.length > minOutputPorts;
+
   const { deleteElements } = useReactFlow();
 
   const handleAddPort = (direction: "input" | "output") => {
@@ -792,7 +802,7 @@ export function BlockNode({ id: nodeId, data, selected }: NodeProps<Node<BlockNo
                 top: portTop,
               }}
             />
-            {isVariadicInputs && (
+            {isVariadicInputs && canRemoveInput && (
               <button
                 type="button"
                 className="nodrag absolute flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-100 text-[9px] text-red-500 opacity-0 transition-opacity hover:bg-red-200 group-hover:opacity-100"
@@ -806,7 +816,7 @@ export function BlockNode({ id: nodeId, data, selected }: NodeProps<Node<BlockNo
           </span>
         );
       })}
-      {isVariadicInputs && (
+      {isVariadicInputs && canAddInput && (
         <button
           type="button"
           className="nodrag absolute flex h-3.5 w-3.5 items-center justify-center rounded-full bg-stone-100 text-[9px] text-stone-500 transition-colors hover:bg-ember hover:text-white"
@@ -840,7 +850,7 @@ export function BlockNode({ id: nodeId, data, selected }: NodeProps<Node<BlockNo
                 top: portTop,
               }}
             />
-            {isVariadicOutputs && (
+            {isVariadicOutputs && canRemoveOutput && (
               <button
                 type="button"
                 className="nodrag absolute flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-100 text-[9px] text-red-500 opacity-0 transition-opacity hover:bg-red-200 group-hover:opacity-100"
@@ -854,7 +864,7 @@ export function BlockNode({ id: nodeId, data, selected }: NodeProps<Node<BlockNo
           </span>
         );
       })}
-      {isVariadicOutputs && (
+      {isVariadicOutputs && canAddOutput && (
         <button
           type="button"
           className="nodrag absolute flex h-3.5 w-3.5 items-center justify-center rounded-full bg-stone-100 text-[9px] text-stone-500 transition-colors hover:bg-ember hover:text-white"
@@ -872,8 +882,8 @@ export function BlockNode({ id: nodeId, data, selected }: NodeProps<Node<BlockNo
       <div className="border-t border-stone-100 px-3 py-2">
         <div className="flex min-w-0 items-center">
           <StatusBadge status={data.status} onErrorClick={data.onErrorClick} />
-          {data.status === "error" && data.errorMessage ? (
-            <ErrorMessage message={data.errorMessage} />
+          {data.status === "error" && (data.errorSummary ?? data.errorMessage) ? (
+            <ErrorMessage message={data.errorSummary ?? data.errorMessage!} />
           ) : null}
         </div>
         {data.status === "paused" && data.category === "app" && (

@@ -12,15 +12,23 @@ interface PortEditorTableProps {
   allowedTypes: string[];
   typeHierarchy: TypeHierarchyEntry[];
   onChange: (ports: PortRow[]) => void;
+  /** ADR-029 Addendum 1: minimum number of ports. null/undefined = no minimum. */
+  minPorts?: number | null;
+  /** ADR-029 Addendum 1: maximum number of ports. null/undefined = no maximum. */
+  maxPorts?: number | null;
 }
 
-export function PortEditorTable({ direction, ports, allowedTypes, typeHierarchy, onChange }: PortEditorTableProps) {
+export function PortEditorTable({ direction, ports, allowedTypes, typeHierarchy, onChange, minPorts, maxPorts }: PortEditorTableProps) {
   const availableTypes =
     allowedTypes.length > 0
       ? typeHierarchy.filter((t) => allowedTypes.includes(t.name))
       : typeHierarchy;
 
   const defaultType = availableTypes[0]?.name ?? "DataObject";
+
+  // ADR-029 Addendum 1: disable add/remove at min/max limits.
+  const canAdd = maxPorts == null || ports.length < maxPorts;
+  const canRemove = minPorts == null || ports.length > minPorts;
 
   function handleNameChange(index: number, name: string) {
     onChange(ports.map((p, i) => (i === index ? { ...p, name } : p)));
@@ -68,9 +76,10 @@ export function PortEditorTable({ direction, ports, allowedTypes, typeHierarchy,
               )}
             </select>
             <button
-              className="rounded-lg px-2 py-1 text-xs text-stone-500 hover:bg-red-100 hover:text-red-700"
+              className={`rounded-lg px-2 py-1 text-xs ${canRemove ? "text-stone-500 hover:bg-red-100 hover:text-red-700" : "cursor-not-allowed text-stone-300"}`}
+              disabled={!canRemove}
               onClick={() => handleRemove(index)}
-              title="Remove port"
+              title={canRemove ? "Remove port" : `Minimum ${minPorts} port(s) required`}
               type="button"
             >
               −
@@ -82,8 +91,10 @@ export function PortEditorTable({ direction, ports, allowedTypes, typeHierarchy,
         )}
       </div>
       <button
-        className="mt-2 rounded-xl border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-600 hover:bg-stone-50"
+        className={`mt-2 rounded-xl border px-3 py-1.5 text-sm ${canAdd ? "border-stone-300 bg-white text-stone-600 hover:bg-stone-50" : "cursor-not-allowed border-stone-200 bg-stone-50 text-stone-400"}`}
+        disabled={!canAdd}
         onClick={handleAdd}
+        title={canAdd ? undefined : `Maximum ${maxPorts} port(s) allowed`}
         type="button"
       >
         + Add Port

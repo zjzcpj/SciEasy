@@ -73,6 +73,8 @@ function ConfigPanel({
         <PortEditorTable
           allowedTypes={allowedInputTypes}
           direction="input"
+          maxPorts={schema.max_input_ports}
+          minPorts={schema.min_input_ports}
           onChange={(ports) => onUpdateConfig({ input_ports: ports })}
           ports={inputPorts}
           typeHierarchy={typeHierarchy}
@@ -82,6 +84,8 @@ function ConfigPanel({
         <PortEditorTable
           allowedTypes={allowedOutputTypes}
           direction="output"
+          maxPorts={schema.max_output_ports}
+          minPorts={schema.min_output_ports}
           onChange={(ports) => onUpdateConfig({ output_ports: ports })}
           ports={outputPorts}
           typeHierarchy={typeHierarchy}

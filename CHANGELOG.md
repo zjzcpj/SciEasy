@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- [#595] Implement variadic port count min/max limits (ADR-029 Addendum 1) (@claude, 2026-04-11, branch: feat/issue-595/variadic-port-min-max-limits, session: 20260411-101739-implement-adr-029-addendum-1-variadic-po)
+
 ### Changed
 
 - [#606] ADR-029 B3: extend introspect_script() with input_ports auto-inference from run() parameter type annotations; add _params_to_port_dicts() and _annotation_to_type_name() helpers (@claude, 2026-04-11, branch: feat/issue-606/codeblock-signature-auto-inference, session: 20260411-105722-b3-codeblock-python-signature-auto-infer)
@@ -17,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - [#600] Replace FolderBrowserDialog with modern IFileOpenDialog COM folder picker on Windows (@claude, 2026-04-11, branch: fix/issue-600/modern-folder-dialog, session: 20260411-104043-replace-windows-folderbrowserdialog-with)
+- [#598] Enforce max 50 open tabs (@claude, 2026-04-11, branch: fix/issue-614/batch-small-fixes, session: 20260411-102935-fix-5-small-issues-max-tabs-bidirectiona)
+- [#601] Allow bidirectional subclass port connections (@claude, 2026-04-11, branch: fix/issue-614/batch-small-fixes, session: 20260411-102935-fix-5-small-issues-max-tabs-bidirectiona)
+- [#590] Return HTTP 422 for workflow cycle validation errors (@claude, 2026-04-11, branch: fix/issue-614/batch-small-fixes, session: 20260411-102935-fix-5-small-issues-max-tabs-bidirectiona)
+- [#596] Show error summary on block node instead of raw traceback (@claude, 2026-04-11, branch: fix/issue-614/batch-small-fixes, session: 20260411-102935-fix-5-small-issues-max-tabs-bidirectiona)
+- [#589] Save As opens native file dialog (@claude, 2026-04-11, branch: fix/issue-614/batch-small-fixes, session: 20260411-102935-fix-5-small-issues-max-tabs-bidirectiona)
 - [#612] Wire ADR-029 F1 variadic port [+]/[-] buttons via onUpdateConfig + useReactFlow, fix F2 PortEditorTable key (@claude, 2026-04-11, branch: fix/issue-612/variadic-port-f1f2-wiring, session: 20260411-095429-fix-adr-029-f1-f2-wire-variadic-port-but)
 - [#581] Remove redundant fiji_path/napari_path fields, inject ClassVar defaults into config_schema, remove auto-open file manager, add copy button feedback (@claude, 2026-04-11, branch: fix/issue-581/path-cleanup-copy-feedback)
 - [#580] Add WORKFLOW_STARTED to WebSocket outbound events so frontend Run button spinner activates (@claude, 2026-04-11, branch: fix/issue-580/workflow-started-ws, session: 20260411-032524-fix-580-add-workflow-started-to-websocke)

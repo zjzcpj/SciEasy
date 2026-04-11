@@ -72,13 +72,13 @@ def test_unrelated_types_rejected() -> None:
     assert not ok, "Table -> Image should be incompatible"
 
 
-def test_superclass_to_subclass_rejected() -> None:
-    """Image output should NOT connect to a Mask-only input (superclass -> subclass)."""
+def test_superclass_to_subclass_accepted_bidirectional() -> None:
+    """#601: Image output connects to Mask-only input (bidirectional subclass check)."""
     src = OutputPort(name="out", accepted_types=[Image])
     tgt = InputPort(name="in", accepted_types=[Mask])
 
-    ok, _reason = validate_connection(src, tgt)
-    assert not ok, "Image -> Mask should be incompatible (superclass is not a subclass)"
+    ok, reason = validate_connection(src, tgt)
+    assert ok, f"Image -> Mask should be compatible (bidirectional), got: {reason}"
 
 
 def test_multiple_accepted_types_one_matches() -> None:

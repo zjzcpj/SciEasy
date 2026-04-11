@@ -157,7 +157,9 @@ def validate_connection(
         return True, ""
 
     for src_type in source_port.accepted_types:
-        if any(issubclass(src_type, tgt_type) for tgt_type in target_port.accepted_types):
+        if any(
+            issubclass(src_type, tgt_type) or issubclass(tgt_type, src_type) for tgt_type in target_port.accepted_types
+        ):
             return True, ""
 
     src_names = [t.__name__ for t in source_port.accepted_types]

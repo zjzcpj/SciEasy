@@ -65,6 +65,7 @@ export default function App() {
   const blockStates = useAppStore((state) => state.blockStates);
   const blockOutputs = useAppStore((state) => state.blockOutputs);
   const blockErrors = useAppStore((state) => state.blockErrors);
+  const blockErrorSummaries = useAppStore((state) => state.blockErrorSummaries);
   const logEntries = useAppStore((state) => state.logEntries);
   const isRunning = useAppStore((state) => state.isRunning);
   const resetExecution = useAppStore((state) => state.resetExecution);
@@ -301,27 +302,31 @@ export default function App() {
 
   async function saveWorkflowAs() {
     if (!currentProject) return;
-    const name = window.prompt("Save workflow as:", workflowId ?? "Untitled");
-    if (name === null) return; // cancelled
-    const id = name.trim() || "Untitled";
 
-    // Build payload with the new name/id
-    const payload: WorkflowResponse = {
-      ...workflowPayload,
-      id,
-    };
-
+    // First, ensure the current workflow is saved to the project
     try {
-      const saved = await api.createWorkflow(payload);
-      openTab(saved);
-      markWorkflowSaved();
-      setCurrentProject({
-        ...currentProject,
-        current_workflow_id: saved.id,
-        workflows: currentProject.workflows.includes(saved.id)
-          ? currentProject.workflows
-          : [...currentProject.workflows, saved.id],
+      await saveWorkflow();
+    } catch {
+      // Ignore — saveWorkflow already sets lastError
+    }
+
+    // Open a native Save As dialog for .yaml files
+    try {
+      const defaultName = (workflowId ?? "Untitled") + ".yaml";
+      const result = await api.openNativeSaveDialog({
+        defaultFilename: defaultName,
+        fileFilter: "YAML files (*.yaml)|*.yaml|All files (*.*)|*.*",
       });
+      if (!result.paths || result.paths.length === 0) return; // cancelled
+      let savePath = result.paths[0];
+
+      // Ensure .yaml extension
+      if (!savePath.endsWith(".yaml") && !savePath.endsWith(".yml")) {
+        savePath += ".yaml";
+      }
+
+      // Export the workflow YAML to the chosen path
+      await api.exportWorkflowToPath(workflowPayload.id, savePath);
     } catch (error) {
       setLastError((error as Error).message);
     }
@@ -754,6 +759,7 @@ export default function App() {
                     <WorkflowCanvas
                       blockStates={blockStates}
                       blockErrors={blockErrors}
+                      blockErrorSummaries={blockErrorSummaries}
                       blocks={blocks.filter((block) => {
                         const value = `${block.name} ${block.description} ${block.subcategory || block.base_category}`.toLowerCase();
                         return value.includes(paletteSearch.toLowerCase());

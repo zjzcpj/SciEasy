@@ -562,3 +562,149 @@ class TestVariadicPorts:
         """Block.allowed_input_types defaults to empty list."""
         assert _DummyBlock.allowed_input_types == []
         assert _DummyBlock.allowed_output_types == []
+
+    def test_port_count_limits_default_none(self) -> None:
+        """min/max port count limits default to None."""
+        assert _DummyBlock.min_input_ports is None
+        assert _DummyBlock.max_input_ports is None
+        assert _DummyBlock.min_output_ports is None
+        assert _DummyBlock.max_output_ports is None
+
+
+class TestVariadicPortCountLimits:
+    """ADR-029 Addendum 1: validate() enforces min/max port count limits."""
+
+    def test_validate_rejects_below_min_input_ports(self) -> None:
+        """Validation fails when input port count is below min_input_ports."""
+        from scieasy.core.types.base import DataObject
+
+        class _MinInputBlock(Block):
+            name: ClassVar[str] = "MinInput"
+            variadic_inputs: ClassVar[bool] = True
+            min_input_ports: ClassVar[int | None] = 2
+            input_ports: ClassVar[list[InputPort]] = []
+            output_ports: ClassVar[list[OutputPort]] = []
+
+            def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+                return {}
+
+        # Only 1 port configured, min is 2 — provide the required input value
+        block = _MinInputBlock(config={"input_ports": [{"name": "a", "types": ["DataObject"]}]})
+        with pytest.raises(ValueError, match="below minimum 2"):
+            block.validate({"a": DataObject()})
+
+    def test_validate_rejects_above_max_input_ports(self) -> None:
+        """Validation fails when input port count exceeds max_input_ports."""
+        from scieasy.core.types.base import DataObject
+
+        class _MaxInputBlock(Block):
+            name: ClassVar[str] = "MaxInput"
+            variadic_inputs: ClassVar[bool] = True
+            max_input_ports: ClassVar[int | None] = 2
+            input_ports: ClassVar[list[InputPort]] = []
+            output_ports: ClassVar[list[OutputPort]] = []
+
+            def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+                return {}
+
+        # 3 ports configured, max is 2
+        block = _MaxInputBlock(
+            config={
+                "input_ports": [
+                    {"name": "a", "types": ["DataObject"]},
+                    {"name": "b", "types": ["DataObject"]},
+                    {"name": "c", "types": ["DataObject"]},
+                ]
+            }
+        )
+        with pytest.raises(ValueError, match="exceeds maximum 2"):
+            block.validate({"a": DataObject(), "b": DataObject(), "c": DataObject()})
+
+    def test_validate_accepts_within_input_port_limits(self) -> None:
+        """Validation passes when input port count is within min/max range."""
+        from scieasy.core.types.base import DataObject
+
+        class _BoundedInputBlock(Block):
+            name: ClassVar[str] = "BoundedInput"
+            variadic_inputs: ClassVar[bool] = True
+            min_input_ports: ClassVar[int | None] = 1
+            max_input_ports: ClassVar[int | None] = 3
+            input_ports: ClassVar[list[InputPort]] = []
+            output_ports: ClassVar[list[OutputPort]] = []
+
+            def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+                return {}
+
+        block = _BoundedInputBlock(
+            config={
+                "input_ports": [
+                    {"name": "a", "types": ["DataObject"]},
+                    {"name": "b", "types": ["DataObject"]},
+                ]
+            }
+        )
+        assert block.validate({"a": DataObject(), "b": DataObject()}) is True
+
+    def test_validate_rejects_below_min_output_ports(self) -> None:
+        """Validation fails when output port count is below min_output_ports."""
+
+        class _MinOutputBlock(Block):
+            name: ClassVar[str] = "MinOutput"
+            variadic_outputs: ClassVar[bool] = True
+            min_output_ports: ClassVar[int | None] = 2
+            input_ports: ClassVar[list[InputPort]] = []
+            output_ports: ClassVar[list[OutputPort]] = []
+
+            def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+                return {}
+
+        block = _MinOutputBlock(config={"output_ports": [{"name": "a", "types": ["DataObject"]}]})
+        with pytest.raises(ValueError, match="below minimum 2"):
+            block.validate({})
+
+    def test_validate_rejects_above_max_output_ports(self) -> None:
+        """Validation fails when output port count exceeds max_output_ports."""
+
+        class _MaxOutputBlock(Block):
+            name: ClassVar[str] = "MaxOutput"
+            variadic_outputs: ClassVar[bool] = True
+            max_output_ports: ClassVar[int | None] = 1
+            input_ports: ClassVar[list[InputPort]] = []
+            output_ports: ClassVar[list[OutputPort]] = []
+
+            def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+                return {}
+
+        block = _MaxOutputBlock(
+            config={
+                "output_ports": [
+                    {"name": "a", "types": ["DataObject"]},
+                    {"name": "b", "types": ["DataObject"]},
+                ]
+            }
+        )
+        with pytest.raises(ValueError, match="exceeds maximum 1"):
+            block.validate({})
+
+    def test_validate_no_limits_allows_any_count(self) -> None:
+        """Without min/max limits, any port count is valid."""
+        from scieasy.core.types.base import DataObject
+
+        class _UnlimitedBlock(Block):
+            name: ClassVar[str] = "Unlimited"
+            variadic_inputs: ClassVar[bool] = True
+            variadic_outputs: ClassVar[bool] = True
+            input_ports: ClassVar[list[InputPort]] = []
+            output_ports: ClassVar[list[OutputPort]] = []
+
+            def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+                return {}
+
+        inputs = {f"p{i}": DataObject() for i in range(5)}
+        block = _UnlimitedBlock(
+            config={
+                "input_ports": [{"name": f"p{i}", "types": ["DataObject"]} for i in range(5)],
+                "output_ports": [{"name": f"o{i}", "types": ["DataObject"]} for i in range(5)],
+            }
+        )
+        assert block.validate(inputs) is True

@@ -57,6 +57,7 @@ export interface ExecutionSlice {
   blockStates: Record<string, string>;
   blockOutputs: Record<string, Record<string, unknown>>;
   blockErrors: Record<string, string>;
+  blockErrorSummaries: Record<string, string>;
   executionMessages: string[];
   logEntries: LogEntry[];
   /** True while a workflow execution is in progress. */
