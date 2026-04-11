@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -55,6 +56,7 @@ class AppBlock(Block):
     app_command: ClassVar[str] = ""
     execution_mode: ClassVar[ExecutionMode] = ExecutionMode.EXTERNAL
     output_patterns: ClassVar[list[str]] = ["*"]
+    terminate_grace_sec: ClassVar[float] = 10.0
 
     name: ClassVar[str] = "App Block"
     description: ClassVar[str] = "Delegate work to an external GUI application"
@@ -92,6 +94,10 @@ class AppBlock(Block):
         ADR-018: Handles CANCELLED transitions when external process exits unexpectedly.
         ADR-019: Stores ProcessHandle from bridge for cancellation support.
         ADR-020: Accepts and returns Collection-wrapped data.
+
+        Resource cleanup (#338, #339):
+        - Subprocess is always waited on / terminated / killed in finally block.
+        - Temp exchange directories (not project-dir) are cleaned up in finally block.
         """
         bridge = FileExchangeBridge()
         command = config.get("app_command") or self.app_command
@@ -114,6 +120,10 @@ class AppBlock(Block):
                 exchange_dir = Path(tempfile.mkdtemp(prefix="scieasy_app_"))
         exchange_dir.mkdir(parents=True, exist_ok=True)
 
+        # #339: Determine whether exchange_dir is a temp directory that we own.
+        # Project-dir and explicit exchange dirs are intentionally persistent.
+        is_temp_dir = not explicit_dir and not (config.get("project_dir") and config.get("block_id"))
+
         # ADR-020: Unpack Collection inputs to raw values for serialization.
         unpacked_inputs: dict[str, Any] = {}
         for key, value in inputs.items():
@@ -132,49 +142,77 @@ class AppBlock(Block):
         except ValueError as exc:
             raise ValueError(f"AppBlock command validation failed: {exc}") from exc
 
-        # Step 2: Launch and pause (waiting for external interaction).
-        self.transition(BlockState.PAUSED)
-        proc = bridge.launch(command, exchange_dir)
-
-        # ADR-019: Wrap Popen in adapter for FileWatcher process monitoring.
-        process_adapter = _PopenProcessAdapter(proc)
-
-        # Step 3: Watch for outputs with process monitoring.
-        # ADR-030 D3: use user-selected output_dir if configured.
-        from scieasy.blocks.app.watcher import FileWatcher, ProcessExitedWithoutOutputError
-
-        custom_output_dir = config.get("output_dir")
-        output_dir = Path(custom_output_dir) if custom_output_dir else exchange_dir / "outputs"
-        output_dir.mkdir(parents=True, exist_ok=True)
-        stability_period = float(config.get("stability_period", 2.0))
-        done_marker = config.get("done_marker")
-        watcher = FileWatcher(
-            directory=output_dir,
-            patterns=patterns,
-            timeout=None,
-            process_handle=process_adapter,
-            stability_period=stability_period,
-            done_marker=done_marker,
-        )
-        watcher.start()
+        proc: subprocess.Popen[bytes] | None = None
         try:
-            output_files = watcher.wait_for_output()
-        except ProcessExitedWithoutOutputError:
-            # ADR-018: Process exited without producing output — cancel.
-            self.transition(BlockState.CANCELLED)
-            return {}
+            # Step 2: Launch and pause (waiting for external interaction).
+            self.transition(BlockState.PAUSED)
+            proc = bridge.launch(command, exchange_dir)
+
+            # ADR-019: Wrap Popen in adapter for FileWatcher process monitoring.
+            process_adapter = _PopenProcessAdapter(proc)
+
+            # Step 3: Watch for outputs with process monitoring.
+            # ADR-030 D3: use user-selected output_dir if configured.
+            from scieasy.blocks.app.watcher import FileWatcher, ProcessExitedWithoutOutputError
+
+            custom_output_dir = config.get("output_dir")
+            output_dir = Path(custom_output_dir) if custom_output_dir else exchange_dir / "outputs"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            stability_period = float(config.get("stability_period", 2.0))
+            done_marker = config.get("done_marker")
+            watcher = FileWatcher(
+                directory=output_dir,
+                patterns=patterns,
+                timeout=None,
+                process_handle=process_adapter,
+                stability_period=stability_period,
+                done_marker=done_marker,
+            )
+            watcher.start()
+            try:
+                output_files = watcher.wait_for_output()
+            except ProcessExitedWithoutOutputError:
+                # ADR-018: Process exited without producing output — cancel.
+                self.transition(BlockState.CANCELLED)
+                return {}
+            finally:
+                watcher.stop()
+
+            # Step 4: Collect results.
+            results = bridge.collect(output_files)
+
+            # ADR-020: Wrap output artifacts in Collection.
+            collection_results: dict[str, Any] = {}
+            for key, value in results.items():
+                if isinstance(value, Artifact):
+                    collection_results[key] = Collection([value], item_type=Artifact)
+                else:
+                    collection_results[key] = value
+
+            return collection_results
         finally:
-            watcher.stop()
+            # #338: Reap subprocess to prevent zombie processes.
+            if proc is not None:
+                _cleanup_process(proc, self.terminate_grace_sec)
+            # #339: Remove temp exchange directory (not project-dir).
+            if is_temp_dir and exchange_dir.exists():
+                shutil.rmtree(exchange_dir, ignore_errors=True)
 
-        # Step 4: Collect results.
-        results = bridge.collect(output_files)
 
-        # ADR-020: Wrap output artifacts in Collection.
-        collection_results: dict[str, Any] = {}
-        for key, value in results.items():
-            if isinstance(value, Artifact):
-                collection_results[key] = Collection([value], item_type=Artifact)
-            else:
-                collection_results[key] = value
+def _cleanup_process(
+    proc: subprocess.Popen[bytes],
+    terminate_grace_sec: float = 10.0,
+) -> None:
+    """Wait for *proc* to exit; terminate/kill if it does not exit in time.
 
-        return collection_results
+    Sequence: wait(5s) -> terminate -> wait(grace) -> kill -> wait.
+    """
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.terminate()
+        try:
+            proc.wait(timeout=terminate_grace_sec)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()

@@ -447,10 +447,13 @@ function InlineConfigField({
     }
     try {
       const result = await api.openNativeDialog(nativeMode, initialDir);
-      if (result.path) {
-        onChange(key, result.path);
+      if (result.paths.length > 0) {
+        // For file_browser, use the first selected file (multi-select may
+        // be supported in future via a dedicated list widget).
+        // For directory_browser, there is always at most one path.
+        onChange(key, result.paths[0]);
       }
-      // If result.path is null, user cancelled — do nothing
+      // If paths is empty, user cancelled — do nothing
     } catch {
       // Native dialog failed — fall back to in-app FileBrowserModal
       setBrowseOpen(true);
