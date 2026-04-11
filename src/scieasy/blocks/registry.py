@@ -582,6 +582,18 @@ def _merge_config_schema(cls: type) -> dict[str, Any]:
                 if isinstance(current_priority, (int, float)) and current_priority < 2:
                     prop["ui_priority"] = 2
 
+        # Inject ClassVar defaults into config_schema so the frontend shows
+        # pre-filled values (e.g. "napari", "fiji") when a block is dropped.
+        if "app_command" in merged_properties:
+            cls_cmd = getattr(cls, "app_command", "")
+            if cls_cmd and "default" not in merged_properties["app_command"]:
+                merged_properties["app_command"]["default"] = cls_cmd
+        if "output_patterns" in merged_properties:
+            cls_patterns = getattr(cls, "output_patterns", None)
+            if cls_patterns and "default" not in merged_properties["output_patterns"]:
+                default_pat = ",".join(cls_patterns) if isinstance(cls_patterns, list) else cls_patterns
+                merged_properties["output_patterns"]["default"] = default_pat
+
     return {
         "type": "object",
         "properties": merged_properties,

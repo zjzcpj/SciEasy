@@ -424,6 +424,7 @@ function InlineConfigField({
   const hasBrowse =
     uiWidget === "file_browser" || uiWidget === "directory_browser";
   const [browseOpen, setBrowseOpen] = useState(false);
+  const [clipCopied, setClipCopied] = useState(false);
 
   const handleBrowseClick = async () => {
     // Try native OS dialog first, fall back to in-app FileBrowserModal
@@ -486,16 +487,24 @@ function InlineConfigField({
           <button
             type="button"
             className="nodrag shrink-0 rounded border border-stone-200 bg-white px-1.5 py-1 text-xs text-stone-600 hover:bg-stone-50"
-            title="Copy path to clipboard"
+            title={clipCopied ? "Copied!" : "Copy path to clipboard"}
             onClick={() => {
               const val = String(value ?? schema.default ?? "");
-              if (val) void navigator.clipboard.writeText(val);
+              if (val) {
+                void navigator.clipboard.writeText(val);
+                setClipCopied(true);
+                setTimeout(() => setClipCopied(false), 1500);
+              }
             }}
           >
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <rect x="5" y="5" width="9" height="9" rx="1" />
-              <path d="M11 5V3a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h2" />
-            </svg>
+            {clipCopied ? (
+              <span className="text-green-600 text-[10px]">{"\u2713"}</span>
+            ) : (
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <rect x="5" y="5" width="9" height="9" rx="1" />
+                <path d="M11 5V3a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h2" />
+              </svg>
+            )}
           </button>
         )}
       </div>

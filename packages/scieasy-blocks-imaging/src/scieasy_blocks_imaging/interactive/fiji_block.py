@@ -53,12 +53,6 @@ class FijiBlock(AppBlock):
     config_schema: ClassVar[dict[str, Any]] = {
         "type": "object",
         "properties": {
-            "fiji_path": {
-                "type": ["string", "null"],
-                "default": None,
-                "title": "Fiji executable path (overrides app_command)",
-                "ui_widget": "file_browser",
-            },
             "macro_path": {
                 "type": ["string", "null"],
                 "default": None,

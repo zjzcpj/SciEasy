@@ -96,6 +96,14 @@ def _resolve_command(
     override_key: str | None = None,
     extra_args: list[str] | None = None,
 ) -> str | list[str]:
+    """Resolve the executable command from config or ClassVar default.
+
+    Priority order:
+    1. MRO-injected ``app_command`` config field (from AppBlock base)
+    2. Legacy block-specific override key (e.g. ``fiji_path``) for backward compat
+    3. ClassVar ``app_command`` default on the block class
+    """
+    # 1. Check the MRO-injected app_command config field
     raw_command = config.get("app_command")
     if raw_command is not None:
         if isinstance(raw_command, list):
@@ -104,8 +112,15 @@ def _resolve_command(
             return raw_command
         raise ValueError(f"Interactive app command must be str or list[str], got {type(raw_command).__name__}")
 
-    executable = str(config.get(override_key) or app_command) if override_key is not None else app_command
-    return [executable, *(extra_args or [])]
+    # 2. Legacy: check block-specific override key (for backward compat with
+    #    old configs that may still have fiji_path / napari_path)
+    if override_key:
+        override = config.get(override_key)
+        if override:
+            return [str(override), *(extra_args or [])]
+
+    # 3. Fall back to ClassVar default
+    return [app_command, *(extra_args or [])]
 
 
 def _open_file_manager(path: Path) -> None:
@@ -157,7 +172,6 @@ def _run_external_app(
     output_dir = Path(str(custom_output_dir)) if custom_output_dir else exchange_dir / "outputs"
     output_dir.mkdir(parents=True, exist_ok=True)
     logger.info("Waiting for external application output. Save files to: %s", output_dir)
-    _open_file_manager(output_dir)
 
     proc = bridge.launch(command, exchange_dir, argv_override=launch_args)
     watcher = FileWatcher(
