@@ -14,6 +14,7 @@ def introspect_script(script_path: str | Path) -> dict[str, Any]:
     - ``run()`` function signature (parameter names, annotations, defaults).
     - ``configure()`` return value (if present) — treated as a parameter schema.
     - Top-level docstring.
+    - Variadic port list derived from ``run()`` parameter annotations (ADR-029 D7).
 
     Returns a dictionary with keys:
         ``has_run``: bool
@@ -21,6 +22,9 @@ def introspect_script(script_path: str | Path) -> dict[str, Any]:
         ``has_configure``: bool
         ``configure_schema``: dict or None
         ``docstring``: str or None
+        ``input_ports``: list of ``{"name": str, "types": list[str]}`` dicts
+            derived from ``run()`` parameter annotations.  Unannotated
+            parameters default to ``["DataObject"]``.
     """
     path = Path(script_path)
     if not path.exists():
@@ -35,13 +39,16 @@ def introspect_script(script_path: str | Path) -> dict[str, Any]:
         "has_configure": False,
         "configure_schema": None,
         "docstring": ast.get_docstring(tree),
+        "input_ports": [],
     }
 
     for node in ast.iter_child_nodes(tree):
         if isinstance(node, ast.FunctionDef):
             if node.name == "run":
                 result["has_run"] = True
-                result["run_params"] = _extract_params(node)
+                params = _extract_params(node)
+                result["run_params"] = params
+                result["input_ports"] = _params_to_port_dicts(params)
             elif node.name == "configure":
                 result["has_configure"] = True
                 result["configure_schema"] = _extract_configure_return(node, source)
@@ -76,6 +83,60 @@ def _extract_params(func_node: ast.FunctionDef) -> list[dict[str, Any]]:
         params.append(param)
 
     return params
+
+
+def _params_to_port_dicts(params: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Convert ``_extract_params()`` output to variadic port dict list (ADR-029 D7).
+
+    Maps each parameter to a port dict ``{"name": str, "types": list[str]}``.
+    Annotation strings are the ``ast.dump()`` representation produced by
+    :func:`_extract_params`.  Only simple ``Name(id='...')`` annotations are
+    resolved; all other forms fall back to ``"DataObject"`` silently.
+
+    The ``self`` and ``config`` parameters (common in ``run()`` signatures)
+    are skipped: ``self`` because it is the instance reference, ``config``
+    because it represents the block configuration, not data input.
+
+    Examples::
+
+        run(self, image: Image, table: DataFrame) -> ...
+        # → [{"name": "image", "types": ["Image"]},
+        #    {"name": "table", "types": ["DataFrame"]}]
+
+        run(self, x, y) -> ...
+        # → [{"name": "x", "types": ["DataObject"]},
+        #    {"name": "y", "types": ["DataObject"]}]
+    """
+    _skip_params = {"self", "config"}
+    port_dicts: list[dict[str, Any]] = []
+    for param in params:
+        name: str = param.get("name", "")
+        if name in _skip_params:
+            continue
+        annotation_dump: str | None = param.get("annotation")
+        type_name = _annotation_to_type_name(annotation_dump)
+        port_dicts.append({"name": name, "types": [type_name]})
+    return port_dicts
+
+
+def _annotation_to_type_name(annotation_dump: str | None) -> str:
+    """Extract a clean type name from an ``ast.dump()`` annotation string.
+
+    Only handles simple ``Name(id='TypeName')`` nodes.  All other forms
+    (subscripts, attributes, unions) fall back to ``"DataObject"``.
+    """
+    if annotation_dump is None:
+        return "DataObject"
+    # Simple name: Name(id='Image') or Name(id='Image', ctx=Load())
+    if annotation_dump.startswith("Name(id='"):
+        try:
+            # ast.dump format: "Name(id='Image')" or "Name(id='Image', ctx=Load())"
+            start = annotation_dump.index("id='") + 4
+            end = annotation_dump.index("'", start)
+            return annotation_dump[start:end]
+        except (ValueError, IndexError):
+            pass
+    return "DataObject"
 
 
 def _extract_configure_return(func_node: ast.FunctionDef, source: str) -> dict[str, Any] | None:
