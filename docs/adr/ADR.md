@@ -6528,22 +6528,17 @@ The following details are deliberately left for the implementation PR(s) to reso
 
 ---
 
-## ADR-029: Variadic port count and per-instance port editor (preliminary — scope pending discussion)
+## ADR-029: Variadic port count and per-instance port editor
 
-**Status**: draft — scope pending discussion
-**Date**: 2026-04-07
-**Issue**: #297
+**Status**: proposed
+**Date**: 2026-04-11 (promoted from draft 2026-04-07)
+**Issue**: #297, #567
 
-> **THIS ADR CONTAINS NO ARCHITECTURAL DECISIONS.** It is a preliminary draft
-> that reserves the namespace and documents the problem space for the
-> "variadic port count" dimension of dynamic-port behaviour. Every section
-> that would normally hold a "Decision" instead holds a "Pending discussion"
-> placeholder. Implementation work that touches the surfaces named here MUST
-> NOT begin until this ADR is promoted from `draft — scope pending` to
-> `proposed` by a future decision-making round. Any PR that touches `AIBlock`
-> variadic behaviour, `CodeBlock` variadic behaviour, or per-instance port
-> editor GUI controls must reference this ADR explicitly and note that it is
-> acting on preliminary assumptions.
+> This ADR was promoted from `draft — scope pending` to `proposed` on
+> 2026-04-11 after a design conversation resolved all eleven open questions
+> (Q1–Q11). The Context and Open Questions sections below are preserved from
+> the original draft for traceability; the Decision section records the
+> chosen answer to each question.
 
 ### Purpose
 
@@ -6559,31 +6554,8 @@ single `core_type` dropdown ("Array" / "DataFrame" / "Series" / "Text" /
 
 Addendum 1 explicitly **deferred the count dimension** (one block with a
 variable number of input or output ports added by the user via GUI controls)
-to this ADR. This ADR records the problem and the open questions without
-making any decisions. All substantive design discussion is deferred to a
-future conversation that the user will initiate after the Phase 11 plugin
-cascade lands.
-
-The purpose of writing this ADR now — before the design discussion happens —
-is fourfold:
-
-1. **Reserve the namespace.** Three plugin spec agents and an implementation
-   cascade are spawning in parallel. Reserving ADR-029 now prevents two
-   downstream agents from racing for the same number.
-2. **Give the source files a stable forward pointer.** `AIBlock` and
-   `CodeBlock` get `TODO(ADR-029)` paragraphs in their class docstrings so
-   that any future agent reading those files immediately finds the canonical
-   home for the variadic question.
-3. **Document the problem before context decays.** The design conversation
-   that produced ADR-028 Addendum 1 surfaced ten distinct open questions
-   about variadic ports. Capturing them in a numbered list now means the
-   future decision-making round starts from a complete problem statement,
-   not from scratch.
-4. **Establish a hard freeze.** Until ADR-029 is promoted from `draft —
-   scope pending` to `proposed`, no implementation PR may touch variadic
-   ports, the `AIBlock.run()` body, the `CodeBlock` port shape, or any
-   "add port" / "remove port" GUI control. Reviewers can cite this ADR to
-   reject any such PR.
+to this ADR. This ADR defines the architecture for variadic port count on
+`AIBlock`, `CodeBlock`, and `AppBlock`.
 
 ### Context
 
@@ -6768,22 +6740,13 @@ value picked by the dropdown). The count dimension is harder because:
 
 Each of these gaps is an open question listed below.
 
-#### Why this ADR is preliminary
+#### Design timeline
 
-The user has chosen to ship the three Phase 11 plugin packages
-(`scieasy-blocks-imaging`, `scieasy-blocks-srs`, `scieasy-blocks-lcms`)
-**before** committing to a variadic-port architecture. The plugin packages
-are themselves substantial work (~50 blocks across the three packages), and
-they exercise the existing static-port machinery thoroughly enough to
-surface any latent contract bugs before the variadic dimension is layered
-on top. Designing variadic ports first would risk locking in choices that
-the plugin work then has to re-negotiate.
-
-The user's exact instruction (paraphrased): *"set up some
-NotImplementedError placeholders for ADR-029 — record the problem, list the
-questions, defer the answers"*. This ADR honours that instruction
-literally: no decisions, no new methods, no test scaffolding, no source
-changes beyond docstring TODO comments.
+The original draft (2026-04-07) deliberately deferred decisions until the
+Phase 11 plugin cascade exercised the static-port machinery. On 2026-04-11
+the design conversation resolved all open questions (Q1–Q11), promoting
+this ADR to `proposed`. The original ten open questions are preserved below
+for traceability; each now has a **Decision** annotation.
 
 #### Explicit reference to ADR-028 Addendum 1 deferral
 
@@ -6794,20 +6757,16 @@ ADR-028 Addendum 1's "Relationship to other ADRs" section ends with:
 > `get_effective_*_ports()` override mechanism that ADR-029 will build on,
 > but makes no decisions about the count dimension.
 
-This ADR is the reciprocal half of that pointer. When ADR-029 reaches
-`proposed` status, the corresponding ADR-028 Addendum 1 line will be
-updated from "Defers to ADR-029 (preliminary)" to "Defers to ADR-029
-(proposed)".
+This ADR is the reciprocal half of that pointer. Now that ADR-029 has
+reached `proposed` status, that reference should be read as "Defers to
+ADR-029 (proposed)".
 
-### Open questions (all pending discussion)
+### Open questions and resolutions
 
-The following ten questions must be answered in a future decision-making
-round before ADR-029 can be promoted from `draft — scope pending` to
-`proposed`. Each question lists 2–4 candidate answer directions labelled
-A / B / C / D. **None of these directions is endorsed by this preliminary
-ADR.** All options remain open. The design discussion that promotes
-ADR-029 will pick one direction per question (or substitute its own) and
-record the rationale at that time.
+The following eleven questions were identified during the design process.
+Each question lists the candidate answer directions from the original
+draft; the **Decision** block records the chosen direction and rationale
+from the 2026-04-11 design conversation.
 
 #### Q1. Where is the variadic port list stored on a block instance?
 
@@ -6843,7 +6802,15 @@ the user-edited config dict). Candidates:
   some variants of the design conversation have proposed a "variadic
   spec subclass" that holds per-instance state. Listed for completeness.
 
-All four remain open.
+**Decision: A.** The variadic port list is stored inline in
+`self.config["input_ports"]` and `self.config["output_ports"]` as a
+JSON-serialisable list of `{"name": "...", "types": ["Image"]}` dicts.
+This reuses the existing config serialisation path (workflow YAML
+`nodes[].config`) with zero new persistence machinery. Option B was
+rejected because it would require every persistence path (YAML, checkpoint,
+REST API, worker payload) to learn a second field. Options C and D were
+rejected as introducing unnecessary complexity (multi-file representation,
+category error on BlockSpec).
 
 #### Q2. How does the GUI render "add port" / "remove port" controls?
 
@@ -6879,8 +6846,33 @@ Candidates:
   doesn't help AIBlock; couples the port list to the script body in a
   way that is awkward when the script is empty.
 
-All four remain open. Combinations are possible (e.g., A for AIBlock, D
-for CodeBlock).
+**Decision: A + D combination with dual entry point.**
+
+1. **Canvas node `[+]` button**: each port list on the node itself has a
+   `[+]` button at the bottom. Clicking it appends a new port with default
+   name (`input_N` / `output_N`) and default type (`DataObject`). This
+   gives users an immediate visual cue that the block supports dynamic
+   ports and provides one-click port addition.
+
+2. **Bottom Panel Config tab**: a full port editor table where users can
+   rename ports, change types via dropdown, and delete ports via `[−]`
+   button. This is the detailed editing surface.
+
+3. **Port deletion safety**: when removing a port that has connected edges,
+   the system disconnects those edges from the workflow graph first. The UI
+   shows a confirmation dialog: *"This port has N connection(s). Remove
+   port and disconnect?"*
+
+4. **CodeBlock Python inference** (D): for `CodeBlock` with
+   `language="python"` in script mode, the existing `introspect.py` parses
+   the function signature (`def run(image: Image, mask: Image)`) and
+   auto-populates the variadic port list. Users can still override
+   manually. For R, Julia, and inline mode, the manual editor (A) is the
+   only option.
+
+Options B (per-block-type React components) and C (modal editor) were
+rejected: B fragments rendering code, C adds a navigation step that makes
+the variadic capability less discoverable.
 
 #### Q3. How does validation handle variadic ports?
 
@@ -6915,7 +6907,15 @@ user-declared. Candidates:
   enforces types per item. Pro: progressive disclosure. Con: two places
   to maintain edge-checking logic.
 
-All four remain open.
+**Decision: A.** User-declared types on variadic ports are treated
+identically to class-declared types. The validator constructs a temporary
+block instance per ADR-028 Addendum 1's pattern, calls
+`get_effective_*_ports()`, and runs the standard
+`TypeSignature.is_compatible_with()` edge check. If the user leaves a port
+at the default `DataObject` type, any upstream type is accepted — this
+provides the same ergonomics as Option B without any special-case code.
+Options C (defer to runtime) and D (hybrid) were rejected because they
+weaken the design-time validation guarantee.
 
 #### Q4. How does the scheduler route through variadic ports at runtime?
 
@@ -6941,7 +6941,12 @@ dict shapes are per-instance. Candidates:
   code path.** Different from static blocks, with its own `dispatch_variadic()`
   method on `DAGScheduler`. Pro: clean separation. Con: code duplication.
 
-A and B are the realistic options; C is mostly a strawman.
+**Decision: A.** No scheduler change is required. The scheduler already
+constructs the input dict by walking edges in the DAG; port names from the
+per-instance port list are the edge endpoints. As long as the workflow
+YAML's edge definitions use the user-declared port names, the existing
+`_gather_inputs()` and output-routing logic works unchanged. The scheduler
+never needs to know whether a port list is variadic or static.
 
 #### Q5. How does `_reconstruct_one` (worker subprocess) handle variadic ports given ADR-027 Addendum 1's typed reconstruction contract?
 
@@ -6973,8 +6978,12 @@ classes go in which output ports. Candidates:
   Con: massively limits the usefulness of variadic blocks (which is
   exactly the reason plugins exist).
 
-A and B are the realistic options; C is a deliberate constraint that
-might be acceptable for the first cut.
+**Decision: A.** Each port's payload already carries a `type_chain` field
+per ADR-027 Addendum 1 §1. The worker calls `_reconstruct_one(payload)`,
+which reads `type_chain` from the payload metadata and dispatches to the
+matching class. Variadic ports do not change this mechanism — there are
+simply more keys in the `{port_name: collection_payload}` dict. No
+sidecar or wire-format change is needed.
 
 #### Q6. Does AIBlock need a "port_template" for the palette preview?
 
@@ -7004,7 +7013,13 @@ per-instance, the palette has nothing to read. Candidates:
   explaining "this block has user-configured ports".** Pro: documents
   the variadic nature. Con: tooltip-only documentation is easy to miss.
 
-All four remain open.
+**Decision: no special palette treatment required.** Variadic blocks
+declare a default of 1 input port + 1 output port as their static
+`input_ports` / `output_ports` ClassVars. The palette card displays
+`1 in / 1 out` — which is accurate for the default state. Once the user
+drops the block onto the canvas, the `[+]` buttons on the node reveal
+that the block is variadic. No `port_template`, no sentinel badge, no
+special tooltip needed.
 
 #### Q7. CodeBlock — should it auto-infer ports from script AST, or user declares explicitly?
 
@@ -7031,7 +7046,16 @@ what inputs and outputs the block expects. Candidates:
   body and metadata. Con: introduces yet another file; doesn't help
   inline mode.
 
-All four remain open.
+**Decision: C — hybrid.** Python scripts in script mode use auto-inference
+via `introspect.py`: the function signature (`def run(image: Image, mask:
+Image) -> DataFrame`) drives the port list. Type annotations map to port
+types; untyped parameters default to `DataObject`. Users can override the
+inferred ports manually via the port editor. For R, Julia, and inline mode,
+the manual +/- editor (same as AIBlock) is the primary interface. Option A
+(pure manual for all) was rejected because it forces Python users to
+declare ports twice. Option B (Python-only auto) was subsumed by C. Option
+D (sidecar YAML) was rejected as adding yet another file without helping
+inline mode.
 
 #### Q8. How does `BlockSpec` represent a variadic block at scan time?
 
@@ -7061,7 +7085,19 @@ Candidates:
   (empty lists) signals variadic.** Pro: zero new state. Con: ambiguous
   with "block has no ports at all".
 
-All four remain open.
+**Decision: B — two booleans.** `BlockSpec` gains two new fields:
+
+```python
+variadic_inputs: bool = False
+variadic_outputs: bool = False
+```
+
+Set by the registry at scan time from class-level `ClassVar` declarations.
+The frontend reads these flags to decide whether to render `[+]` buttons
+on the node. Option A (single bool) cannot distinguish "variadic inputs
+only" from "variadic outputs only". Option C (enum) is less extensible.
+Option D (infer from empty port list) is ambiguous with blocks that
+genuinely have zero ports.
 
 #### Q9. Does variadic mode mix with Addendum 1's enum `dynamic_ports` mapping?
 
@@ -7091,7 +7127,13 @@ output port count and the per-port types. Candidates:
   type-dynamic-plus-variadic is a follow-up addendum if it proves
   necessary. Pro: ships sooner. Con: leaves a known gap.
 
-All four remain open.
+**Decision: D — defer.** The `dynamic_ports` enum mechanism (ADR-028
+Addendum 1) is designed specifically for IOBlock type-dimension switching
+(`LoadData` / `SaveData`). There is no current use case where a block
+needs both enum-driven type switching and user-driven port count
+variability. If such a use case arises, a future Addendum will address the
+composition rules. For now the two mechanisms are independent and do not
+interact.
 
 #### Q10. What's the wire format for variadic ports in the engine→worker payload?
 
@@ -7116,154 +7158,354 @@ add the per-port name and type list. Candidates:
   reuses the existing CompositeData round-trip. Con: forces every
   variadic block author to interact with CompositeData semantics.
 
-All three remain open.
+**Decision: A.** The payload format is unchanged:
+`{port_name: collection_payload}`. Variadic ports simply produce more keys
+in the dict. The per-instance port list does not need to be sent as a
+sidecar because each port's payload already self-describes via `type_chain`
+(resolved in Q5). Options B and C were rejected as unnecessary complexity.
 
-### Scope (preliminary)
+#### Q11. How does the block author constrain which types are allowed on variadic ports?
 
-The following list describes what **would** be in scope and out of scope
-once ADR-029 is promoted from `draft — scope pending` to `proposed`. None
-of it is in scope **now**. This list is informative only.
+This question was not in the original draft. It was raised during the
+2026-04-11 design conversation.
 
-#### Would be in scope (pending promotion)
+**Problem**: a variadic block that accepts arbitrary types on every port
+undermines the user experience. For example, a `FijiBlock` should only
+accept `Image`, `DataFrame`, and `ROI` on its input ports — not `Text` or
+`Artifact`. Without block-author constraints, users could wire
+incompatible data into variadic ports and only discover the error at
+runtime.
+
+**Decision: new ClassVar declarations.**
+
+```python
+class FijiBlock(AppBlock):
+    variadic_inputs: ClassVar[bool] = True
+    variadic_outputs: ClassVar[bool] = True
+    allowed_input_types: ClassVar[list[type]] = [Image, DataFrame, ROI]
+    allowed_output_types: ClassVar[list[type]] = [Image, DataFrame, Artifact]
+```
+
+- `allowed_input_types` / `allowed_output_types` are class-level
+  declarations that constrain the type dropdown in the GUI port editor.
+  The frontend only shows types in this list.
+- Default is `[DataObject]` — no constraint, any type is allowed.
+- The validator enforces this: if a user (or YAML import) declares a port
+  type outside `allowed_*_types`, validation fails with a clear error.
+- `BlockSpec` carries these lists so the frontend can populate the dropdown
+  without constructing a block instance.
+
+### Scope
+
+The following work is in scope for the implementation phase of ADR-029.
+
+#### In scope
 
 - Extending `Block.get_effective_input_ports()` /
   `get_effective_output_ports()` to read a per-instance variadic port
-  list (whatever Q1 decides).
-- A new frontend widget or panel for adding, removing, renaming, and
-  retyping ports on a canvas node (whatever Q2 decides).
-- Backend data model for per-instance port configuration (whatever Q1
-  decides).
-- Updates to `BlockSpec` / `BlockSchemaResponse` to expose the variadic
-  capability flag (whatever Q8 decides).
-- Updates to `workflow/validator.py` to validate variadic connections
-  (whatever Q3 decides).
-- Updates to the worker subprocess `_reconstruct_one` /
-  `_serialise_one` paths to round-trip variadic ports (whatever Q5 / Q10
-  decide).
-- First consumers: the variadic form of `AIBlock` and the variadic form
-  of `CodeBlock`.
-- Tests for the new mechanism, the new GUI widget, the new validator
-  path, and the new worker round-trip.
-- Documentation updates: ADR-029 itself promoted to `proposed`,
-  `docs/architecture/ARCHITECTURE.md` extended with a "variadic ports"
-  section, `docs/guides/block-sdk.md` extended with a "writing a
-  variadic block" recipe.
+  list from `self.config["input_ports"]` / `self.config["output_ports"]` (Q1).
+- New `ClassVar` declarations on `Block`: `variadic_inputs`,
+  `variadic_outputs`, `allowed_input_types`, `allowed_output_types` (Q8, Q11).
+- Frontend: `[+]` button on canvas node port lists; port editor table in
+  Bottom Panel Config tab; port deletion with edge cleanup (Q2).
+- CodeBlock Python script introspection → auto-populate variadic port
+  list from function signature (Q7).
+- Updates to `BlockSpec` / `BlockSchemaResponse` to expose `variadic_inputs`,
+  `variadic_outputs`, `allowed_input_types`, `allowed_output_types` (Q8, Q11).
+- First consumers: `AIBlock`, `CodeBlock`, and `AppBlock` variadic forms.
+- Tests for the new mechanism, the new GUI widget, the validator path,
+  and the worker round-trip.
+- Documentation updates: `docs/architecture/ARCHITECTURE.md` extended
+  with a "variadic ports" section, `docs/guides/block-sdk.md` extended
+  with a "writing a variadic block" recipe.
 
 #### Explicitly out of scope (deferred to future ADRs)
 
-- Per-port authentication / access control. A future ADR may add
-  per-port read/write permissions for collaborative workflows; ADR-029
-  does not address this.
-- Port lazy instantiation (creating ports on demand during a workflow
-  run). All ports are declared before the workflow runs.
-- Type inference from port data at runtime (e.g., looking at the actual
-  `dtype` of an incoming Array and refining the port's accepted types).
-- Migration tooling for pre-ADR-029 workflows. There are no
-  pre-ADR-029 workflows that use variadic ports, so no migration is
-  needed.
+- Per-port authentication / access control.
+- Port lazy instantiation (creating ports on demand during a workflow run).
+  All ports are declared before the workflow runs.
+- Type inference from port data at runtime.
 - AI-driven port suggestion (the LLM analyses the prompt and proposes a
-  port shape). Possibly a future Addendum.
-
-#### Out of scope for THIS preliminary ADR (locked)
-
-The following are explicitly out of scope for this preliminary draft:
-
-- Any change to `Block`, `AIBlock`, or `CodeBlock` beyond docstring
-  TODO comments.
-- Any test scaffolding.
-- Any frontend change.
-- Any new file.
-- Any decision on Q1 through Q10.
-- Any update to `docs/architecture/ARCHITECTURE.md` or any other
-  architecture doc beyond `docs/adr/ADR.md` itself.
+  port shape).
+- Composition of `dynamic_ports` enum mechanism with variadic port count (Q9).
 
 ### Decision
 
-**Pending discussion.** No architectural decision is recorded by this
-preliminary ADR. When the design conversation that promotes ADR-029 to
-`proposed` happens, this section will be filled in with the chosen answer
-to each of Q1 through Q10 plus the rationale.
+The decisions below correspond to Q1–Q11 in the "Open questions and
+resolutions" section above. Each is summarised here for quick reference;
+the full rationale is recorded inline with the question.
+
+#### D1 — Variadic port list stored in `self.config` (Q1 → A)
+
+Per-instance port declarations are stored as
+`config["input_ports"]: list[dict]` and `config["output_ports"]: list[dict]`.
+Each entry is `{"name": "field_1", "types": ["Image"]}`. The workflow
+YAML round-trips through the existing config serialiser. No new
+persistence path is needed.
+
+#### D2 — Dual-entry GUI: canvas `[+]` and Bottom Panel editor (Q2 → A+D)
+
+The canvas node renders a `[+]` button below the last port handle on
+each side (input / output). The Bottom Panel Config tab renders a full
+port editor table: `[name] [type ▼] [−]` per row, plus a `[+]` row at
+the bottom. Port deletion disconnects any attached edges first (with
+user confirmation). For `CodeBlock` Python script mode, `introspect.py`
+auto-populates the port list from the function signature; users can
+override manually.
+
+#### D3 — Validation treats variadic ports identically to static ports (Q3 → A)
+
+The validator calls `get_effective_*_ports()` on a temporary block
+instance and runs the standard `TypeSignature.is_compatible_with()` edge
+check. User-declared types at `DataObject` (the default) accept anything.
+
+#### D4 — No scheduler change (Q4 → A)
+
+The scheduler's `_gather_inputs()` and output routing already walk edges
+by port name. Variadic ports add keys but do not change the dispatch
+model.
+
+#### D5 — Worker reconstruction unchanged; payload self-describes (Q5 → A)
+
+Each port's payload carries `type_chain` per ADR-027 Addendum 1.
+Variadic ports add more keys to the `{port_name: collection_payload}`
+dict; the worker reconstructs each independently.
+
+#### D6 — No special palette treatment (Q6)
+
+Variadic blocks declare default 1 in / 1 out; the palette shows `1 in /
+1 out` accurately. The `[+]` buttons on the canvas node reveal
+variadic capability after the block is dropped.
+
+#### D7 — CodeBlock hybrid inference (Q7 → C)
+
+Python script mode: auto-infer ports from function signature via
+`introspect.py`. R, Julia, and inline mode: manual `[+]/[−]` editor.
+
+#### D8 — Two booleans on BlockSpec (Q8 → B)
+
+`BlockSpec.variadic_inputs: bool` and `BlockSpec.variadic_outputs: bool`,
+set from class-level `ClassVar` declarations. The frontend reads these to
+decide whether to render `[+]` buttons.
+
+#### D9 — `dynamic_ports` and variadic are independent (Q9 → D)
+
+No composition rules are defined. The `dynamic_ports` enum mechanism
+(ADR-028 Addendum 1) serves the type dimension for IOBlock; variadic
+serves the count dimension for AIBlock/CodeBlock/AppBlock. If a
+combined use case arises, a future Addendum will address it.
+
+#### D10 — Payload format unchanged (Q10 → A)
+
+The `{port_name: collection_payload}` wire format is unchanged. More
+keys in the dict, same structure per key.
+
+#### D11 — Block author declares allowed types for variadic ports (Q11)
+
+New `ClassVar` declarations:
+
+```python
+allowed_input_types: ClassVar[list[type]] = [DataObject]   # default: no constraint
+allowed_output_types: ClassVar[list[type]] = [DataObject]
+```
+
+The GUI type dropdown for variadic ports only shows types in the block's
+`allowed_*_types` list. The validator rejects port type declarations
+outside this range. `BlockSpec` carries these lists so the frontend can
+populate the dropdown without constructing a block instance.
+
+**Example**:
+
+```python
+class FijiBlock(AppBlock):
+    variadic_inputs: ClassVar[bool] = True
+    variadic_outputs: ClassVar[bool] = True
+    allowed_input_types: ClassVar[list[type]] = [Image, DataFrame, ROI]
+    allowed_output_types: ClassVar[list[type]] = [Image, DataFrame, Artifact]
+```
+
+#### D12 — Variadic port editor injected via MRO merge (ADR-030 pattern)
+
+The variadic port editor fields (`input_ports`, `output_ports`) are
+declared in the `config_schema` of base classes that enable variadic
+mode (`AIBlock`, `CodeBlock`, `AppBlock` — or a shared mixin). Through
+the ADR-030 MRO merge mechanism, these fields are automatically injected
+into every subclass's config form. Block authors who set
+`variadic_inputs = True` on their class do **not** need to manually
+declare the port editor schema — the base class provides it, and
+`_merge_config_schema()` merges it into the subclass's config form just
+like `IOBlock` injects `path` and `AppBlock` injects `output_dir`.
+
+```python
+# In AIBlock (or a VariadicMixin):
+config_schema: ClassVar[dict[str, Any]] = {
+    "type": "object",
+    "properties": {
+        "input_ports": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "types": {"type": "array", "items": {"type": "string"}},
+                },
+            },
+            "ui_widget": "variadic_port_editor",
+            "ui_priority": -1,
+        },
+        "output_ports": { ... },   # same structure
+    },
+}
+```
+
+The registry's `_merge_config_schema()` applies the same MRO walk
+(base-first, child-wins-on-conflict) so that subclass-specific config
+fields coexist with the injected port editor fields.
+
+#### D13 — Multiple same-type ports for parallel branch fan-in
+
+A variadic block may declare multiple input ports of the **same type**.
+For example, a `FijiBlock` processing images from two parallel branches
+declares two input ports both typed `Image`:
+
+```python
+# User configures via the port editor:
+config["input_ports"] = [
+    {"name": "images_branch_a", "types": ["Image"]},
+    {"name": "images_branch_b", "types": ["Image"]},
+]
+```
+
+Each port carries its own `Collection[Image]` independently. The block's
+`run()` receives:
+
+```python
+inputs = {
+    "images_branch_a": Collection[Image],   # 10 images from branch A
+    "images_branch_b": Collection[Image],   # 5 images from branch B
+}
+```
+
+This requires no special handling: port names are distinct keys in the
+input dict, Collection homogeneity is per-port (not per-block), and the
+scheduler routes each edge independently by port name. AppBlock's
+`run()` serialises all inputs into the same exchange directory; the
+external app sees a unified set of files.
 
 ### Alternatives considered
 
-**Pending discussion.** No alternatives have been evaluated in this
-preliminary draft because no decisions have been made yet. The Q1–Q10
-answer directions above are *candidates*, not *evaluated alternatives*.
-The future decision-making round will pick one direction per question
-(or substitute its own), document why the rejected directions were
-rejected, and record that comparison here.
+The primary design alternative was **runtime-discovered output ports**:
+instead of users declaring ports before execution, the block would run
+first and dynamically create output ports based on what the script or
+app actually returned. This was rejected for three reasons:
+
+1. **Downstream wiring is impossible before the first run.** The
+   workflow graph cannot be fully connected until every block has run at
+   least once, which defeats the purpose of a design-time DAG editor.
+2. **Non-deterministic output shapes break reproducibility.** A script
+   that returns different numbers of outputs depending on input data
+   would produce different graph topologies across runs.
+3. **Type safety is deferred to runtime.** Without pre-declared port
+   types, downstream blocks cannot validate connections at design time.
+
+A secondary alternative was **heterogeneous Collection** (allowing
+`Collection` to hold mixed types). This was rejected because it
+fundamentally breaks Collection's homogeneity invariant (ADR-020,
+ADR-020 Addendum 6) and degrades port type safety across the entire
+framework, not just for variadic blocks.
+
+Per-question alternatives are recorded inline in the "Open questions and
+resolutions" section.
 
 ### Consequences
 
-**Pending discussion.** No consequences can be stated until decisions
-are made. When ADR-029 is promoted to `proposed`, this section will list
-the impact on `Block`, `AIBlock`, `CodeBlock`, `BlockSpec`,
-`BlockSchemaResponse`, `BlockNode.tsx`, `workflow/validator.py`,
-`engine/scheduler.py`, `worker.py`, and the workflow YAML format.
+**Backend changes**:
+
+- `Block` ABC gains four new `ClassVar` declarations:
+  `variadic_inputs: bool`, `variadic_outputs: bool`,
+  `allowed_input_types: list[type]`, `allowed_output_types: list[type]`.
+  All default to `False` / `[DataObject]` — fully backward-compatible
+  with every existing block.
+- Base classes that enable variadic mode (`AIBlock`, `CodeBlock`,
+  `AppBlock`) declare `input_ports` / `output_ports` array fields in
+  their `config_schema`. These are injected into subclasses via ADR-030
+  MRO merge (D12) — block authors do not manually add them.
+- `Block.get_effective_input_ports()` / `get_effective_output_ports()`
+  must read `self.config.get("input_ports", [])` /
+  `self.config.get("output_ports", [])` and construct `InputPort` /
+  `OutputPort` instances from the dicts when the block is variadic.
+- `BlockSpec` gains `variadic_inputs`, `variadic_outputs`,
+  `allowed_input_types`, `allowed_output_types` fields. The registry's
+  `_spec_from_class()` populates them at scan time.
+- `BlockSchemaResponse` (REST API) includes the new fields so the
+  frontend can render the variadic editor.
+- `CodeBlock` introspection (script mode, Python) maps function
+  parameters to variadic input ports and return annotations to variadic
+  output ports.
+
+**Frontend changes**:
+
+- `BlockNode.tsx` renders `[+]` buttons on variadic block nodes (gated
+  on `schema.variadic_inputs` / `schema.variadic_outputs`).
+- Bottom Panel Config tab renders a port editor table for variadic
+  blocks.
+- Port deletion triggers edge cleanup in the ReactFlow graph state.
+- Type dropdown for variadic ports is filtered by
+  `allowed_input_types` / `allowed_output_types`.
+
+**No changes to**:
+
+- `engine/scheduler.py` — edge routing is port-name-based, unchanged.
+- `engine/runners/worker.py` — payload format unchanged; `type_chain`
+  self-describes.
+- `core/types/collection.py` — homogeneity invariant preserved.
+- `core/types/serialization.py` — `_reconstruct_one` / `_serialise_one`
+  unchanged.
+- Workflow YAML format — per-instance ports are in `nodes[].config`,
+  which is already an arbitrary dict.
+
+**First consumers**:
+
+- `AIBlock` — variadic inputs (user picks N data objects + prompt) and
+  variadic outputs (user declares expected result types).
+- `CodeBlock` — variadic inputs and outputs; Python script mode
+  auto-infers from function signature.
+- `AppBlock` — variadic inputs (files to send to external app) and
+  variadic outputs (files returned by app, grouped by type).
 
 ### Relationship to other ADRs
 
 - **Builds on**: ADR-028 + Addendum 1 (IOBlock refactor + dynamic-port
-  override mechanism). ADR-029's future implementation will extend the
-  `get_effective_*_ports()` mechanism that Addendum 1 introduced to
-  support per-instance variadic port lists. ADR-029 does **not** replace
-  the Addendum 1 mechanism — the type-dimension dispatch (used by
-  `LoadData` / `SaveData`) is left untouched.
+  override mechanism). ADR-029 extends the `get_effective_*_ports()`
+  mechanism that Addendum 1 introduced to support per-instance variadic
+  port lists. ADR-029 does **not** replace the Addendum 1 mechanism —
+  the type-dimension dispatch (used by `LoadData` / `SaveData`) is left
+  untouched.
 - **Builds on**: ADR-027 + Addendum 1 (Phase 10 core type system + worker
-  reconstruction contract). ADR-029's Q5 and Q10 are specifically about
-  how variadic outputs interact with the typed reconstruction helpers
-  defined by ADR-027 Addendum 1 §1.
+  reconstruction contract). The `type_chain`-based reconstruction
+  handles variadic output ports without modification (D5).
 - **Builds on**: ADR-020 + Addenda (Collection transport between blocks).
   Variadic ports do not change how Collections are constructed or
   shipped; they only change how many of them flow through a block.
 - **Builds on**: ADR-017 (subprocess isolation) and ADR-018 + Addendum 1
-  (scheduler concurrency). The scheduler is still the dispatcher;
-  variadic ports may force a small change to how it reads the per-block
-  port list (per Q4) but do not change the dispatch model itself.
+  (scheduler concurrency). The scheduler dispatch model is unchanged (D4).
 - **Does not supersede**: any existing ADR. ADR-029 adds new surface
   without removing anything.
-- **Blocks**: the full implementation of `AIBlock` (currently a 30-line
-  stub whose `run()` raises `NotImplementedError`). Until ADR-029
-  reaches `proposed` status with concrete decisions, `AIBlock` remains a
-  static-port block with no real implementation.
-- **Blocks**: the variadic form of `CodeBlock`. The current static
-  single-port `CodeBlock` continues to work as today; what is blocked is
-  the addition of per-instance multiple ports.
-- **Blocks**: any frontend work on "add port" / "remove port" GUI
-  controls. The existing static port rendering in `BlockNode.tsx` is
-  untouched.
+- **Unblocks**: the full implementation of `AIBlock`, the variadic form
+  of `CodeBlock`, and variadic `AppBlock` subclasses.
 - **Defers from**: ADR-028 Addendum 1's "Relationship to other ADRs"
-  section, which says *"Defers to ADR-029 (preliminary) — AI variadic
-  port count, CodeBlock variadic port count, per-instance port editor
-  UI"*. This ADR is the destination of that pointer.
+  section: *"Defers to ADR-029"*. This ADR is the destination of that
+  pointer, now at `proposed` status.
 
 ### Next steps
 
-1. The Phase 11 plugin cascade (`scieasy-blocks-imaging`,
-   `scieasy-blocks-srs`, `scieasy-blocks-lcms`) ships first. None of the
-   plugin work touches variadic ports; all plugin IO blocks declare
-   static `output_ports` and inherit the existing static port machinery.
-2. After the plugin cascade lands and the user has run the headline
-   E2E test (cellpose segmentation + extract spectrum), a future
-   decision-making round will work through Q1–Q10 in this ADR.
-3. When decisions are reached, this ADR's status changes from
-   `draft — scope pending discussion` to `proposed`. The "Decision",
-   "Alternatives considered", and "Consequences" sections are filled in
-   at that time.
-4. A separate implementation issue tracks the first consumer (likely
-   `AIBlock` variadic, since `AIBlock` is currently the most stub-like
-   and has the fewest existing constraints to renegotiate).
-5. Implementation of the first consumer walks the same workflow gate
-   as any other ticket, with the standards doc updated to add ADR-029
-   ticket entries.
-6. Once both `AIBlock` and `CodeBlock` variadic forms ship, ADR-029 is
-   promoted from `proposed` to `accepted`.
-
-Until then: **any implementation PR that touches `AIBlock` variadic
-behaviour, `CodeBlock` variadic behaviour, or "add port" / "remove
-port" GUI controls MUST reference this ADR explicitly and note that it
-is acting on preliminary assumptions. No merge without a decision.**
-Reviewers may cite this ADR to reject any such PR.
+1. Create implementation issues for the backend changes (Block ABC,
+   BlockSpec, registry), frontend changes (BlockNode variadic editor,
+   Bottom Panel port table), and first consumers (AIBlock, CodeBlock,
+   AppBlock).
+2. Implementation follows the standard workflow gate per issue.
+3. Once all first consumers ship and tests pass, ADR-029 is promoted
+   from `proposed` to `accepted`.
 
 ---
 

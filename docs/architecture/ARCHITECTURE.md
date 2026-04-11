@@ -795,6 +795,66 @@ InputPort(
 
 When a constraint fails, the engine reports the `constraint_description` to the user via WebSocket, and the block transitions to `ERROR` state with a clear diagnostic.
 
+#### Variadic ports (ADR-029)
+
+Most blocks declare a **static** port list — a fixed set of `InputPort` / `OutputPort` instances on the class. Three block categories support **variadic** (per-instance) port counts: `AIBlock`, `CodeBlock`, and `AppBlock`. Variadic blocks allow users to add or remove ports at design time via a `[+]` / `[−]` editor on the canvas node and in the Bottom Panel Config tab.
+
+**Class-level declarations** control variadic behaviour:
+
+```python
+class Block(ABC):
+    # Static blocks leave these at defaults:
+    variadic_inputs: ClassVar[bool] = False
+    variadic_outputs: ClassVar[bool] = False
+    allowed_input_types: ClassVar[list[type]] = [DataObject]   # no constraint
+    allowed_output_types: ClassVar[list[type]] = [DataObject]
+```
+
+- `variadic_inputs` / `variadic_outputs` — enable per-instance port addition on input / output side. `BlockSpec` carries these flags; the frontend renders `[+]` buttons only when `True`.
+- `allowed_input_types` / `allowed_output_types` — constrain the type dropdown in the port editor. A `FijiBlock` that declares `allowed_input_types = [Image, DataFrame, ROI]` prevents users from wiring incompatible types (e.g. `Text`) into its variadic ports.
+
+**Per-instance port storage** (ADR-029 D1): variadic port lists are stored in `self.config["input_ports"]` and `self.config["output_ports"]` as JSON-serialisable dicts:
+
+```python
+config["input_ports"] = [
+    {"name": "images_branch_a", "types": ["Image"]},
+    {"name": "images_branch_b", "types": ["Image"]},
+    {"name": "metadata",        "types": ["DataFrame"]},
+]
+```
+
+This reuses the existing config serialisation path — the workflow YAML `nodes[].config` carries the port list alongside other parameters. No new persistence layer is needed.
+
+**GUI injection** (ADR-029 D12): base classes that enable variadic mode declare the port editor fields in their `config_schema`. Through ADR-030 MRO merge, these fields are automatically injected into every subclass's config form — block authors do not add them manually.
+
+**`get_effective_*_ports()` override**: when a variadic block has user-declared ports in config, `get_effective_input_ports()` / `get_effective_output_ports()` construct `InputPort` / `OutputPort` instances from the config dicts and return them instead of the static `ClassVar` list. The validator and scheduler see the per-instance port list transparently.
+
+**Multiple same-type ports** (ADR-029 D13): a variadic block may have several ports of the same type — for example, two `Image` input ports receiving `Collection[Image]` from two parallel branches. Each port carries its own Collection independently; the block's `run()` receives them as separate keys in the input dict.
+
+**CodeBlock auto-inference** (ADR-029 D7): for `CodeBlock` in Python script mode, `introspect.py` parses the function signature and auto-populates the variadic port list. Type annotations map to port types; untyped parameters default to `DataObject`. R, Julia, and inline mode use the manual port editor.
+
+**Example — variadic `AppBlock`**:
+
+```python
+class FijiBlock(AppBlock):
+    name = "Fiji"
+    variadic_inputs: ClassVar[bool] = True
+    variadic_outputs: ClassVar[bool] = True
+    allowed_input_types: ClassVar[list[type]] = [Image, DataFrame, ROI]
+    allowed_output_types: ClassVar[list[type]] = [Image, DataFrame, Artifact]
+
+    # config_schema for app-specific fields only;
+    # variadic port editor fields are injected via MRO merge from AppBlock base.
+    config_schema: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "macro": {"type": "string", "title": "ImageJ Macro", "ui_priority": 2},
+        },
+    }
+```
+
+**No impact on engine or worker**: the scheduler routes by edge/port-name (unchanged), the worker subprocess reconstructs each port's Collection via `type_chain` (unchanged), and Collection homogeneity is enforced per-port (unchanged).
+
 ### 5.3 Block categories
 
 The framework defines five concrete block categories plus one meta-category for composition. All other functionality is achieved through subclassing.
