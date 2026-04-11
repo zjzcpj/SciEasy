@@ -48,6 +48,7 @@ interface ToolbarProps {
   recentProjects: ProjectResponse[];
   onNewProject: () => void;
   onOpenProject: () => void;
+  onOpenRecent: (project: ProjectResponse) => void;
   onCloseProject: () => void;
   onNewWorkflow: () => void;
   onSave: () => void;
@@ -146,6 +147,7 @@ export function Toolbar(props: ToolbarProps) {
     recentProjects,
     onNewProject,
     onOpenProject,
+    onOpenRecent,
     onCloseProject,
     onNewWorkflow,
     onSave,
@@ -195,7 +197,7 @@ export function Toolbar(props: ToolbarProps) {
               <ChevronDown className="size-3" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-56">
+          <DropdownMenuContent align="start" className="max-h-96 w-56 overflow-y-auto">
             <DropdownMenuItem onClick={onNewProject}>
               <Plus className="size-4" />
               New Project...
@@ -209,7 +211,7 @@ export function Toolbar(props: ToolbarProps) {
               onClick={onSave}
             >
               <Save className="size-4" />
-              Save Project
+              Save Workflow
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuLabel>Recent Projects</DropdownMenuLabel>
@@ -217,7 +219,7 @@ export function Toolbar(props: ToolbarProps) {
               recentProjects.slice(0, 5).map((project) => (
                 <DropdownMenuItem
                   key={project.id}
-                  onClick={onOpenProject}
+                  onClick={() => onOpenRecent(project)}
                 >
                   <span className="truncate">{project.name}</span>
                 </DropdownMenuItem>
