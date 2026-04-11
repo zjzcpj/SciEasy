@@ -54,6 +54,13 @@ class BlockSpec:
     # the class-level ``Block.dynamic_ports`` ClassVar. Validated at scan
     # time by :meth:`BlockRegistry._validate_dynamic_ports`.
     dynamic_ports: dict[str, Any] | None = None
+    # ADR-029 D8: variadic port flags — copied from Block ClassVars at scan time.
+    variadic_inputs: bool = False
+    variadic_outputs: bool = False
+    # ADR-029 D11: allowed type names for variadic port editor dropdown.
+    # Empty list means "any DataObject subclass".
+    allowed_input_types: list[str] = field(default_factory=list)
+    allowed_output_types: list[str] = field(default_factory=list)
 
 
 class BlockRegistry:
@@ -617,6 +624,12 @@ def _spec_from_class(cls: type, source: str = "") -> BlockSpec:
 
     base_cat = _infer_category(cls)
     sub_cat = getattr(cls, "subcategory", "") or ""
+
+    # ADR-029 D11: serialize allowed_input/output_types ClassVars to string
+    # lists for the API.  Empty list on the class means "any DataObject".
+    allowed_in: list[str] = [t.__name__ for t in (getattr(cls, "allowed_input_types", None) or [])]
+    allowed_out: list[str] = [t.__name__ for t in (getattr(cls, "allowed_output_types", None) or [])]
+
     return BlockSpec(
         name=getattr(cls, "name", cls.__name__),
         description=getattr(cls, "description", "") or (cls.__doc__ or "").split("\n")[0],
@@ -632,6 +645,10 @@ def _spec_from_class(cls: type, source: str = "") -> BlockSpec:
         type_name=_type_name_for_class(cls),
         direction=getattr(cls, "direction", "") or "",
         dynamic_ports=getattr(cls, "dynamic_ports", None),
+        variadic_inputs=bool(getattr(cls, "variadic_inputs", False)),
+        variadic_outputs=bool(getattr(cls, "variadic_outputs", False)),
+        allowed_input_types=allowed_in,
+        allowed_output_types=allowed_out,
     )
 
 

@@ -71,6 +71,10 @@ export interface BlockSummary {
   direction?: string | null;
   source?: string;
   package_name?: string;
+  /** ADR-029 D8: true when this block supports user-configurable input port count. */
+  variadic_inputs?: boolean;
+  /** ADR-029 D8: true when this block supports user-configurable output port count. */
+  variadic_outputs?: boolean;
 }
 
 export interface TypeHierarchyEntry {
@@ -130,6 +134,17 @@ export interface BlockSchemaResponse extends BlockSummary {
    * ``blockType === "io_block"`` checks.
    */
   direction?: string | null;
+  /**
+   * ADR-029 D11: type names accepted by variadic input ports.
+   * Frontend uses this to populate the type dropdown in the port editor.
+   * Empty array means "any DataObject subclass".
+   */
+  allowed_input_types?: string[];
+  /**
+   * ADR-029 D11: type names accepted by variadic output ports.
+   * Empty array means "any DataObject subclass".
+   */
+  allowed_output_types?: string[];
 }
 
 export interface BlockListResponse {
