@@ -677,6 +677,39 @@ class TestMergeConfigSchema:
         assert merged["properties"]["output_dir"]["ui_widget"] == "directory_browser"
         assert "custom_field" in merged["properties"]
         assert "app_command" in merged["properties"]
+        # Issue #571: verify forced ordering
+        assert merged["properties"]["app_command"]["ui_priority"] == 0
+        assert merged["properties"]["app_command"]["ui_widget"] == "file_browser"
+        assert merged["properties"]["app_command"]["title"] == "Executable Path"
+        assert merged["properties"]["output_dir"]["ui_priority"] == 1
+
+    def test_appblock_subclass_priority_enforcement(self) -> None:
+        """AppBlock subclass fields with ui_priority < 2 are bumped to 2."""
+        from typing import Any, ClassVar
+
+        from scieasy.blocks.app.app_block import AppBlock
+        from scieasy.blocks.registry import _merge_config_schema
+
+        class MyApp(AppBlock):
+            app_command: ClassVar[str] = "fiji"
+
+            config_schema: ClassVar[dict[str, Any]] = {
+                "type": "object",
+                "properties": {
+                    "sneaky_field": {"type": "string", "ui_priority": 0},
+                    "normal_field": {"type": "string", "ui_priority": 5},
+                },
+                "required": [],
+            }
+
+        merged = _merge_config_schema(MyApp)
+        # sneaky_field tried to claim priority 0 but must be bumped to 2
+        assert merged["properties"]["sneaky_field"]["ui_priority"] == 2
+        # normal_field already >= 2, should be untouched
+        assert merged["properties"]["normal_field"]["ui_priority"] == 5
+        # reserved fields keep their forced priorities
+        assert merged["properties"]["app_command"]["ui_priority"] == 0
+        assert merged["properties"]["output_dir"]["ui_priority"] == 1
 
     def test_subclass_path_override_wins(self) -> None:
         """When a leaf class explicitly declares path, its version wins."""
