@@ -97,6 +97,10 @@ class BlockSummary(BaseModel):
     direction: str | None = None
     source: str = ""
     package_name: str = ""
+    # ADR-029 D8: variadic port flags so the frontend palette can show [+]
+    # affordances for variadic blocks even before the full schema is fetched.
+    variadic_inputs: bool = False
+    variadic_outputs: bool = False
 
 
 class BlockListResponse(BaseModel):
@@ -119,6 +123,11 @@ class BlockSchemaResponse(BlockSummary):
     # hardcoding ``blockType === "io_block"`` checks. ``None`` for
     # non-IO blocks.
     direction: str | None = None
+    # ADR-029 D11: type name lists for variadic port editor dropdown.
+    # Frontend uses these to populate the type selector when the user adds
+    # a new port. Empty list means "any DataObject subclass".
+    allowed_input_types: list[str] = Field(default_factory=list)
+    allowed_output_types: list[str] = Field(default_factory=list)
 
 
 class BlockConnectionValidation(BaseModel):

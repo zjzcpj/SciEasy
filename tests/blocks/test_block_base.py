@@ -469,3 +469,96 @@ class TestAutoFlush:
         assert result is img
         assert result.storage_ref is not None
         assert result.storage_ref.backend == "zarr"
+
+
+class TestVariadicPorts:
+    """ADR-029 D8: variadic_inputs / variadic_outputs ClassVars and
+    config-driven get_effective_*_ports() overrides."""
+
+    def test_static_block_defaults(self) -> None:
+        """Non-variadic blocks have both flags False by default."""
+        block = _DummyBlock()
+        assert type(block).variadic_inputs is False
+        assert type(block).variadic_outputs is False
+
+    def test_static_block_effective_ports_unchanged(self) -> None:
+        """Static block returns class-level port list unchanged."""
+        block = _DummyBlock()
+        assert block.get_effective_input_ports() == list(_DummyBlock.input_ports)
+        assert block.get_effective_output_ports() == list(_DummyBlock.output_ports)
+
+    def test_variadic_block_with_no_config_falls_back_to_classvars(self) -> None:
+        """Variadic block with no config port list falls back to class-level ports."""
+
+        class _VariadicBlock(Block):
+            name: ClassVar[str] = "Variadic"
+            variadic_inputs: ClassVar[bool] = True
+            variadic_outputs: ClassVar[bool] = True
+            input_ports: ClassVar[list[InputPort]] = [
+                InputPort(name="default_in", accepted_types=[Array]),
+            ]
+            output_ports: ClassVar[list[OutputPort]] = [
+                OutputPort(name="default_out", accepted_types=[Array]),
+            ]
+
+            def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+                return {}
+
+        block = _VariadicBlock()
+        assert block.get_effective_input_ports() == list(_VariadicBlock.input_ports)
+        assert block.get_effective_output_ports() == list(_VariadicBlock.output_ports)
+
+    def test_variadic_block_reads_input_ports_from_config(self) -> None:
+        """Variadic block reads input_ports from config when present."""
+
+        class _VariadicBlock(Block):
+            name: ClassVar[str] = "VariadicConfigIn"
+            variadic_inputs: ClassVar[bool] = True
+            variadic_outputs: ClassVar[bool] = False
+            input_ports: ClassVar[list[InputPort]] = []
+            output_ports: ClassVar[list[OutputPort]] = []
+
+            def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+                return {}
+
+        config = {
+            "input_ports": [
+                {"name": "img", "types": ["DataObject"]},
+                {"name": "mask", "types": ["DataObject"]},
+            ]
+        }
+        block = _VariadicBlock(config=config)
+        ports = block.get_effective_input_ports()
+        assert len(ports) == 2
+        assert ports[0].name == "img"
+        assert ports[1].name == "mask"
+
+    def test_variadic_block_reads_output_ports_from_config(self) -> None:
+        """Variadic block reads output_ports from config when present."""
+
+        class _VariadicBlock(Block):
+            name: ClassVar[str] = "VariadicConfigOut"
+            variadic_inputs: ClassVar[bool] = False
+            variadic_outputs: ClassVar[bool] = True
+            input_ports: ClassVar[list[InputPort]] = []
+            output_ports: ClassVar[list[OutputPort]] = []
+
+            def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+                return {}
+
+        config = {
+            "output_ports": [
+                {"name": "result", "types": ["DataObject"]},
+                {"name": "summary", "types": ["DataObject"]},
+            ]
+        }
+        block = _VariadicBlock(config=config)
+        ports = block.get_effective_output_ports()
+        assert len(ports) == 2
+        assert ports[0].name == "result"
+        assert ports[1].name == "summary"
+
+    def test_allowed_input_types_default_empty(self) -> None:
+        """Block.allowed_input_types defaults to empty list."""
+        assert _DummyBlock.allowed_input_types == []
+        assert _DummyBlock.allowed_output_types == []

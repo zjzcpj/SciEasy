@@ -99,6 +99,47 @@ def validate_port_constraint(port: InputPort, value: Any) -> tuple[bool, str]:
     return True, ""
 
 
+def ports_from_config_dicts(
+    dicts: list[dict[str, Any]],
+    direction: str,
+) -> list[InputPort] | list[OutputPort]:
+    """Convert a list of port config dicts to InputPort or OutputPort instances.
+
+    Each dict must have the shape ``{"name": str, "types": list[str]}``.
+    Type name strings are resolved against the core type registry; unknown
+    names fall back to ``DataObject``.  Port names must be unique within
+    *dicts* — duplicates are silently de-duplicated (last wins).
+
+    ADR-029 D1: variadic port lists stored in block config use this format.
+    """
+    from scieasy.core.types.base import DataObject
+
+    def _resolve_type(name: str) -> type:
+        try:
+            from scieasy.core.types.serialization import _get_type_registry
+
+            reg = _get_type_registry()
+            return reg.load_class(name)
+        except Exception:
+            pass
+        return DataObject
+
+    seen: dict[str, None] = {}
+    result: list[Any] = []
+    for item in dicts:
+        port_name = str(item.get("name", "port"))
+        if port_name in seen:
+            continue
+        seen[port_name] = None
+        raw_types: list[str] = item.get("types", [])
+        accepted: list[type] = [_resolve_type(t) for t in raw_types] if raw_types else [DataObject]
+        if direction == "input":
+            result.append(InputPort(name=port_name, accepted_types=accepted))
+        else:
+            result.append(OutputPort(name=port_name, accepted_types=accepted))
+    return result  # type: ignore[return-value]
+
+
 def validate_connection(
     source_port: OutputPort,
     target_port: InputPort,

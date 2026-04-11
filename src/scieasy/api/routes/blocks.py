@@ -84,6 +84,8 @@ def _summary(spec: Any) -> BlockSummary:
         direction=spec.direction or None,
         source=_map_source(getattr(spec, "source", "") or ""),
         package_name=package_name,
+        variadic_inputs=bool(getattr(spec, "variadic_inputs", False)),
+        variadic_outputs=bool(getattr(spec, "variadic_outputs", False)),
     )
 
 
@@ -121,6 +123,9 @@ async def get_block_schema(
         # direction to the frontend so BlockNode.tsx can render dynamic-port
         # UI and IO-specific controls without hardcoded type checks.
         dynamic_ports=spec.dynamic_ports,
+        # ADR-029 D11: variadic port type constraints for frontend port editor.
+        allowed_input_types=list(getattr(spec, "allowed_input_types", []) or []),
+        allowed_output_types=list(getattr(spec, "allowed_output_types", []) or []),
     )
 
 
