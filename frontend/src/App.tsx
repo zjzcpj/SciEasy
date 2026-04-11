@@ -707,8 +707,12 @@ export default function App() {
                           } else if (block.type_name === "io_block") {
                             defaultParams.direction = block.name === "Load Block" ? "input" : "output";
                           }
-                          // Bug 7: Set default output_dir for AppBlocks when a project is open
-                          if (block.category === "app" && currentProject) {
+                          // Set default output_dir for AppBlocks when a project is open.
+                          // Check for output_dir in config_schema rather than category,
+                          // since AppBlock subclasses may use custom categories (e.g. "interactive").
+                          const blockSchema = schemas[block.type_name];
+                          const hasOutputDir = blockSchema?.config_schema?.properties?.output_dir != null;
+                          if (hasOutputDir && currentProject) {
                             defaultParams.output_dir = `${currentProject.path}/data/exchange/outputs`;
                           }
                           addNode(block, { x: 160, y: 160 }, Object.keys(defaultParams).length > 0 ? defaultParams : undefined);
