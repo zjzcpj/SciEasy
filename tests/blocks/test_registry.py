@@ -972,3 +972,53 @@ class TestVariadicPortsSpec:
         spec = _spec_from_class(_DefaultAllowedBlock)
         assert spec.allowed_input_types == []
         assert spec.allowed_output_types == []
+
+
+class TestPortCountLimitsSpec:
+    """ADR-029 Addendum 1: _spec_from_class() populates min/max port count limits."""
+
+    def test_default_limits_are_none(self) -> None:
+        """Block without explicit limits yields None for all 4 fields."""
+        from typing import Any, ClassVar
+
+        from scieasy.blocks.base.block import Block
+        from scieasy.blocks.base.config import BlockConfig
+        from scieasy.blocks.registry import _spec_from_class
+
+        class _NoLimitsBlock(Block):
+            name: ClassVar[str] = "NoLimitsBlock"
+
+            def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+                return {}
+
+        spec = _spec_from_class(_NoLimitsBlock)
+        assert spec.min_input_ports is None
+        assert spec.max_input_ports is None
+        assert spec.min_output_ports is None
+        assert spec.max_output_ports is None
+
+    def test_explicit_limits_captured(self) -> None:
+        """Block with explicit min/max ClassVars yields correct spec values."""
+        from typing import Any, ClassVar
+
+        from scieasy.blocks.base.block import Block
+        from scieasy.blocks.base.config import BlockConfig
+        from scieasy.blocks.registry import _spec_from_class
+
+        class _LimitedBlock(Block):
+            name: ClassVar[str] = "LimitedBlock"
+            variadic_inputs: ClassVar[bool] = True
+            variadic_outputs: ClassVar[bool] = True
+            min_input_ports: ClassVar[int | None] = 1
+            max_input_ports: ClassVar[int | None] = 5
+            min_output_ports: ClassVar[int | None] = 2
+            max_output_ports: ClassVar[int | None] = 4
+
+            def run(self, inputs: dict[str, Any], config: BlockConfig) -> dict[str, Any]:
+                return {}
+
+        spec = _spec_from_class(_LimitedBlock)
+        assert spec.min_input_ports == 1
+        assert spec.max_input_ports == 5
+        assert spec.min_output_ports == 2
+        assert spec.max_output_ports == 4

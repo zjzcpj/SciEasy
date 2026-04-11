@@ -7511,7 +7511,7 @@ resolutions" section.
 
 ## ADR-029 Addendum 1: Variadic port count limits
 
-**Status**: proposed
+**Status**: accepted
 **Date**: 2026-04-11
 **Parent**: ADR-029
 

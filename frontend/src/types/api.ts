@@ -145,6 +145,26 @@ export interface BlockSchemaResponse extends BlockSummary {
    * Empty array means "any DataObject subclass".
    */
   allowed_output_types?: string[];
+  /**
+   * ADR-029 Addendum 1: minimum number of variadic input ports.
+   * null/undefined means no minimum.
+   */
+  min_input_ports?: number | null;
+  /**
+   * ADR-029 Addendum 1: maximum number of variadic input ports.
+   * null/undefined means no maximum.
+   */
+  max_input_ports?: number | null;
+  /**
+   * ADR-029 Addendum 1: minimum number of variadic output ports.
+   * null/undefined means no minimum.
+   */
+  min_output_ports?: number | null;
+  /**
+   * ADR-029 Addendum 1: maximum number of variadic output ports.
+   * null/undefined means no maximum.
+   */
+  max_output_ports?: number | null;
 }
 
 export interface BlockListResponse {

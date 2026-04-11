@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- [#595] Implement variadic port count min/max limits (ADR-029 Addendum 1) (@claude, 2026-04-11, branch: feat/issue-595/variadic-port-min-max-limits, session: 20260411-101739-implement-adr-029-addendum-1-variadic-po)
+
 ### Changed
 
 - [#606] ADR-029 B3: extend introspect_script() with input_ports auto-inference from run() parameter type annotations; add _params_to_port_dicts() and _annotation_to_type_name() helpers (@claude, 2026-04-11, branch: feat/issue-606/codeblock-signature-auto-inference, session: 20260411-105722-b3-codeblock-python-signature-auto-infer)
