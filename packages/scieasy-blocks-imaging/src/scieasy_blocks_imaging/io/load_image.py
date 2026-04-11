@@ -183,9 +183,12 @@ def _load_zarr(path: Path, axes_override: list[str] | None) -> Image:
         raise ValueError(f"LoadImage: axes {axes!r} do not match array ndim={ndim} for {path}")
 
     # ADR-031: reference-only — point at existing zarr store, no copy.
+    # For group-backed stores with a "data" sub-array, point the ref at the
+    # actual array node so ZarrBackend.read() (zarr.open_array) succeeds.
+    arr_path = str(path) if isinstance(node, zarr.Array) else str(path / "data")
     ref = StorageReference(
         backend="zarr",
-        path=str(path),
+        path=arr_path,
         format="zarr",
         metadata={"shape": list(shape), "dtype": dtype_str},
     )
