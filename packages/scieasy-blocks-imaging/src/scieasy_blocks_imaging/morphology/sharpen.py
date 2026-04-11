@@ -21,7 +21,7 @@ class Sharpen(ProcessBlock):
     type_name: ClassVar[str] = "imaging.sharpen"
     name: ClassVar[str] = "Sharpen"
     description: ClassVar[str] = "Image sharpening (unsharp mask or Laplacian)."
-    category: ClassVar[str] = "morphology"
+    category: ClassVar[str] = "filter"
     algorithm: ClassVar[str] = "sharpen"
 
     input_ports: ClassVar[list[InputPort]] = [

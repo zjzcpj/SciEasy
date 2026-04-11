@@ -30,10 +30,8 @@ from scieasy_blocks_imaging.types import Image, Label, Mask
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from scieasy_blocks_imaging.interactive.cell_profiler_block import CellProfilerBlock
     from scieasy_blocks_imaging.interactive.fiji_block import FijiBlock
     from scieasy_blocks_imaging.interactive.napari_block import NapariBlock
-    from scieasy_blocks_imaging.interactive.qupath_block import QuPathBlock
 
 
 def _resolve_exchange_dir(config: BlockConfig, *, prefix: str) -> Path:
@@ -354,14 +352,10 @@ def _image_data(image: Image) -> np.ndarray:
     return np.asarray(image.to_memory())
 
 
-__all__ = ["CellProfilerBlock", "FijiBlock", "NapariBlock", "QuPathBlock"]
+__all__ = ["FijiBlock", "NapariBlock"]
 
 
 def __getattr__(name: str) -> Any:
-    if name == "CellProfilerBlock":
-        from scieasy_blocks_imaging.interactive.cell_profiler_block import CellProfilerBlock
-
-        return CellProfilerBlock
     if name == "FijiBlock":
         from scieasy_blocks_imaging.interactive.fiji_block import FijiBlock
 
@@ -370,8 +364,4 @@ def __getattr__(name: str) -> Any:
         from scieasy_blocks_imaging.interactive.napari_block import NapariBlock
 
         return NapariBlock
-    if name == "QuPathBlock":
-        from scieasy_blocks_imaging.interactive.qupath_block import QuPathBlock
-
-        return QuPathBlock
     raise AttributeError(name)

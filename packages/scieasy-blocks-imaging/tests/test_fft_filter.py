@@ -25,7 +25,7 @@ def test_t_img_016_module_importable() -> None:
 def test_t_img_016_class_has_required_classvars() -> None:
     assert FFTFilter.type_name == "imaging.fft_filter"
     assert FFTFilter.name == "FFT Filter"
-    assert FFTFilter.category == "morphology"
+    assert FFTFilter.category == "filter"
     assert "type" in FFTFilter.config_schema["properties"]
 
 

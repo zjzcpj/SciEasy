@@ -21,7 +21,7 @@ class FFTFilter(ProcessBlock):
     type_name: ClassVar[str] = "imaging.fft_filter"
     name: ClassVar[str] = "FFT Filter"
     description: ClassVar[str] = "FFT lowpass / highpass / bandpass filter."
-    category: ClassVar[str] = "morphology"
+    category: ClassVar[str] = "filter"
     algorithm: ClassVar[str] = "fft_filter"
 
     input_ports: ClassVar[list[InputPort]] = [

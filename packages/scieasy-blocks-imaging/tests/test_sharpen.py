@@ -25,7 +25,7 @@ def test_t_img_015_module_importable() -> None:
 def test_t_img_015_class_has_required_classvars() -> None:
     assert Sharpen.type_name == "imaging.sharpen"
     assert Sharpen.name == "Sharpen"
-    assert Sharpen.category == "morphology"
+    assert Sharpen.category == "filter"
     assert "method" in Sharpen.config_schema["properties"]
 
 

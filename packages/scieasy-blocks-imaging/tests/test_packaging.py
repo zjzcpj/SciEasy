@@ -19,7 +19,7 @@ from scieasy.blocks.base.package_info import PackageInfo
 def test_get_blocks_returns_all_concrete_imaging_blocks() -> None:
     blocks = get_blocks()
 
-    assert len(blocks) == 51
+    assert len(blocks) == 49
     assert TrackObjects not in blocks
     assert len({cls.type_name for cls in blocks}) == len(blocks)
 

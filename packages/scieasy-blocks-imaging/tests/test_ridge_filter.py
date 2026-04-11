@@ -25,7 +25,7 @@ def test_t_img_014_module_importable() -> None:
 def test_t_img_014_class_has_required_classvars() -> None:
     assert RidgeFilter.type_name == "imaging.ridge_filter"
     assert RidgeFilter.name == "Ridge Filter"
-    assert RidgeFilter.category == "morphology"
+    assert RidgeFilter.category == "filter"
     assert "method" in RidgeFilter.config_schema["properties"]
 
 
