@@ -109,8 +109,10 @@ class TestNativeDialog:
         )
         assert resp.status_code == 422
 
-    def test_directory_dialog_returns_path(self, client: TestClient, opened_project: Path, monkeypatch: object) -> None:
-        """Successful directory dialog returns the selected path."""
+    def test_directory_dialog_returns_paths(
+        self, client: TestClient, opened_project: Path, monkeypatch: object
+    ) -> None:
+        """Successful directory dialog returns the selected path in a list."""
         import subprocess
 
         import scieasy.api.routes.filesystem as fs_mod
@@ -130,12 +132,12 @@ class TestNativeDialog:
                 json={"mode": "directory", "initial_dir": str(opened_project)},
             )
             assert resp.status_code == 200
-            assert resp.json()["path"] == fake_dir
+            assert resp.json()["paths"] == [fake_dir]
         finally:
             fs_mod.subprocess.run = original_run  # type: ignore[assignment]
 
-    def test_file_dialog_returns_path(self, client: TestClient, opened_project: Path, monkeypatch: object) -> None:
-        """Successful file dialog returns the selected file path."""
+    def test_file_dialog_returns_paths(self, client: TestClient, opened_project: Path, monkeypatch: object) -> None:
+        """Successful file dialog returns the selected file path in a list."""
         import subprocess
 
         import scieasy.api.routes.filesystem as fs_mod
@@ -155,12 +157,38 @@ class TestNativeDialog:
                 json={"mode": "file"},
             )
             assert resp.status_code == 200
-            assert resp.json()["path"] == fake_file
+            assert resp.json()["paths"] == [fake_file]
         finally:
             fs_mod.subprocess.run = original_run  # type: ignore[assignment]
 
-    def test_cancelled_dialog_returns_null(self, client: TestClient, monkeypatch: object) -> None:
-        """Cancelled dialog returns path=null."""
+    def test_file_dialog_multi_select(self, client: TestClient, opened_project: Path, monkeypatch: object) -> None:
+        """File dialog with multiple selections returns pipe-separated paths."""
+        import subprocess
+
+        import scieasy.api.routes.filesystem as fs_mod
+
+        fake_a = str(opened_project / "data" / "a.csv")
+        fake_b = str(opened_project / "data" / "b.csv")
+
+        class FakeCompletedProcess:
+            stdout = f"{fake_a}|{fake_b}\n"
+            stderr = ""
+            returncode = 0
+
+        original_run = subprocess.run
+        fs_mod.subprocess.run = lambda *_args, **_kwargs: FakeCompletedProcess()  # type: ignore[assignment]
+        try:
+            resp = client.post(
+                "/api/filesystem/native-dialog",
+                json={"mode": "file"},
+            )
+            assert resp.status_code == 200
+            assert resp.json()["paths"] == [fake_a, fake_b]
+        finally:
+            fs_mod.subprocess.run = original_run  # type: ignore[assignment]
+
+    def test_cancelled_dialog_returns_empty_list(self, client: TestClient, monkeypatch: object) -> None:
+        """Cancelled dialog returns empty paths list."""
         import subprocess
 
         import scieasy.api.routes.filesystem as fs_mod
@@ -178,7 +206,7 @@ class TestNativeDialog:
                 json={"mode": "directory"},
             )
             assert resp.status_code == 200
-            assert resp.json()["path"] is None
+            assert resp.json()["paths"] == []
         finally:
             fs_mod.subprocess.run = original_run  # type: ignore[assignment]
 
