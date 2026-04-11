@@ -22,7 +22,7 @@ class MorphologyOp(ProcessBlock):
     type_name: ClassVar[str] = "imaging.morphology_op"
     name: ClassVar[str] = "Morphology Op"
     description: ClassVar[str] = "Morphological operations: erode/dilate/open/close/tophat/bottomhat."
-    category: ClassVar[str] = "filter"
+    subcategory: ClassVar[str] = "filter"
     algorithm: ClassVar[str] = "morphology"
 
     input_ports: ClassVar[list[InputPort]] = [

@@ -74,7 +74,7 @@ class LoadMIDTable(_LCMSBlockMixin, IOBlock):
     direction: ClassVar[str] = "input"
     type_name: ClassVar[str] = "lcms.load_mid_table"
     name: ClassVar[str] = "Load MID Table"
-    category: ClassVar[str] = "io"
+    subcategory: ClassVar[str] = "io"
     description: ClassVar[str] = (
         "Load a long-format Mass Isotopomer Distribution (MID) table from "
         "AccuCor output (CSV/TSV/XLSX) into a typed MIDTable."

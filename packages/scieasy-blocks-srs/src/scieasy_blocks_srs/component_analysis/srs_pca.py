@@ -31,7 +31,7 @@ class SRSPCA(ProcessBlock):
     type_name: ClassVar[str] = "srs.pca"
     description: ClassVar[str] = "Principal Component Analysis on per-pixel spectra."
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "component_analysis"
+    subcategory: ClassVar[str] = "component_analysis"
     algorithm: ClassVar[str] = "pca"
 
     input_ports: ClassVar[list[InputPort]] = [

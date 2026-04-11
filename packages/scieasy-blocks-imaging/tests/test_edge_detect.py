@@ -25,7 +25,7 @@ def test_t_img_013_module_importable() -> None:
 def test_t_img_013_class_has_required_classvars() -> None:
     assert EdgeDetect.type_name == "imaging.edge_detect"
     assert EdgeDetect.name == "Edge Detect"
-    assert EdgeDetect.category == "filter"
+    assert EdgeDetect.subcategory == "filter"
     assert "method" in EdgeDetect.config_schema["properties"]
 
 

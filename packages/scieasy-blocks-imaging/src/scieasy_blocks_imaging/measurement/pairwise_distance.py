@@ -22,7 +22,7 @@ class PairwiseDistance(ProcessBlock):
     name: ClassVar[str] = "Pairwise Distance"
     description: ClassVar[str] = "Compute pairwise distances between labelled objects (centroid or edge metric)."
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "measurement"
+    subcategory: ClassVar[str] = "measurement"
     algorithm: ClassVar[str] = "pairwise_distance"
 
     input_ports: ClassVar[list[InputPort]] = [

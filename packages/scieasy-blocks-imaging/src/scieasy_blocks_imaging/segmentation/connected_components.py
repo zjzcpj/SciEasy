@@ -22,7 +22,7 @@ class ConnectedComponents(ProcessBlock):
     name: ClassVar[str] = "Connected Components"
     description: ClassVar[str] = "Label connected foreground components in a binary Mask, returning a Label."
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "segmentation"
+    subcategory: ClassVar[str] = "segmentation"
     algorithm: ClassVar[str] = "connected_components"
 
     input_ports: ClassVar[list[InputPort]] = [

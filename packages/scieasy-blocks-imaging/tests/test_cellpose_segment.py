@@ -127,7 +127,7 @@ def test_t_img_019_module_importable() -> None:
 def test_t_img_019_class_has_required_classvars() -> None:
     assert hasattr(CellposeSegment, "type_name")
     assert hasattr(CellposeSegment, "name")
-    assert hasattr(CellposeSegment, "category")
+    assert hasattr(CellposeSegment, "subcategory")
     assert hasattr(CellposeSegment, "config_schema")
 
 

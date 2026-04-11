@@ -153,7 +153,7 @@ class LoadImage(IOBlock):
     type_name: ClassVar[str] = "imaging.load_image"
     name: ClassVar[str] = "Load Image"
     description: ClassVar[str] = "Load a TIFF or Zarr image into an Image data object."
-    category: ClassVar[str] = "io"
+    subcategory: ClassVar[str] = "io"
 
     output_ports: ClassVar[list[OutputPort]] = [
         OutputPort(name="images", accepted_types=[Image], is_collection=True),

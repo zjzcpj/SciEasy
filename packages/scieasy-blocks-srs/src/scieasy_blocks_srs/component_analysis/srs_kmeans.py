@@ -36,7 +36,7 @@ class SRSKMeansCluster(ProcessBlock):
     type_name: ClassVar[str] = "srs.kmeans"
     description: ClassVar[str] = "K-means clustering of per-pixel spectra."
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "component_analysis"
+    subcategory: ClassVar[str] = "component_analysis"
     algorithm: ClassVar[str] = "kmeans"
 
     input_ports: ClassVar[list[InputPort]] = [

@@ -39,7 +39,7 @@ class Denoise(ProcessBlock):
     type_name: ClassVar[str] = "imaging.denoise"
     name: ClassVar[str] = "Denoise"
     description: ClassVar[str] = "Remove noise via gaussian/median (pilot)."
-    category: ClassVar[str] = "preprocess"
+    subcategory: ClassVar[str] = "preprocess"
     algorithm: ClassVar[str] = "denoise"
 
     input_ports: ClassVar[list[InputPort]] = [

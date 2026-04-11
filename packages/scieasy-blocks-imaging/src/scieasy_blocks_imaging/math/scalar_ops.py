@@ -29,7 +29,7 @@ class AddScalar(ProcessBlock):
     name: ClassVar[str] = "Add Scalar"
     description: ClassVar[str] = "Add a scalar to every pixel."
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "math"
+    subcategory: ClassVar[str] = "math"
     algorithm: ClassVar[str] = "add_scalar"
 
     input_ports: ClassVar[list[InputPort]] = [
@@ -51,7 +51,7 @@ class SubtractScalar(ProcessBlock):
     name: ClassVar[str] = "Subtract Scalar"
     description: ClassVar[str] = "Subtract a scalar from every pixel."
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "math"
+    subcategory: ClassVar[str] = "math"
     algorithm: ClassVar[str] = "subtract_scalar"
 
     input_ports: ClassVar[list[InputPort]] = [
@@ -73,7 +73,7 @@ class MultiplyScalar(ProcessBlock):
     name: ClassVar[str] = "Multiply Scalar"
     description: ClassVar[str] = "Multiply every pixel by a scalar."
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "math"
+    subcategory: ClassVar[str] = "math"
     algorithm: ClassVar[str] = "multiply_scalar"
 
     input_ports: ClassVar[list[InputPort]] = [
@@ -95,7 +95,7 @@ class DivideScalar(ProcessBlock):
     name: ClassVar[str] = "Divide Scalar"
     description: ClassVar[str] = "Divide every pixel by a scalar with optional epsilon."
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "math"
+    subcategory: ClassVar[str] = "math"
     algorithm: ClassVar[str] = "divide_scalar"
 
     input_ports: ClassVar[list[InputPort]] = [

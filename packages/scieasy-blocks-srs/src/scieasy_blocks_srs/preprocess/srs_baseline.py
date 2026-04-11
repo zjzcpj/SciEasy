@@ -25,7 +25,7 @@ class SRSBaseline(ProcessBlock):
         "ALS is intentionally not supported."
     )
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "preprocessing"
+    subcategory: ClassVar[str] = "preprocessing"
     algorithm: ClassVar[str] = "spectral_baseline"
 
     input_ports: ClassVar[list[InputPort]] = [

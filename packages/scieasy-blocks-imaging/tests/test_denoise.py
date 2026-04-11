@@ -34,7 +34,7 @@ def test_t_img_004_module_importable() -> None:
 def test_t_img_004_class_has_required_classvars() -> None:
     assert Denoise.type_name == "imaging.denoise"
     assert Denoise.name == "Denoise"
-    assert Denoise.category == "preprocess"
+    assert Denoise.subcategory == "preprocess"
     assert "method" in Denoise.config_schema["properties"]
 
 

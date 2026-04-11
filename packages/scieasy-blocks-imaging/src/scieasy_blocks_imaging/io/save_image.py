@@ -128,7 +128,7 @@ class SaveImage(IOBlock):
     type_name: ClassVar[str] = "imaging.save_image"
     name: ClassVar[str] = "Save Image"
     description: ClassVar[str] = "Save an Image to a TIFF or Zarr store."
-    category: ClassVar[str] = "io"
+    subcategory: ClassVar[str] = "io"
 
     input_ports: ClassVar[list[InputPort]] = [
         InputPort(name="images", accepted_types=[Image], is_collection=True),

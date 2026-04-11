@@ -39,6 +39,9 @@ class BlockSpec:
     class_name: str = ""
     file_path: str | None = None
     file_mtime: float | None = None
+    base_category: str = ""
+    subcategory: str = ""
+    # Backward compat alias — equals base_category.
     category: str = ""
     input_ports: list[Any] = field(default_factory=list)
     output_ports: list[Any] = field(default_factory=list)
@@ -614,13 +617,17 @@ def _spec_from_class(cls: type, source: str = "") -> BlockSpec:
     # Fail loudly at scan time on malformed dynamic-port descriptors.
     BlockRegistry._validate_dynamic_ports(cls)
 
+    base_cat = _infer_category(cls)
+    sub_cat = getattr(cls, "subcategory", "") or ""
     return BlockSpec(
         name=getattr(cls, "name", cls.__name__),
         description=getattr(cls, "description", "") or (cls.__doc__ or "").split("\n")[0],
         version=getattr(cls, "version", "0.1.0"),
         module_path=cls.__module__,
         class_name=cls.__name__,
-        category=_infer_category(cls),
+        base_category=base_cat,
+        subcategory=sub_cat,
+        category=base_cat,  # backward compat alias
         input_ports=list(getattr(cls, "input_ports", [])),
         output_ports=list(getattr(cls, "output_ports", [])),
         config_schema=_merge_config_schema(cls),
@@ -632,10 +639,12 @@ def _spec_from_class(cls: type, source: str = "") -> BlockSpec:
 
 
 def _infer_category(cls: type) -> str:
-    """Infer the block category from the class hierarchy."""
-    explicit = getattr(cls, "category", "")
-    if explicit:
-        return explicit
+    """Infer the base block category from the class hierarchy.
+
+    Always returns one of the 6 base types (io, process, code, app, ai,
+    subworkflow) based on isinstance checks.  Never reads a ClassVar
+    override — subcategory is a separate field.  See issue #588.
+    """
     # Lazy imports to avoid circular dependencies.
     from scieasy.blocks.ai.ai_block import AIBlock
     from scieasy.blocks.app.app_block import AppBlock
@@ -656,8 +665,6 @@ def _infer_category(cls: type) -> str:
         return "ai"
     if issubclass(cls, SubWorkflowBlock):
         return "subworkflow"
-    if issubclass(cls, AIBlock):
-        return "ai"
     return "unknown"
 
 

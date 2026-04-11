@@ -44,7 +44,7 @@ class ExtractSpectrum(ProcessBlock):
         "Extract per-ROI mean spectra into a long-format DataFrame (region_id, wavenumber_cm1, intensity)."
     )
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "spectral"
+    subcategory: ClassVar[str] = "spectral"
     algorithm: ClassVar[str] = "extract_spectrum"
 
     input_ports: ClassVar[list[InputPort]] = [

@@ -26,7 +26,7 @@ class RenderPseudoColor(ProcessBlock):
     name: ClassVar[str] = "Render Pseudo-color"
     description: ClassVar[str] = "Map a single-channel image through a colour LUT to a PNG artifact."
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "visualization"
+    subcategory: ClassVar[str] = "visualization"
     algorithm: ClassVar[str] = "render_pseudo_color"
 
     input_ports: ClassVar[list[InputPort]] = [
@@ -61,7 +61,7 @@ class RenderOverlay(ProcessBlock):
     name: ClassVar[str] = "Render Overlay"
     description: ClassVar[str] = "Overlay Label / Mask outlines on an intensity image."
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "visualization"
+    subcategory: ClassVar[str] = "visualization"
     algorithm: ClassVar[str] = "render_overlay"
 
     input_ports: ClassVar[list[InputPort]] = [
@@ -105,7 +105,7 @@ class RenderMontage(ProcessBlock):
     name: ClassVar[str] = "Render Montage"
     description: ClassVar[str] = "Tile multiple frames / channels into a single montage image."
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "visualization"
+    subcategory: ClassVar[str] = "visualization"
     algorithm: ClassVar[str] = "render_montage"
 
     input_ports: ClassVar[list[InputPort]] = [
@@ -157,7 +157,7 @@ class RenderMovie(ProcessBlock):
     name: ClassVar[str] = "Render Movie"
     description: ClassVar[str] = "Encode a time-series image as an MP4 movie artifact."
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "visualization"
+    subcategory: ClassVar[str] = "visualization"
     algorithm: ClassVar[str] = "render_movie"
 
     input_ports: ClassVar[list[InputPort]] = [
@@ -194,7 +194,7 @@ class RenderHistogram(ProcessBlock):
     name: ClassVar[str] = "Render Histogram"
     description: ClassVar[str] = "Render a pixel intensity histogram as a PNG / SVG artifact."
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "visualization"
+    subcategory: ClassVar[str] = "visualization"
     algorithm: ClassVar[str] = "render_histogram"
 
     input_ports: ClassVar[list[InputPort]] = [

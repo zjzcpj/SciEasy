@@ -29,7 +29,7 @@ class NapariBlock(AppBlock):
         "Open Image inputs in napari for interactive review. Collects exported layers from the exchange directory."
     )
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "interactive"
+    subcategory: ClassVar[str] = "interactive"
 
     app_command: ClassVar[str] = "napari"
     execution_mode: ClassVar[ExecutionMode] = ExecutionMode.EXTERNAL

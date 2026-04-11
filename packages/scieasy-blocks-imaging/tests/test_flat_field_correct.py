@@ -29,7 +29,7 @@ def test_t_img_007_module_importable() -> None:
 
 def test_t_img_007_class_has_required_classvars() -> None:
     assert FlatFieldCorrect.type_name == "imaging.flatfield_correct"
-    assert FlatFieldCorrect.category == "preprocess"
+    assert FlatFieldCorrect.subcategory == "preprocess"
     assert len(FlatFieldCorrect.input_ports) == 3
 
 

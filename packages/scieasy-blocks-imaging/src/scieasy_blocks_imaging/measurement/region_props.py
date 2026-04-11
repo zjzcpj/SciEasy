@@ -24,7 +24,7 @@ class RegionProps(ProcessBlock):
     name: ClassVar[str] = "Region Properties"
     description: ClassVar[str] = "Compute per-label region properties (area, centroid, intensity stats) as a DataFrame."
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "measurement"
+    subcategory: ClassVar[str] = "measurement"
     algorithm: ClassVar[str] = "region_props"
 
     input_ports: ClassVar[list[InputPort]] = [

@@ -86,17 +86,17 @@ class BlockSummary(BaseModel):
 
     name: str
     type_name: str
-    category: str
+    # #588: base_category is always one of 6 base types (io, process, code,
+    # app, ai, subworkflow).  subcategory is the optional palette grouping
+    # label.  category is kept as a backward-compat alias for base_category.
+    base_category: str = ""
+    subcategory: str = ""
+    category: str = ""
     description: str = ""
     version: str = "0.1.0"
     input_ports: list[BlockPortResponse] = Field(default_factory=list)
     output_ports: list[BlockPortResponse] = Field(default_factory=list)
     direction: str | None = None
-    # Stage 10.1 Part 1: palette grouping metadata. Agent A declares the
-    # fields with safe defaults; Agent B populates them from BlockSpec in
-    # ``_summary()`` after the ``source`` value rename lands. Empty strings
-    # are semantically equivalent to "unknown / not yet populated".
-    # See docs/design/stage-10-1-palette.md §3.1.3.
     source: str = ""
     package_name: str = ""
 

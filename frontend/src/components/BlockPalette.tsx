@@ -188,7 +188,7 @@ function groupBlocks(blocks: BlockSummary[]): {
 
   for (const block of blocks) {
     const pkg = derivePackage(block);
-    const cat = block.category || "general";
+    const cat = block.subcategory || block.base_category || "general";
 
     if (!packageMap.has(pkg)) {
       packageMap.set(pkg, new Map());
@@ -231,7 +231,7 @@ export function BlockPalette({
   // When a search query is active, auto-expand all matching branches by filtering
   // to only blocks that match. groupBlocks then produces only the non-empty groups.
   const filtered = blocks.filter((block) => {
-    const value = `${block.name} ${block.description} ${block.category}`.toLowerCase();
+    const value = `${block.name} ${block.description} ${block.subcategory || block.base_category}`.toLowerCase();
     return value.includes(search.toLowerCase());
   });
 

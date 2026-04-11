@@ -123,7 +123,7 @@ class SaveData(IOBlock):
     description: ClassVar[str] = (
         "Save a core DataObject (Array / DataFrame / Series / Text / Artifact / CompositeData) to disk."
     )
-    category: ClassVar[str] = "io"
+    subcategory: ClassVar[str] = "io"
 
     # The ``data`` input port's accepted_types is a placeholder
     # ``[DataObject]`` here. The per-instance override in

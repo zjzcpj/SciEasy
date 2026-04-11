@@ -21,7 +21,7 @@ class RidgeFilter(ProcessBlock):
     type_name: ClassVar[str] = "imaging.ridge_filter"
     name: ClassVar[str] = "Ridge Filter"
     description: ClassVar[str] = "Ridge / vesselness filtering (Frangi / Meijering / Sato / Hessian)."
-    category: ClassVar[str] = "filter"
+    subcategory: ClassVar[str] = "filter"
     algorithm: ClassVar[str] = "ridge_filter"
 
     input_ports: ClassVar[list[InputPort]] = [

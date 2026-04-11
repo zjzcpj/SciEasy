@@ -256,7 +256,7 @@ class ElMAVENBlock(_LCMSBlockMixin, AppBlock):
 
     name: ClassVar[str] = "ElMAVEN"
     type_name: ClassVar[str] = "lcms.elmaven"
-    category: ClassVar[str] = "external"
+    subcategory: ClassVar[str] = "external"
     description: ClassVar[str] = (
         "Open a batch of MSRawFiles in ElMAVEN for interactive peak picking. "
         "Collects exported peak tables (and optional MID tables) from the "

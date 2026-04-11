@@ -36,7 +36,7 @@ class FlatFieldCorrect(ProcessBlock):
     type_name: ClassVar[str] = "imaging.flatfield_correct"
     name: ClassVar[str] = "Flat Field Correct"
     description: ClassVar[str] = "Correct uneven illumination using a flat-field reference."
-    category: ClassVar[str] = "preprocess"
+    subcategory: ClassVar[str] = "preprocess"
     algorithm: ClassVar[str] = "flatfield_correct"
 
     input_ports: ClassVar[list[InputPort]] = [

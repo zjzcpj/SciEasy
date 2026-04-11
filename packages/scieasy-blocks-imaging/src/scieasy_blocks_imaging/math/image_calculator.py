@@ -41,7 +41,7 @@ class ImageCalculator(ProcessBlock):
     name: ClassVar[str] = "Image Calculator"
     description: ClassVar[str] = "Two-input image calculator. Evaluate an AST-restricted expression in 'a' and 'b'."
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "math"
+    subcategory: ClassVar[str] = "math"
     algorithm: ClassVar[str] = "image_calculator"
 
     input_ports: ClassVar[list[InputPort]] = [

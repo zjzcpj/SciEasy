@@ -60,15 +60,17 @@ export interface BlockPortResponse {
 export interface BlockSummary {
   name: string;
   type_name: string;
+  // #588: base_category is always one of 6 base types (io, process, code,
+  // app, ai, subworkflow).  subcategory is the optional palette grouping
+  // label.  category is kept as a backward-compat alias for base_category.
+  base_category: string;
+  subcategory: string;
   category: string;
   description: string;
   version: string;
   input_ports: BlockPortResponse[];
   output_ports: BlockPortResponse[];
   direction?: string | null;
-  // Stage 10.1 Part 1: optional palette grouping metadata.
-  // Optional because Agent A declares them; Agent B populates the backend in Part 2.
-  // See docs/design/stage-10-1-palette.md §3.1.5.
   source?: string;
   package_name?: string;
 }

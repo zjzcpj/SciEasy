@@ -30,7 +30,7 @@ class FijiBlock(AppBlock):
         "Collects exported TIFFs / ROIs from the exchange directory."
     )
     version: ClassVar[str] = "0.1.0"
-    category: ClassVar[str] = "interactive"
+    subcategory: ClassVar[str] = "interactive"
 
     app_command: ClassVar[str] = r"C:\Program Files\Fiji\fiji-windows-x64.exe"
     execution_mode: ClassVar[ExecutionMode] = ExecutionMode.EXTERNAL

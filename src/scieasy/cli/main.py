@@ -206,19 +206,23 @@ def blocks() -> None:
         typer.echo("No blocks found.")
         return
 
-    all_specs = sorted(specs.values(), key=lambda s: (s.category, s.name))
+    all_specs = sorted(specs.values(), key=lambda s: (s.base_category, s.subcategory, s.name))
 
     name_w = max(max(len(s.name) for s in all_specs), 4)
-    cat_w = max(max(len(s.category) for s in all_specs), 8)
+    base_w = max(max(len(s.base_category) for s in all_specs), 8)
+    sub_w = max(max(len(s.subcategory) for s in all_specs), 11)
     ver_w = max(max(len(s.version) for s in all_specs), 7)
 
-    header = f"{'Name':<{name_w}}  {'Category':<{cat_w}}  {'Version':<{ver_w}}  Description"
+    header = f"{'Name':<{name_w}}  {'Category':<{base_w}}  {'Subcategory':<{sub_w}}  {'Version':<{ver_w}}  Description"
     typer.echo(header)
     typer.echo("-" * len(header))
 
     for spec in all_specs:
         desc = spec.description[:60] if spec.description else ""
-        typer.echo(f"{spec.name:<{name_w}}  {spec.category:<{cat_w}}  {spec.version:<{ver_w}}  {desc}")
+        typer.echo(
+            f"{spec.name:<{name_w}}  {spec.base_category:<{base_w}}  "
+            f"{spec.subcategory:<{sub_w}}  {spec.version:<{ver_w}}  {desc}"
+        )
 
     typer.echo(f"\nFound {len(all_specs)} block(s)")
 

@@ -31,7 +31,7 @@ class BackgroundSubtract(ProcessBlock):
     type_name: ClassVar[str] = "imaging.background_subtract"
     name: ClassVar[str] = "Background Subtract"
     description: ClassVar[str] = "Subtract image background via rolling-ball / top-hat / polynomial / constant."
-    category: ClassVar[str] = "preprocess"
+    subcategory: ClassVar[str] = "preprocess"
     algorithm: ClassVar[str] = "background_subtract"
 
     input_ports: ClassVar[list[InputPort]] = [
