@@ -1,4 +1,4 @@
-"""Tests for _native_dialog_windows directory picker (IFileOpenDialog COM)."""
+"""Tests for _native_dialog_windows: modern IFileOpenDialog COM folder picker."""
 
 from __future__ import annotations
 
