@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- [#579] Fix 7 project management bugs: browse button, sort by last_opened, prune deleted, rename Save Project, delete button, clear canvas on open, direct recent open, AppBlock output_dir default (@claude, 2026-04-11, branch: fix/issue-579/project-management-bugs, session: 20260411-032627-fix-7-project-management-bugs-579)
 - [#574] Remove CellProfiler/QuPath blocks, add subcategory labels to Imaging blocks, enable category override in registry (@claude, 2026-04-11, branch: refactor/issue-574/imaging-cleanup-subcategories, session: 20260411-021002-remove-cellprofiler-qupath-blocks-add-su)
 - [#571] Inject Executable Path (file_browser) + Save Outputs At with forced ui_priority ordering in AppBlock (@claude, 2026-04-11, branch: fix/issue-571/appblock-config-injection, session: 20260411-020155-fix-571-inject-executable-path-save-outp)
 - [#572] Clean up Fiji config after AppBlock MRO injection: remove redundant watch_timeout from config_schema (@claude, 2026-04-11, branch: fix/issue-572/fiji-elmaven-config-cleanup, session: 20260411-020318-clean-up-fiji-and-elmaven-config-after-a)
