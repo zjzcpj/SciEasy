@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- [#581] Remove redundant fiji_path/napari_path fields, inject ClassVar defaults into config_schema, remove auto-open file manager, add copy button feedback (@claude, 2026-04-11, branch: fix/issue-581/path-cleanup-copy-feedback)
+- [#580] Add WORKFLOW_STARTED to WebSocket outbound events so frontend Run button spinner activates (@claude, 2026-04-11, branch: fix/issue-580/workflow-started-ws, session: 20260411-032524-fix-580-add-workflow-started-to-websocke)
+
 ### Changed
 
 - [#574] Remove CellProfiler/QuPath blocks, add subcategory labels to Imaging blocks, enable category override in registry (@claude, 2026-04-11, branch: refactor/issue-574/imaging-cleanup-subcategories, session: 20260411-021002-remove-cellprofiler-qupath-blocks-add-su)

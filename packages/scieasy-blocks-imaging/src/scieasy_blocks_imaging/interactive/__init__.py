@@ -172,7 +172,6 @@ def _run_external_app(
     output_dir = Path(str(custom_output_dir)) if custom_output_dir else exchange_dir / "outputs"
     output_dir.mkdir(parents=True, exist_ok=True)
     logger.info("Waiting for external application output. Save files to: %s", output_dir)
-    _open_file_manager(output_dir)
 
     proc = bridge.launch(command, exchange_dir, argv_override=launch_args)
     watcher = FileWatcher(

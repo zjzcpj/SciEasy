@@ -9,9 +9,21 @@ from unittest.mock import AsyncMock
 from fastapi.testclient import TestClient
 
 from scieasy.api.runtime import ApiRuntime
-from scieasy.api.ws import websocket_handler
-from scieasy.engine.events import BLOCK_DONE, CANCEL_BLOCK_REQUEST, CANCEL_WORKFLOW_REQUEST, EngineEvent, EventBus
+from scieasy.api.ws import _OUTBOUND_EVENTS, websocket_handler
+from scieasy.engine.events import (
+    BLOCK_DONE,
+    CANCEL_BLOCK_REQUEST,
+    CANCEL_WORKFLOW_REQUEST,
+    WORKFLOW_STARTED,
+    EngineEvent,
+    EventBus,
+)
 from tests.api.helpers import wait_for_condition
+
+
+def test_workflow_started_in_outbound_events() -> None:
+    """WORKFLOW_STARTED must be forwarded to WebSocket clients (#580)."""
+    assert WORKFLOW_STARTED in _OUTBOUND_EVENTS
 
 
 def test_websocket_receives_serialised_engine_events(client: TestClient, runtime: ApiRuntime) -> None:
