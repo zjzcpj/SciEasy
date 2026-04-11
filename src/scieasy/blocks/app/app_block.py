@@ -99,16 +99,9 @@ class AppBlock(Block):
         ADR-020: Accepts and returns Collection-wrapped data.
         """
         bridge = FileExchangeBridge()
-        command: str | list[str] = config.get("app_command") or self.app_command
+        command = config.get("app_command") or self.app_command
         if not command:
             raise ValueError("AppBlock requires 'app_command' in config or as class variable")
-
-        # If the command is a bare filesystem path (e.g. selected via
-        # file_browser), wrap it as a single-element list so
-        # validate_app_command() does not shlex-split paths with spaces
-        # like "C:\Program Files\Fiji\fiji.exe".
-        if isinstance(command, str) and Path(command).is_file():
-            command = [command]
 
         patterns = config.get("output_patterns") or self.output_patterns
 
