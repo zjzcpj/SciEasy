@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#338,#339] Fix AppBlock subprocess leak (no proc.wait after run) and temp exchange directory leak (tempfile.mkdtemp never cleaned up) (@claude, 2026-04-11, branch: fix/issue-338-339/appblock-resource-leaks, session: 20260411-020206-fix-appblock-subprocess-leak-338-and-tem)
 - [#565] Fix BlockConfig.get() to find enriched runtime keys (block_id, project_dir); add data/exchange to create_project (@claude, 2026-04-10, branch: fix/issue-565/blockconfig-get-extra-fields, session: 20260410-045525-fix-blockconfig-get-not-finding-enriched)
 - [#563] Pass raw file paths as CLI arguments to ElMAVEN so files are pre-loaded on launch (@claude, 2026-04-10, branch: fix/issue-563/elmaven-file-args, session: 20260410-040343-fix-563-elmaven-block-does-not-pass-inpu)
 - [#534] Remove is_collection double-ring from port rendering (@claude, 2026-04-10, branch: fix/issue-534/remove-collection-double-ring, session: 20260410-000721-fix-gui-remove-is-collection-double-ring)
