@@ -215,6 +215,14 @@ def main() -> None:
         module = importlib.import_module(module_path)
         block_cls = getattr(module, class_name)
 
+        # Set output_dir BEFORE block.run() so IOBlock.run() can resolve it
+        # via get_output_dir() for loader persistence (ADR-031 D4).
+        # serialise_outputs() also uses this context, so it stays set.
+        if output_dir:
+            from scieasy.core.storage.flush_context import set_output_dir
+
+            set_output_dir(output_dir)
+
         # Reconstruct inputs as typed DataObject instances (ADR-027 Addendum 1).
         inputs = reconstruct_inputs(payload)
 

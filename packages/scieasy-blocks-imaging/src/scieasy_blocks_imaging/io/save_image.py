@@ -148,7 +148,9 @@ class SaveImage(IOBlock):
         "required": [],
     }
 
-    def load(self, config: BlockConfig) -> DataObject | Collection:  # pragma: no cover - output block
+    def load(
+        self, config: BlockConfig, output_dir: str = ""
+    ) -> DataObject | Collection:  # pragma: no cover - output block
         """Direction is ``output``; ``load`` is unreachable via dispatch."""
         raise NotImplementedError("SaveImage is an output block; use save()")
 

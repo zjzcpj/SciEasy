@@ -5,6 +5,14 @@ override :meth:`load` (for ``direction="input"``) or :meth:`save` (for
 ``direction="output"``); the default :meth:`run` dispatches based on
 the ``direction`` ClassVar.
 
+ADR-031 D4: ``load()`` now accepts an ``output_dir`` parameter so
+loader implementations can persist data to storage and return
+reference-only :class:`DataObject` instances. The base class provides
+:meth:`persist_array` and :meth:`persist_table` helper methods for
+streaming writes. The ``run()`` method enforces a safety net: any
+DataObject returned without ``storage_ref`` is auto-flushed before
+crossing the block boundary.
+
 The legacy ``adapter_registry`` / ``adapters/`` dispatch layer was
 removed in T-TRK-004. Concrete core loaders (``LoadData``, ``SaveData``)
 arrive in T-TRK-007 and T-TRK-008. Plugin-owned IO blocks (e.g.
@@ -14,15 +22,22 @@ directly and register via the ``scieasy.blocks`` entry-point group.
 
 from __future__ import annotations
 
+import logging
+import tempfile
+import uuid
 from abc import abstractmethod
+from pathlib import Path
 from typing import Any, ClassVar
 
 from scieasy.blocks.base.block import Block
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
+from scieasy.core.storage.ref import StorageReference
 from scieasy.core.types.base import DataObject
 from scieasy.core.types.collection import Collection
 from scieasy.core.types.text import Text
+
+_logger = logging.getLogger(__name__)
 
 
 class IOBlock(Block):
@@ -67,8 +82,23 @@ class IOBlock(Block):
     }
 
     @abstractmethod
-    def load(self, config: BlockConfig) -> DataObject | Collection:
-        """Load and return a single :class:`DataObject` or :class:`Collection`."""
+    def load(self, config: BlockConfig, output_dir: str = "") -> DataObject | Collection:
+        """Load and return a single :class:`DataObject` or :class:`Collection`.
+
+        ADR-031 D4: ``output_dir`` is the directory where loaders should
+        persist data to storage. Implementations may EITHER:
+
+        (a) Return an in-memory DataObject (simple path):
+            The base class auto-persists it to storage via ``_auto_flush``.
+            Works for small/medium files. Will OOM on very large files.
+
+        (b) Write to storage directly using :meth:`persist_array` or
+            :meth:`persist_table` and return a reference-only object
+            (streaming path). Required for large files.
+
+        Artifact subclasses are exempt — return with ``file_path``, no
+        storage write needed.
+        """
         ...
 
     @abstractmethod
@@ -102,6 +132,79 @@ class IOBlock(Block):
             return "path"
         return ports[0].name
 
+    def persist_array(
+        self,
+        data_or_iterator: Any,
+        shape: tuple[int, ...],
+        dtype: Any,
+        output_dir: str,
+        chunks: tuple[int, ...] | None = None,
+    ) -> StorageReference:
+        """Write array data to zarr storage and return a :class:`StorageReference`.
+
+        ADR-031 D4: persistence helper for loader authors.
+
+        ``data_or_iterator`` may be:
+
+        - A numpy ndarray (written in one shot).
+        - An iterator/generator yielding ``(index, chunk_array)`` tuples
+          for streaming, constant-memory writes. For a 3-D array of shape
+          ``(N, H, W)``, yield ``(i, page_2d)`` where ``page_2d`` has
+          shape ``(H, W)`` for each ``i`` in ``range(N)``.
+
+        Returns a :class:`StorageReference` pointing at the created zarr
+        store.
+        """
+        import numpy as np
+        import zarr
+
+        store_name = f"{uuid.uuid4()}.zarr"
+        store_path = str(Path(output_dir) / store_name)
+        Path(store_path).parent.mkdir(parents=True, exist_ok=True)
+
+        np_dtype = np.dtype(dtype)
+        if chunks is None:
+            zarr_chunks: tuple[int, ...] | bool = True  # let zarr auto-chunk
+        else:
+            zarr_chunks = chunks
+
+        z = zarr.open_array(store_path, mode="w", shape=shape, dtype=np_dtype, chunks=zarr_chunks)
+
+        if isinstance(data_or_iterator, np.ndarray):
+            z[:] = data_or_iterator
+        else:
+            # Iterator of (index, chunk_array) tuples — streaming write.
+            for idx, chunk in data_or_iterator:
+                z[idx] = chunk
+
+        metadata = {"shape": list(shape), "dtype": str(np_dtype)}
+        return StorageReference(
+            backend="zarr",
+            path=store_path,
+            format="zarr",
+            metadata=metadata,
+        )
+
+    def persist_table(self, table: Any, output_dir: str) -> StorageReference:
+        """Write an Arrow table to parquet storage and return a :class:`StorageReference`.
+
+        ADR-031 D4: persistence helper for loader authors.
+
+        ``table`` should be a ``pyarrow.Table``. The table is written to
+        a parquet file in ``output_dir`` and the returned
+        :class:`StorageReference` points at the persisted file.
+        """
+        from scieasy.core.storage.arrow_backend import ArrowBackend
+
+        file_name = f"{uuid.uuid4()}.parquet"
+        file_path = str(Path(output_dir) / file_name)
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        backend = ArrowBackend()
+        ref = StorageReference(backend="arrow", path=file_path, format="parquet")
+        result_ref = backend.write(table, ref)
+        return result_ref
+
     def run(
         self,
         inputs: dict[str, Collection],
@@ -119,9 +222,25 @@ class IOBlock(Block):
         backward compatibility.
         """
         if self.direction == "input":
-            result = self.load(config)
+            # ADR-031 D4: resolve output_dir for loader persistence.
+            from scieasy.core.storage.flush_context import get_output_dir
+
+            output_dir = get_output_dir() or tempfile.mkdtemp(prefix="scieasy-io-")
+            result = self.load(config, output_dir=output_dir)
             if not isinstance(result, Collection):
                 result = Collection(items=[result], item_type=type(result))
+            # ADR-031 D4 safety net: auto-flush any DataObject without
+            # storage_ref before it crosses the block boundary. Artifact
+            # instances with file_path are exempt (D5 path-only transport).
+            from scieasy.core.types.artifact import Artifact
+
+            for item in result:
+                if (
+                    isinstance(item, DataObject)
+                    and item.storage_ref is None
+                    and not (isinstance(item, Artifact) and item.file_path is not None)
+                ):
+                    self._auto_flush(item)
             return {self._resolved_load_output_port_name(): result}
         else:
             input_port_name = self._resolved_input_port_name()

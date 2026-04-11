@@ -48,7 +48,7 @@ class TestIOBlockIsAbstract:
         un-instantiable."""
 
         class HalfDone(IOBlock):
-            def load(self, config: BlockConfig) -> DataObject | Collection:
+            def load(self, config: BlockConfig, output_dir: str = "") -> DataObject | Collection:
                 return DataObject()
 
         with pytest.raises(TypeError, match="abstract"):
@@ -119,7 +119,7 @@ class TestIOBlockSubclassDispatch:
         existing = Collection(items=[DataObject(), DataObject()], item_type=DataObject)
 
         class CollectionLoader(InMemoryIOBlock):
-            def load(self, config: BlockConfig) -> DataObject | Collection:
+            def load(self, config: BlockConfig, output_dir: str = "") -> DataObject | Collection:
                 return existing
 
         block = CollectionLoader(config={"params": {"path": "/tmp/dir"}})

@@ -74,8 +74,12 @@ class LoadSampleMetadata(_LCMSBlockMixin, IOBlock):
         "required": ["path"],
     }
 
-    def load(self, config: BlockConfig) -> DataObject | Collection:
+    def load(self, config: BlockConfig, output_dir: str = "") -> DataObject | Collection:
         """Read metadata file(s) and return :class:`Collection[SampleMetadata]`.
+
+        ADR-031 D4: uses :meth:`persist_table` to write the DataFrame
+        payload to arrow storage instead of storing a pandas DataFrame
+        in the ``user`` dict.
 
         Accepts ``config["path"]`` as a single string or a list of strings
         (matching the :class:`LoadImage` multi-file pattern).
@@ -100,14 +104,25 @@ class LoadSampleMetadata(_LCMSBlockMixin, IOBlock):
             frame = _read_table(path, sheet_name=config.get("sheet_name"))
             if sample_id_column not in frame.columns:
                 raise ValueError(f"LoadSampleMetadata requires column '{sample_id_column}'")
-            metadata = SampleMetadata(
+
+            # ADR-031 D4: persist to arrow storage instead of storing
+            # pandas DataFrame in user dict.
+            storage_ref = None
+            if output_dir:
+                import pyarrow as pa
+
+                arrow_table = pa.Table.from_pandas(frame)
+                storage_ref = self.persist_table(arrow_table, output_dir)
+
+            sm = SampleMetadata(
                 columns=[str(col) for col in frame.columns],
                 row_count=len(frame),
                 schema={str(col): str(dtype) for col, dtype in frame.dtypes.items()},
                 meta=SampleMetadata.Meta(sample_id_column=sample_id_column),
+                storage_ref=storage_ref,
             )
-            metadata.user["pandas_df"] = frame.copy()
-            items.append(metadata)
+            # ADR-031: no longer store pandas_df in user dict.
+            items.append(sm)
         return Collection(items=items, item_type=SampleMetadata)
 
     def save(self, obj: DataObject | Collection, config: BlockConfig) -> None:

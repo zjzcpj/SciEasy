@@ -77,7 +77,7 @@ class SaveTable(_LCMSBlockMixin, IOBlock):
         "required": [],
     }
 
-    def load(self, config: BlockConfig) -> DataObject | Collection:
+    def load(self, config: BlockConfig, output_dir: str = "") -> DataObject | Collection:
         """Not supported — :class:`SaveTable` is output-only."""
         raise NotImplementedError("T-LCMS-006 SaveTable is direction='output'; load() is unreachable.")
 

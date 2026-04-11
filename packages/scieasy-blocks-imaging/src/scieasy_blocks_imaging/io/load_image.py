@@ -73,35 +73,83 @@ def _normalise_tiff_axes(tiff_axes: str, ndim: int) -> list[str]:
     return _default_axes_for_ndim(ndim)
 
 
-def _load_tiff(path: Path, axes_override: list[str] | None) -> Image:
-    """Load a TIFF file eagerly into an :class:`Image`."""
+def _load_tiff(path: Path, axes_override: list[str] | None, block: Any = None, output_dir: str = "") -> Image:
+    """Load a TIFF file into an :class:`Image`.
+
+    ADR-031 D4: when ``block`` and ``output_dir`` are provided, uses
+    streaming page-by-page writes via :meth:`IOBlock.persist_array`
+    for constant-memory loading of large TIFFs. Falls back to eager
+    in-memory loading (with base-class auto-flush) when no block is
+    available.
+    """
     import tifffile
 
     with tifffile.TiffFile(str(path)) as tf:
-        data: np.ndarray = tf.asarray()
         series_axes = tf.series[0].axes if tf.series else ""
-    axes = axes_override if axes_override is not None else _normalise_tiff_axes(series_axes, data.ndim)
-    if len(axes) != data.ndim:
-        raise ValueError(f"LoadImage: axes override {axes!r} does not match array ndim={data.ndim} for {path}")
-    img = Image(
-        axes=axes,
-        shape=tuple(data.shape),
-        dtype=data.dtype,
-        framework=FrameworkMeta(source=str(path)),
-        meta=Image.Meta(source_file=str(path)),
-    )
-    img._data = data  # type: ignore[attr-defined]
-    return img
+        n_pages = len(tf.pages)
+
+        if n_pages == 0:
+            raise ValueError(f"LoadImage: TIFF file has no pages: {path}")
+
+        page0 = tf.pages[0]
+        page_shape = page0.shape
+        page_dtype = page0.dtype
+
+        # Determine overall shape: multi-page TIFFs get a leading page dimension.
+        if n_pages > 1:
+            shape: tuple[int, ...] = (n_pages, *page_shape)
+        else:
+            shape = page_shape
+
+        ndim = len(shape)
+        axes = axes_override if axes_override is not None else _normalise_tiff_axes(series_axes, ndim)
+        if len(axes) != ndim:
+            raise ValueError(f"LoadImage: axes override {axes!r} does not match array ndim={ndim} for {path}")
+
+        # ADR-031 D4: streaming path — write pages to zarr one at a time.
+        if block is not None and output_dir and n_pages > 1:
+
+            def page_chunks() -> Any:
+                for i, page in enumerate(tf.pages):
+                    yield (i, page.asarray())
+
+            ref = block.persist_array(page_chunks(), shape, page_dtype, output_dir)
+            return Image(
+                axes=axes,
+                shape=shape,
+                dtype=str(np.dtype(page_dtype)),
+                framework=FrameworkMeta(source=str(path)),
+                meta=Image.Meta(source_file=str(path)),
+                storage_ref=ref,
+            )
+        else:
+            # Single-page or no block: read into memory (simple path).
+            data: np.ndarray = tf.asarray()
+            img = Image(
+                axes=axes,
+                shape=tuple(data.shape),
+                dtype=str(data.dtype),
+                framework=FrameworkMeta(source=str(path)),
+                meta=Image.Meta(source_file=str(path)),
+            )
+            img._data = data  # type: ignore[attr-defined]
+            return img
 
 
 def _load_zarr(path: Path, axes_override: list[str] | None) -> Image:
-    """Load a ``.zarr`` store eagerly into an :class:`Image`.
+    """Load a ``.zarr`` store as a reference-only :class:`Image`.
+
+    ADR-031 D4: creates a :class:`StorageReference` pointing at the
+    existing zarr store. Does NOT copy or eagerly read data. The zarr
+    store is used in-place as the backing storage.
 
     Supports both a top-level array store and a group containing a
     single array named ``"data"``. Axis metadata is read from the group
     attribute ``"axes"`` when present.
     """
     import zarr
+
+    from scieasy.core.storage.ref import StorageReference
 
     node = zarr.open(str(path), mode="r")
     attrs_axes: list[str] | None = None
@@ -121,24 +169,37 @@ def _load_zarr(path: Path, axes_override: list[str] | None) -> Image:
         if not isinstance(data_node, zarr.Array):
             raise ValueError(f"LoadImage: zarr group at {path} 'data' entry is not an array")
         arr_node = data_node
-    data = np.asarray(arr_node[...])
+
+    shape = tuple(arr_node.shape)
+    dtype_str = str(arr_node.dtype)
+    ndim = len(shape)
     if axes_override is not None:
         axes = axes_override
     elif attrs_axes is not None:
         axes = attrs_axes
     else:
-        axes = _default_axes_for_ndim(data.ndim)
-    if len(axes) != data.ndim:
-        raise ValueError(f"LoadImage: axes {axes!r} do not match array ndim={data.ndim} for {path}")
-    img = Image(
+        axes = _default_axes_for_ndim(ndim)
+    if len(axes) != ndim:
+        raise ValueError(f"LoadImage: axes {axes!r} do not match array ndim={ndim} for {path}")
+
+    # ADR-031: reference-only — point at existing zarr store, no copy.
+    # For group-backed stores with a "data" sub-array, point the ref at the
+    # actual array node so ZarrBackend.read() (zarr.open_array) succeeds.
+    arr_path = str(path) if isinstance(node, zarr.Array) else str(path / "data")
+    ref = StorageReference(
+        backend="zarr",
+        path=arr_path,
+        format="zarr",
+        metadata={"shape": list(shape), "dtype": dtype_str},
+    )
+    return Image(
         axes=axes,
-        shape=tuple(data.shape),
-        dtype=data.dtype,
+        shape=shape,
+        dtype=dtype_str,
         framework=FrameworkMeta(source=str(path)),
         meta=Image.Meta(source_file=str(path)),
+        storage_ref=ref,
     )
-    img._data = data  # type: ignore[attr-defined]
-    return img
 
 
 class LoadImage(IOBlock):
@@ -168,14 +229,17 @@ class LoadImage(IOBlock):
         "required": [],
     }
 
-    def load(self, config: BlockConfig) -> DataObject | Collection:
+    def load(self, config: BlockConfig, output_dir: str = "") -> DataObject | Collection:
         """Load the configured file(s) into a ``Collection[Image]``.
+
+        ADR-031 D4: ``output_dir`` is used for streaming TIFF persistence.
 
         Args:
             config: BlockConfig with ``path`` (str or list[str]) and optional
                 ``axes`` (axis string override, e.g. ``"cyx"``). When
                 ``path`` is a list, each file is loaded and all images are
                 packed into a single :class:`Collection`.
+            output_dir: Directory for persisting loaded data to storage.
 
         Returns:
             A :class:`Collection` of :class:`Image`. Length-1 for a single
@@ -203,20 +267,21 @@ class LoadImage(IOBlock):
             for single_raw in raw_path:
                 if not isinstance(single_raw, str) or not single_raw:
                     raise ValueError("LoadImage: each entry in path list must be a non-empty string")
-                images.append(self._load_single(Path(single_raw), axes_override))
+                images.append(self._load_single(Path(single_raw), axes_override, output_dir))
             return Collection(items=images, item_type=Image)
 
         if not isinstance(raw_path, str) or not raw_path:
             raise ValueError("LoadImage: config['path'] must be a non-empty string or list of strings")
-        image = self._load_single(Path(raw_path), axes_override)
+        image = self._load_single(Path(raw_path), axes_override, output_dir)
         return Collection(items=[image], item_type=Image)
 
-    def _load_single(self, path: Path, axes_override: list[str] | None) -> Image:
+    def _load_single(self, path: Path, axes_override: list[str] | None, output_dir: str = "") -> Image:
         """Load a single image file into an :class:`Image`.
 
         Args:
             path: Absolute or relative path to a TIFF or Zarr file.
             axes_override: Optional per-axis label override list.
+            output_dir: Directory for persisting loaded data to storage.
 
         Returns:
             A loaded :class:`Image`.
@@ -232,7 +297,9 @@ class LoadImage(IOBlock):
             raise ValueError(
                 f"LoadImage: unsupported image format {ext!r}; supported extensions are {sorted(_SUPPORTED_EXTS)}"
             )
-        return _load_tiff(path, axes_override) if ext in _TIFF_EXTS else _load_zarr(path, axes_override)
+        if ext in _TIFF_EXTS:
+            return _load_tiff(path, axes_override, block=self, output_dir=output_dir)
+        return _load_zarr(path, axes_override)
 
     def save(
         self,

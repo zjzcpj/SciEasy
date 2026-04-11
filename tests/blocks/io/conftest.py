@@ -42,7 +42,7 @@ class InMemoryIOBlock(IOBlock):
         self.payload: DataObject = DataObject()
         self.last_saved: tuple[object, BlockConfig] | None = None
 
-    def load(self, config: BlockConfig) -> DataObject | Collection:
+    def load(self, config: BlockConfig, output_dir: str = "") -> DataObject | Collection:
         return self.payload
 
     def save(self, obj: DataObject | Collection, config: BlockConfig) -> None:
