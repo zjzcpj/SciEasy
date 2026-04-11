@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - [#571] Inject Executable Path (file_browser) + Save Outputs At with forced ui_priority ordering in AppBlock (@claude, 2026-04-11, branch: fix/issue-571/appblock-config-injection, session: 20260411-020155-fix-571-inject-executable-path-save-outp)
+- [#572] Clean up Fiji config after AppBlock MRO injection: remove redundant watch_timeout from config_schema (@claude, 2026-04-11, branch: fix/issue-572/fiji-elmaven-config-cleanup, session: 20260411-020318-clean-up-fiji-and-elmaven-config-after-a)
 - [#561] Fix Windows browse dialog bugs: PowerShell double-brace syntax, add multi-file select, modernize folder dialog, update frontend to paths array (@claude, 2026-04-11, branch: fix/issue-561/browse-dialog-bugs, session: 20260411-020115-fix-browse-dialog-bugs-on-windows-561)
 - [#569] Add ADR-029 variadic ports implementation roadmap with 8 detailed tickets (@claude, 2026-04-11, branch: docs/issue-569/adr-029-variadic-ports-roadmap, session: 20260411-013533-docs-adr-029-variadic-ports-implementati)
 - [#555] Rewrite ElMAVEN block to follow standard AppBlock pattern -- fixes rerun deadlock (@claude, 2026-04-10, branch: refactor/issue-555/elmaven-standard-pattern, session: 20260410-005711-rewrite-elmaven-block-to-follow-standard)
@@ -40,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#338,#339] Fix AppBlock subprocess leak (no proc.wait after run) and temp exchange directory leak (tempfile.mkdtemp never cleaned up) (@claude, 2026-04-11, branch: fix/issue-338-339/appblock-resource-leaks, session: 20260411-020206-fix-appblock-subprocess-leak-338-and-tem)
 - [#565] Fix BlockConfig.get() to find enriched runtime keys (block_id, project_dir); add data/exchange to create_project (@claude, 2026-04-10, branch: fix/issue-565/blockconfig-get-extra-fields, session: 20260410-045525-fix-blockconfig-get-not-finding-enriched)
 - [#563] Pass raw file paths as CLI arguments to ElMAVEN so files are pre-loaded on launch (@claude, 2026-04-10, branch: fix/issue-563/elmaven-file-args, session: 20260410-040343-fix-563-elmaven-block-does-not-pass-inpu)
 - [#534] Remove is_collection double-ring from port rendering (@claude, 2026-04-10, branch: fix/issue-534/remove-collection-double-ring, session: 20260410-000721-fix-gui-remove-is-collection-double-ring)

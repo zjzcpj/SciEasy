@@ -65,7 +65,6 @@ class FijiBlock(AppBlock):
                 "title": "Optional Fiji macro path",
                 "ui_widget": "file_browser",
             },
-            "watch_timeout": {"type": "integer", "default": 1800},
         },
     }
 

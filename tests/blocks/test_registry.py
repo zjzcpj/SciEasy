@@ -810,3 +810,77 @@ class TestMergeConfigSchema:
         merged = _merge_config_schema(Child)
         assert merged["required"].count("x") == 1
         assert merged["required"].count("y") == 1
+
+
+class TestAppBlockSubclassConfigCleanup:
+    """#572: FijiBlock and ElMAVENBlock must not redeclare AppBlock base fields."""
+
+    def test_fiji_own_config_schema_has_no_watch_timeout(self) -> None:
+        """FijiBlock's own config_schema must not include watch_timeout."""
+        from scieasy_blocks_imaging.interactive.fiji_block import FijiBlock
+
+        own_schema = FijiBlock.__dict__.get("config_schema", {})
+        props = own_schema.get("properties", {})
+        assert "watch_timeout" not in props, "watch_timeout should be removed from FijiBlock config_schema"
+
+    def test_fiji_own_config_schema_has_no_app_command(self) -> None:
+        """FijiBlock must not redeclare app_command in its own config_schema."""
+        from scieasy_blocks_imaging.interactive.fiji_block import FijiBlock
+
+        own_schema = FijiBlock.__dict__.get("config_schema", {})
+        props = own_schema.get("properties", {})
+        assert "app_command" not in props, "app_command should be inherited from AppBlock, not redeclared"
+
+    def test_fiji_own_config_schema_has_no_output_patterns(self) -> None:
+        """FijiBlock must not redeclare output_patterns in its own config_schema."""
+        from scieasy_blocks_imaging.interactive.fiji_block import FijiBlock
+
+        own_schema = FijiBlock.__dict__.get("config_schema", {})
+        props = own_schema.get("properties", {})
+        assert "output_patterns" not in props, "output_patterns should be inherited from AppBlock, not redeclared"
+
+    def test_fiji_mro_merged_includes_app_command(self) -> None:
+        """FijiBlock's MRO-merged config_schema includes app_command from AppBlock."""
+        from scieasy_blocks_imaging.interactive.fiji_block import FijiBlock
+
+        from scieasy.blocks.registry import _merge_config_schema
+
+        merged = _merge_config_schema(FijiBlock)
+        props = merged.get("properties", {})
+        assert "app_command" in props, "app_command should be inherited via MRO merge from AppBlock"
+
+    def test_fiji_mro_merged_includes_output_dir(self) -> None:
+        """FijiBlock's MRO-merged config_schema includes output_dir from AppBlock."""
+        from scieasy_blocks_imaging.interactive.fiji_block import FijiBlock
+
+        from scieasy.blocks.registry import _merge_config_schema
+
+        merged = _merge_config_schema(FijiBlock)
+        props = merged.get("properties", {})
+        assert "output_dir" in props, "output_dir should be inherited via MRO merge from AppBlock"
+
+    def test_elmaven_own_config_schema_has_no_app_command(self) -> None:
+        """ElMAVENBlock must not redeclare app_command in its own config_schema."""
+        from scieasy_blocks_lcms.external.elmaven_block import ElMAVENBlock
+
+        own_schema = ElMAVENBlock.__dict__.get("config_schema", {})
+        props = own_schema.get("properties", {})
+        assert "app_command" not in props, "app_command should be inherited from AppBlock, not redeclared"
+
+    def test_elmaven_own_config_schema_has_no_output_patterns(self) -> None:
+        """ElMAVENBlock must not redeclare output_patterns in its own config_schema."""
+        from scieasy_blocks_lcms.external.elmaven_block import ElMAVENBlock
+
+        own_schema = ElMAVENBlock.__dict__.get("config_schema", {})
+        props = own_schema.get("properties", {})
+        assert "output_patterns" not in props, "output_patterns should be inherited from AppBlock, not redeclared"
+
+    def test_elmaven_mro_merged_includes_app_command(self) -> None:
+        """ElMAVENBlock's MRO-merged config_schema includes app_command from AppBlock."""
+        from scieasy_blocks_lcms.external.elmaven_block import ElMAVENBlock
+
+        from scieasy.blocks.registry import _merge_config_schema
+
+        merged = _merge_config_schema(ElMAVENBlock)
+        props = merged.get("properties", {})
+        assert "app_command" in props, "app_command should be inherited via MRO merge from AppBlock"
