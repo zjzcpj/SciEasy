@@ -449,14 +449,18 @@ function InlineConfigField({
     try {
       const result = await api.openNativeDialog(nativeMode, initialDir);
       if (result.paths.length > 0) {
-        // For directory_browser, always a single path.
-        // For file_browser, pass the full array if multiple files selected,
-        // or a single string if only one file (matches config_schema type
-        // ["string", "array"] on IOBlock path fields).
-        if (nativeMode === "directory" || result.paths.length === 1) {
-          onChange(key, result.paths[0]);
-        } else {
+        // Only pass an array when the field schema explicitly supports it
+        // (type includes "array"). Fields like app_command and script_path
+        // are pure strings and must not receive an array.
+        const schemaType = schema.type;
+        const supportsArray =
+          Array.isArray(schemaType)
+            ? schemaType.includes("array")
+            : schemaType === "array";
+        if (supportsArray && result.paths.length > 1) {
           onChange(key, result.paths);
+        } else {
+          onChange(key, result.paths[0]);
         }
       }
       // If paths is empty, user cancelled — do nothing
