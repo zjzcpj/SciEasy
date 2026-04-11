@@ -241,28 +241,43 @@ class NativeDialogRequest(BaseModel):
 class NativeDialogResponse(BaseModel):
     """Response from the native dialog endpoint."""
 
-    path: str | None = Field(None, description="Selected path, or null if cancelled")
+    paths: list[str] = Field(default_factory=list, description="Selected paths (empty if cancelled)")
 
 
 # Per-session last-used directory (in-memory, resets on restart).
 _last_used_directory: str | None = None
 
 
-def _native_dialog_windows(mode: str, initial_dir: str | None) -> str | None:
-    """Open a native Windows file/directory dialog via PowerShell."""
+def _native_dialog_windows(mode: str, initial_dir: str | None) -> list[str]:
+    """Open a native Windows file/directory dialog via PowerShell.
+
+    Returns a list of selected paths (empty list if cancelled).
+    For directory mode the list contains at most one element.
+    For file mode the list may contain multiple files.
+    """
     if mode == "directory":
+        # Bug 3 fix: EnableVisualStyles() forces the modern Vista-style dialog
+        # instead of the legacy Win2000 FolderBrowserDialog appearance.
+        # Bug 1 fix: braces in non-f-string fragments must be single `{ }`,
+        # not `{{ }}` (double braces are only needed inside f-strings).
         ps_script = (
             "Add-Type -AssemblyName System.Windows.Forms;"
+            "[System.Windows.Forms.Application]::EnableVisualStyles();"
             "$d = New-Object System.Windows.Forms.FolderBrowserDialog;"
+            "$d.ShowNewFolderButton = $true;"
             f"$d.SelectedPath = '{initial_dir or ''}';"
-            "if ($d.ShowDialog() -eq 'OK') {{ $d.SelectedPath }} else {{ '' }}"
+            "if ($d.ShowDialog() -eq 'OK') { $d.SelectedPath } else { '' }"
         )
     else:
+        # Bug 1 fix: single braces for non-f-string lines.
+        # Bug 2 fix: enable Multiselect and return pipe-separated FileNames.
         ps_script = (
             "Add-Type -AssemblyName System.Windows.Forms;"
+            "[System.Windows.Forms.Application]::EnableVisualStyles();"
             "$d = New-Object System.Windows.Forms.OpenFileDialog;"
+            "$d.Multiselect = $true;"
             f"$d.InitialDirectory = '{initial_dir or ''}';"
-            "if ($d.ShowDialog() -eq 'OK') {{ $d.FileName }} else {{ '' }}"
+            "if ($d.ShowDialog() -eq 'OK') { ($d.FileNames -join '|') } else { '' }"
         )
     result = subprocess.run(
         ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script],
@@ -271,11 +286,17 @@ def _native_dialog_windows(mode: str, initial_dir: str | None) -> str | None:
         timeout=120,
     )
     selected = result.stdout.strip()
-    return selected if selected else None
+    if not selected:
+        return []
+    # File mode returns pipe-separated paths; directory mode returns a single path.
+    return [p for p in selected.split("|") if p]
 
 
-def _native_dialog_macos(mode: str, initial_dir: str | None) -> str | None:
-    """Open a native macOS file/directory dialog via osascript."""
+def _native_dialog_macos(mode: str, initial_dir: str | None) -> list[str]:
+    """Open a native macOS file/directory dialog via osascript.
+
+    Returns a list of selected paths (empty list if cancelled).
+    """
     if mode == "directory":
         if initial_dir:
             script = f'choose folder with prompt "Select Directory" default location POSIX file "{initial_dir}"'
@@ -283,9 +304,12 @@ def _native_dialog_macos(mode: str, initial_dir: str | None) -> str | None:
             script = 'choose folder with prompt "Select Directory"'
     else:
         if initial_dir:
-            script = f'choose file with prompt "Select File" default location POSIX file "{initial_dir}"'
+            script = (
+                f'choose file with prompt "Select File" default location POSIX file "{initial_dir}"'
+                " with multiple selections allowed"
+            )
         else:
-            script = 'choose file with prompt "Select File"'
+            script = 'choose file with prompt "Select File" with multiple selections allowed'
     result = subprocess.run(
         ["osascript", "-e", script],
         capture_output=True,
@@ -294,28 +318,45 @@ def _native_dialog_macos(mode: str, initial_dir: str | None) -> str | None:
     )
     selected = result.stdout.strip()
     if not selected:
-        return None
-    # osascript returns "alias Macintosh HD:Users:foo:..." — convert to POSIX
-    if selected.startswith("alias "):
-        # Convert colon-separated HFS path to POSIX
-        parts = selected[len("alias ") :].split(":")
-        # First part is the volume name — on default installs, map to /
+        return []
+
+    def _hfs_to_posix(hfs: str) -> str:
+        """Convert an HFS alias string to a POSIX path."""
+        text = hfs.strip()
+        if text.startswith("alias "):
+            text = text[len("alias ") :]
+        parts = text.split(":")
         posix = "/" + "/".join(parts[1:])
-        # Remove trailing slash if present
         return posix.rstrip("/") or "/"
-    return selected
+
+    # osascript may return comma-separated aliases for multi-select
+    if ", alias " in selected:
+        aliases = selected.split(", alias ")
+        # First item already has 'alias ' prefix; subsequent ones don't after split
+        return [_hfs_to_posix(aliases[0])] + [_hfs_to_posix("alias " + a) for a in aliases[1:]]
+    if selected.startswith("alias "):
+        return [_hfs_to_posix(selected)]
+    return [selected]
 
 
-def _native_dialog_linux(mode: str, initial_dir: str | None) -> str | None:
-    """Open a native Linux file/directory dialog via zenity."""
+def _native_dialog_linux(mode: str, initial_dir: str | None) -> list[str]:
+    """Open a native Linux file/directory dialog via zenity.
+
+    Returns a list of selected paths (empty list if cancelled).
+    """
     cmd = ["zenity", "--file-selection"]
     if mode == "directory":
         cmd.append("--directory")
+    else:
+        cmd.append("--multiple")
+        cmd.extend(["--separator", "|"])
     if initial_dir:
         cmd.extend(["--filename", initial_dir + "/"])
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     selected = result.stdout.strip()
-    return selected if selected else None
+    if not selected:
+        return []
+    return [p for p in selected.split("|") if p]
 
 
 @router.post("/api/filesystem/native-dialog", response_model=NativeDialogResponse)
@@ -337,11 +378,11 @@ async def native_file_dialog(body: NativeDialogRequest) -> NativeDialogResponse:
     system = platform.system()
     try:
         if system == "Windows":
-            selected = _native_dialog_windows(body.mode, initial_dir)
+            selected_paths = _native_dialog_windows(body.mode, initial_dir)
         elif system == "Darwin":
-            selected = _native_dialog_macos(body.mode, initial_dir)
+            selected_paths = _native_dialog_macos(body.mode, initial_dir)
         else:
-            selected = _native_dialog_linux(body.mode, initial_dir)
+            selected_paths = _native_dialog_linux(body.mode, initial_dir)
     except FileNotFoundError as exc:
         raise HTTPException(
             status_code=500,
@@ -354,8 +395,9 @@ async def native_file_dialog(body: NativeDialogRequest) -> NativeDialogResponse:
         ) from exc
 
     # Track last-used directory for the session
-    if selected:
-        parent = str(Path(selected).parent) if Path(selected).is_file() else selected
+    if selected_paths:
+        first = selected_paths[0]
+        parent = str(Path(first).parent) if Path(first).is_file() else first
         _last_used_directory = parent
 
-    return NativeDialogResponse(path=selected)
+    return NativeDialogResponse(paths=selected_paths)
