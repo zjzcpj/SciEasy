@@ -439,7 +439,15 @@ class ApiRuntime:
         if project_path == Path(project_path.anchor):
             raise ValueError("Refusing to delete drive root")
         if not (project_path / "project.yaml").is_file():
-            raise ValueError(f"Refusing to delete non-project directory: {project_path}")
+            # Not a valid project directory — remove from registry but don't
+            # delete the directory (it may contain user files).
+            logger.warning("Removing invalid project entry (no project.yaml): %s", project_path)
+            self.known_projects.pop(project.id, None)
+            if self.active_project is not None and self.active_project.id == project.id:
+                self.active_project = None
+                self.data_catalog = {}
+            self._save_known_projects()
+            return
         logger.warning("Deleting project directory: %s", project_path)
         shutil.rmtree(project_path)
         self.known_projects.pop(project.id, None)
