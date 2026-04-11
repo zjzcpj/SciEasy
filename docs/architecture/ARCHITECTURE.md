@@ -83,8 +83,10 @@ classDiagram
         +user: dict
         +dtype_info: TypeSignature
         +storage_ref: StorageReference
-        +view() ViewProxy
         +to_memory() Any
+        +slice(*args) Any
+        +iter_chunks(chunk_size) Iterator
+        +get_in_memory_data() Any
         +with_meta(**changes) Self
         +save(path) None
     }
@@ -352,38 +354,47 @@ Each base type maps to an optimal storage backend:
 | `Artifact` | **Filesystem** (original format preserved) | PDFs, images, reports. Kept as-is for interoperability. |
 | `CompositeData` | **Directory of slot backends** | Each slot stored using the backend appropriate to its type. A manifest JSON maps slot names to storage refs. |
 
-### 4.3 Lazy loading via ViewProxy
+### 4.3 Lazy loading via DataObject methods (ADR-031)
 
-Blocks never receive raw data directly. Instead, the engine injects a `ViewProxy` that mediates access:
+Blocks receive **typed DataObject instances** (e.g., `Image`, `DataFrame`) with `storage_ref` set. Data is not loaded into memory until the block explicitly requests it. There is no intermediary accessor class -- data access methods live directly on `DataObject` and its subclasses.
+
+**Data access methods on DataObject:**
+
+| Method | Defined on | Behavior |
+|--------|-----------|----------|
+| `to_memory()` | **DataObject** | Materialize full data from storage. Emits a 2 GB size warning for large data. |
+| `get_in_memory_data()` | **DataObject** | Alias for `to_memory()`. Subclasses may override (Text returns `content`, Artifact reads from `file_path`). |
+| `slice(*args)` | **DataObject** | Backend-specific sub-selection (Zarr indexing, Arrow column filter, etc.). |
+| `iter_chunks(chunk_size)` | **DataObject** | Yield successive chunks from storage. |
+
+**Array-specific methods:**
+
+| Method | Defined on | Behavior |
+|--------|-----------|----------|
+| `sel(**kwargs)` | **Array** | Partial read along named axes. Reads from storage, not from in-memory data. Returns a new Array with `storage_ref` set. |
+| `iter_over(axis)` | **Array** | Yield slices along one axis. Each slice has `storage_ref` set. |
+| `__array__(dtype)` | **Array** | NumPy protocol. Calls `to_memory()`. |
+
+**Usage in blocks:**
 
 ```python
-class ViewProxy:
-    """Lazy accessor that loads data on demand from the storage backend."""
+# Full materialization (small data, simple blocks)
+data = image.to_memory()
 
-    def __init__(self, storage_ref: StorageReference, dtype_info: TypeSignature):
-        self._ref = storage_ref
-        self._dtype = dtype_info
-        self._cache = None
+# Partial read along named axes (large imaging data)
+z_plane = image.sel(z=5)
 
-    def slice(self, *args) -> np.ndarray:
-        """Read a specific slice from the backing store (Zarr chunk-aware)."""
-        ...
-
-    def to_memory(self) -> Any:
-        """Load full data into memory. Use with caution on large datasets."""
-        ...
-
-    def iter_chunks(self, chunk_size: int) -> Iterator:
-        """Iterate over data in fixed-size chunks for batch processing."""
-        ...
-
-    @property
-    def shape(self) -> tuple:
-        """Shape without loading data (read from Zarr/.zarray metadata)."""
-        ...
+# Chunked iteration (streaming, constant memory)
+for chunk in large_array.iter_chunks(1024):
+    process(chunk)
 ```
 
-When a block's `run()` is called, input ports deliver `ViewProxy` instances. Blocks that need the full array call `to_memory()`; blocks that can operate chunk-wise use `iter_chunks()` or `slice()`. This keeps memory usage bounded even for enormous datasets.
+Laziness is enforced at two levels:
+
+1. **IOBlock level** (ADR-031 D4): loaders write data to storage (Zarr/Arrow) and return reference-only objects with `storage_ref` set. The IOBlock base class provides `persist_array()` and `persist_table()` helpers for streaming writes. A safety net auto-flushes any object that a loader returns without `storage_ref`.
+2. **Method level**: `to_memory()`, `sel()`, and `iter_chunks()` route through `storage_ref` to the appropriate storage backend. No data is loaded until one of these methods is called.
+
+**Exempt types**: `Text` holds its `content` string in memory (inherently small, ~KB). `Artifact` uses `file_path` as its transport mechanism and is exempt from auto-flush -- the file stays at its original path and is not copied into managed storage.
 
 ### 4.4 Data lineage
 
@@ -532,7 +543,7 @@ class ApplyMaskToMSI(ProcessBlock):
         return {"cell_spectra": stack_to_dataframe(per_channel, msi.mz_axis)}
 ```
 
-Both utilities are axis-name-aware (not position-based), integrate with `ViewProxy` for chunked iteration on large datasets, and raise clear errors when axes don't align. Neither is required — they are conveniences for common patterns. Blocks that need finer control write manual loops over `Array.iter_over(axis)` or `Array.sel(**kwargs)` directly (both added by ADR-027 D4 with Level 1 laziness and metadata preservation).
+Both utilities are axis-name-aware (not position-based), integrate with `DataObject` storage-backed access methods for chunked iteration on large datasets, and raise clear errors when axes don't align. Neither is required -- they are conveniences for common patterns. Blocks that need finer control write manual loops over `Array.iter_over(axis)` or `Array.sel(**kwargs)` directly (both added by ADR-027 D4 with Level 1 laziness and metadata preservation).
 
 ---
 
@@ -575,7 +586,7 @@ class Block(ABC):
         self.config = BlockConfig(config or {})
         self.state = BlockState.IDLE
 
-    def validate(self, inputs: dict[str, ViewProxy]) -> bool:
+    def validate(self, inputs: dict[str, Collection]) -> bool:
         """Check that inputs are compatible before execution.
         Called by the engine before run(). Return False to abort."""
         return True
@@ -587,7 +598,8 @@ class Block(ABC):
         IMPORTANT: This method always executes inside an isolated subprocess,
         never in the engine process (ADR-017). The engine serialises
         StorageReference pointers to the subprocess; the subprocess
-        reconstructs Collection instances from storage and calls run().
+        reconstructs typed DataObject instances (e.g., Image, DataFrame)
+        from storage references and wraps them in Collections (ADR-031 D7).
         Block authors do not need to handle serialisation — the subprocess
         wrapper is transparent.
         """
@@ -662,7 +674,7 @@ SKIPPED   → { IDLE }
 - **Crash isolation**: a segfault, OOM, or memory leak in a block only kills its subprocess.
 - **Hang protection**: a deadlocked block does not freeze the engine.
 
-Block authors do not need to change their code. The framework handles serialisation of `StorageReference` and reconstruction of `ViewProxy` transparently in the subprocess worker. Cross-process overhead is limited to process startup (~50–200ms) + reference serialisation (~KB), not data copying — the underlying data stays in storage (Zarr/Parquet/filesystem). Since ADR-027 D11, the worker subprocess additionally calls `TypeRegistry.scan()` at startup so plugin-provided domain types (e.g. `Image`, `FluorImage`) can be resolved from the incoming `type_chain` metadata.
+Block authors do not need to change their code. The framework handles serialisation of `StorageReference` pointers and reconstruction of typed `DataObject` instances transparently in the subprocess worker (ADR-031 D7). Cross-process overhead is limited to process startup (~50-200ms) + reference serialisation (~KB), not data copying -- the underlying data stays in storage (Zarr/Parquet/filesystem). Since ADR-027 D11, the worker subprocess additionally calls `TypeRegistry.scan()` at startup so plugin-provided domain types (e.g. `Image`, `FluorImage`) can be resolved from the incoming `type_chain` metadata.
 
 **ProcessBlock lifecycle hooks — `setup` and `teardown` (ADR-027 D7)**: `ProcessBlock` extends the `Block` base with two optional hooks around the per-run iteration:
 
@@ -1017,10 +1029,10 @@ run <- function(inputs, config) {
 CodeBlock inputs are handled via the Collection auto-unpack/repack layer (ADR-020-Add4). All inputs are delivered as native in-memory objects — equivalent to the former MEMORY delivery mode. The `InputDelivery` enum has been removed (see ADR-016, now partially superseded by ADR-020).
 
 For each input port:
-- **Collection length=1**: the single item is materialised via `.view().to_memory()` (e.g., a numpy array).
+- **Collection length=1**: the single item is materialised via `.to_memory()` (e.g., a numpy array).
 - **Collection length>1**: replaced with a `LazyList` that loads items on demand, keeping peak memory at O(1) per iteration step.
 
-Users who need fine-grained control over data loading (slicing, chunked iteration) should write a **ProcessBlock** instead of a CodeBlock. ProcessBlock authors receive `ViewProxy` directly and decide for themselves when to materialise.
+Users who need fine-grained control over data loading (slicing, chunked iteration) should write a **ProcessBlock** instead of a CodeBlock. ProcessBlock authors receive typed DataObject instances directly and decide for themselves when to materialise via `to_memory()`, `sel()`, or `iter_chunks()`.
 
 ##### Framework bridge implementation
 
@@ -1032,8 +1044,9 @@ class CodeBlock(Block):
         """Executed inside the subprocess worker, NOT in the engine process.
 
         The engine serialises StorageReference pointers and config to the
-        subprocess. The subprocess reconstructs ViewProxy instances from
-        storage, unpacks Collection inputs, and calls this method.
+        subprocess. The subprocess reconstructs typed DataObject instances
+        from storage (ADR-031 D7), unpacks Collection inputs, and calls
+        this method.
         """
         language = config["language"]
         runner = CodeRunnerRegistry.get(language)
@@ -1662,7 +1675,7 @@ Peak memory: 1 input item + 1 output item, constant regardless of Collection siz
 
 ```python
 class Block(ABC):
-    # --- Pack / unpack (Addendum 1: unpack returns DataObject, not ViewProxy) ---
+    # --- Pack / unpack (returns typed DataObject instances, ADR-031 D7) ---
     @staticmethod
     def pack(items: list[DataObject]) -> Collection:
         """Auto-flushes each item to storage if no StorageReference."""
@@ -1693,7 +1706,7 @@ Block authors who write manual loops accumulate results in memory. `pack()` flus
 
 | Tier | Pattern | Block example | Code | Peak memory |
 |---|---|---|---|---|
-| 1 | Simple per-item | Savitzky-Golay smooth | `process_item(self, item, config): return smooth(item.view().to_memory())` | O(1 item) |
+| 1 | Simple per-item | Savitzky-Golay smooth | `process_item(self, item, config): return smooth(item.to_memory())` | O(1 item) |
 | 2 | Parallel per-item | Cellpose segmentation | `return {"masks": self.parallel_map(segment, inputs["images"], max_workers=4)}` | O(workers × item) |
 | 2 | Serial per-item | napari review | `for mask in self.unpack(inputs["masks"]): ...` + `self.pack(results)` | O(N items) at pack, then flushed |
 | 2 | Whole-collection | ElMAVEN peak picking | `bridge.prepare(inputs["data"], exchange_dir)` — bridge iterates and writes files one at a time | O(1 item) |
@@ -3067,7 +3080,7 @@ The Raman and LC-MS results are preserved. Only the IF-dependent subgraph is ski
 | **Port** | A connection endpoint on a block, with a declared set of accepted data types and optional runtime constraints. |
 | **DataObject** | A lightweight wrapper around scientific data, holding metadata and a storage reference. |
 | **CompositeData** | A DataObject subclass that bundles multiple heterogeneous DataObjects as named slots. Used for multi-modal container types like AnnData and SpatialData. |
-| **ViewProxy** | A lazy-loading accessor that mediates between blocks and the storage backend. |
+| **~~ViewProxy~~** | *(Eliminated in ADR-031.)* Formerly a lazy-loading accessor between blocks and the storage backend. Its methods (`to_memory()`, `slice()`, `iter_chunks()`) now live directly on `DataObject`. |
 | **DAG** | Directed acyclic graph — the execution topology of a workflow. |
 | **Checkpoint** | A serialised snapshot of workflow state, enabling pause/resume/recovery. |
 | **Lineage record** | An immutable log entry recording inputs, config, outputs, and environment of a single block execution. |
