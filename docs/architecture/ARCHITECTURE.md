@@ -1259,7 +1259,7 @@ External packages register their contributions via two standard Python entry-poi
 
 Each entry-point value points to a **callable** (typically a `get_blocks()` or `get_types()` function) that the registry invokes at scan time. The previously documented `scieasy.adapters` group was removed by ADR-028 §D4 — concrete IO classes register through `scieasy.blocks` like any other block category.
 
-**Dynamic-port override mechanism** (ADR-028 Addendum 1). Any block — not just `IOBlock` subclasses — may declare a `dynamic_ports: ClassVar[dict[str, Any] | None]` descriptor and override `get_effective_input_ports()` / `get_effective_output_ports()` to provide per-instance port resolution. The descriptor format is enum-only (no expressions, no mini-DSL) and maps `{source_config_key, output_port_mapping: {port_name: {enum_value: [type_names]}}}`. Core's `LoadData` and `SaveData` use this hook to narrow `accepted_types` based on the user-selected `core_type` enum; the worker subprocess, the validator, and the frontend `BlockNode` all consume `get_effective_*_ports()` rather than the static class-level declarations. See ADR-028 + Addendum 1 and `docs/guides/block-sdk.md` "Writing a dynamic-port block" for the worked example.
+**Dynamic-port override mechanism** (ADR-028 Addendum 1). Any block — not just `IOBlock` subclasses — may declare a `dynamic_ports: ClassVar[dict[str, Any] | None]` descriptor and override `get_effective_input_ports()` / `get_effective_output_ports()` to provide per-instance port resolution. The descriptor format is enum-only (no expressions, no mini-DSL) and maps `{source_config_key, output_port_mapping: {port_name: {enum_value: [type_names]}}}`. Core's `LoadData` and `SaveData` use this hook to narrow `accepted_types` based on the user-selected `core_type` enum; the worker subprocess, the validator, and the frontend `BlockNode` all consume `get_effective_*_ports()` rather than the static class-level declarations. See ADR-028 + Addendum 1 and `docs/block-development/block-contract.md` "Dynamic Ports" for the worked example.
 
 ##### PackageInfo metadata
 
@@ -1321,7 +1321,7 @@ Block Palette:
     └── ...
 ```
 
-For manual review, use `AppBlock` (see `docs/guides/block-sdk.md` §3.4.1) to open Fiji, Napari, or any GUI tool as part of the workflow. There is no dedicated manual-review block class — `AppBlock` already implements the `IDLE → READY → RUNNING → PAUSED → RUNNING → DONE` lifecycle that human-in-the-loop steps require.
+For manual review, use `AppBlock` (see `docs/block-development/block-contract.md`) to open Fiji, Napari, or any GUI tool as part of the workflow. There is no dedicated manual-review block class — `AppBlock` already implements the `IDLE → READY → RUNNING → PAUSED → RUNNING → DONE` lifecycle that human-in-the-loop steps require.
 
 The `category` field is a free-form string set by the block author in `BlockMetadata`. No fixed taxonomy — authors define categories that make sense for their domain. The `BlockSpec` dataclass gains a `package_name: str` field to support this grouping.
 

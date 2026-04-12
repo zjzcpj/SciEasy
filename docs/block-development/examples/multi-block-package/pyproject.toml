@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "scieasy-blocks-example"
+version = "0.1.0"
+description = "Example multi-block package for SciEasy."
+readme = "README.md"
+authors = [
+    {name = "SciEasy Contributors"},
+]
+requires-python = ">=3.11"
+dependencies = [
+    "scieasy>=0.2.1",
+    "numpy>=1.24",
+    "pydantic>=2.0",
+]
+
+[project.entry-points."scieasy.blocks"]
+example = "my_blocks:get_block_package"
+
+[project.entry-points."scieasy.types"]
+example = "my_blocks:get_types"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/my_blocks"]
