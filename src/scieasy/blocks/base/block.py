@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
+    from scieasy.core.storage.ref import StorageReference
     from scieasy.core.types.collection import Collection
 
 from scieasy.blocks.base.config import BlockConfig
@@ -331,12 +332,108 @@ class Block(ABC):
         flushed = [Block._auto_flush(r) for r in results]
         return Collection(flushed, item_type=collection.item_type)
 
+    def persist_array(
+        self,
+        data_or_iterator: Any,
+        shape: tuple[int, ...],
+        dtype: Any,
+        output_dir: str | None = None,
+        chunks: tuple[int, ...] | None = None,
+    ) -> StorageReference:
+        """Write array data to zarr storage and return a :class:`StorageReference`.
+
+        ADR-031 D4: persistence helper promoted from IOBlock to Block base class.
+
+        ``data_or_iterator`` may be:
+
+        - A numpy ndarray (written in one shot).
+        - An iterator/generator yielding ``(index, chunk_array)`` tuples
+          for streaming, constant-memory writes. For a 3-D array of shape
+          ``(N, H, W)``, yield ``(i, page_2d)`` where ``page_2d`` has
+          shape ``(H, W)`` for each ``i`` in ``range(N)``.
+
+        Returns a :class:`StorageReference` pointing at the created zarr
+        store.
+        """
+        import uuid
+        from pathlib import Path
+
+        import numpy as np
+        import zarr
+
+        from scieasy.core.storage.flush_context import get_output_dir
+        from scieasy.core.storage.ref import StorageReference
+
+        if output_dir is None:
+            output_dir = get_output_dir()
+        if not output_dir:
+            raise RuntimeError("persist_array requires output_dir but none is configured.")
+
+        store_name = f"{uuid.uuid4()}.zarr"
+        store_path = str(Path(output_dir) / store_name)
+        Path(store_path).parent.mkdir(parents=True, exist_ok=True)
+
+        np_dtype = np.dtype(dtype)
+        if chunks is None:
+            zarr_chunks: tuple[int, ...] | bool = True  # let zarr auto-chunk
+        else:
+            zarr_chunks = chunks
+
+        z = zarr.open_array(store_path, mode="w", shape=shape, dtype=np_dtype, chunks=zarr_chunks)
+
+        if isinstance(data_or_iterator, np.ndarray):
+            z[:] = data_or_iterator
+        else:
+            # Iterator of (index, chunk_array) tuples — streaming write.
+            for idx, chunk in data_or_iterator:
+                z[idx] = chunk
+
+        metadata = {"shape": list(shape), "dtype": str(np_dtype)}
+        return StorageReference(
+            backend="zarr",
+            path=store_path,
+            format="zarr",
+            metadata=metadata,
+        )
+
+    def persist_table(self, table: Any, output_dir: str | None = None) -> StorageReference:
+        """Write an Arrow table to parquet storage and return a :class:`StorageReference`.
+
+        ADR-031 D4: persistence helper promoted from IOBlock to Block base class.
+
+        ``table`` should be a ``pyarrow.Table``. The table is written to
+        a parquet file in ``output_dir`` and the returned
+        :class:`StorageReference` points at the persisted file.
+        """
+        import uuid
+        from pathlib import Path
+
+        from scieasy.core.storage.arrow_backend import ArrowBackend
+        from scieasy.core.storage.flush_context import get_output_dir
+        from scieasy.core.storage.ref import StorageReference
+
+        if output_dir is None:
+            output_dir = get_output_dir()
+        if not output_dir:
+            raise RuntimeError("persist_table requires output_dir but none is configured.")
+
+        file_name = f"{uuid.uuid4()}.parquet"
+        file_path = str(Path(output_dir) / file_name)
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        backend = ArrowBackend()
+        ref = StorageReference(backend="arrow", path=file_path, format="parquet")
+        result_ref = backend.write(table, ref)
+        return result_ref
+
     @staticmethod
     def _auto_flush(obj: Any) -> Any:
         """Write in-memory DataObject to storage, return with StorageReference set.
 
         If the object already has a ``StorageReference``, return as-is (no-op).
-        If no flush context output directory is configured, return as-is.
+        If no flush context output directory is configured, return as-is
+        (the object stays in-memory — valid for in-process execution paths
+        like SmokeHarness, interactive blocks, and unit tests).
         Called internally by ``map_items``, ``parallel_map``, ``pack``, and
         the ``process_item`` default ``run()``.
 
@@ -374,24 +471,28 @@ class Block(ABC):
         if output_dir is None:
             return obj
 
-        import logging
         import uuid
         from pathlib import Path
 
         from scieasy.core.storage.backend_router import get_router
 
         router = get_router()
-        ext = router.extension_for(type(obj))
+        try:
+            ext = router.extension_for(type(obj))
+        except KeyError:
+            # No storage backend registered for this type (e.g. bare
+            # DataObject used in tests).  Return as-is — the object stays
+            # in-memory.
+            return obj
         filename = f"{uuid.uuid4()}{ext}"
         target_path = str(Path(output_dir) / filename)
 
         try:
             obj.save(target_path)
-        except Exception as exc:
-            logging.getLogger(__name__).warning(
-                "auto_flush failed for %s: %s",
-                type(obj).__name__,
-                exc,
-            )
+        except ValueError:
+            # No in-memory data to persist (metadata-only object).
+            # Return as-is — the object stays in-memory.
             return obj
+        except Exception as exc:
+            raise RuntimeError(f"auto_flush failed for {type(obj).__name__} at {target_path}: {exc}") from exc
         return obj

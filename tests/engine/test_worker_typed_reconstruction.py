@@ -51,6 +51,12 @@ from scieasy.core.types.series import Series
 from scieasy.core.types.text import Text
 from scieasy.engine.runners.worker import reconstruct_inputs, serialise_outputs
 
+
+def _ref(path: str = "/tmp/test.zarr", backend: str = "zarr") -> StorageReference:
+    """Create a minimal StorageReference for test objects."""
+    return StorageReference(backend=backend, path=path)
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -319,17 +325,11 @@ class TestSerialiseOne:
         assert md["shape"] == [8, 8]
         assert md["dtype"] == "uint8"
 
-    def test_storage_ref_none_emits_none_envelope(self) -> None:
-        """An in-memory DataObject (no storage_ref) round-trips with None envelope."""
+    def test_storage_ref_none_raises_valueerror(self) -> None:
+        """ADR-031 Addendum 1: _serialise_one rejects objects without storage_ref."""
         arr = Array(axes=["y", "x"])
-        payload = _serialise_one(arr)
-
-        assert payload["backend"] is None
-        assert payload["path"] is None
-        assert payload["format"] is None
-        # But the metadata sidecar still carries everything we need.
-        assert payload["metadata"]["type_chain"] == ["DataObject", "Array"]
-        assert payload["metadata"]["axes"] == ["y", "x"]
+        with pytest.raises(ValueError, match="storage_ref is None"):
+            _serialise_one(arr)
 
 
 # ---------------------------------------------------------------------------
@@ -345,6 +345,7 @@ class TestSerialiseReconstructRoundTrip:
             dtype="uint16",
             chunk_shape=(1, 1, 1, 256, 256),
             user={"source": "microscope"},
+            storage_ref=_ref("/tmp/arr.zarr"),
         )
         payload = _serialise_one(original)
         rebuilt = _reconstruct_one(payload)
@@ -358,7 +359,12 @@ class TestSerialiseReconstructRoundTrip:
         assert rebuilt.user == original.user
 
     def test_series_round_trip(self) -> None:
-        original = Series(index_name="wavenumber", value_name="intensity", length=4096)
+        original = Series(
+            index_name="wavenumber",
+            value_name="intensity",
+            length=4096,
+            storage_ref=_ref("/tmp/ser.arrow", "arrow"),
+        )
         payload = _serialise_one(original)
         rebuilt = _reconstruct_one(payload)
 
@@ -373,6 +379,7 @@ class TestSerialiseReconstructRoundTrip:
             columns=["peak_mz", "intensity", "rt"],
             row_count=500,
             schema={"peak_mz": "float64", "intensity": "float64", "rt": "float64"},
+            storage_ref=_ref("/tmp/df.arrow", "arrow"),
         )
         payload = _serialise_one(original)
         rebuilt = _reconstruct_one(payload)
@@ -383,7 +390,12 @@ class TestSerialiseReconstructRoundTrip:
         assert rebuilt.schema == original.schema
 
     def test_text_round_trip(self) -> None:
-        original = Text(content="# Report\n\nbody", format="markdown", encoding="utf-8")
+        original = Text(
+            content="# Report\n\nbody",
+            format="markdown",
+            encoding="utf-8",
+            storage_ref=_ref("/tmp/text.txt", "filesystem"),
+        )
         payload = _serialise_one(original)
         rebuilt = _reconstruct_one(payload)
 
@@ -412,10 +424,28 @@ class TestSerialiseReconstructRoundTrip:
 
     def test_composite_round_trip_with_slots(self) -> None:
         """Composite with multiple slots round-trips including nested reconstruction."""
-        arr = Array(axes=["y", "x"], shape=(4, 4), dtype="uint8")
-        ser = Series(index_name="time", value_name="voltage", length=100)
-        df = DataFrame(columns=["a", "b"], row_count=10, schema={"a": "int", "b": "float"})
-        composite = CompositeData(slots={"image": arr, "trace": ser, "peaks": df})
+        arr = Array(
+            axes=["y", "x"],
+            shape=(4, 4),
+            dtype="uint8",
+            storage_ref=_ref("/tmp/c_arr.zarr"),
+        )
+        ser = Series(
+            index_name="time",
+            value_name="voltage",
+            length=100,
+            storage_ref=_ref("/tmp/c_ser.arrow", "arrow"),
+        )
+        df = DataFrame(
+            columns=["a", "b"],
+            row_count=10,
+            schema={"a": "int", "b": "float"},
+            storage_ref=_ref("/tmp/c_df.arrow", "arrow"),
+        )
+        composite = CompositeData(
+            slots={"image": arr, "trace": ser, "peaks": df},
+            storage_ref=_ref("/tmp/composite.dat"),
+        )
 
         payload = _serialise_one(composite)
         rebuilt = _reconstruct_one(payload)
@@ -432,7 +462,7 @@ class TestSerialiseReconstructRoundTrip:
 
     def test_composite_round_trip_empty_slots(self) -> None:
         """Empty composite round-trips without hitting the nested path."""
-        composite = CompositeData()
+        composite = CompositeData(storage_ref=_ref("/tmp/empty_composite.dat"))
         payload = _serialise_one(composite)
         rebuilt = _reconstruct_one(payload)
 
@@ -450,6 +480,7 @@ class TestSerialiseReconstructRoundTrip:
                 "tags": ["alpha", "beta"],
                 "params": {"threshold": 0.5, "iterations": 10},
             },
+            storage_ref=_ref("/tmp/user_meta.zarr"),
         )
         payload = _serialise_one(original)
         rebuilt = _reconstruct_one(payload)
@@ -576,10 +607,20 @@ class TestReconstructInputs:
 
 
 class TestSerialiseOutputs:
-    def test_serialises_dataobject_via_helper(self) -> None:
+    def test_serialises_dataobject_via_helper(self, tmp_path) -> None:
         """A typed DataObject output is run through _serialise_one."""
-        arr = Array(axes=["y", "x"], shape=(4, 4), dtype="uint8")
-        result = serialise_outputs({"image": arr}, "")
+        import numpy as np
+        import zarr
+
+        zarr_path = str(tmp_path / "arr.zarr")
+        zarr.save(zarr_path, np.zeros((4, 4), dtype="uint8"))
+        arr = Array(
+            axes=["y", "x"],
+            shape=(4, 4),
+            dtype="uint8",
+            storage_ref=_ref(zarr_path),
+        )
+        result = serialise_outputs({"image": arr}, str(tmp_path))
 
         md = result["image"]["metadata"]
         assert md["type_chain"] == ["DataObject", "Array"]
@@ -590,13 +631,20 @@ class TestSerialiseOutputs:
         assert "framework" in md
         assert "object_id" in md["framework"]
 
-    def test_serialises_collection_via_helper(self) -> None:
+    def test_serialises_collection_via_helper(self, tmp_path) -> None:
         """Collection outputs wrap per-item payloads with ``_collection: True``."""
-        arr1 = Array(axes=["y", "x"], shape=(2, 2), dtype="uint8")
-        arr2 = Array(axes=["y", "x"], shape=(4, 4), dtype="uint8")
+        import numpy as np
+        import zarr
+
+        zarr_path1 = str(tmp_path / "arr1.zarr")
+        zarr_path2 = str(tmp_path / "arr2.zarr")
+        zarr.save(zarr_path1, np.zeros((2, 2), dtype="uint8"))
+        zarr.save(zarr_path2, np.zeros((4, 4), dtype="uint8"))
+        arr1 = Array(axes=["y", "x"], shape=(2, 2), dtype="uint8", storage_ref=_ref(zarr_path1))
+        arr2 = Array(axes=["y", "x"], shape=(4, 4), dtype="uint8", storage_ref=_ref(zarr_path2))
         col = Collection([arr1, arr2], item_type=Array)
 
-        result = serialise_outputs({"stack": col}, "")
+        result = serialise_outputs({"stack": col}, str(tmp_path))
         stack_payload = result["stack"]
 
         assert stack_payload["_collection"] is True
@@ -620,9 +668,19 @@ class TestSerialiseOutputs:
 
 
 class TestSerialiseOutputsRoundTrip:
-    def test_round_trip_array(self) -> None:
-        original = Array(axes=["y", "x"], shape=(16, 16), dtype="float32")
-        wire = serialise_outputs({"out": original}, "")
+    def test_round_trip_array(self, tmp_path) -> None:
+        import numpy as np
+        import zarr
+
+        zarr_path = str(tmp_path / "rt.zarr")
+        zarr.save(zarr_path, np.zeros((16, 16), dtype="float32"))
+        original = Array(
+            axes=["y", "x"],
+            shape=(16, 16),
+            dtype="float32",
+            storage_ref=_ref(zarr_path),
+        )
+        wire = serialise_outputs({"out": original}, str(tmp_path))
 
         # Feed the serialised wire format back in as a reconstruct_inputs payload.
         payload = {"inputs": wire}
@@ -634,10 +692,17 @@ class TestSerialiseOutputsRoundTrip:
         assert rebuilt.shape == original.shape
         assert rebuilt.dtype == original.dtype
 
-    def test_round_trip_collection(self) -> None:
-        items = [Array(axes=["y", "x"], shape=(2, 2), dtype="uint8") for _ in range(3)]
+    def test_round_trip_collection(self, tmp_path) -> None:
+        import numpy as np
+        import zarr
+
+        items = []
+        for i in range(3):
+            zarr_path = str(tmp_path / f"col_{i}.zarr")
+            zarr.save(zarr_path, np.zeros((2, 2), dtype="uint8"))
+            items.append(Array(axes=["y", "x"], shape=(2, 2), dtype="uint8", storage_ref=_ref(zarr_path)))
         col = Collection(items, item_type=Array)
-        wire = serialise_outputs({"stack": col}, "")
+        wire = serialise_outputs({"stack": col}, str(tmp_path))
         inputs = reconstruct_inputs({"inputs": wire})
 
         rebuilt: Collection = inputs["stack"]
@@ -658,7 +723,7 @@ class TestSerialiseOutputsRoundTrip:
 class TestReconstructedInstanceBehaviour:
     def test_isinstance_of_typed_class(self) -> None:
         payload = _serialise_one(
-            Array(axes=["y", "x"], shape=(8, 8), dtype="uint8"),
+            Array(axes=["y", "x"], shape=(8, 8), dtype="uint8", storage_ref=_ref()),
         )
         rebuilt = _reconstruct_one(payload)
 
@@ -674,6 +739,7 @@ class TestReconstructedInstanceBehaviour:
                 shape=(2, 2),
                 dtype="uint8",
                 meta=_FixtureMeta(label="v1", count=1),
+                storage_ref=_ref(),
             )
             payload = _serialise_one(original)
             rebuilt = _reconstruct_one(payload)

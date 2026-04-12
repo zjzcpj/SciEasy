@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from scieasy.engine.runners.worker import (
     main,
     reconstruct_inputs,
@@ -119,24 +121,18 @@ class TestSerialiseOutputs:
         result = serialise_outputs(outputs, "")
         assert result == {"count": 5}
 
-    def test_serialises_dataobject_without_storage_ref(self) -> None:
-        """In-memory DataObject with no storage_ref serialises with None envelope.
+    def test_serialises_dataobject_without_storage_ref_raises(self) -> None:
+        """ADR-031 Addendum 1: in-memory DataObject without storage_ref raises.
 
-        T-014 relaxes the ADR pseudocode's RuntimeError: when auto-flush is a
-        no-op (no flush context configured), the object's storage_ref stays
-        ``None``. The worker emits ``backend=None`` / ``path=None`` so the
-        wire format remains JSON-clean and the receiving worker can round-
-        trip the object through _reconstruct_one.
+        The hard gate enforces that all DataObjects must be persisted before
+        leaving the worker subprocess. _serialise_one rejects storage_ref=None.
         """
         from scieasy.core.types.array import Array
 
         arr = Array(axes=["y", "x"], shape=(2, 2), dtype="uint8")
-        # No storage_ref set, no flush context → _auto_flush returns the obj.
-        result = serialise_outputs({"data": arr}, "")
-        assert result["data"]["backend"] is None
-        assert result["data"]["path"] is None
-        assert result["data"]["metadata"]["type_chain"] == ["DataObject", "Array"]
-        assert result["data"]["metadata"]["axes"] == ["y", "x"]
+        # No storage_ref set → serialise_outputs hard-gates.
+        with pytest.raises(RuntimeError, match="has no storage_ref after auto_flush"):
+            serialise_outputs({"data": arr}, "")
 
     def test_serialises_dataobject_with_storage_ref(
         self,

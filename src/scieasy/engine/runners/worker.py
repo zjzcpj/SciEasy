@@ -134,6 +134,14 @@ def serialise_outputs(outputs: dict[str, Any], output_dir: str) -> dict[str, Any
                 for item in value:
                     flushed = Block._auto_flush(item)
                     if isinstance(flushed, DataObject):
+                        if flushed.storage_ref is None:
+                            from scieasy.core.types.artifact import Artifact
+
+                            if not (isinstance(flushed, Artifact) and getattr(flushed, "file_path", None) is not None):
+                                raise RuntimeError(
+                                    f"{type(flushed).__name__} on port '{key}' has no storage_ref after auto_flush. "
+                                    f"Block output must be persisted before leaving the worker subprocess."
+                                )
                         item_payloads.append(_serialise_one(flushed))
                     else:
                         item_payloads.append({"_value": str(flushed)})
@@ -153,6 +161,16 @@ def serialise_outputs(outputs: dict[str, Any], output_dir: str) -> dict[str, Any
             if isinstance(value, DataObject):
                 flushed_obj = Block._auto_flush(value)
                 if isinstance(flushed_obj, DataObject):
+                    if flushed_obj.storage_ref is None:
+                        from scieasy.core.types.artifact import Artifact
+
+                        if not (
+                            isinstance(flushed_obj, Artifact) and getattr(flushed_obj, "file_path", None) is not None
+                        ):
+                            raise RuntimeError(
+                                f"{type(flushed_obj).__name__} on port '{key}' has no storage_ref after auto_flush. "
+                                f"Block output must be persisted before leaving the worker subprocess."
+                            )
                     result[key] = _serialise_one(flushed_obj)
                 else:
                     # _auto_flush only ever returns the same obj or a

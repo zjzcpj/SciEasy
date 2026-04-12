@@ -82,9 +82,10 @@ class TestPutGetRoundTrip:
     """put() via DataObject + get() reconstructs a typed DataObject."""
 
     def test_round_trip(self, store: MetadataStore) -> None:
+        from scieasy.core.storage.ref import StorageReference
         from scieasy.core.types.base import DataObject
 
-        obj = DataObject()
+        obj = DataObject(storage_ref=StorageReference(backend="zarr", path="/tmp/test.zarr"))
         store.put(obj)
         restored = store.get(obj.framework.object_id)
         assert restored is not None

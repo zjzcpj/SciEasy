@@ -155,7 +155,7 @@ class LoadData(IOBlock):
         # are wrapped with lambdas to accept and ignore the parameter,
         # keeping a uniform (config, output_dir) call signature.
         dispatch: dict[str, Any] = {
-            "Array": lambda cfg, od: _load_array(cfg),
+            "Array": self._load_array_with_persist,
             "DataFrame": self._load_dataframe_with_persist,
             "Series": self._load_series_with_persist,
             "Text": lambda cfg, od: _load_text(cfg),
@@ -182,6 +182,24 @@ class LoadData(IOBlock):
 
         result: DataObject = dispatch[type_name](config, output_dir)
         return result
+
+    def _load_array_with_persist(self, config: BlockConfig, output_dir: str) -> Array:
+        """Load Array and persist to zarr storage.
+
+        ADR-031 Addendum 1: uses :meth:`persist_array` to write the numpy
+        array to storage and returns a reference-only Array.
+        """
+        arr_obj = _load_array(config)
+        # If the array already has a storage_ref (e.g. zarr source), skip persist.
+        if arr_obj.storage_ref is not None:
+            return arr_obj
+        # If in-memory data is present, persist it.
+        data = getattr(arr_obj, "_data", None)
+        if data is not None and output_dir:
+            ref = self.persist_array(data, tuple(data.shape), data.dtype, output_dir)
+            arr_obj._storage_ref = ref  # type: ignore[attr-defined]
+            del arr_obj._data  # type: ignore[attr-defined]
+        return arr_obj
 
     def _load_dataframe_with_persist(self, config: BlockConfig, output_dir: str) -> DataFrame:
         """Load DataFrame and persist to arrow storage.

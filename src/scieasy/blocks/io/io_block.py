@@ -24,15 +24,12 @@ from __future__ import annotations
 
 import logging
 import tempfile
-import uuid
 from abc import abstractmethod
-from pathlib import Path
 from typing import Any, ClassVar
 
 from scieasy.blocks.base.block import Block
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
-from scieasy.core.storage.ref import StorageReference
 from scieasy.core.types.base import DataObject
 from scieasy.core.types.collection import Collection
 from scieasy.core.types.text import Text
@@ -132,78 +129,8 @@ class IOBlock(Block):
             return "path"
         return ports[0].name
 
-    def persist_array(
-        self,
-        data_or_iterator: Any,
-        shape: tuple[int, ...],
-        dtype: Any,
-        output_dir: str,
-        chunks: tuple[int, ...] | None = None,
-    ) -> StorageReference:
-        """Write array data to zarr storage and return a :class:`StorageReference`.
-
-        ADR-031 D4: persistence helper for loader authors.
-
-        ``data_or_iterator`` may be:
-
-        - A numpy ndarray (written in one shot).
-        - An iterator/generator yielding ``(index, chunk_array)`` tuples
-          for streaming, constant-memory writes. For a 3-D array of shape
-          ``(N, H, W)``, yield ``(i, page_2d)`` where ``page_2d`` has
-          shape ``(H, W)`` for each ``i`` in ``range(N)``.
-
-        Returns a :class:`StorageReference` pointing at the created zarr
-        store.
-        """
-        import numpy as np
-        import zarr
-
-        store_name = f"{uuid.uuid4()}.zarr"
-        store_path = str(Path(output_dir) / store_name)
-        Path(store_path).parent.mkdir(parents=True, exist_ok=True)
-
-        np_dtype = np.dtype(dtype)
-        if chunks is None:
-            zarr_chunks: tuple[int, ...] | bool = True  # let zarr auto-chunk
-        else:
-            zarr_chunks = chunks
-
-        z = zarr.open_array(store_path, mode="w", shape=shape, dtype=np_dtype, chunks=zarr_chunks)
-
-        if isinstance(data_or_iterator, np.ndarray):
-            z[:] = data_or_iterator
-        else:
-            # Iterator of (index, chunk_array) tuples — streaming write.
-            for idx, chunk in data_or_iterator:
-                z[idx] = chunk
-
-        metadata = {"shape": list(shape), "dtype": str(np_dtype)}
-        return StorageReference(
-            backend="zarr",
-            path=store_path,
-            format="zarr",
-            metadata=metadata,
-        )
-
-    def persist_table(self, table: Any, output_dir: str) -> StorageReference:
-        """Write an Arrow table to parquet storage and return a :class:`StorageReference`.
-
-        ADR-031 D4: persistence helper for loader authors.
-
-        ``table`` should be a ``pyarrow.Table``. The table is written to
-        a parquet file in ``output_dir`` and the returned
-        :class:`StorageReference` points at the persisted file.
-        """
-        from scieasy.core.storage.arrow_backend import ArrowBackend
-
-        file_name = f"{uuid.uuid4()}.parquet"
-        file_path = str(Path(output_dir) / file_name)
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-
-        backend = ArrowBackend()
-        ref = StorageReference(backend="arrow", path=file_path, format="parquet")
-        result_ref = backend.write(table, ref)
-        return result_ref
+    # persist_array and persist_table are inherited from Block base class.
+    # See Block.persist_array / Block.persist_table (ADR-031 Addendum 1).
 
     def run(
         self,

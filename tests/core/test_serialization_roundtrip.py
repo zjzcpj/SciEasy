@@ -241,3 +241,19 @@ def test_collection_roundtrip(tmp_path: Path) -> None:
         data = item.to_memory()
         assert data is not None
         assert data.shape == (4, 4)
+
+
+def test_serialise_one_rejects_none_storage_ref() -> None:
+    """ADR-031 Addendum 1 S3: _serialise_one raises ValueError when storage_ref is None."""
+    arr = Array(axes=["y", "x"], shape=(3, 3), dtype="float64")
+    # No storage_ref, no _data — should raise
+    with pytest.raises(ValueError, match="storage_ref is None"):
+        _serialise_one(arr)
+
+
+def test_serialise_one_allows_artifact_without_storage_ref() -> None:
+    """Artifact with file_path but no storage_ref is allowed (path-only transport)."""
+    art = Artifact(file_path=Path("/tmp/test.bin"), mime_type="application/octet-stream")
+    wire = _serialise_one(art)
+    assert wire["backend"] is None
+    assert wire["path"] is None
