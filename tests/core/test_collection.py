@@ -250,14 +250,14 @@ class TestBlockCollectionUtilities:
         result = Block._auto_flush(obj)
         assert result is obj
 
-    def test_auto_flush_no_ref_raises_without_context(self) -> None:
-        """ADR-031 Addendum 1: _auto_flush raises when output_dir not set."""
+    def test_auto_flush_no_ref_returns_as_is_without_context(self) -> None:
+        """_auto_flush returns object as-is when output_dir not set."""
         from scieasy.blocks.base.block import Block
 
         clear()  # Remove the autouse fixture's output_dir
         obj = DataObject()
-        with pytest.raises(RuntimeError, match="no output_dir configured"):
-            Block._auto_flush(obj)
+        result = Block._auto_flush(obj)
+        assert result is obj
 
 
 # -- Port Collection transparency ----------------------------------------------

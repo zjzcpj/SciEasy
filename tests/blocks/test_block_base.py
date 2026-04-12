@@ -428,15 +428,14 @@ class TestAutoFlush:
         result = Block._auto_flush(img)
         assert result is img
 
-    def test_auto_flush_no_context_raises(self) -> None:
-        """Without flush context, _auto_flush raises RuntimeError (ADR-031 Addendum 1)."""
+    def test_auto_flush_no_context_returns_as_is(self) -> None:
+        """Without flush context, _auto_flush returns object as-is."""
         from scieasy.core.storage.flush_context import clear
 
         clear()
         img = Image(shape=(5, 5), ndim=2, dtype="float64")
-        img._data = __import__("numpy").zeros((5, 5))  # type: ignore[attr-defined]
-        with pytest.raises(RuntimeError, match="no output_dir configured"):
-            Block._auto_flush(img)
+        result = Block._auto_flush(img)
+        assert result is img
 
     def test_auto_flush_with_context_persists(self, tmp_path: object) -> None:
         """With flush context set, _auto_flush writes data and sets storage_ref.

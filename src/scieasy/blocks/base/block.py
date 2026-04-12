@@ -477,12 +477,22 @@ class Block(ABC):
         from scieasy.core.storage.backend_router import get_router
 
         router = get_router()
-        ext = router.extension_for(type(obj))
+        try:
+            ext = router.extension_for(type(obj))
+        except KeyError:
+            # No storage backend registered for this type (e.g. bare
+            # DataObject used in tests).  Return as-is — the object stays
+            # in-memory.
+            return obj
         filename = f"{uuid.uuid4()}{ext}"
         target_path = str(Path(output_dir) / filename)
 
         try:
             obj.save(target_path)
+        except ValueError:
+            # No in-memory data to persist (metadata-only object).
+            # Return as-is — the object stays in-memory.
+            return obj
         except Exception as exc:
             raise RuntimeError(f"auto_flush failed for {type(obj).__name__} at {target_path}: {exc}") from exc
         return obj

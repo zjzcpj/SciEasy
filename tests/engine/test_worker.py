@@ -125,13 +125,13 @@ class TestSerialiseOutputs:
         """ADR-031 Addendum 1: in-memory DataObject without storage_ref raises.
 
         The hard gate enforces that all DataObjects must be persisted before
-        leaving the worker subprocess.
+        leaving the worker subprocess. _serialise_one rejects storage_ref=None.
         """
         from scieasy.core.types.array import Array
 
         arr = Array(axes=["y", "x"], shape=(2, 2), dtype="uint8")
-        # No storage_ref set, no flush context → _auto_flush raises.
-        with pytest.raises(RuntimeError, match="no output_dir configured"):
+        # No storage_ref set → serialise_outputs hard-gates.
+        with pytest.raises(RuntimeError, match="has no storage_ref after auto_flush"):
             serialise_outputs({"data": arr}, "")
 
     def test_serialises_dataobject_with_storage_ref(

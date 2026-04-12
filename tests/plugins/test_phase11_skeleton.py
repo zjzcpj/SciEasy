@@ -401,7 +401,7 @@ def test_imaging_preprocess_a_impl_smoke() -> None:
         BlockConfig(params={"method": "basic"}),
     )
     ff_out = ff_result["image"][0]
-    assert np.allclose(np.asarray(ff_out._data), 10.0)
+    assert np.allclose(np.asarray(ff_out.to_memory()), 10.0)
 
 
 def test_imaging_preprocess_b_impl_smoke() -> None:
