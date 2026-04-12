@@ -1277,6 +1277,108 @@ threads in core runtime code.
 2 or Tier 3 when you need cross-item operations (e.g., PCA across all items,
 normalization requiring global statistics).
 
+### Working with large data (ADR-031)
+
+SciEasy stores all data objects in persistent storage (zarr for arrays, arrow/
+parquet for tables). When a block receives a `DataObject`, the instance carries
+only a lightweight `storage_ref` pointer -- the actual data remains on disk
+until the block explicitly requests it.
+
+Three data access methods are available on every `DataObject`:
+
+| Method | Memory cost | Use when |
+|--------|------------|----------|
+| `to_memory()` | O(full dataset) | Data fits in RAM and you need all of it |
+| `sel(**kwargs)` | O(slice) | Array: you need a sub-region (e.g., one z-plane, one channel) |
+| `iter_chunks(chunk_size)` | O(one chunk) | Streaming: process data in fixed-size pieces |
+
+**Simple path -- `to_memory()`**
+
+```python
+def process_item(self, item, config, state=None):
+    data = item.to_memory()   # loads full array/table into memory
+    result = my_transform(data)
+    return Array(axes=item.axes, shape=result.shape, dtype=result.dtype)
+```
+
+This is the simplest and most common pattern. A `ResourceWarning` is emitted
+when the data exceeds 2 GB to alert the block author that a streaming approach
+may be needed.
+
+**Partial read -- `sel()` (Array only)**
+
+```python
+def process_item(self, item, config, state=None):
+    # Read only z-plane 5 from a 3D image. For zarr-backed arrays,
+    # this reads only the relevant chunks from disk (no full load).
+    plane = item.sel(z=5)
+    data = plane.to_memory()
+    return Array(axes=plane.axes, shape=data.shape, dtype=data.dtype)
+```
+
+`sel()` supports integer indices (which remove the axis) and `slice` objects
+(which keep the axis). When the source Array is backed by zarr, `sel()` uses
+the zarr backend's native partial-read -- only the requested chunks are loaded
+from disk. For non-zarr backends, `sel()` falls back to full materialisation
+plus numpy indexing.
+
+**Streaming -- `iter_chunks()` (all types)**
+
+```python
+def process_item(self, item, config, state=None):
+    # Process a large array chunk by chunk
+    results = []
+    for chunk in item.iter_chunks(chunk_size=1024):
+        results.append(my_transform(chunk))
+    combined = np.concatenate(results)
+    return Array(axes=item.axes, shape=combined.shape, dtype=combined.dtype)
+```
+
+`iter_chunks()` yields successive pieces of the data from storage. For zarr,
+it reads chunks along axis 0. For arrow/parquet, it reads row-group batches.
+Peak memory is O(one chunk) rather than O(full dataset).
+
+**IOBlock persistence helpers -- `persist_array()` / `persist_table()`**
+
+IOBlock subclasses that load large files should use the persistence helpers
+provided by the `IOBlock` base class to write data to storage in streaming
+fashion:
+
+```python
+class MyLoader(IOBlock):
+    direction = "input"
+
+    def load(self, config, output_dir=""):
+        # Stream pages from a large TIFF without loading the whole file
+        import tifffile
+
+        path = config["path"]
+        with tifffile.TiffFile(path) as tf:
+            page0 = tf.pages[0]
+            shape = (len(tf.pages), *page0.shape)
+            dtype = page0.dtype
+
+            def page_iter():
+                for i, page in enumerate(tf.pages):
+                    yield (i, page.asarray())
+
+            ref = self.persist_array(page_iter(), shape, dtype, output_dir)
+
+        return Array(axes=["z", "y", "x"], shape=shape, dtype=dtype,
+                     storage_ref=ref)
+```
+
+For small files (< 1 GB), returning an in-memory object is fine -- the IOBlock
+base class auto-persists it to storage via `_auto_flush()`.
+
+**Decision guide**:
+
+| Data size | Recommended approach |
+|-----------|---------------------|
+| < 1 GB | `to_memory()` -- simple, fast |
+| 1-10 GB | `sel()` if only a subset is needed; `iter_chunks()` for full scans |
+| > 10 GB | `iter_chunks()` for processing; `persist_array()`/`persist_table()` for loading |
+
 ---
 
 ## 5. Testing

@@ -554,3 +554,100 @@ class TestSaveDataDispatchContract:
         block = SaveData(config={"params": {"core_type": "Array", "path": str(path)}})
         with pytest.raises(ValueError, match="must be a Array instance"):
             block.save(_make_dataframe(), block.config)
+
+
+# ---------------------------------------------------------------------------
+# ADR-031 Phase 3 (Task 18): Streaming export tests
+# ---------------------------------------------------------------------------
+
+
+def _make_storage_backed_array(tmp_path: Path, data: np.ndarray, axes: list[str]) -> Array:
+    """Create a zarr-backed Array for testing streaming export."""
+    import uuid
+
+    import zarr
+
+    from scieasy.core.storage.ref import StorageReference
+
+    zarr_path = str(tmp_path / f"{uuid.uuid4()}.zarr")
+    zarr.save(zarr_path, data)
+    ref = StorageReference(
+        backend="zarr",
+        path=zarr_path,
+        metadata={"shape": list(data.shape), "dtype": str(data.dtype)},
+    )
+    return Array(axes=axes, shape=data.shape, dtype=str(data.dtype), storage_ref=ref)
+
+
+def _make_storage_backed_dataframe(tmp_path: Path) -> DataFrame:
+    """Create an arrow-backed DataFrame for testing streaming export."""
+    import uuid
+
+    from scieasy.core.storage.ref import StorageReference
+
+    table = _make_arrow_table()
+    parquet_path = str(tmp_path / f"{uuid.uuid4()}.parquet")
+    pq.write_table(table, parquet_path)
+    ref = StorageReference(
+        backend="arrow",
+        path=parquet_path,
+        format="parquet",
+        metadata={"columns": table.column_names, "num_rows": table.num_rows},
+    )
+    return DataFrame(columns=table.column_names, row_count=table.num_rows, storage_ref=ref)
+
+
+class TestStreamingExportZarrToZarr:
+    """ADR-031 Phase 3: zarr-to-zarr copy via store copy (zero materialisation)."""
+
+    def test_zarr_to_zarr_streaming_copy(self, tmp_path: Path) -> None:
+        zarr = pytest.importorskip("zarr")
+        data = np.array([[1, 2, 3], [4, 5, 6]], dtype="int64")
+        arr = _make_storage_backed_array(tmp_path, data, ["y", "x"])
+
+        out_path = tmp_path / "output.zarr"
+        block = SaveData(config={"params": {"core_type": "Array", "path": str(out_path)}})
+        block.save(arr, block.config)
+
+        assert out_path.exists()
+        recovered = zarr.load(str(out_path))
+        np.testing.assert_array_equal(recovered, data)
+
+
+class TestStreamingExportDataFrame:
+    """ADR-031 Phase 3: streaming DataFrame export for CSV/TSV/Parquet."""
+
+    def test_streaming_dataframe_csv(self, tmp_path: Path) -> None:
+        df = _make_storage_backed_dataframe(tmp_path)
+        out_path = tmp_path / "out.csv"
+        block = SaveData(config={"params": {"core_type": "DataFrame", "path": str(out_path)}})
+        block.save(df, block.config)
+
+        assert out_path.exists()
+        recovered = pcsv.read_csv(str(out_path))
+        assert recovered.column_names == ["x", "y"]
+        assert recovered.to_pydict() == {"x": [1, 2, 3], "y": [4.0, 5.0, 6.0]}
+
+    def test_streaming_dataframe_tsv(self, tmp_path: Path) -> None:
+        df = _make_storage_backed_dataframe(tmp_path)
+        out_path = tmp_path / "out.tsv"
+        block = SaveData(config={"params": {"core_type": "DataFrame", "path": str(out_path)}})
+        block.save(df, block.config)
+
+        assert out_path.exists()
+        recovered = pcsv.read_csv(
+            str(out_path),
+            parse_options=pcsv.ParseOptions(delimiter="\t"),
+        )
+        assert recovered.column_names == ["x", "y"]
+
+    def test_streaming_dataframe_parquet(self, tmp_path: Path) -> None:
+        df = _make_storage_backed_dataframe(tmp_path)
+        out_path = tmp_path / "out.parquet"
+        block = SaveData(config={"params": {"core_type": "DataFrame", "path": str(out_path)}})
+        block.save(df, block.config)
+
+        assert out_path.exists()
+        recovered = pq.read_table(str(out_path))
+        assert recovered.column_names == ["x", "y"]
+        assert recovered.to_pydict() == {"x": [1, 2, 3], "y": [4.0, 5.0, 6.0]}

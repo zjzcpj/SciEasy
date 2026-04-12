@@ -159,10 +159,10 @@ class Array(DataObject):
         - ``user``: shallow copy.
         - ``axes``: reduced per the selection.
 
-        ADR-031 D3: always reads from storage via ``to_memory()``, slices
-        with numpy, then persists the slice result to a zarr store and
-        sets ``storage_ref`` on the returned instance. The Zarr-aware
-        partial-read path is deferred to Phase 3.
+        ADR-031 Phase 3 (Task 17): when the backing storage is zarr,
+        ``sel()`` delegates to ``ZarrBackend.slice()`` for partial reads
+        instead of materialising the full array. For non-zarr backends,
+        falls back to ``to_memory()`` + numpy indexing.
 
         Raises:
             ValueError: if any kwarg key is not in ``self.axes``, if any
@@ -205,8 +205,18 @@ class Array(DataObject):
             raise ValueError(
                 f"{type(self).__name__}.sel() requires backing data. This instance has no storage_ref set."
             )
-        full_data = self.to_memory()
-        sliced_data = full_data[tuple(indexer)]
+        # ADR-031 Phase 3 (Task 17): for zarr-backed Arrays, use the
+        # backend's native partial-read to avoid full materialisation.
+        # ZarrBackend.slice() reads only the requested chunks from disk.
+        if self._storage_ref.backend == "zarr":
+            from scieasy.core.storage.zarr_backend import ZarrBackend
+
+            backend = ZarrBackend()
+            sliced_data = backend.slice(self._storage_ref, *indexer)
+        else:
+            # Non-zarr backends: full materialisation + numpy indexing.
+            full_data = self.to_memory()
+            sliced_data = full_data[tuple(indexer)]
 
         # Metadata propagation per ADR-027 D5.
         new_framework = self._framework.derive()
