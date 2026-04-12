@@ -1,7 +1,7 @@
 ## ADR-031: Data Object Reference-Only Contract, ViewProxy Elimination, and Lazy Loading Enforcement
 
-**Status**: accepted (Phase 1+2 implemented; Phase 3 pending)
-**Date**: 2026-04-11
+**Status**: accepted (Phase 1+2+3 implemented; Addendum 1 in progress)
+**Date**: 2026-04-11 (Addendum 1: 2026-04-12)
 **Supersedes**: ADR-027 Addendum 1 (~~proposed~~ → **deprecated**)
 **Amends**: ADR-007 (implementation alignment), ADR-017 (transport contract), ADR-028 (IOBlock contract)
 
@@ -641,6 +641,241 @@ SaveData is a **sink block** — it reads data from storage and writes to a user
 - **The wire protocol is unchanged.** JSON payload format between scheduler and worker is not modified.
 - **56+ code locations require updates** across 19 source files. The changes are mechanical (remove ViewProxy imports, remove `_data` checks, update assertions) except for the IOBlock enforcement (D4) and the `to_memory()` rewrite.
 - **ADR-027 Addendum 1 is formally deprecated.** Its correct decisions (typed reconstruction, per-class hooks, Meta constraints) are restated in D7.
+
+---
+
+### Addendum 1: Hard Gate Enforcement, D3 Clarification, and `persist` Helpers Promotion
+
+**Date**: 2026-04-12
+**Motivation**: Post-implementation audit (2026-04-12) found that Phases 1-3 left the engine layer structurally unable to enforce the storage-ref-only contract. Three layers of silent tolerance allow DataObjects without `storage_ref` to propagate through the wire format and crash in downstream blocks. See GitHub #659 for the full audit.
+
+#### A1-D1. D3 Clarification — resolving the internal contradiction
+
+ADR-031 D3 contains two statements that contradict each other:
+
+- **D3 table** (§3 D3): "Remove all `_data` assignments and `hasattr` checks."
+- **D3 text** (§3 D3 paragraph 5): "Transient in-memory data within a single block's `run()` is allowed. [...] The framework's existing `_auto_flush()` mechanism persists these to storage before the data crosses the process boundary."
+
+**Resolution**: The D3 table is narrowed in scope. The corrected rule is:
+
+> **IOBlock loaders** MUST NOT set `_data` or `_arrow_table`. They MUST persist data to storage directly via `persist_array()` / `persist_table()` and return DataObjects with `storage_ref` set. This applies to all IOBlock subclasses, whether in core (`load_data.py`) or in packages (`load_image.py`, LCMS loaders, etc.).
+>
+> **ProcessBlock / CodeBlock / AppBlock** MAY set `_data` or `_arrow_table` transiently within their `run()` / `process_item()` method. The framework guarantees that `_auto_flush()` persists these to storage before the object leaves the worker subprocess. Block authors who want to avoid full materialization MAY call `self.persist_array()` / `self.persist_table()` directly (see A1-D4).
+>
+> The `hasattr(self, "_data")` backward-compat checks in `DataObject.get_in_memory_data()` and `Array.to_memory()` are **retained** for the ProcessBlock transient path. They are NOT a backdoor — they exist exclusively to support `_auto_flush()` within a single subprocess lifetime.
+
+**Rationale**: ProcessBlocks must call `item.to_memory()` to compute results — the data is already fully in memory. Requiring explicit `persist_array()` in every ProcessBlock would add boilerplate without reducing memory usage. The meaningful optimization boundary is between IOBlock (where streaming avoids full materialization) and ProcessBlock (where full materialization is inherent to the computation).
+
+#### A1-D2. Hard gate at worker subprocess exit
+
+**Rule**: No DataObject without `storage_ref` (or Artifact with `file_path`) may leave a worker subprocess. The framework enforces this at `serialise_outputs()` in `worker.py`.
+
+**Three enforcement points, all mandatory:**
+
+| Layer | File | Current behavior | Required behavior |
+|-------|------|-----------------|-------------------|
+| `_auto_flush` | `block.py` | Silent return when `output_dir=None`; silent catch on `save()` exception | **Raise `RuntimeError`** on both failure modes. If `output_dir` is None in worker context, that is a framework bug. If `save()` fails, the block has produced invalid output. |
+| `serialise_outputs` | `worker.py` | No validation after `_auto_flush` | **Hard gate**: after `_auto_flush`, before `_serialise_one`, assert `storage_ref is not None` (Artifact with `file_path` exempt). Raise `RuntimeError` on violation. |
+| `_serialise_one` | `serialization.py` | Emits `backend=None, path=None` for missing `storage_ref` | **Raise `ValueError`** instead of emitting null references. Defense-in-depth — should never trigger if the previous two layers work correctly. |
+
+**Consequence**: Errors that currently surface as `ValueError: Cannot load data: no storage reference set` in downstream blocks will now surface as `RuntimeError` in the **source** block's worker, with a clear message identifying which DataObject and which flush operation failed.
+
+#### A1-D3. IOBlock loaders — full-read prohibition
+
+All IOBlock `load()` implementations MUST persist data to storage before returning. The safety net in `IOBlock.run()` (lines 237-243) remains as defense-in-depth but MUST NOT be the primary persistence path.
+
+**Specific violations being fixed:**
+
+| File | Sites | Migration |
+|------|-------|-----------|
+| `load_data.py` | 4× `result._data = arr` (pickle/npy/npz/parquet Array) | `self.persist_array(arr, shape, dtype, output_dir)` |
+| `load_data.py` | 3× `df._arrow_table = table` (csv/parquet/json DataFrame) | `self.persist_table(table, output_dir)` |
+| `load_image.py` | 1× `img._data = data` (single-page TIFF) | `self.persist_array(data, shape, dtype, output_dir)` |
+
+**Rule for future IOBlock authors**: If your `load()` method reads data from a file, you MUST either:
+1. Use `self.persist_array()` or `self.persist_table()` to write to managed storage, OR
+2. Construct a `StorageReference` pointing at an existing store (e.g., zarr-backed data loaded by reference).
+
+Returning a DataObject with `_data` set and no `storage_ref` from an IOBlock loader is a contract violation.
+
+#### A1-D4. `persist_array` / `persist_table` promoted to Block base class
+
+`persist_array()` and `persist_table()` are moved from `IOBlock` to `Block`, making them available to all block types.
+
+```python
+class Block:
+    def persist_array(
+        self, data_or_iterator, shape, dtype, output_dir=None, chunks=None,
+    ) -> StorageReference:
+        """Write array data to zarr storage, return StorageReference.
+
+        Available to all block types. ProcessBlock authors may use this
+        for explicit persistence when processing large data, as an
+        alternative to the _data + _auto_flush path.
+
+        Args:
+            data_or_iterator: numpy ndarray (one-shot) or iterator of
+                (index, chunk_array) tuples (streaming, constant memory).
+            shape: Full array shape.
+            dtype: Element dtype.
+            output_dir: Target directory. Defaults to get_output_dir().
+            chunks: Optional zarr chunk shape.
+
+        Returns:
+            StorageReference pointing to the written zarr store.
+        """
+        ...
+
+    def persist_table(self, table, output_dir=None) -> StorageReference:
+        """Write Arrow table to storage, return StorageReference.
+
+        Available to all block types.
+        """
+        ...
+```
+
+**ProcessBlock author's choice matrix** (updated from §3 D4):
+
+| Approach | When to use | Memory | Code |
+|----------|-------------|--------|------|
+| `result._data = arr` (transient) | Small/medium results; typical case | O(result size) | Minimal |
+| `self.persist_array(arr, ...)` (explicit) | Large results; author wants control | O(result size) | Slightly more |
+| `self.persist_array(chunk_iter, ...)` (streaming) | Very large results; chunk-wise processing | O(chunk size) | Most complex |
+
+All three paths produce a valid DataObject with `storage_ref` set before leaving the worker — the first via `_auto_flush`, the latter two directly.
+
+---
+
+### Addendum 2: Declared Transient Data Slot and Typed Constructor API
+
+**Date**: 2026-04-12
+**Motivation**: Block authors currently pass in-memory data to DataObject instances via undeclared monkey-patch attributes (`obj._data = arr`, `df._arrow_table = table`). These attributes have no type annotation, no IDE support, no documentation, and require `# type: ignore` suppressions throughout the codebase. This addendum formalizes the transient data slot as a declared field with typed constructor parameters per subclass.
+
+#### A2-D1. `_transient_data` field on DataObject base class
+
+DataObject gains a single declared transient field:
+
+```python
+class DataObject:
+    _transient_data: Any = None
+```
+
+**Contract:**
+- `_transient_data` holds in-memory data produced by a block's computation, before `_auto_flush` persists it to storage.
+- `_transient_data` is **never serialized**. The existing serialization (`_serialise_one`) uses explicit white-list field access — `_transient_data` is not in the white list and will never enter the wire format.
+- `_transient_data` is **never reconstructed**. `_reconstruct_one` only restores `storage_ref`, `framework`, `meta`, `user`, and per-class extras.
+- `_transient_data` exists only within a single subprocess lifetime. It is set during `block.run()`, read by `_auto_flush` → `save()` → `get_in_memory_data()`, and dies when the subprocess exits.
+- After `_auto_flush` persists the data and sets `storage_ref`, `_transient_data` MAY be cleared to release memory. This is optional — the subprocess is about to exit anyway.
+
+#### A2-D2. Typed `data=` constructor parameter per subclass
+
+Each data-carrying subclass exposes a typed `data` keyword argument in its constructor. The constructor writes this value into `_transient_data`.
+
+| Subclass | Constructor parameter | Python type | Notes |
+|----------|----------------------|-------------|-------|
+| **Array** | `data: np.ndarray \| None = None` | `numpy.ndarray` | N-dimensional numeric data |
+| **DataFrame** | `data: pa.Table \| None = None` | `pyarrow.Table` | Columnar tabular data |
+| **Series** | `data: pa.Table \| None = None` | `pyarrow.Table` | Single-column table |
+| **Text** | `content: str` (existing) | `str` | Already declared — no change needed |
+| **Artifact** | `file_path: Path` (existing) | `Path` | Already declared — no change needed |
+| **CompositeData** | N/A — slots are independent DataObjects | — | Each slot follows its own type's pattern |
+
+**Example — Array constructor:**
+
+```python
+class Array(DataObject):
+    def __init__(self, *, axes, shape, dtype, chunk_shape=None,
+                 data: np.ndarray | None = None,
+                 **kwargs):
+        super().__init__(**kwargs)
+        self.axes = axes
+        self.shape = shape
+        self.dtype = dtype
+        self.chunk_shape = chunk_shape
+        if data is not None:
+            self._transient_data = data
+```
+
+#### A2-D3. Backward compatibility via `_data` / `_arrow_table` property bridges
+
+To avoid breaking 25+ ProcessBlock files and 60+ test files, the old monkey-patch names are preserved as property bridges that read/write `_transient_data`:
+
+```python
+class DataObject:
+    _transient_data: Any = None
+
+    @property
+    def _data(self):
+        return self._transient_data
+
+    @_data.setter
+    def _data(self, value):
+        self._transient_data = value
+
+    @property
+    def _arrow_table(self):
+        return self._transient_data
+
+    @_arrow_table.setter
+    def _arrow_table(self, value):
+        self._transient_data = value
+```
+
+**Migration path:**
+- **Phase 1** (this addendum): Add `_transient_data`, `data=` constructors, property bridges. Zero breaking changes.
+- **Phase 2** (gradual): New code and documentation use `data=` constructor. Old code migrates at natural pace.
+- **Phase 3** (future): Add `DeprecationWarning` to `_data` / `_arrow_table` property setters.
+
+#### A2-D4. Updated `to_memory()` and `get_in_memory_data()`
+
+Base class methods are simplified to check the declared field instead of `hasattr`:
+
+```python
+class DataObject:
+    def to_memory(self) -> Any:
+        if self._storage_ref is not None:
+            return _get_backend(self._storage_ref).read(self._storage_ref)
+        if self._transient_data is not None:
+            return self._transient_data
+        raise ValueError("Cannot load data: no storage reference and no transient data.")
+
+    def get_in_memory_data(self) -> Any:
+        if self._storage_ref is not None:
+            return self.to_memory()
+        if self._transient_data is not None:
+            return self._transient_data
+        raise ValueError(f"{type(self).__name__} has no data to persist.")
+```
+
+The `hasattr(self, "_data")` and `hasattr(self, "_arrow_table")` checks are **removed** from both methods. The property bridges ensure old code that sets `._data` or `._arrow_table` writes to `_transient_data`, which these methods now read directly.
+
+Array's `to_memory()` override is simplified accordingly — it no longer needs its own `hasattr` check.
+
+#### A2-D5. Block author experience (final state)
+
+```python
+# ProcessBlock — full materialization (most common)
+def process_item(self, item, config):
+    arr = item.to_memory()
+    result = some_computation(arr)
+    return Image(axes=item.axes, shape=result.shape,
+                 dtype=str(result.dtype), data=result)
+
+# ProcessBlock — streaming (large data, author opts in)
+def process_item(self, item, config):
+    def chunks():
+        for chunk in item.iter_chunks(1024):
+            yield transform(chunk)
+    ref = self.persist_array(chunks(), shape, dtype)
+    return Image(axes=item.axes, shape=shape, dtype=dtype, storage_ref=ref)
+
+# IOBlock loader — must persist directly (Addendum 1 A1-D3)
+def load(self, config, output_dir=""):
+    raw = np.load(path)
+    ref = self.persist_array(raw, raw.shape, raw.dtype, output_dir)
+    return Array(axes=["y","x"], shape=raw.shape,
+                 dtype=str(raw.dtype), storage_ref=ref)
+```
 
 ---
 
