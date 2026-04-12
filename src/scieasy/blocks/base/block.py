@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -369,8 +370,11 @@ class Block(ABC):
         if not output_dir:
             raise RuntimeError("persist_array requires output_dir but none is configured.")
 
-        store_name = f"{uuid.uuid4()}.zarr"
+        store_name = f"{uuid.uuid4().hex[:12]}.zarr"
         store_path = str(Path(output_dir) / store_name)
+        # Windows MAX_PATH (260) workaround: use \\?\ prefix for long paths.
+        if sys.platform == "win32" and len(store_path) > 200:
+            store_path = f"\\\\?\\{store_path}" if not store_path.startswith("\\\\?\\") else store_path
         Path(store_path).parent.mkdir(parents=True, exist_ok=True)
 
         np_dtype = np.dtype(dtype)
@@ -417,8 +421,10 @@ class Block(ABC):
         if not output_dir:
             raise RuntimeError("persist_table requires output_dir but none is configured.")
 
-        file_name = f"{uuid.uuid4()}.parquet"
+        file_name = f"{uuid.uuid4().hex[:12]}.parquet"
         file_path = str(Path(output_dir) / file_name)
+        if sys.platform == "win32" and len(file_path) > 200:
+            file_path = f"\\\\?\\{file_path}" if not file_path.startswith("\\\\?\\") else file_path
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 
         backend = ArrowBackend()
