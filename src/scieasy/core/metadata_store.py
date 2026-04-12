@@ -226,7 +226,8 @@ class MetadataStore:
         ).fetchone()
         if row is None:
             return None
-        return json.loads(row[0])
+        result: dict[str, Any] = json.loads(row[0])
+        return result
 
     def get_by_storage_path(self, path: str) -> DataObject | None:
         """Look up metadata for a data file on disk.
