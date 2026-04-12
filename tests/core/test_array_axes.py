@@ -237,6 +237,38 @@ class TestArraySel:
         result = arr.sel(y=0)
         assert type(result) is Array
 
+    def test_sel_zarr_partial_read(self) -> None:
+        """ADR-031 Phase 3 (Task 17): sel() uses zarr partial-read for
+        zarr-backed Arrays, avoiding full materialisation."""
+        data = np.arange(4 * 5 * 6, dtype="float32").reshape(4, 5, 6)
+        arr = _backed_array(["z", "y", "x"], data)
+        # Verify the source is zarr-backed
+        assert arr.storage_ref is not None
+        assert arr.storage_ref.backend == "zarr"
+        # Select a single z-plane — should use ZarrBackend.slice()
+        result = arr.sel(z=2)
+        assert result.axes == ["y", "x"]
+        assert result.shape == (5, 6)
+        np.testing.assert_array_equal(np.asarray(result), data[2])
+
+    def test_sel_zarr_partial_read_slice_range(self) -> None:
+        """ADR-031 Phase 3: sel() with slice range on zarr-backed Array."""
+        data = np.arange(10 * 5 * 5, dtype="float32").reshape(10, 5, 5)
+        arr = _backed_array(["z", "y", "x"], data)
+        result = arr.sel(z=slice(2, 7))
+        assert result.axes == ["z", "y", "x"]
+        assert result.shape == (5, 5, 5)
+        np.testing.assert_array_equal(np.asarray(result), data[2:7])
+
+    def test_sel_zarr_partial_read_multiple_axes(self) -> None:
+        """ADR-031 Phase 3: sel() with multiple axes on zarr-backed Array."""
+        data = np.arange(2 * 3 * 4 * 5 * 6, dtype="float32").reshape(2, 3, 4, 5, 6)
+        arr = _backed_array(["t", "z", "c", "y", "x"], data)
+        result = arr.sel(t=1, c=2)
+        assert result.axes == ["z", "y", "x"]
+        assert result.shape == (3, 5, 6)
+        np.testing.assert_array_equal(np.asarray(result), data[1, :, 2])
+
 
 # ---------------------------------------------------------------------------
 # iter_over()
