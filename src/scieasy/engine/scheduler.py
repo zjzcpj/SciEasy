@@ -625,9 +625,14 @@ class DAGScheduler:
         the cancel request is transitioned to SKIPPED with reason
         "workflow cancelled".
         """
-        running_blocks = [bid for bid, state in self._block_states.items() if state == BlockState.RUNNING]
+        # Include both RUNNING and PAUSED blocks — interactive blocks
+        # (DataRouter, PairEditor) sit in PAUSED while waiting for user
+        # input via an asyncio.Future. They must also be cancelled.
+        cancelable_blocks = [
+            bid for bid, state in self._block_states.items() if state in (BlockState.RUNNING, BlockState.PAUSED)
+        ]
 
-        for block_id in running_blocks:
+        for block_id in cancelable_blocks:
             handle = None
             if self._process_registry is not None:
                 handle = self._process_registry.get_handle(block_id)
@@ -648,6 +653,12 @@ class DAGScheduler:
                 task = self._active_tasks.get(block_id)
                 if task is not None and not task.done():
                     task.cancel()
+
+            # Cancel interactive future if the block is PAUSED waiting
+            # for user input (DataRouter/PairEditor).
+            interactive_future = self._interactive_futures.pop(block_id, None)
+            if interactive_future is not None and not interactive_future.done():
+                interactive_future.cancel()
 
             if hasattr(self._runner, "cancel"):
                 try:

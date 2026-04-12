@@ -125,6 +125,9 @@ class DataRouter(ProcessBlock):
                 item_lookup[f"{port_name}:0"] = value
 
         # Route items to output ports per the user's assignments.
+        # Derive item_type per output batch: if all items share the same
+        # type use it; otherwise widen to DataObject so mixed-type routing
+        # (items from different input ports) doesn't fail.
         outputs: dict[str, Any] = {}
         for output_port, item_refs in assignments.items():
             routed_items = []
@@ -133,7 +136,11 @@ class DataRouter(ProcessBlock):
                     logger.warning("DataRouter: unknown item ref '%s', skipping", ref)
                     continue
                 routed_items.append(item_lookup[ref])
-            resolved_type = item_type or DataObject
-            outputs[output_port] = Collection(routed_items, item_type=resolved_type)
+            if routed_items:
+                types_seen = {type(item) for item in routed_items}
+                batch_type = types_seen.pop() if len(types_seen) == 1 else DataObject
+            else:
+                batch_type = DataObject
+            outputs[output_port] = Collection(routed_items, item_type=batch_type)
 
         return outputs
