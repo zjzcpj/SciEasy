@@ -374,6 +374,57 @@ class MetadataStore:
 
 ---
 
+### Addendum 1: Engine-Side Metadata Writes (Worker Subprocess Boundary)
+
+**Status**: accepted
+**Date**: 2026-04-12
+
+#### Context
+
+ADR-032 D3 specifies that metadata should be written "immediately after `_auto_flush()` success." Implementation analysis revealed that `_auto_flush()` runs inside **worker subprocesses** (via `Block._auto_flush()` called from `ProcessBlock.run()` and `worker.serialise_outputs()`). Worker subprocesses cannot share SQLite connections with the engine process — SQLite does not support cross-process connection sharing safely.
+
+#### Decision
+
+**Metadata writes happen in the engine process, not the worker subprocess.**
+
+The correct write point is `scheduler._run_and_finalize()`, after the engine receives the worker's stdout JSON containing the wire-format output dicts. The engine calls `MetadataStore.put_wire(wire_dict)` for each output DataObject in the result.
+
+```
+Worker subprocess:
+  block.run() → _auto_flush() → data written to zarr/arrow
+  serialise_outputs() → wire-format JSON written to stdout
+
+Engine process:
+  LocalRunner.run() → reads stdout JSON → returns wire-format dicts
+  scheduler._run_and_finalize() → stores in _block_outputs
+    → NEW: MetadataStore.put_wire() for each DataObject in output  ← metadata write here
+```
+
+**`put_wire(wire_dict)`** accepts the raw wire-format dict (the exact output of `_serialise_one()`) and inserts it directly into the database without reconstructing a DataObject. This avoids a redundant serialize→deserialize→reserialize round-trip.
+
+#### Consistency implications
+
+D3's original intent was tight data-metadata consistency: "if data was written, metadata was written." Engine-side writes relax this guarantee:
+
+| Scenario | Data on disk? | Metadata in db? | Acceptable? |
+|----------|--------------|----------------|-------------|
+| Block completes normally | ✅ | ✅ | Yes |
+| Worker crashes after data write, before stdout | ✅ | ❌ | Yes — orphan data detectable by `vacuum()` |
+| Worker crashes during data write | ❌ | ❌ | Yes — consistent (both absent) |
+| Engine crashes after receiving stdout, before db write | ✅ | ❌ | Yes — same orphan case, detectable |
+| Long-running block (1000 items) | ✅ (incremental) | ❌ (until block finishes) | Acceptable — crash loses metadata for completed items, but outputs are incomplete anyway |
+
+**The consistency window is bounded by one block execution.** This is acceptable because:
+1. A crashed block's outputs are incomplete regardless of metadata presence
+2. `vacuum(existing_paths)` can detect and report orphan data files without metadata entries
+3. The alternative (worker-side SQLite writes) requires cross-process db sharing or a separate IPC channel — complexity not justified by the marginal consistency improvement
+
+#### Supersedes
+
+This addendum supersedes ADR-032 D3's statement "immediately after `_auto_flush()` success." The write timing is now: **immediately after the engine process receives wire-format outputs from the worker subprocess.** The non-fatal guarantee is preserved — metadata write failures do not crash workflows.
+
+---
+
 ### Appendix: Relationship to ADR-031
 
 ADR-031 (DataObject reference-only contract) ensures all DataObjects have `storage_ref` set when they cross block boundaries. ADR-032 builds on this by persisting the complete metadata envelope alongside the storage reference.
