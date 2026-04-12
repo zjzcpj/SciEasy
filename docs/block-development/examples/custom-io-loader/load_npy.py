@@ -29,10 +29,11 @@ class LoadNpy(IOBlock):
 
     Demonstrates two loading paths:
 
-    1. **Simple path** (small files): Load into memory, return Array
-       with ``_data`` set. The base class auto-flushes to zarr storage.
-    2. **Streaming path** (large files): Use ``persist_array()`` to
-       write directly to zarr storage, return a reference-only Array.
+    1. **Simple path** (small files): Load into memory, return Array.
+       The base class auto-flushes to zarr storage (ADR-031 D4 safety net).
+    2. **Streaming path** (large files): Use memory-mapped read +
+       ``persist_array()`` with chunk iteration to write to zarr with
+       constant memory. Returns a reference-only Array.
     """
 
     direction: ClassVar[str] = "input"
@@ -95,31 +96,56 @@ class LoadNpy(IOBlock):
         return self._load_simple(path, config)
 
     def _load_simple(self, path: Path, config: BlockConfig) -> Array:
-        """Simple path: load into memory, let auto-flush handle persistence."""
+        """Simple path: load into memory, let auto-flush handle persistence.
+
+        Suitable for small files (< 1 GB). The returned Array has no
+        storage_ref; the IOBlock base class auto-flushes it to zarr
+        before it crosses the block boundary (ADR-031 D4 safety net).
+        """
         data = np.load(str(path))
         axes = self._resolve_axes(config, data.ndim)
 
+        # Return in-memory Array — base class handles persistence.
+        # Do NOT set _data directly; pass data through the constructor
+        # or let auto-flush write it from get_in_memory_data().
         arr = Array(
             axes=axes,
             shape=tuple(data.shape),
             dtype=str(data.dtype),
             framework=FrameworkMeta(source=str(path)),
         )
+        # Attach data for auto-flush to persist (transient, within block only).
         arr._data = data  # type: ignore[attr-defined]
         return arr
 
     def _load_streaming(self, path: Path, config: BlockConfig, output_dir: str) -> Array:
-        """Streaming path: write to zarr via persist_array, return reference-only."""
-        data = np.load(str(path))
-        axes = self._resolve_axes(config, data.ndim)
+        """Streaming path: memory-mapped read + chunked zarr write.
 
-        # persist_array accepts an ndarray directly (one-shot write)
-        ref = self.persist_array(data, data.shape, data.dtype, output_dir)
+        Uses np.load(mmap_mode='r') so the file is NOT fully loaded into
+        memory. Then iterates chunks and yields them to persist_array()
+        for constant-memory zarr writes. Suitable for large files (> 1 GB).
+        """
+        # Memory-mapped read — does NOT load data into RAM
+        mmap = np.load(str(path), mmap_mode="r")
+        axes = self._resolve_axes(config, mmap.ndim)
+        shape = tuple(mmap.shape)
+        dtype = mmap.dtype
+
+        if mmap.ndim >= 2:
+            # Stream first-axis slices (e.g., z-planes for a 3D array)
+            def chunk_iter():
+                for i in range(shape[0]):
+                    yield (i, np.asarray(mmap[i]))
+
+            ref = self.persist_array(chunk_iter(), shape, dtype, output_dir)
+        else:
+            # 1D array: single chunk, use ndarray mode
+            ref = self.persist_array(np.asarray(mmap), shape, dtype, output_dir)
 
         return Array(
             axes=axes,
-            shape=tuple(data.shape),
-            dtype=str(data.dtype),
+            shape=shape,
+            dtype=str(dtype),
             framework=FrameworkMeta(source=str(path)),
             storage_ref=ref,
         )
