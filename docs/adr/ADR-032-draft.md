@@ -1,6 +1,6 @@
 ## ADR-032: Project-Level Metadata Store — SQLite Persistent Mirror of DataObject Metadata
 
-**Status**: draft
+**Status**: accepted
 **Date**: 2026-04-11
 **Related**: ADR-007 (lazy loading), ADR-017 (cross-process transport), ADR-027 D5 (three-slot metadata), ADR-031 (reference-only contract)
 
