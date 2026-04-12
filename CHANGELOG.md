@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#630] Pass block registry to validate_workflow() in API save path so type compatibility and dangling port checks run (@claude, 2026-04-11, branch: fix/issue-638/validator-batch-improvements, session: 20260411-224417-batch-validator-improvements-registry-pa)
+- [#631] Add variadic port cardinality validation (Check 7) to workflow validator (@claude, 2026-04-11, branch: fix/issue-638/validator-batch-improvements, session: 20260411-224417-batch-validator-improvements-registry-pa)
+- [#632] Validate block config required fields before dispatch to catch misconfiguration before subprocess creation (@claude, 2026-04-11, branch: fix/issue-638/validator-batch-improvements, session: 20260411-224417-batch-validator-improvements-registry-pa)
 - [#600] Replace FolderBrowserDialog with modern IFileOpenDialog COM folder picker on Windows (@claude, 2026-04-11, branch: fix/issue-600/modern-folder-dialog, session: 20260411-104043-replace-windows-folderbrowserdialog-with)
 - [#598] Enforce max 50 open tabs (@claude, 2026-04-11, branch: fix/issue-614/batch-small-fixes, session: 20260411-102935-fix-5-small-issues-max-tabs-bidirectiona)
 - [#601] Allow bidirectional subclass port connections (@claude, 2026-04-11, branch: fix/issue-614/batch-small-fixes, session: 20260411-102935-fix-5-small-issues-max-tabs-bidirectiona)
