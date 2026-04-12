@@ -20,6 +20,52 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _win_junction(target: str) -> str:
+    """Create an NTFS junction from a short path to *target* (Windows only).
+
+    Returns the short junction path.  Data physically lives at *target*
+    (inside the project directory) so it survives restarts, syncs with
+    cloud storage, and preserves lineage.  The junction is just an alias
+    that keeps the total path under Windows MAX_PATH (260).
+
+    Junction root defaults to ``%LOCALAPPDATA%/scieasy-stores`` and can
+    be overridden via the ``SCIEASY_STORE`` environment variable.
+    """
+    import hashlib
+    import os
+    import subprocess as sp
+
+    store_root = Path(os.environ.get("SCIEASY_STORE", ""))
+    if not store_root.parts:
+        local_app = os.environ.get("LOCALAPPDATA", "")
+        store_root = Path(local_app) / "scieasy-stores" if local_app else Path("C:/scieasy-stores")
+
+    hash_id = hashlib.sha256(target.encode()).hexdigest()[:8]
+    junction = store_root / hash_id
+
+    if junction.exists():
+        # Already linked (or leftover from previous run).
+        return str(junction)
+
+    # Ensure the real target directory exists first.
+    Path(target).mkdir(parents=True, exist_ok=True)
+    junction.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        sp.run(
+            ["cmd", "/c", "mklink", "/J", str(junction), target],
+            check=True,
+            capture_output=True,
+        )
+    except (sp.CalledProcessError, FileNotFoundError) as exc:
+        logger.warning("Failed to create junction %s -> %s: %s", junction, target, exc)
+        # Fall back to the long path — better than crashing.
+        return target
+
+    logger.info("Created junction %s -> %s", junction, target)
+    return str(junction)
+
+
 def _derive_output_dir(block: Any, config: dict[str, Any]) -> str:
     """Return a persistence directory for worker auto-flush outputs."""
     explicit_output_dir = config.get("output_dir")
@@ -34,16 +80,13 @@ def _derive_output_dir(block: Any, config: dict[str, Any]) -> str:
     if isinstance(project_dir, str) and project_dir:
         short_block_id = block_id[:40] if len(block_id) > 40 else block_id
         candidate = str(Path(project_dir) / "data" / "zarr" / workflow_id / short_block_id)
-        # zarr creates internal subfiles (+60 chars). If total would exceed
-        # Windows MAX_PATH (260), fall back to a short temp dir to avoid
-        # FileNotFoundError from zarr's internal pathlib operations.
+        # zarr creates internal subfiles adding ~60 chars.  If the total
+        # would exceed Windows MAX_PATH (260), create an NTFS junction
+        # from a short path to the real project directory.  Data stays in
+        # the project dir; only the working path is shortened.
         if sys.platform == "win32" and len(candidate) > 180:
-            logger.warning(
-                "Output dir too long for Windows (%d chars), using temp dir: %s",
-                len(candidate),
-                candidate,
-            )
-            return tempfile.mkdtemp(prefix="scieasy-worker-")
+            result = _win_junction(candidate)
+            return result
         Path(candidate).mkdir(parents=True, exist_ok=True)
         return candidate
 
