@@ -40,8 +40,9 @@ class TestPairEditorMetadata:
         assert PairEditor.max_input_ports == 8
 
     def test_allowed_types(self) -> None:
-        assert PairEditor.allowed_input_types == [DataObject]
-        assert PairEditor.allowed_output_types == [DataObject]
+        # Empty list = accept all DataObject subtypes (#665).
+        assert PairEditor.allowed_input_types == []
+        assert PairEditor.allowed_output_types == []
 
 
 class TestPairEditorPreparePrompt:

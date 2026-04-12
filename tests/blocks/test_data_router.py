@@ -36,8 +36,9 @@ class TestDataRouterMetadata:
         assert DataRouter.variadic_outputs is True
 
     def test_allowed_types(self) -> None:
-        assert DataRouter.allowed_input_types == [DataObject]
-        assert DataRouter.allowed_output_types == [DataObject]
+        # Empty list = accept all DataObject subtypes (#665).
+        assert DataRouter.allowed_input_types == []
+        assert DataRouter.allowed_output_types == []
 
     def test_min_ports(self) -> None:
         assert DataRouter.min_input_ports == 1

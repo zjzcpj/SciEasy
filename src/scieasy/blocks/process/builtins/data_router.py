@@ -43,8 +43,8 @@ class DataRouter(ProcessBlock):
 
     variadic_inputs: ClassVar[bool] = True
     variadic_outputs: ClassVar[bool] = True
-    allowed_input_types: ClassVar[list[type]] = [DataObject]
-    allowed_output_types: ClassVar[list[type]] = [DataObject]
+    allowed_input_types: ClassVar[list[type]] = []
+    allowed_output_types: ClassVar[list[type]] = []
     min_input_ports: ClassVar[int | None] = 1
     min_output_ports: ClassVar[int | None] = 1
 
