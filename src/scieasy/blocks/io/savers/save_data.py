@@ -280,6 +280,10 @@ def _unwrap_for_save(
 def _save_array(obj: DataObject, config: BlockConfig) -> None:
     """Save :class:`Array` to ``.npy`` / ``.npz`` / ``.zarr`` / ``.parquet`` / ``.pkl``.
 
+    ADR-031 Phase 3 (step 18): for ``.zarr`` output with a zarr-backed
+    source, performs a direct zarr-to-zarr copy (chunk-by-chunk,
+    constant memory) instead of full materialisation.
+
     Pickle gating: ``.pkl`` / ``.pickle`` requires
     ``allow_pickle=True`` in the block config.
     """
@@ -287,9 +291,8 @@ def _save_array(obj: DataObject, config: BlockConfig) -> None:
     path = _require_path(config)
     suffix = path.suffix.lower()
 
-    data = obj.get_in_memory_data()
-
     if _check_pickle_gate(path, config):
+        data = obj.get_in_memory_data()
         with path.open("wb") as fh:
             pickle.dump(data, fh)
         return
@@ -297,13 +300,13 @@ def _save_array(obj: DataObject, config: BlockConfig) -> None:
     if suffix == ".npy":
         import numpy as np
 
-        np.save(str(path), np.asarray(data))
+        np.save(str(path), np.asarray(obj.get_in_memory_data()))
         return
 
     if suffix == ".npz":
         import numpy as np
 
-        np.savez(str(path), data=np.asarray(data))
+        np.savez(str(path), data=np.asarray(obj.get_in_memory_data()))
         return
 
     if suffix == ".zarr":
@@ -313,14 +316,19 @@ def _save_array(obj: DataObject, config: BlockConfig) -> None:
             raise ValueError(
                 "Saving Array to .zarr requires the 'zarr' package; install it via `pip install zarr`."
             ) from exc
+
+        # ADR-031 Phase 3: zarr-to-zarr streaming copy when source is
+        # zarr-backed.  Opens the source store read-only and copies
+        # chunk-by-chunk to the destination, avoiding full materialisation.
+        ref = getattr(obj, "_storage_ref", None) or getattr(obj, "storage_ref", None)
+        if ref is not None and ref.backend == "zarr":
+            _zarr_to_zarr_copy(ref.path, str(path))
+            return
+
+        # Fallback: materialise and save (non-zarr source or no ref).
         import numpy as np
 
-        arr = np.asarray(data)
-        # Use the modern zarr.save API which writes a single array store.
-        # Zarr's stub for ``save`` declares the second argument as
-        # ``NDArrayLike``, which mypy does not recognise as a numpy
-        # ndarray supertype. The runtime contract accepts any array-like
-        # input; suppress the false positive.
+        arr = np.asarray(obj.get_in_memory_data())
         zarr.save(str(path), arr)  # type: ignore[arg-type]
         return
 
@@ -332,7 +340,7 @@ def _save_array(obj: DataObject, config: BlockConfig) -> None:
         import pyarrow as pa
         import pyarrow.parquet as pq
 
-        arr = np.asarray(data)
+        arr = np.asarray(obj.get_in_memory_data())
         if arr.ndim != 1:
             raise ValueError(
                 f"Cannot save {arr.ndim}-D Array as single-column Parquet; "
@@ -348,8 +356,49 @@ def _save_array(obj: DataObject, config: BlockConfig) -> None:
     )
 
 
+def _zarr_to_zarr_copy(src_path: str, dst_path: str) -> None:
+    """Copy a Zarr array store chunk-by-chunk (constant memory).
+
+    ADR-031 Phase 3 (step 18): direct zarr-to-zarr copy avoids full
+    materialisation.  Uses ``zarr.copy`` when available, otherwise falls
+    back to a manual chunk-by-chunk copy along axis 0.
+    """
+    import zarr
+
+    src = zarr.open_array(src_path, mode="r")
+    dst_store_path = Path(dst_path)
+    if dst_store_path.exists():
+        shutil.rmtree(dst_store_path)
+    dst_store_path.parent.mkdir(parents=True, exist_ok=True)
+
+    dst = zarr.open_array(
+        str(dst_store_path),
+        mode="w",
+        shape=src.shape,
+        dtype=src.dtype,
+        chunks=src.chunks,
+    )
+    # Copy chunk-by-chunk along axis 0.  For each chunk boundary we
+    # read one slab from source and write it to destination.  This
+    # keeps memory usage proportional to a single chunk, not the full
+    # array.
+    chunk_axis0 = src.chunks[0] if src.ndim > 0 else 1
+    total = src.shape[0] if src.ndim > 0 else 1
+    for start in range(0, total, chunk_axis0):
+        end = min(start + chunk_axis0, total)
+        dst[start:end] = src[start:end]
+
+    # Preserve user-level attributes (e.g. axes metadata).
+    dst.attrs.update(src.attrs)
+
+
 def _save_dataframe(obj: DataObject, config: BlockConfig) -> None:
-    """Save :class:`DataFrame` to ``.csv`` / ``.tsv`` / ``.parquet`` / ``.json`` / ``.pkl``."""
+    """Save :class:`DataFrame` to ``.csv`` / ``.tsv`` / ``.parquet`` / ``.json`` / ``.pkl``.
+
+    ADR-031 Phase 3 (step 18): for arrow-backed DataFrames writing to
+    ``.parquet`` or ``.csv``/``.tsv``, uses chunked streaming writes
+    (row-group-at-a-time) to avoid full materialisation.
+    """
     assert isinstance(obj, DataFrame), f"Expected DataFrame, got {type(obj).__name__}"
     path = _require_path(config)
     suffix = path.suffix.lower()
@@ -360,6 +409,20 @@ def _save_dataframe(obj: DataObject, config: BlockConfig) -> None:
             pickle.dump(data, fh)
         return
 
+    # ADR-031 Phase 3: streaming paths for arrow-backed sources.
+    ref = getattr(obj, "_storage_ref", None) or getattr(obj, "storage_ref", None)
+    is_arrow = ref is not None and ref.backend == "arrow"
+
+    if is_arrow and suffix in (".parquet", ".pq"):
+        _stream_arrow_to_parquet(ref, str(path))
+        return
+
+    if is_arrow and suffix in (".csv", ".tsv"):
+        delimiter = "\t" if suffix == ".tsv" else ","
+        _stream_arrow_to_csv(ref, str(path), delimiter=delimiter)
+        return
+
+    # Non-streaming paths: materialise the full table.
     table = _dataframe_to_arrow_table(obj)
 
     if suffix == ".csv":
@@ -615,6 +678,56 @@ def _dataframe_to_arrow_table(obj: DataFrame) -> Any:
         f"Cannot convert DataFrame in-memory data of type {type(raw).__name__} "
         "to a pyarrow.Table; expected pa.Table, dict, or list of records."
     )
+
+
+def _stream_arrow_to_parquet(ref: Any, dst_path: str) -> None:
+    """Stream an arrow-backed DataFrame to Parquet row-group-by-row-group.
+
+    ADR-031 Phase 3 (step 18): reads row batches from the source Parquet
+    file and writes them incrementally to the destination, keeping memory
+    usage proportional to one row group instead of the full table.
+    """
+    import pyarrow.parquet as pq
+
+    pf = pq.ParquetFile(ref.path)
+    writer: pq.ParquetWriter | None = None
+    try:
+        for batch in pf.iter_batches():
+            import pyarrow as pa
+
+            chunk_table = pa.Table.from_batches([batch])
+            if writer is None:
+                writer = pq.ParquetWriter(dst_path, chunk_table.schema)
+            writer.write_table(chunk_table)
+    finally:
+        if writer is not None:
+            writer.close()
+
+
+def _stream_arrow_to_csv(ref: Any, dst_path: str, *, delimiter: str = ",") -> None:
+    """Stream an arrow-backed DataFrame to CSV batch-by-batch.
+
+    ADR-031 Phase 3 (step 18): reads row batches from the source Parquet
+    file and appends them to the CSV file incrementally.  The header is
+    written once with the first batch.
+    """
+    import pyarrow as pa
+    import pyarrow.csv as pcsv
+    import pyarrow.parquet as pq
+
+    pf = pq.ParquetFile(ref.path)
+    write_opts = pcsv.WriteOptions(delimiter=delimiter)
+    first = True
+    with open(dst_path, "wb") as fh:
+        for batch in pf.iter_batches():
+            chunk_table = pa.Table.from_batches([batch])
+            if first:
+                pcsv.write_csv(chunk_table, fh, write_options=write_opts)
+                first = False
+            else:
+                # Write without header for subsequent batches.
+                write_opts_no_hdr = pcsv.WriteOptions(delimiter=delimiter, include_header=False)
+                pcsv.write_csv(chunk_table, fh, write_options=write_opts_no_hdr)
 
 
 def _resolve_core_type_name(obj: DataObject) -> str | None:

@@ -87,11 +87,47 @@ def _resolve_format(path: Path, explicit: str | None) -> str:
 
 
 def _write_tiff(image: Image, path: Path) -> None:
+    """Write an :class:`Image` to TIFF.
+
+    ADR-031 Phase 3 (step 18): when the image is zarr-backed, writes
+    page-by-page along axis 0 to avoid full materialisation.  For small
+    or non-zarr images, falls back to a single ``imwrite`` call.
+    """
     import tifffile
+
+    ref = getattr(image, "_storage_ref", None) or getattr(image, "storage_ref", None)
+    if ref is not None and ref.backend == "zarr":
+        _write_tiff_streaming(image, path, ref)
+        return
 
     data = _materialise(image)
     axes_str = "".join(image.axes).upper()
     tifffile.imwrite(str(path), data, metadata={"axes": axes_str})
+
+
+def _write_tiff_streaming(image: Image, path: Path, ref: object) -> None:
+    """Stream zarr-backed image to TIFF page-by-page (constant memory).
+
+    Reads one plane at a time along axis 0 from the zarr store and
+    appends it to the output TIFF file.  For 2D images (no leading
+    axis to iterate over), falls back to a single write.
+    """
+    import tifffile
+    import zarr
+
+    src = zarr.open_array(ref.path, mode="r")  # type: ignore[union-attr]
+    axes_str = "".join(image.axes).upper()
+
+    if src.ndim <= 2:
+        # 2D image: single page, no streaming benefit.
+        tifffile.imwrite(str(path), np.asarray(src), metadata={"axes": axes_str})
+        return
+
+    # Write page-by-page along axis 0 using bigtiff for large files.
+    with tifffile.TiffWriter(str(path), bigtiff=True) as tw:
+        for i in range(src.shape[0]):
+            page = np.asarray(src[i])
+            tw.write(page, metadata={"axes": axes_str})
 
 
 def _write_zarr(image: Image, path: Path) -> None:

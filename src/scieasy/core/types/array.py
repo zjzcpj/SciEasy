@@ -159,10 +159,11 @@ class Array(DataObject):
         - ``user``: shallow copy.
         - ``axes``: reduced per the selection.
 
-        ADR-031 D3: always reads from storage via ``to_memory()``, slices
-        with numpy, then persists the slice result to a zarr store and
-        sets ``storage_ref`` on the returned instance. The Zarr-aware
-        partial-read path is deferred to Phase 3.
+        ADR-031 Phase 3 (step 17): when the backing store is Zarr, the
+        method uses Zarr-native slicing (``ZarrBackend.slice()``) to read
+        only the requested sub-array, avoiding full materialisation.
+        For non-Zarr backends, falls back to ``to_memory()`` + numpy
+        indexing.
 
         Raises:
             ValueError: if any kwarg key is not in ``self.axes``, if any
@@ -205,8 +206,19 @@ class Array(DataObject):
             raise ValueError(
                 f"{type(self).__name__}.sel() requires backing data. This instance has no storage_ref set."
             )
-        full_data = self.to_memory()
-        sliced_data = full_data[tuple(indexer)]
+
+        # ADR-031 Phase 3 (step 17): use Zarr-native partial read when
+        # the backing store is Zarr.  This avoids loading the full array
+        # into memory just to slice it.  Non-Zarr backends fall back to
+        # the materialise-then-slice path.
+        if self._storage_ref.backend == "zarr":
+            from scieasy.core.storage.zarr_backend import ZarrBackend
+
+            backend = ZarrBackend()
+            sliced_data = backend.slice(self._storage_ref, *indexer)
+        else:
+            full_data = self.to_memory()
+            sliced_data = full_data[tuple(indexer)]
 
         # Metadata propagation per ADR-027 D5.
         new_framework = self._framework.derive()
@@ -356,11 +368,25 @@ class Array(DataObject):
         transiently by a loader before ``_auto_flush`` persists it,
         returns that data directly. This backward-compat path will be
         removed once all loaders write to storage directly.
+
+        ADR-031 Phase 3 (step 19): emits :class:`ResourceWarning` when
+        the data exceeds 2 GB (delegated to base class for the
+        storage-backed path; checked inline for the ``_data`` fallback).
         """
         if self._storage_ref is not None:
             return super().to_memory()
         if hasattr(self, "_data") and getattr(self, "_data", None) is not None:
-            return self._data  # type: ignore[attr-defined]
+            import warnings
+
+            data = self._data  # type: ignore[attr-defined]
+            if hasattr(data, "nbytes") and data.nbytes > 2 * 1024 * 1024 * 1024:
+                warnings.warn(
+                    f"Loading {data.nbytes / (1024**3):.1f} GB into memory. "
+                    "Consider using .sel() or .iter_chunks() instead.",
+                    ResourceWarning,
+                    stacklevel=2,
+                )
+            return data
         raise ValueError("Cannot load data: no storage reference set.")
 
     # -- worker subprocess reconstruction hooks (ADR-027 Addendum 1 §2) -----

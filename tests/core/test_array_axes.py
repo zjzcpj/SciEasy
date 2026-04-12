@@ -239,6 +239,58 @@ class TestArraySel:
 
 
 # ---------------------------------------------------------------------------
+# sel() Zarr partial-read (ADR-031 Phase 3 step 17)
+# ---------------------------------------------------------------------------
+
+
+class TestArraySelZarrPartialRead:
+    """ADR-031 Phase 3: sel() uses Zarr-native slicing instead of to_memory()."""
+
+    def test_sel_zarr_partial_read_integer_index(self) -> None:
+        """sel() with integer index reads only one plane from zarr."""
+        data = np.arange(4 * 6 * 8, dtype="float32").reshape(4, 6, 8)
+        arr = _backed_array(["z", "y", "x"], data)
+        result = arr.sel(z=2)
+        assert result.axes == ["y", "x"]
+        assert result.shape == (6, 8)
+        np.testing.assert_array_equal(np.asarray(result), data[2])
+
+    def test_sel_zarr_partial_read_slice_index(self) -> None:
+        """sel() with slice index reads a sub-range from zarr."""
+        data = np.arange(10 * 5 * 5, dtype="float32").reshape(10, 5, 5)
+        arr = _backed_array(["z", "y", "x"], data)
+        result = arr.sel(z=slice(2, 7))
+        assert result.axes == ["z", "y", "x"]
+        assert result.shape == (5, 5, 5)
+        np.testing.assert_array_equal(np.asarray(result), data[2:7])
+
+    def test_sel_zarr_partial_read_multi_axis(self) -> None:
+        """sel() with multiple axes uses zarr slicing for all."""
+        data = np.arange(3 * 4 * 5 * 6, dtype="float32").reshape(3, 4, 5, 6)
+        arr = _backed_array(["t", "z", "y", "x"], data)
+        result = arr.sel(t=1, z=2)
+        assert result.axes == ["y", "x"]
+        assert result.shape == (5, 6)
+        np.testing.assert_array_equal(np.asarray(result), data[1, 2])
+
+    def test_sel_zarr_partial_read_preserves_storage_ref(self) -> None:
+        """The resulting Array from sel() has its own storage_ref."""
+        data = np.arange(3 * 5 * 5, dtype="float32").reshape(3, 5, 5)
+        arr = _backed_array(["z", "y", "x"], data)
+        result = arr.sel(z=0)
+        assert result.storage_ref is not None
+        assert result.storage_ref.backend == "zarr"
+
+    def test_sel_zarr_partial_read_result_is_readable(self) -> None:
+        """The sel() result can itself be read via to_memory()."""
+        data = np.arange(3 * 5 * 5, dtype="float32").reshape(3, 5, 5)
+        arr = _backed_array(["z", "y", "x"], data)
+        result = arr.sel(z=1)
+        loaded = result.to_memory()
+        np.testing.assert_array_equal(loaded, data[1])
+
+
+# ---------------------------------------------------------------------------
 # iter_over()
 # ---------------------------------------------------------------------------
 
