@@ -236,14 +236,15 @@ class DAGScheduler:
         # from the block's config_schema before handing off to a subprocess.
         # This catches the most common misconfiguration (missing required
         # fields) with a clean error instead of a traceback in the worker.
-        # Note: config values live inside node.config["params"] (see
-        # BlockConfig.params), so we check that dict rather than the
-        # top-level node.config.
+        # Config values may live in node.config["params"] (BlockConfig's
+        # params dict) OR at the top level of node.config (extras readable
+        # via BlockConfig(**config).get(key)).  Check both locations.
         config_schema = getattr(block, "config_schema", None)
         if isinstance(config_schema, dict) and config_schema.get("required"):
             required_fields = config_schema["required"]
             params = node.config.get("params", {}) if isinstance(node.config.get("params"), dict) else {}
-            missing = [f for f in required_fields if f not in params or params[f] is None]
+            top_level = node.config if isinstance(node.config, dict) else {}
+            missing = [f for f in required_fields if (params.get(f) is None and top_level.get(f) is None)]
             if missing:
                 error_str = f"Block '{node_id}' config is missing required field(s): {', '.join(sorted(missing))}"
                 logger.error("Pre-dispatch config validation failed for %s: %s", node_id, error_str)
