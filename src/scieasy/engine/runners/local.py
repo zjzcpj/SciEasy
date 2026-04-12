@@ -33,13 +33,11 @@ def _derive_output_dir(block: Any, config: dict[str, Any]) -> str:
     workflow_id = str(config.get("workflow_id") or "adhoc")
     if isinstance(project_dir, str) and project_dir:
         # Truncate block_id to avoid Windows MAX_PATH (260) overflow.
-        # block_id is typically "type_name-timestamp" — keep first 40 chars.
         short_block_id = block_id[:40] if len(block_id) > 40 else block_id
         path = Path(project_dir) / "data" / "zarr" / workflow_id / short_block_id
-        result = str(path)
-        # Windows long path workaround
-        if sys.platform == "win32" and len(result) > 200:
-            result = f"\\\\?\\{result}" if not result.startswith("\\\\?\\") else result
+        from scieasy.blocks.base.block import _win_long_path
+
+        result = _win_long_path(str(path))
         Path(result).mkdir(parents=True, exist_ok=True)
         return result
 
