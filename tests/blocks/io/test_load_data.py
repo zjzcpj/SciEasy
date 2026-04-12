@@ -110,7 +110,9 @@ def test_load_csv_to_dataframe(tmp_path: Path) -> None:
     assert isinstance(df, DataFrame)
     assert df.columns == ["a", "b", "c"]
     assert df.row_count == 3
-    table = df._arrow_table  # type: ignore[attr-defined]
+    # Phase 1 _load_dataframe_with_persist persists to arrow storage.
+    # Verify data is accessible via storage_ref or get_in_memory_data().
+    table = df.get_in_memory_data()
     assert isinstance(table, pa.Table)
     assert table.column("a").to_pylist() == [1, 4, 7]
 

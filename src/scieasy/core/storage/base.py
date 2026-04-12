@@ -28,8 +28,8 @@ class StorageBackend(Protocol):
         Returns an updated :class:`StorageReference` with any backend-assigned
         metadata (e.g. chunk layout, checksum).
 
-        Concrete implementations should handle both ViewProxy-backed objects
-        and raw in-memory DataObjects (ADR-020-Add5).
+        Concrete implementations should handle raw in-memory data
+        (ADR-020-Add5, ADR-031 D2: ViewProxy eliminated).
         """
         ...
 

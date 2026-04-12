@@ -36,10 +36,12 @@ class FileExchangeBridge:
 
         manifest: dict[str, Any] = {}
         for key, value in inputs.items():
-            from scieasy.core.proxy import ViewProxy
+            # ADR-031 D2: ViewProxy eliminated. DataObject.to_memory()
+            # is called directly when data materialisation is needed.
+            from scieasy.core.types.base import DataObject
 
-            if isinstance(value, ViewProxy):
-                value = value.to_memory()
+            if isinstance(value, DataObject) and not hasattr(value, "__iter__"):
+                value = value.to_memory() if value.storage_ref is not None else value
 
             # ADR-020-Add2: iterate Collection items one at a time.
             from scieasy.core.types.collection import Collection
@@ -49,8 +51,8 @@ class FileExchangeBridge:
                 collection_dir.mkdir(exist_ok=True)
                 item_paths = []
                 for i, item in enumerate(value):
-                    # In-memory DataObject without storage ref — serialize metadata.
-                    data = item.view().to_memory() if item.storage_ref is not None else item.metadata
+                    # ADR-031: use to_memory() directly instead of .view().to_memory()
+                    data = item.to_memory() if item.storage_ref is not None else item.user
                     item_path = collection_dir / f"item_{i:04d}.json"
                     item_path.write_text(json.dumps(data, default=str), encoding="utf-8")
                     item_paths.append(str(item_path))

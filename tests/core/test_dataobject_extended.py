@@ -160,7 +160,7 @@ class TestDataObjectToMemory:
 
     def test_to_memory_without_ref_raises(self) -> None:
         obj = DataObject()
-        with pytest.raises(ValueError, match="Cannot create ViewProxy"):
+        with pytest.raises(ValueError, match="Cannot load data: no storage reference set"):
             obj.to_memory()
 
 

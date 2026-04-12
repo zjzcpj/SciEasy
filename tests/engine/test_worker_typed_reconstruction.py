@@ -8,11 +8,10 @@ wrappers that dispatch per-item).
 
 Per ADR-027 D11 + Addendum 1 §1, the worker subprocess must return
 typed :class:`~scieasy.core.types.base.DataObject` instances (e.g. an
-:class:`~scieasy.core.types.array.Array`), not a
-:class:`~scieasy.core.proxy.ViewProxy`. Lazy loading is preserved at
+:class:`~scieasy.core.types.array.Array`). Lazy loading is preserved at
 the method level: reconstructed instances have ``storage_ref`` set
-but do not read payload data until ``to_memory()`` / ``view()`` /
-``sel()`` / ``iter_over()`` is called.
+but do not read payload data until ``to_memory()`` / ``sel()`` /
+``iter_over()`` is called (ADR-031 D2: ViewProxy eliminated).
 
 T-014 is the *capstone* of Phase 10 — these tests exercise the final
 layer that stitches together every previous ticket (T-005 three
@@ -113,7 +112,7 @@ def _register_fixture(cls: type) -> None:
 
 class TestReconstructOne:
     def test_returns_typed_instance_for_array_chain(self) -> None:
-        """type_chain=['DataObject','Array'] resolves to Array, not ViewProxy."""
+        """type_chain=['DataObject','Array'] resolves to Array."""
         payload = {
             "backend": "zarr",
             "path": "/data/x.zarr",
@@ -132,10 +131,7 @@ class TestReconstructOne:
         obj = _reconstruct_one(payload)
 
         assert isinstance(obj, Array)
-        # Critical assertion — T-014 replaces the ViewProxy path.
-        from scieasy.core.proxy import ViewProxy
-
-        assert not isinstance(obj, ViewProxy)
+        # ADR-031 D2: ViewProxy eliminated. Typed DataObject is the only path.
         assert obj.axes == ["y", "x"]
         assert obj.shape == (16, 16)
 
@@ -500,10 +496,8 @@ class TestReconstructInputs:
         assert isinstance(result["signal"], Series)
         assert result["signal"].length == 1024
 
-    def test_returns_typed_not_viewproxy(self) -> None:
-        """Regression guard: the return type is the typed class, not ViewProxy."""
-        from scieasy.core.proxy import ViewProxy
-
+    def test_returns_typed_dataobject(self) -> None:
+        """Regression guard: the return type is the typed class (ADR-031 D2)."""
         payload = {
             "inputs": {
                 "image": {
@@ -518,7 +512,6 @@ class TestReconstructInputs:
         }
         result = reconstruct_inputs(payload)
         assert isinstance(result["image"], Array)
-        assert not isinstance(result["image"], ViewProxy)
 
     def test_collection_dispatch(self) -> None:
         """Collection payload is reconstructed into a Collection of typed items."""

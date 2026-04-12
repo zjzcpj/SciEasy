@@ -10,15 +10,14 @@ from scieasy.core.types.dataframe import DataFrame
 
 
 def to_arrow(obj: Any) -> pa.Table:
-    """Extract an Arrow Table from a DataFrame, ViewProxy, or raw Table."""
-    from scieasy.core.proxy import ViewProxy
+    """Extract an Arrow Table from a DataFrame or raw Table.
 
-    if isinstance(obj, ViewProxy):
-        obj = obj.to_memory()
+    ADR-031 D2/D3: ViewProxy and ``_arrow_table`` backdoor removed.
+    All data access routes through ``get_in_memory_data()`` ->
+    ``to_memory()`` -> storage backend.
+    """
     if isinstance(obj, pa.Table):
         return obj
-    if isinstance(obj, DataFrame) and hasattr(obj, "_arrow_table"):
-        return obj._arrow_table  # type: ignore[attr-defined]
-    if isinstance(obj, DataFrame) and obj.storage_ref is not None:
-        return obj.to_memory()
+    if isinstance(obj, DataFrame):
+        return obj.get_in_memory_data()
     raise TypeError(f"Cannot extract Arrow Table from {type(obj).__name__}")

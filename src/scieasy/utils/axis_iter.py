@@ -249,21 +249,39 @@ def _build_result(source: Array, data: np.ndarray) -> Array:
     - ``axes``: same as ``source.axes``.
     - ``shape`` / ``dtype``: taken from ``data``.
 
-    The materialised numpy array is stashed on the returned instance
-    via the ``_data`` attribute so that subsequent ``to_memory()`` /
-    ``__array__`` calls return it directly without re-hitting storage.
-    This matches the in-memory slice pattern established by
-    :meth:`Array.sel` in T-006.
+    ADR-031 D3: the result is persisted to a zarr store and returned
+    with ``storage_ref`` set. The former ``_data`` stashing pattern is
+    eliminated.
 
     The private attributes ``_framework``, ``_meta``, and ``_user`` are
     accessed with explicit ``# type: ignore[attr-defined]`` comments
     rather than via the public ``.framework`` / ``.meta`` / ``.user``
     properties because the properties return read-only views while the
-    construction path needs the raw slots. Adding dedicated public
-    accessors would widen T-005's contract, which T-011 is explicitly
-    not in scope to do.
+    construction path needs the raw slots.
     """
+    import tempfile
+    import uuid
+    from pathlib import Path
+
+    import zarr
+
+    from scieasy.core.storage.flush_context import get_output_dir
+    from scieasy.core.storage.ref import StorageReference
+
     new_framework = source._framework.derive()  # type: ignore[attr-defined]
+
+    # Persist to zarr and set storage_ref.
+    output_dir = get_output_dir()
+    if output_dir is None:
+        output_dir = tempfile.mkdtemp(prefix="scieasy_axis_iter_")
+    zarr_path = str(Path(output_dir) / f"{uuid.uuid4()}.zarr")
+    zarr.save(zarr_path, data)  # type: ignore[arg-type]
+    ref = StorageReference(
+        backend="zarr",
+        path=zarr_path,
+        metadata={"shape": list(data.shape), "dtype": str(data.dtype)},
+    )
+
     result = type(source)(
         axes=list(source.axes),
         shape=tuple(data.shape),
@@ -272,11 +290,8 @@ def _build_result(source: Array, data: np.ndarray) -> Array:
         framework=new_framework,
         meta=source._meta,  # type: ignore[attr-defined]
         user=dict(source._user),  # type: ignore[attr-defined]
-        storage_ref=None,
+        storage_ref=ref,
     )
-    # Stash the materialised data so to_memory() / __array__ return it
-    # without going back to storage. Matches Array.sel()'s pattern.
-    result._data = data  # type: ignore[attr-defined]
     return result
 
 

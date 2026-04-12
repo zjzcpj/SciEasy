@@ -13,12 +13,10 @@ package. Code that previously imported them should either switch to
 from __future__ import annotations
 
 from collections.abc import Iterator
-from typing import TYPE_CHECKING, Any, ClassVar, Self
+from pathlib import Path
+from typing import Any, ClassVar, Self
 
 from scieasy.core.types.base import DataObject
-
-if TYPE_CHECKING:
-    pass
 
 
 class Array(DataObject):
@@ -120,8 +118,7 @@ class Array(DataObject):
     def __array__(self, dtype: Any = None, copy: Any = None) -> Any:
         """Support ``np.asarray(array_obj)`` via the NumPy array protocol.
 
-        Materialises the full data from storage (or from a derived
-        in-memory slice produced by :meth:`sel` / :meth:`iter_over`).
+        Materialises the full data from storage via :meth:`to_memory`.
         """
         import numpy as np
 
@@ -162,20 +159,15 @@ class Array(DataObject):
         - ``user``: shallow copy.
         - ``axes``: reduced per the selection.
 
-        Laziness (Level 1): for in-memory-backed instances, the materialised
-        numpy view is sliced eagerly and stashed on the returned instance
-        via the ``_data`` attribute. For storage-backed instances, the
-        full data is materialised through :meth:`DataObject.to_memory`
-        once and then sliced with numpy (Level 1 laziness per ADR-027 D4
-        Question 4: "For other backends, falls back to
-        ``self.view().to_memory()`` then numpy indexing"). The Zarr-aware
-        partial-read path is deferred to a future T-006a per Question 4.
+        ADR-031 D3: always reads from storage via ``to_memory()``, slices
+        with numpy, then persists the slice result to a zarr store and
+        sets ``storage_ref`` on the returned instance. The Zarr-aware
+        partial-read path is deferred to Phase 3.
 
         Raises:
             ValueError: if any kwarg key is not in ``self.axes``, if any
                 kwarg value is not ``int`` or ``slice``, or if the
-                instance has no backing data (no ``_data`` and no
-                ``storage_ref``).
+                instance has no ``storage_ref``.
         """
         # Validate kwargs refer to existing axes before doing anything.
         unknown = set(kwargs.keys()) - set(self.axes)
@@ -208,18 +200,12 @@ class Array(DataObject):
                 if self.shape is not None:
                     new_shape_list.append(self.shape[i])
 
-        # Materialise and slice the underlying data. Supports both
-        # in-memory (``_data`` attribute, e.g. from tiff_adapter or a
-        # previous sel result) and storage-backed instances.
-        if hasattr(self, "_data") and getattr(self, "_data", None) is not None:
-            full_data = self._data  # type: ignore[attr-defined]
-        elif self._storage_ref is not None:
-            full_data = self.to_memory()
-        else:
+        # ADR-031 D3: always read from storage. No _data backdoor.
+        if self._storage_ref is None:
             raise ValueError(
-                f"{type(self).__name__}.sel() requires backing data. "
-                f"This instance has no in-memory data and no storage_ref."
+                f"{type(self).__name__}.sel() requires backing data. This instance has no storage_ref set."
             )
+        full_data = self.to_memory()
         sliced_data = full_data[tuple(indexer)]
 
         # Metadata propagation per ADR-027 D5.
@@ -246,9 +232,49 @@ class Array(DataObject):
             user=dict(self._user),
             storage_ref=None,
         )
-        # Stash the materialised data so to_memory / __array__ can reach
-        # it without hitting storage again.
-        new_instance._data = sliced_data  # type: ignore[attr-defined]
+        # ADR-031 D3: persist slice result to zarr and set storage_ref
+        # instead of stashing in _data.
+        from scieasy.core.storage.flush_context import get_output_dir
+
+        output_dir = get_output_dir()
+        if output_dir:
+            import uuid
+
+            import zarr
+
+            from scieasy.core.storage.ref import StorageReference
+
+            zarr_path = str(Path(output_dir) / f"{uuid.uuid4()}.zarr")
+            zarr.save(zarr_path, sliced_data)  # type: ignore[arg-type]
+            new_instance._storage_ref = StorageReference(
+                backend="zarr",
+                path=zarr_path,
+                metadata={
+                    "shape": list(sliced_data.shape),
+                    "dtype": str(sliced_data.dtype),
+                },
+            )
+        else:
+            # Fallback: no output_dir configured, use _auto_flush pattern
+            # by saving to a temp location via the DataObject.save() method.
+            import tempfile
+            import uuid
+
+            import zarr
+
+            from scieasy.core.storage.ref import StorageReference
+
+            tmpdir = tempfile.mkdtemp(prefix="scieasy_sel_")
+            zarr_path = str(Path(tmpdir) / f"{uuid.uuid4()}.zarr")
+            zarr.save(zarr_path, sliced_data)  # type: ignore[arg-type]
+            new_instance._storage_ref = StorageReference(
+                backend="zarr",
+                path=zarr_path,
+                metadata={
+                    "shape": list(sliced_data.shape),
+                    "dtype": str(sliced_data.dtype),
+                },
+            )
         return new_instance
 
     def iter_over(self, axis: str) -> Iterator[Array]:
@@ -261,8 +287,8 @@ class Array(DataObject):
 
         Memory: ``O(one slice per iteration step)`` — each yielded
         :class:`Array` has ``axis`` removed from its axes list, carries
-        metadata propagated per :meth:`sel`'s rules, and holds its
-        sliced data in an ``_data`` attribute.
+        metadata propagated per :meth:`sel`'s rules, and has its
+        ``storage_ref`` set to a persisted zarr store.
 
         Raises:
             ValueError: if ``axis`` is not in :attr:`axes` or if
@@ -320,20 +346,22 @@ class Array(DataObject):
             storage_ref=self._storage_ref,
         )
 
-    # -- to_memory override that respects in-memory _data on slices -------
+    # -- to_memory transition override (ADR-031 backward compat) -----------
 
     def to_memory(self) -> Any:
         """Materialise the full data into an in-memory representation.
 
-        If this instance was created via :meth:`sel` or
-        :meth:`iter_over` and carries an in-memory ``_data`` attribute
-        (with ``storage_ref=None``), return that directly. Otherwise
-        delegate to :meth:`DataObject.to_memory`, which routes through
-        the storage backend.
+        ADR-031 D3 transition: if ``storage_ref`` is set, delegates to
+        the base class (storage backend read). If ``_data`` was set
+        transiently by a loader before ``_auto_flush`` persists it,
+        returns that data directly. This backward-compat path will be
+        removed once all loaders write to storage directly.
         """
-        if self._storage_ref is None and hasattr(self, "_data") and getattr(self, "_data", None) is not None:
+        if self._storage_ref is not None:
+            return super().to_memory()
+        if hasattr(self, "_data") and getattr(self, "_data", None) is not None:
             return self._data  # type: ignore[attr-defined]
-        return super().to_memory()
+        raise ValueError("Cannot load data: no storage reference set.")
 
     # -- worker subprocess reconstruction hooks (ADR-027 Addendum 1 §2) -----
 

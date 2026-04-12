@@ -116,25 +116,24 @@ class TestZarrBackend:
         tmp_dirs = list(tmp_path.glob(".zarr_tmp_*"))
         assert tmp_dirs == [], f"Leftover temp dirs: {tmp_dirs}"
 
-    def test_axes_roundtrip_via_viewproxy(self, tmp_path: Path) -> None:
-        """ViewProxy.axes returns correct axes after Zarr round-trip."""
-        from scieasy.core.proxy import ViewProxy
-        from scieasy.core.types.base import TypeSignature
+    def test_axes_roundtrip_via_dataobject(self, tmp_path: Path) -> None:
+        """Array with storage_ref can round-trip axes metadata after Zarr write."""
+        from scieasy.core.types.array import Array
 
         backend = ZarrBackend()
         data = np.zeros((100, 100), dtype="float64")
         ref = StorageReference(
             backend="zarr",
-            path=str(tmp_path / "proxy_axes.zarr"),
+            path=str(tmp_path / "array_axes.zarr"),
             metadata={"axes": ["y", "x"]},
         )
         result_ref = backend.write(data, ref)
 
-        proxy = ViewProxy(
-            storage_ref=result_ref,
-            dtype_info=TypeSignature(type_chain=["DataObject", "Array", "Image"]),
-        )
-        assert proxy.axes == ["y", "x"]
+        arr = Array(axes=["y", "x"], shape=(100, 100), dtype="float64", storage_ref=result_ref)
+        assert arr.axes == ["y", "x"]
+        # Verify data round-trips correctly
+        loaded = arr.to_memory()
+        np.testing.assert_array_equal(loaded, data)
 
 
 class TestArrowBackend:

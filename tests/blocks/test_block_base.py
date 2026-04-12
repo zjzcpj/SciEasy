@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, ClassVar
 
 import pytest
@@ -11,7 +12,6 @@ from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.base.state import BlockState
 from scieasy.core.types.array import Array
-from scieasy.core.types.base import TypeSignature
 from scieasy.core.types.dataframe import DataFrame
 
 # ---------------------------------------------------------------------------
@@ -187,31 +187,6 @@ class TestBlockValidate:
         block = _DummyBlock()
         img = Image(shape=(10, 10), ndim=2, dtype="float64")
         assert block.validate({"image": img}) is True
-
-    def test_validate_viewproxy_correct(self) -> None:
-        """ViewProxy with compatible dtype_info passes validation."""
-        from unittest.mock import MagicMock
-
-        from scieasy.core.proxy import ViewProxy
-
-        proxy = MagicMock(spec=ViewProxy)
-        proxy.dtype_info = TypeSignature.from_type(Image)
-
-        block = _DummyBlock()
-        assert block.validate({"image": proxy}) is True
-
-    def test_validate_viewproxy_wrong(self) -> None:
-        """ViewProxy with incompatible dtype_info raises ValueError."""
-        from unittest.mock import MagicMock
-
-        from scieasy.core.proxy import ViewProxy
-
-        proxy = MagicMock(spec=ViewProxy)
-        proxy.dtype_info = TypeSignature.from_type(DataFrame)
-
-        block = _DummyBlock()
-        with pytest.raises(ValueError, match="type signature"):
-            block.validate({"image": proxy})
 
     def test_validate_constraint_passes(self) -> None:
         block = _ConstrainedBlock()
@@ -454,16 +429,25 @@ class TestAutoFlush:
         assert result.storage_ref is None
 
     def test_auto_flush_with_context_persists(self, tmp_path: object) -> None:
-        """With flush context set, _auto_flush writes data and sets storage_ref."""
+        """With flush context set, _auto_flush writes data and sets storage_ref.
+
+        ADR-031: uses a storage-backed Image (written to zarr first)
+        instead of the former ``_data`` backdoor.
+        """
         import numpy as np
+        import zarr
 
         from scieasy.core.storage.flush_context import set_output_dir
+        from scieasy.core.storage.ref import StorageReference
 
         output_dir = str(tmp_path)
         set_output_dir(output_dir)
 
-        img = Image(shape=(3, 3), ndim=2, dtype="float64")
-        img._data = np.ones((3, 3), dtype="float64")
+        # Write data to zarr, then create an Image with storage_ref.
+        zarr_path = str(Path(output_dir) / "test.zarr")
+        zarr.save(zarr_path, np.ones((3, 3), dtype="float64"))
+        ref = StorageReference(backend="zarr", path=zarr_path, metadata={"shape": [3, 3], "dtype": "float64"})
+        img = Image(shape=(3, 3), ndim=2, dtype="float64", storage_ref=ref)
 
         result = Block._auto_flush(img)
         assert result is img
