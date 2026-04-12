@@ -96,11 +96,6 @@ def deserialize_intermediate_refs(data: dict[str, Any]) -> dict[str, Any]:
         1 §1) which reads ``metadata.type_chain`` from the wire-format dict
         and reconstructs the typed object inside the sandboxed subprocess.
 
-        Calling this function would produce :class:`~scieasy.core.proxy.ViewProxy`
-        objects that are **not JSON-serialisable** and would break
-        ``spawn_block_process()`` when the scheduler tries to ship inputs to
-        the worker via stdin/stdout.
-
         The function is preserved (not deleted) for:
         - historical reference and future testing utilities
         - potential use in offline / introspection tooling that does not
@@ -109,9 +104,10 @@ def deserialize_intermediate_refs(data: dict[str, Any]) -> dict[str, Any]:
         Do **not** call this from within the scheduler, runner, or any path
         that feeds inputs to a worker subprocess.
 
-    Reconstructs :class:`ViewProxy` instances from serialized
-    StorageReference dicts, and preserves Collection structure with
-    ViewProxy items so that resumed workflows can feed data to blocks.
+    ADR-031 D8: Reconstructs typed :class:`DataObject` instances (not
+    ViewProxy) from serialized StorageReference dicts, using the same
+    ``_reconstruct_one()`` path as the worker. Falls back to a base
+    ``DataObject(storage_ref=ref)`` if type resolution fails.
     """
     result: dict[str, Any] = {}
     for block_id, outputs in data.items():
@@ -125,10 +121,9 @@ def deserialize_intermediate_refs(data: dict[str, Any]) -> dict[str, Any]:
 def _deserialize_value(value: Any) -> Any:
     """Deserialize a single value from checkpoint storage.
 
-    .. deprecated::
-        Only called by :func:`deserialize_intermediate_refs`, which is itself
-        deprecated.  See the deprecation notice on that function for the full
-        rationale.  Do not call this directly from scheduler or runner code.
+    ADR-031 D8: constructs typed DataObject instances via
+    ``_reconstruct_one()`` instead of ViewProxy. Falls back to base
+    ``DataObject(storage_ref=ref)`` if type resolution fails.
     """
     if not isinstance(value, dict):
         return value
@@ -142,12 +137,10 @@ def _deserialize_value(value: Any) -> Any:
             )
             return value
 
-        from scieasy.core.proxy import ViewProxy
-        from scieasy.core.storage.ref import StorageReference
-        from scieasy.core.types.base import TypeSignature
+        from scieasy.core.types.base import DataObject
 
         item_type_name: str = value["item_type"]
-        proxies: list[ViewProxy] = []
+        objects: list[DataObject] = []
         for item_data in value["items"]:
             if not isinstance(item_data, dict):
                 continue
@@ -159,47 +152,54 @@ def _deserialize_value(value: Any) -> Any:
                 )
                 continue
             if "backend" in item_data and "path" in item_data:
-                ref = StorageReference(
-                    backend=item_data["backend"],
-                    path=item_data["path"],
-                    format=item_data.get("format"),
-                    metadata=item_data.get("metadata"),
-                )
-                # #404: read type_chain from item metadata when available so
-                # ViewProxy carries the correct plugin type identity rather
-                # than falling back to just [item_type_name].
-                item_meta = item_data.get("metadata") or {}
-                item_chain = item_meta.get("type_chain") if isinstance(item_meta, dict) else None
-                if not (isinstance(item_chain, list) and item_chain):
-                    item_chain = [item_type_name]
-                sig = TypeSignature(type_chain=item_chain)
-                proxies.append(ViewProxy(storage_ref=ref, dtype_info=sig))
+                # Try typed reconstruction via _reconstruct_one.
+                obj = _try_reconstruct(item_data, item_type_name)
+                objects.append(obj)
 
-        return {"_collection": True, "items": proxies, "item_type": item_type_name}
+        return {"_collection": True, "items": objects, "item_type": item_type_name}
 
     # --- Single StorageReference dict ---
     if "backend" in value and "path" in value:
-        from scieasy.core.proxy import ViewProxy
-        from scieasy.core.storage.ref import StorageReference
-        from scieasy.core.types.base import TypeSignature
-
-        ref = StorageReference(
-            backend=value["backend"],
-            path=value["path"],
-            format=value.get("format"),
-            metadata=value.get("metadata"),
-        )
-        # #404: read type_chain from ref metadata when available so ViewProxy
-        # carries the correct plugin type identity rather than hardcoding
-        # ["DataObject"].
-        ref_meta = value.get("metadata") or {}
-        ref_chain = ref_meta.get("type_chain") if isinstance(ref_meta, dict) else None
-        if not (isinstance(ref_chain, list) and ref_chain):
-            ref_chain = ["DataObject"]
-        sig = TypeSignature(type_chain=ref_chain)
-        return ViewProxy(storage_ref=ref, dtype_info=sig)
+        return _try_reconstruct(value, "DataObject")
 
     return value
+
+
+def _try_reconstruct(item_data: dict[str, Any], fallback_type_name: str) -> Any:
+    """Attempt typed DataObject reconstruction; fall back to base DataObject.
+
+    ADR-031 D8: uses ``_reconstruct_one()`` from the serialization module
+    when a ``metadata.type_chain`` is available. Otherwise constructs a
+    base ``DataObject`` with ``storage_ref`` set.
+    """
+    from scieasy.core.storage.ref import StorageReference
+    from scieasy.core.types.base import DataObject
+
+    # Build a wire-format payload compatible with _reconstruct_one.
+    item_meta = item_data.get("metadata") or {}
+    item_chain = item_meta.get("type_chain") if isinstance(item_meta, dict) else None
+
+    if isinstance(item_chain, list) and item_chain:
+        # Has type_chain — try full typed reconstruction.
+        try:
+            from scieasy.core.types.serialization import _reconstruct_one
+
+            return _reconstruct_one(item_data)
+        except Exception:
+            logger.warning(
+                "Typed reconstruction failed for type_chain=%s, falling back to base DataObject",
+                item_chain,
+                exc_info=True,
+            )
+
+    # Fallback: construct base DataObject with storage_ref.
+    ref = StorageReference(
+        backend=item_data["backend"],
+        path=item_data["path"],
+        format=item_data.get("format"),
+        metadata=item_data.get("metadata"),
+    )
+    return DataObject(storage_ref=ref)
 
 
 @dataclass

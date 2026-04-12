@@ -57,10 +57,26 @@ class _RestrictedAxes(Array):
 
 
 def _backed_array(axes: list[str], data: np.ndarray) -> Array:
-    """Return a plain :class:`Array` with an in-memory ``_data`` payload."""
-    arr = Array(axes=axes, shape=data.shape, dtype=str(data.dtype))
-    arr._data = data  # type: ignore[attr-defined]
-    return arr
+    """Return a plain :class:`Array` backed by zarr storage.
+
+    ADR-031 D3: uses zarr storage instead of the former ``_data`` backdoor.
+    """
+    import tempfile
+    import uuid
+
+    import zarr
+
+    from scieasy.core.storage.ref import StorageReference
+
+    tmpdir = tempfile.mkdtemp(prefix="scieasy_test_")
+    zarr_path = f"{tmpdir}/{uuid.uuid4()}.zarr"
+    zarr.save(zarr_path, data)
+    ref = StorageReference(
+        backend="zarr",
+        path=zarr_path,
+        metadata={"shape": list(data.shape), "dtype": str(data.dtype)},
+    )
+    return Array(axes=axes, shape=data.shape, dtype=str(data.dtype), storage_ref=ref)
 
 
 # ---------------------------------------------------------------------------
@@ -165,9 +181,20 @@ class TestArraySel:
             arr.sel(z=[1, 2])  # type: ignore[arg-type]
 
     def test_sel_preserves_meta(self) -> None:
+        import tempfile
+        import uuid
+
+        import zarr
+
+        from scieasy.core.storage.ref import StorageReference
+
         meta = _TestArrayMeta(sample_id="s1", exposure_ms=12.5)
-        arr = _TestArray(axes=["y", "x"], shape=(5, 5), meta=meta)
-        arr._data = np.zeros((5, 5), dtype="float32")  # type: ignore[attr-defined]
+        data = np.zeros((5, 5), dtype="float32")
+        tmpdir = tempfile.mkdtemp(prefix="scieasy_test_")
+        zarr_path = f"{tmpdir}/{uuid.uuid4()}.zarr"
+        zarr.save(zarr_path, data)
+        ref = StorageReference(backend="zarr", path=zarr_path, metadata={"shape": [5, 5], "dtype": "float32"})
+        arr = _TestArray(axes=["y", "x"], shape=(5, 5), meta=meta, storage_ref=ref)
         result = arr.sel(y=0)
         assert result.meta is meta
 
@@ -194,8 +221,19 @@ class TestArraySel:
 
     def test_sel_returns_plain_array(self) -> None:
         """``sel`` deliberately returns a plain ``Array`` (not ``type(self)``)."""
-        arr = _TestArray(axes=["y", "x"], shape=(5, 5))
-        arr._data = np.zeros((5, 5), dtype="float32")  # type: ignore[attr-defined]
+        import tempfile
+        import uuid
+
+        import zarr
+
+        from scieasy.core.storage.ref import StorageReference
+
+        data = np.zeros((5, 5), dtype="float32")
+        tmpdir = tempfile.mkdtemp(prefix="scieasy_test_")
+        zarr_path = f"{tmpdir}/{uuid.uuid4()}.zarr"
+        zarr.save(zarr_path, data)
+        ref = StorageReference(backend="zarr", path=zarr_path, metadata={"shape": [5, 5], "dtype": "float32"})
+        arr = _TestArray(axes=["y", "x"], shape=(5, 5), storage_ref=ref)
         result = arr.sel(y=0)
         assert type(result) is Array
 

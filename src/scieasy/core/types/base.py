@@ -21,17 +21,39 @@ shim for one phase: ``DataObject(metadata=...)`` and the
 from __future__ import annotations
 
 import warnings
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Self
+from typing import Any, ClassVar, Self
 
 from pydantic import BaseModel
 
 from scieasy.core.meta import FrameworkMeta
 from scieasy.core.storage.ref import StorageReference
 
-if TYPE_CHECKING:
-    from scieasy.core.proxy import ViewProxy
+# Warn when to_memory() would load more than this many bytes (2 GB).
+_SIZE_WARNING_THRESHOLD = 2 * 1024 * 1024 * 1024
+
+
+def _get_backend(ref: StorageReference) -> Any:
+    """Return the appropriate backend instance for *ref*.
+
+    ADR-031 D2: moved from proxy.py to be shared by DataObject methods.
+    """
+    from scieasy.core.storage.arrow_backend import ArrowBackend
+    from scieasy.core.storage.composite_store import CompositeStore
+    from scieasy.core.storage.filesystem import FilesystemBackend
+    from scieasy.core.storage.zarr_backend import ZarrBackend
+
+    backends: dict[str, Any] = {
+        "zarr": ZarrBackend(),
+        "arrow": ArrowBackend(),
+        "filesystem": FilesystemBackend(),
+        "composite": CompositeStore(),
+    }
+    if ref.backend not in backends:
+        raise ValueError(f"Unknown backend: {ref.backend}")
+    return backends[ref.backend]
 
 
 @dataclass
@@ -333,32 +355,82 @@ class DataObject:
         """Set the storage reference."""
         self._storage_ref = ref
 
-    # -- data access (unchanged from pre-T-005 contract) --------------------
-
-    def view(self) -> ViewProxy:
-        """Return a lazy :class:`ViewProxy` for this object's data."""
-        from scieasy.core.proxy import ViewProxy
-
-        if self._storage_ref is None:
-            raise ValueError("Cannot create ViewProxy without a storage reference.")
-        return ViewProxy(storage_ref=self._storage_ref, dtype_info=self.dtype_info)
+    # -- data access (ADR-031 D1/D2/D6: methods moved from ViewProxy) --------
 
     def to_memory(self) -> Any:
-        """Materialise the full data into an in-memory representation."""
-        return self.view().to_memory()
+        """Materialise the full data from storage into memory.
+
+        ADR-031 D1: routes through ``storage_ref`` -> backend. Emits a
+        :class:`ResourceWarning` when the estimated size exceeds 2 GB.
+
+        Raises:
+            ValueError: if ``storage_ref`` is not set.
+        """
+        if self._storage_ref is None:
+            raise ValueError("Cannot load data: no storage reference set.")
+        backend = _get_backend(self._storage_ref)
+        # Size warning (from former ViewProxy)
+        meta = backend.get_metadata(self._storage_ref)
+        size = meta.get("size")
+        if size is None:
+            shape = meta.get("shape")
+            if shape is not None:
+                import math
+
+                size = math.prod(shape) * 8
+        if size is not None and size > _SIZE_WARNING_THRESHOLD:
+            warnings.warn(
+                f"Loading {size / (1024**3):.1f} GB into memory. Consider using .slice() or .iter_chunks() instead.",
+                ResourceWarning,
+                stacklevel=2,
+            )
+        return backend.read(self._storage_ref)
+
+    def slice(self, *args: Any) -> Any:
+        """Return a sub-selection of the data without full materialisation.
+
+        ADR-031 D2: moved from ViewProxy. Delegates to the backend's
+        ``slice()`` method.
+
+        Raises:
+            ValueError: if ``storage_ref`` is not set.
+        """
+        if self._storage_ref is None:
+            raise ValueError("Cannot slice: no storage reference set.")
+        return _get_backend(self._storage_ref).slice(self._storage_ref, *args)
+
+    def iter_chunks(self, chunk_size: int) -> Iterator[Any]:
+        """Yield successive chunks of the data from storage.
+
+        ADR-031 D2: moved from ViewProxy. Delegates to the backend's
+        ``iter_chunks()`` method.
+
+        Raises:
+            ValueError: if ``storage_ref`` is not set.
+        """
+        if self._storage_ref is None:
+            raise ValueError("Cannot iterate chunks: no storage reference set.")
+        yield from _get_backend(self._storage_ref).iter_chunks(self._storage_ref, chunk_size)
 
     def get_in_memory_data(self) -> Any:
-        """Return raw in-memory data for persistence.
+        """Materialise data from storage for persistence/export.
 
-        Subclasses should override this to return their specific data format.
-        The base implementation checks for common internal data attributes.
-
-        Raises ``ValueError`` if no in-memory data is available.
+        ADR-031 D6: primary path routes through :meth:`to_memory` ->
+        storage backend read. For backward compatibility with the
+        ``_auto_flush()`` transition (loaders that still set ``_data``
+        or ``_arrow_table`` transiently before the framework persists
+        them), falls back to those attributes if ``storage_ref`` is not
+        set. Subclasses override for non-storage-backed types (Text
+        returns ``self.content``; Artifact returns file bytes).
         """
-        if hasattr(self, "_data") and self._data is not None:
-            return self._data
-        if hasattr(self, "_arrow_table") and self._arrow_table is not None:
-            return self._arrow_table
+        if self._storage_ref is not None:
+            return self.to_memory()
+        # Backward-compat: transient in-memory data set by loaders
+        # before _auto_flush persists to storage (ADR-031 D3 transition).
+        if hasattr(self, "_data") and self._data is not None:  # type: ignore[has-type]
+            return self._data  # type: ignore[has-type]
+        if hasattr(self, "_arrow_table") and self._arrow_table is not None:  # type: ignore[has-type]
+            return self._arrow_table  # type: ignore[has-type]
         raise ValueError(f"{type(self).__name__} has no in-memory data to persist.")
 
     def save(self, path: str | Path) -> StorageReference:

@@ -17,8 +17,8 @@ user pipelines and verifies that Collection auto-unpack/repack
 
 Both tests operate on data persisted through the real storage
 backends (Zarr for ``Array``, Arrow for ``DataFrame``) so that
-``Collection[i].view().to_memory()`` resolves through the production
-:class:`ViewProxy` path — no mocks.
+``Collection[i].to_memory()`` resolves through the production
+storage backend path — no mocks.
 """
 
 from __future__ import annotations

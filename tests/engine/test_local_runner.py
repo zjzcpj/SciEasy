@@ -276,7 +276,7 @@ class TestLocalRunnerOutputDir:
 class TestReconstructInputsTypeChain:
     def test_uses_type_chain_from_metadata(self) -> None:
         """ADR-027 Addendum 1 §1 (T-014): reconstruct_inputs recovers type_chain
-        from metadata and returns a typed DataObject instance (not ViewProxy).
+        from metadata and returns a typed DataObject instance.
         """
         from scieasy.core.types.array import Array
 

@@ -68,7 +68,7 @@ def broadcast_apply(
     .. note::
         This is an **in-memory-only** utility. Both *source* and *target*
         are fully materialised via ``np.asarray()`` before processing.
-        For datasets exceeding 2 GB, consider using ``ViewProxy.iter_chunks()``
+        For datasets exceeding 2 GB, consider using ``DataObject.iter_chunks()``
         to process data in manageable pieces.
     """
     source_data = np.asarray(source)
@@ -80,7 +80,7 @@ def broadcast_apply(
         warnings.warn(
             f"broadcast_apply: combined input size is {total_bytes / 1024**3:.1f} GB, "
             f"exceeding the {_MEMORY_WARN_BYTES / 1024**3:.0f} GB threshold. "
-            f"Consider using ViewProxy.iter_chunks() for large datasets.",
+            f"Consider using DataObject.iter_chunks() for large datasets.",
             ResourceWarning,
             stacklevel=2,
         )

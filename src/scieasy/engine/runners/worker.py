@@ -6,11 +6,11 @@ is the entry point for those subprocesses.
 ADR-027 D11 + Addendum 1 §1 (T-014): per-item reconstruction delegates
 to :func:`scieasy.core.types.serialization._reconstruct_one` which
 returns typed :class:`~scieasy.core.types.base.DataObject` instances
-(e.g. a :class:`~scieasy.core.types.array.Array`), **not** a
-:class:`~scieasy.core.proxy.ViewProxy`. Lazy loading is preserved at
-the method level: returned instances have ``storage_ref`` set but do
-not read payload data until ``to_memory()`` / ``view()`` / ``sel()`` /
-``iter_over()`` is called. Serialisation delegates symmetrically to
+(e.g. a :class:`~scieasy.core.types.array.Array`). Lazy loading is
+preserved at the method level: returned instances have ``storage_ref``
+set but do not read payload data until ``to_memory()`` / ``sel()`` /
+``iter_over()`` is called (ADR-031 D2: ViewProxy eliminated).
+Serialisation delegates symmetrically to
 :func:`~scieasy.core.types.serialization._serialise_one`, which writes
 the full metadata sidecar (``type_chain`` + ``framework`` + ``meta`` +
 ``user`` + base-class extras).
@@ -45,11 +45,10 @@ def reconstruct_inputs(payload: dict[str, Any]) -> dict[str, Any]:
 
     ADR-027 D11 + Addendum 1 §1: returns typed :class:`DataObject`
     instances (e.g. a :class:`~scieasy.core.types.array.Array` or a
-    plugin subclass like ``FluorImage``), not a
-    :class:`~scieasy.core.proxy.ViewProxy`. Lazy loading is preserved
+    plugin subclass like ``FluorImage``). Lazy loading is preserved
     at the method level: returned instances have ``storage_ref`` set
-    but do not read payload data until ``to_memory()`` / ``view()`` /
-    ``sel()`` / ``iter_over()`` is called.
+    but do not read payload data until ``to_memory()`` / ``sel()`` /
+    ``iter_over()`` is called (ADR-031 D2: ViewProxy eliminated).
 
     Three dispatch cases (per the ADR pseudocode):
 

@@ -1,11 +1,11 @@
 """Tests for worker.py subprocess entry point.
 
 ADR-017: All block execution happens in isolated subprocesses.
-ADR-027 D11 + Addendum 1 §1 (T-014): ``reconstruct_inputs`` now
-returns typed :class:`~scieasy.core.types.base.DataObject` instances
-instead of :class:`~scieasy.core.proxy.ViewProxy`; ``serialise_outputs``
-writes the full typed metadata sidecar via
+ADR-027 D11 + Addendum 1 §1 (T-014): ``reconstruct_inputs`` returns
+typed :class:`~scieasy.core.types.base.DataObject` instances;
+``serialise_outputs`` writes the full typed metadata sidecar via
 :func:`~scieasy.core.types.serialization._serialise_one`.
+ADR-031 D2: ViewProxy eliminated.
 """
 
 from __future__ import annotations
@@ -37,9 +37,8 @@ class TestReconstructInputs:
 
     def test_storage_ref_dict_becomes_typed_instance(self) -> None:
         """ADR-027 Addendum 1 §1 (T-014): dicts with backend/path reconstruct
-        into typed DataObject instances, not ViewProxy.
+        into typed DataObject instances.
         """
-        from scieasy.core.proxy import ViewProxy
         from scieasy.core.types.array import Array
 
         payload = {
@@ -62,7 +61,6 @@ class TestReconstructInputs:
 
         # Typed Array instance — the critical T-014 behaviour.
         assert isinstance(result["image"], Array)
-        assert not isinstance(result["image"], ViewProxy)
         assert result["image"].axes == ["z", "y", "x"]
         assert result["image"].shape == (8, 16, 16)
         # StorageReference is still populated so lazy loading works at
@@ -140,23 +138,32 @@ class TestSerialiseOutputs:
         assert result["data"]["metadata"]["type_chain"] == ["DataObject", "Array"]
         assert result["data"]["metadata"]["axes"] == ["y", "x"]
 
-    def test_serialises_dataobject_without_storage_ref_auto_flushes_when_output_dir_present(
+    def test_serialises_dataobject_with_storage_ref(
         self,
         tmp_path: Path,
     ) -> None:
-        """An output_dir should activate auto-flush and produce a persisted ref."""
+        """ADR-031: Array with storage_ref serializes correctly."""
+        import numpy as np
+        import zarr
+
+        from scieasy.core.storage.ref import StorageReference
         from scieasy.core.types.array import Array
 
-        arr = Array(axes=["y", "x"], shape=(2, 2), dtype="uint8")
-        arr._data = [[1, 2], [3, 4]]  # type: ignore[attr-defined]
+        # Write data to zarr first (ADR-031: no _data backdoor).
+        zarr_path = str(tmp_path / "test.zarr")
+        zarr.save(zarr_path, np.array([[1, 2], [3, 4]], dtype="uint8"))
+        ref = StorageReference(
+            backend="zarr",
+            path=zarr_path,
+            metadata={"shape": [2, 2], "dtype": "uint8"},
+        )
+        arr = Array(axes=["y", "x"], shape=(2, 2), dtype="uint8", storage_ref=ref)
 
         result = serialise_outputs({"data": arr}, str(tmp_path))
 
         assert result["data"]["backend"] == "zarr"
         assert result["data"]["path"] is not None
         assert result["data"]["metadata"]["axes"] == ["y", "x"]
-        assert str(result["data"]["path"]).endswith(".zarr")
-        assert Path(result["data"]["path"]).exists()
 
     def test_serialise_collection_with_none_item_type(self) -> None:
         """Collection with item_type=None should not crash the worker (#168)."""

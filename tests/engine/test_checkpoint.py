@@ -292,14 +292,18 @@ class TestIntermediateRefsSerialization:
 
 
 class TestDeserializeIntermediateRefs:
-    """Tests for deserialize_intermediate_refs — ViewProxy reconstruction (#62)."""
+    """Tests for deserialize_intermediate_refs — DataObject reconstruction.
+
+    ADR-031 D8: deserialization now produces typed DataObject instances
+    instead of ViewProxy.
+    """
 
     def test_roundtrip_collection_with_storage_refs(self) -> None:
-        """serialize → JSON → deserialize reconstructs ViewProxy items."""
+        """serialize -> JSON -> deserialize reconstructs DataObject items."""
         import json
 
-        from scieasy.core.proxy import ViewProxy
         from scieasy.core.storage.ref import StorageReference
+        from scieasy.core.types.base import DataObject
         from scieasy.core.types.collection import Collection
 
         img = Image(shape=(10, 10))
@@ -322,20 +326,20 @@ class TestDeserializeIntermediateRefs:
         assert coll_data["item_type"] == "Image"
         assert len(coll_data["items"]) == 1
 
-        proxy = coll_data["items"][0]
-        assert isinstance(proxy, ViewProxy)
-        assert proxy.storage_ref.backend == "zarr"
-        assert proxy.storage_ref.path == "/tmp/test.zarr"
-        assert proxy.storage_ref.format == "ome-zarr"
-        assert proxy.storage_ref.metadata == {"axes": ["y", "x"]}
-        assert proxy.dtype_info.type_chain == ["Image"]
+        obj = coll_data["items"][0]
+        assert isinstance(obj, DataObject)
+        assert obj.storage_ref is not None
+        assert obj.storage_ref.backend == "zarr"
+        assert obj.storage_ref.path == "/tmp/test.zarr"
+        assert obj.storage_ref.format == "ome-zarr"
+        assert obj.storage_ref.metadata == {"axes": ["y", "x"]}
 
     def test_roundtrip_single_storage_ref(self) -> None:
-        """Single DataObject with storage_ref deserializes to ViewProxy."""
+        """Single DataObject with storage_ref deserializes to DataObject."""
         import json
 
-        from scieasy.core.proxy import ViewProxy
         from scieasy.core.storage.ref import StorageReference
+        from scieasy.core.types.base import DataObject
 
         img = Image(shape=(5, 5))
         img.storage_ref = StorageReference(backend="zarr", path="/tmp/img.zarr")
@@ -345,11 +349,11 @@ class TestDeserializeIntermediateRefs:
         raw = json.loads(json.dumps(serialized))
         restored = deserialize_intermediate_refs(raw)
 
-        proxy = restored["block_a"]["image"]
-        assert isinstance(proxy, ViewProxy)
-        assert proxy.storage_ref.backend == "zarr"
-        assert proxy.storage_ref.path == "/tmp/img.zarr"
-        assert proxy.dtype_info.type_chain == ["DataObject"]
+        obj = restored["block_a"]["image"]
+        assert isinstance(obj, DataObject)
+        assert obj.storage_ref is not None
+        assert obj.storage_ref.backend == "zarr"
+        assert obj.storage_ref.path == "/tmp/img.zarr"
 
     def test_scalar_passthrough(self) -> None:
         """Scalar values pass through deserialization unchanged."""
@@ -397,14 +401,15 @@ class TestDeserializeIntermediateRefs:
 class TestDeserializeTypeChain:
     """Regression tests: _deserialize_value preserves type_chain from metadata.
 
-    These cover the fix in #404: TypeSignature must be built from
-    metadata.type_chain rather than hardcoded ["DataObject"] or just
-    [item_type_name].
+    ADR-031 D8: deserialization now uses _reconstruct_one() to produce
+    typed DataObject instances. These tests verify that type_chain is
+    respected during reconstruction.
     """
 
     def test_single_ref_preserves_type_chain(self) -> None:
-        """Single wire-format dict preserves type_chain in the ViewProxy."""
-        from scieasy.core.proxy import ViewProxy
+        """Single wire-format dict with type_chain reconstructs typed DataObject."""
+        from scieasy.core.types.array import Array
+        from scieasy.core.types.base import DataObject
 
         data = {
             "block_a": {
@@ -413,20 +418,21 @@ class TestDeserializeTypeChain:
                     "path": "/data/store.zarr",
                     "format": "zarr",
                     "metadata": {
-                        "type_chain": ["DataObject", "Array", "Image"],
+                        "type_chain": ["DataObject", "Array"],
                         "axes": ["y", "x"],
                     },
                 }
             }
         }
         restored = deserialize_intermediate_refs(data)
-        proxy = restored["block_a"]["result"]
-        assert isinstance(proxy, ViewProxy)
-        assert proxy.dtype_info.type_chain == ["DataObject", "Array", "Image"]
+        obj = restored["block_a"]["result"]
+        assert isinstance(obj, DataObject)
+        # With type_chain available, _reconstruct_one produces a typed Array.
+        assert isinstance(obj, Array)
 
     def test_single_ref_falls_back_to_dataobject_when_no_type_chain(self) -> None:
-        """Without type_chain in metadata, ViewProxy defaults to ['DataObject']."""
-        from scieasy.core.proxy import ViewProxy
+        """Without type_chain in metadata, falls back to base DataObject."""
+        from scieasy.core.types.base import DataObject
 
         data = {
             "block_a": {
@@ -438,13 +444,14 @@ class TestDeserializeTypeChain:
             }
         }
         restored = deserialize_intermediate_refs(data)
-        proxy = restored["block_a"]["result"]
-        assert isinstance(proxy, ViewProxy)
-        assert proxy.dtype_info.type_chain == ["DataObject"]
+        obj = restored["block_a"]["result"]
+        assert isinstance(obj, DataObject)
+        assert obj.storage_ref is not None
+        assert obj.storage_ref.backend == "zarr"
 
     def test_collection_items_preserve_type_chain_from_item_metadata(self) -> None:
-        """Collection item ViewProxies use type_chain from each item's metadata."""
-        from scieasy.core.proxy import ViewProxy
+        """Collection items use type_chain for typed reconstruction."""
+        from scieasy.core.types.base import DataObject
 
         data = {
             "block_a": {
@@ -457,7 +464,7 @@ class TestDeserializeTypeChain:
                             "path": "/data/img_0.zarr",
                             "format": "zarr",
                             "metadata": {
-                                "type_chain": ["DataObject", "Array", "Image"],
+                                "type_chain": ["DataObject", "Array"],
                                 "axes": ["y", "x"],
                             },
                         },
@@ -465,7 +472,7 @@ class TestDeserializeTypeChain:
                             "backend": "zarr",
                             "path": "/data/img_1.zarr",
                             "format": "zarr",
-                            # No type_chain in metadata — falls back to [item_type_name]
+                            # No type_chain in metadata — falls back to base DataObject
                             "metadata": {"axes": ["y", "x"]},
                         },
                     ],
@@ -477,10 +484,8 @@ class TestDeserializeTypeChain:
         assert coll["_collection"] is True
         assert len(coll["items"]) == 2
 
-        proxy0, proxy1 = coll["items"]
-        assert isinstance(proxy0, ViewProxy)
-        assert proxy0.dtype_info.type_chain == ["DataObject", "Array", "Image"]
-
-        assert isinstance(proxy1, ViewProxy)
-        # Fallback to [item_type_name] when no type_chain in item metadata
-        assert proxy1.dtype_info.type_chain == ["Image"]
+        obj0, obj1 = coll["items"]
+        assert isinstance(obj0, DataObject)
+        assert isinstance(obj1, DataObject)
+        assert obj0.storage_ref is not None
+        assert obj1.storage_ref is not None

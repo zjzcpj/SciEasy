@@ -598,20 +598,11 @@ def _save_composite_data(obj: DataObject, config: BlockConfig) -> None:
 def _dataframe_to_arrow_table(obj: DataFrame) -> Any:
     """Coerce a :class:`DataFrame` into a :class:`pyarrow.Table`.
 
-    The DataFrame :class:`DataObject` wraps an Arrow Table on the
-    private ``_arrow_table`` attribute when the data is in memory; for
-    storage-backed instances we fall back to
-    :meth:`DataFrame.get_in_memory_data` and accept either
-    ``pa.Table``, a dict of column arrays, or a sequence of records.
+    ADR-031 D6: always routes through ``get_in_memory_data()`` ->
+    ``to_memory()`` -> storage backend read. The former ``_arrow_table``
+    backdoor is removed.
     """
     import pyarrow as pa
-
-    arrow_table = getattr(obj, "_arrow_table", None)
-    if arrow_table is not None:
-        assert isinstance(arrow_table, pa.Table), (
-            f"DataFrame._arrow_table must be a pyarrow.Table, got {type(arrow_table).__name__}"
-        )
-        return arrow_table
 
     raw = obj.get_in_memory_data()
     if isinstance(raw, pa.Table):

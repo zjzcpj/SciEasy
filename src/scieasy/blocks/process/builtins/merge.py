@@ -69,9 +69,30 @@ class MergeBlock(ProcessBlock):
         else:
             raise NotImplementedError(f"Join strategy '{how}' is not yet implemented; use 'concat'.")
 
-        result = DataFrame(
-            columns=merged.column_names,
-            row_count=merged.num_rows,
-        )
-        result._arrow_table = merged  # type: ignore[attr-defined]
+        result = _persist_arrow_result(merged)
         return {"merged": Collection([result], item_type=DataFrame)}
+
+
+def _persist_arrow_result(table: pa.Table) -> DataFrame:
+    """Create a DataFrame and persist the Arrow table to storage.
+
+    ADR-031 D3: replaces the former ``result._arrow_table = table``
+    pattern. The DataFrame is persisted to Arrow/Parquet storage and
+    returned with ``storage_ref`` set.
+    """
+    import tempfile
+    import uuid
+    from pathlib import Path
+
+    from scieasy.core.storage.arrow_backend import ArrowBackend
+    from scieasy.core.storage.flush_context import get_output_dir
+    from scieasy.core.storage.ref import StorageReference
+
+    result = DataFrame(columns=table.column_names, row_count=table.num_rows)
+    output_dir = get_output_dir()
+    if output_dir is None:
+        output_dir = tempfile.mkdtemp(prefix="scieasy_merge_")
+    ref = StorageReference(backend="arrow", path=str(Path(output_dir) / f"{uuid.uuid4()}.parquet"))
+    backend = ArrowBackend()
+    result._storage_ref = backend.write(table, ref)
+    return result

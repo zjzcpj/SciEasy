@@ -63,8 +63,7 @@ class SplitBlock(ProcessBlock):
         if mode == "head":
             n = int(config.get("n", 100))
             out_table = data.slice(0, n)
-            result = DataFrame(columns=out_table.column_names, row_count=out_table.num_rows)
-            result._arrow_table = out_table  # type: ignore[attr-defined]
+            result = _persist_arrow_result(out_table)
             return {"out": Collection([result], item_type=DataFrame)}
 
         elif mode == "ratio":
@@ -72,10 +71,8 @@ class SplitBlock(ProcessBlock):
             split_idx = int(data.num_rows * ratio)
             first = data.slice(0, split_idx)
             second = data.slice(split_idx)
-            r1 = DataFrame(columns=first.column_names, row_count=first.num_rows)
-            r1._arrow_table = first  # type: ignore[attr-defined]
-            r2 = DataFrame(columns=second.column_names, row_count=second.num_rows)
-            r2._arrow_table = second  # type: ignore[attr-defined]
+            r1 = _persist_arrow_result(first)
+            r2 = _persist_arrow_result(second)
             return {
                 "out": Collection([r1], item_type=DataFrame),
                 "remainder": Collection([r2], item_type=DataFrame),
@@ -90,9 +87,33 @@ class SplitBlock(ProcessBlock):
 
             mask = pc.equal(data.column(column), pa.scalar(value))
             filtered = data.filter(mask)
-            result = DataFrame(columns=filtered.column_names, row_count=filtered.num_rows)
-            result._arrow_table = filtered  # type: ignore[attr-defined]
+            result = _persist_arrow_result(filtered)
             return {"out": Collection([result], item_type=DataFrame)}
 
         else:
             raise ValueError(f"Unknown split mode: {mode}")
+
+
+def _persist_arrow_result(table: pa.Table) -> DataFrame:
+    """Create a DataFrame and persist the Arrow table to storage.
+
+    ADR-031 D3: replaces the former ``result._arrow_table = table``
+    pattern. The DataFrame is persisted to Arrow/Parquet storage and
+    returned with ``storage_ref`` set.
+    """
+    import tempfile
+    import uuid
+    from pathlib import Path
+
+    from scieasy.core.storage.arrow_backend import ArrowBackend
+    from scieasy.core.storage.flush_context import get_output_dir
+    from scieasy.core.storage.ref import StorageReference
+
+    result = DataFrame(columns=table.column_names, row_count=table.num_rows)
+    output_dir = get_output_dir()
+    if output_dir is None:
+        output_dir = tempfile.mkdtemp(prefix="scieasy_split_")
+    ref = StorageReference(backend="arrow", path=str(Path(output_dir) / f"{uuid.uuid4()}.parquet"))
+    backend = ArrowBackend()
+    result._storage_ref = backend.write(table, ref)
+    return result
