@@ -32,14 +32,20 @@ def _derive_output_dir(block: Any, config: dict[str, Any]) -> str:
     block_id = str(config.get("block_id") or getattr(block, "id", "block"))
     workflow_id = str(config.get("workflow_id") or "adhoc")
     if isinstance(project_dir, str) and project_dir:
-        # Truncate block_id to avoid Windows MAX_PATH (260) overflow.
         short_block_id = block_id[:40] if len(block_id) > 40 else block_id
-        path = Path(project_dir) / "data" / "zarr" / workflow_id / short_block_id
-        from scieasy.blocks.base.block import _win_long_path
-
-        result = _win_long_path(str(path))
-        Path(result).mkdir(parents=True, exist_ok=True)
-        return result
+        candidate = str(Path(project_dir) / "data" / "zarr" / workflow_id / short_block_id)
+        # zarr creates internal subfiles (+60 chars). If total would exceed
+        # Windows MAX_PATH (260), fall back to a short temp dir to avoid
+        # FileNotFoundError from zarr's internal pathlib operations.
+        if sys.platform == "win32" and len(candidate) > 180:
+            logger.warning(
+                "Output dir too long for Windows (%d chars), using temp dir: %s",
+                len(candidate),
+                candidate,
+            )
+            return tempfile.mkdtemp(prefix="scieasy-worker-")
+        Path(candidate).mkdir(parents=True, exist_ok=True)
+        return candidate
 
     return tempfile.mkdtemp(prefix="scieasy-worker-")
 
