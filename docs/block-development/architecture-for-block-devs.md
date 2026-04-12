@@ -92,7 +92,7 @@ setup(config) -> state         # load model, open connection (once)
   v
 for item in primary_collection:
     process_item(item, config, state)  # per-item logic
-    _auto_flush(result)                # persist to storage
+    _auto_flush(result)                # persist to storage (raises RuntimeError on failure)
   |
   v
 teardown(state)                # release resources (always runs, even on error)
@@ -112,17 +112,19 @@ run(inputs, config)
   v
 if direction == "input":
     load(config, output_dir) -> DataObject | Collection
-    # auto-flush any items without storage_ref
+    # auto-flush any items without storage_ref (fail-hard: raises RuntimeError on failure)
     return {port_name: Collection}
 else:
     save(obj, config)
     return {receipt_port: Collection[Text]}
 ```
 
-IOBlock loaders should either:
-1. Return in-memory DataObjects (auto-flushed by the base class), or
-2. Use `persist_array()` / `persist_table()` for streaming writes and
-   return reference-only objects.
+**IOBlock loaders MUST persist directly** (ADR-031 Addendum 1, A1-D3):
+1. Use `persist_array(ndarray)` for one-shot persistence (small/medium files), or
+2. Use `persist_array(chunk_iter())` for streaming persistence (large files).
+
+Do NOT use `_data` assignment in IOBlock loaders. Auto-flush is a fail-hard
+safety net (raises `RuntimeError` on failure) intended for ProcessBlocks only.
 
 ---
 

@@ -271,20 +271,18 @@ persist data. Two approaches:
 
 #### Simple path (small/medium files)
 
-Return an in-memory DataObject. The base class auto-persists it via
-`_auto_flush`:
+Use one-shot `persist_array(ndarray)` to load and persist in one step:
 
 ```python
 def load(self, config, output_dir=""):
     data = np.load(config.get("path"))
-    obj = Array(axes=["y", "x"], shape=data.shape, dtype=str(data.dtype))
-    obj._data = data
-    return obj
+    ref = self.persist_array(data, data.shape, data.dtype, output_dir)
+    return Array(axes=["y", "x"], shape=data.shape, dtype=str(data.dtype), storage_ref=ref)
 ```
 
 #### Streaming path (large files)
 
-Use `persist_array()` or `persist_table()` to write directly to storage:
+Use iterator `persist_array(chunk_iter())` for constant-memory writes:
 
 ```python
 def load(self, config, output_dir=""):
@@ -298,7 +296,14 @@ def load(self, config, output_dir=""):
     return Array(axes=["z", "y", "x"], shape=shape, dtype=str(dtype), storage_ref=ref)
 ```
 
-### IOBlock persist helpers
+**Important (ADR-031 Addendum 1, A1-D3)**: IOBlock loaders MUST persist
+directly via `persist_array()` or `persist_table()`. Do NOT use
+`obj._data = ...` and rely on auto-flush in IOBlock loaders. Auto-flush
+is a safety net for ProcessBlocks only.
+
+### Persist helpers (Block base class)
+
+Available on **all block types** (defined on `Block`, not just `IOBlock`).
 
 #### `persist_array(data_or_iterator, shape, dtype, output_dir, chunks=None) -> StorageReference`
 
