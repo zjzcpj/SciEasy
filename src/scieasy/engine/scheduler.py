@@ -232,6 +232,37 @@ class DAGScheduler:
             self.save_checkpoint(self._checkpoint_manager)
             return
 
+        # #632: Pre-dispatch config validation — check required fields
+        # from the block's config_schema before handing off to a subprocess.
+        # This catches the most common misconfiguration (missing required
+        # fields) with a clean error instead of a traceback in the worker.
+        # Config values may live in node.config["params"] (BlockConfig's
+        # params dict) OR at the top level of node.config (extras readable
+        # via BlockConfig(**config).get(key)).  Check both locations.
+        config_schema = getattr(block, "config_schema", None)
+        if isinstance(config_schema, dict) and config_schema.get("required"):
+            required_fields = config_schema["required"]
+            params = node.config.get("params", {}) if isinstance(node.config.get("params"), dict) else {}
+            top_level = node.config if isinstance(node.config, dict) else {}
+            missing = [f for f in required_fields if (params.get(f) is None and top_level.get(f) is None)]
+            if missing:
+                error_str = f"Block '{node_id}' config is missing required field(s): {', '.join(sorted(missing))}"
+                logger.error("Pre-dispatch config validation failed for %s: %s", node_id, error_str)
+                self._block_states[node_id] = BlockState.ERROR
+                await self._event_bus.emit(
+                    EngineEvent(
+                        event_type=BLOCK_ERROR,
+                        block_id=node_id,
+                        data={
+                            "workflow_id": self._workflow.id,
+                            "error": error_str,
+                            "error_summary": _extract_error_summary(error_str),
+                        },
+                    )
+                )
+                self.save_checkpoint(self._checkpoint_manager)
+                return
+
         # Enrich the block config with runtime context (#444).
         enriched_config = dict(node.config)
         enriched_config["block_id"] = node_id

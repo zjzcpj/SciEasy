@@ -873,3 +873,139 @@ class TestSchedulerCheckpoint:
 
         assert scheduler._block_states["A"] == BlockState.ERROR
         assert checkpoint_mgr.save.called
+
+
+# ---------------------------------------------------------------------------
+# Config pre-dispatch validation (#632)
+# ---------------------------------------------------------------------------
+
+
+class TestSchedulerConfigPreCheck:
+    """Test that missing required config fields are caught before dispatch."""
+
+    def test_missing_required_config_field_errors_before_dispatch(self) -> None:
+        """Block with required config field missing should ERROR without calling runner."""
+        wf = _wf(nodes=[("A", "myblock")])
+        wf.nodes[0].config = {"params": {}}  # missing 'path' which is required
+
+        # Mock registry that returns a block with a config_schema requiring 'path'
+        mock_block = MagicMock()
+        mock_block.config_schema = {
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+            "required": ["path"],
+        }
+
+        mock_registry = MagicMock()
+        mock_registry.instantiate.return_value = mock_block
+
+        event_bus = EventBus()
+        runner = AsyncMock()
+
+        scheduler = DAGScheduler(
+            workflow=wf,
+            event_bus=event_bus,
+            resource_manager=MagicMock(can_dispatch=MagicMock(return_value=True)),
+            process_registry=MagicMock(),
+            runner=runner,
+            registry=mock_registry,
+        )
+
+        asyncio.run(scheduler.execute())
+
+        assert scheduler._block_states["A"] == BlockState.ERROR
+        runner.run.assert_not_called()
+
+    def test_none_valued_required_config_field_errors(self) -> None:
+        """Required config field set to None should ERROR before dispatch."""
+        wf = _wf(nodes=[("A", "myblock")])
+        wf.nodes[0].config = {"params": {"path": None}}
+
+        mock_block = MagicMock()
+        mock_block.config_schema = {
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+            "required": ["path"],
+        }
+
+        mock_registry = MagicMock()
+        mock_registry.instantiate.return_value = mock_block
+
+        runner = AsyncMock()
+
+        scheduler = DAGScheduler(
+            workflow=wf,
+            event_bus=EventBus(),
+            resource_manager=MagicMock(can_dispatch=MagicMock(return_value=True)),
+            process_registry=MagicMock(),
+            runner=runner,
+            registry=mock_registry,
+        )
+
+        asyncio.run(scheduler.execute())
+
+        assert scheduler._block_states["A"] == BlockState.ERROR
+        runner.run.assert_not_called()
+
+    def test_all_required_config_fields_present_dispatches(self) -> None:
+        """Block with all required config fields present should dispatch normally."""
+        wf = _wf(nodes=[("A", "myblock")])
+        wf.nodes[0].config = {"params": {"path": "/data/input.csv"}}
+
+        mock_block = MagicMock()
+        mock_block.config_schema = {
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+            "required": ["path"],
+        }
+
+        mock_registry = MagicMock()
+        mock_registry.instantiate.return_value = mock_block
+
+        runner = AsyncMock()
+        runner.run.return_value = {"output": "ok"}
+
+        scheduler = DAGScheduler(
+            workflow=wf,
+            event_bus=EventBus(),
+            resource_manager=MagicMock(can_dispatch=MagicMock(return_value=True)),
+            process_registry=MagicMock(),
+            runner=runner,
+            registry=mock_registry,
+        )
+
+        asyncio.run(scheduler.execute())
+
+        assert scheduler._block_states["A"] == BlockState.DONE
+        runner.run.assert_called_once()
+
+    def test_no_required_fields_dispatches_normally(self) -> None:
+        """Block with no required fields in config_schema dispatches normally."""
+        wf = _wf(nodes=[("A", "myblock")])
+        wf.nodes[0].config = {}
+
+        mock_block = MagicMock()
+        mock_block.config_schema = {
+            "type": "object",
+            "properties": {"optional_param": {"type": "string"}},
+        }
+
+        mock_registry = MagicMock()
+        mock_registry.instantiate.return_value = mock_block
+
+        runner = AsyncMock()
+        runner.run.return_value = {"output": "ok"}
+
+        scheduler = DAGScheduler(
+            workflow=wf,
+            event_bus=EventBus(),
+            resource_manager=MagicMock(can_dispatch=MagicMock(return_value=True)),
+            process_registry=MagicMock(),
+            runner=runner,
+            registry=mock_registry,
+        )
+
+        asyncio.run(scheduler.execute())
+
+        assert scheduler._block_states["A"] == BlockState.DONE
+        runner.run.assert_called_once()

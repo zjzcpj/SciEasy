@@ -395,3 +395,127 @@ class TestValidatorDanglingPorts:
         dangling = [e for e in errors if "required input port" in e]
         assert len(dangling) == 1
         assert "'right'" in dangling[0]
+
+
+# ---------------------------------------------------------------------------
+# Variadic port cardinality (Check 7)
+# ---------------------------------------------------------------------------
+
+
+class TestValidatorVariadicCardinality:
+    """Check 7: variadic port count within min/max limits."""
+
+    def test_variadic_input_below_min(self) -> None:
+        """Block with min_input_ports=2 but only 1 effective input port should error."""
+        spec = BlockSpec(
+            name="variadic_block",
+            variadic_inputs=True,
+            min_input_ports=2,
+            input_ports=[InputPort(name="in0", accepted_types=[Array])],
+            output_ports=[OutputPort(name="out", accepted_types=[Array])],
+        )
+        reg = _registry_from_specs(spec)
+
+        wf = WorkflowDefinition(
+            nodes=[NodeDef(id="V", block_type="variadic_block")],
+        )
+        errors = validate_workflow(wf, registry=reg)
+        assert any("variadic input port count 1" in e and "below minimum 2" in e for e in errors)
+
+    def test_variadic_input_above_max(self) -> None:
+        """Block with max_input_ports=1 but 2 effective input ports should error."""
+        spec = BlockSpec(
+            name="variadic_block",
+            variadic_inputs=True,
+            max_input_ports=1,
+            input_ports=[
+                InputPort(name="in0", accepted_types=[Array]),
+                InputPort(name="in1", accepted_types=[Array]),
+            ],
+            output_ports=[OutputPort(name="out", accepted_types=[Array])],
+        )
+        reg = _registry_from_specs(spec)
+
+        wf = WorkflowDefinition(
+            nodes=[NodeDef(id="V", block_type="variadic_block")],
+        )
+        errors = validate_workflow(wf, registry=reg)
+        assert any("variadic input port count 2" in e and "exceeds maximum 1" in e for e in errors)
+
+    def test_variadic_output_below_min(self) -> None:
+        """Block with min_output_ports=2 but only 1 effective output port should error."""
+        spec = BlockSpec(
+            name="variadic_block",
+            variadic_outputs=True,
+            min_output_ports=2,
+            input_ports=[InputPort(name="in", accepted_types=[Array])],
+            output_ports=[OutputPort(name="out0", accepted_types=[Array])],
+        )
+        reg = _registry_from_specs(spec)
+
+        wf = WorkflowDefinition(
+            nodes=[NodeDef(id="V", block_type="variadic_block")],
+        )
+        errors = validate_workflow(wf, registry=reg)
+        assert any("variadic output port count 1" in e and "below minimum 2" in e for e in errors)
+
+    def test_variadic_output_above_max(self) -> None:
+        """Block with max_output_ports=1 but 2 effective output ports should error."""
+        spec = BlockSpec(
+            name="variadic_block",
+            variadic_outputs=True,
+            max_output_ports=1,
+            input_ports=[InputPort(name="in", accepted_types=[Array])],
+            output_ports=[
+                OutputPort(name="out0", accepted_types=[Array]),
+                OutputPort(name="out1", accepted_types=[Array]),
+            ],
+        )
+        reg = _registry_from_specs(spec)
+
+        wf = WorkflowDefinition(
+            nodes=[NodeDef(id="V", block_type="variadic_block")],
+        )
+        errors = validate_workflow(wf, registry=reg)
+        assert any("variadic output port count 2" in e and "exceeds maximum 1" in e for e in errors)
+
+    def test_variadic_within_limits_no_error(self) -> None:
+        """Block with port count within min/max should produce no cardinality errors."""
+        spec = BlockSpec(
+            name="variadic_block",
+            variadic_inputs=True,
+            min_input_ports=1,
+            max_input_ports=3,
+            input_ports=[
+                InputPort(name="in0", accepted_types=[Array]),
+                InputPort(name="in1", accepted_types=[Array]),
+            ],
+            output_ports=[OutputPort(name="out", accepted_types=[Array])],
+        )
+        reg = _registry_from_specs(spec)
+
+        wf = WorkflowDefinition(
+            nodes=[NodeDef(id="V", block_type="variadic_block")],
+        )
+        errors = validate_workflow(wf, registry=reg)
+        cardinality_errors = [e for e in errors if "variadic" in e]
+        assert cardinality_errors == []
+
+    def test_non_variadic_skips_cardinality_check(self) -> None:
+        """Non-variadic blocks should never produce cardinality errors."""
+        spec = BlockSpec(
+            name="normal_block",
+            variadic_inputs=False,
+            variadic_outputs=False,
+            min_input_ports=5,  # would fail if checked
+            input_ports=[InputPort(name="in", accepted_types=[Array])],
+            output_ports=[OutputPort(name="out", accepted_types=[Array])],
+        )
+        reg = _registry_from_specs(spec)
+
+        wf = WorkflowDefinition(
+            nodes=[NodeDef(id="N", block_type="normal_block")],
+        )
+        errors = validate_workflow(wf, registry=reg)
+        cardinality_errors = [e for e in errors if "variadic" in e]
+        assert cardinality_errors == []
