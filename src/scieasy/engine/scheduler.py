@@ -342,6 +342,8 @@ class DAGScheduler:
                 return
 
             self._block_outputs[node_id] = result
+            # ADR-032: persist DataObject metadata to project-level SQLite db.
+            self._persist_output_metadata(node_id, result, self._workflow.id)
             self._block_states[node_id] = BlockState.DONE
             await self._event_bus.emit(
                 EngineEvent(
@@ -464,6 +466,8 @@ class DAGScheduler:
 
             # Step 6: Transition to DONE.
             self._block_outputs[node_id] = result
+            # ADR-032: persist DataObject metadata to project-level SQLite db.
+            self._persist_output_metadata(node_id, result, self._workflow.id)
             self._block_states[node_id] = BlockState.DONE
             await self._event_bus.emit(
                 EngineEvent(
@@ -477,6 +481,129 @@ class DAGScheduler:
             self._interactive_futures.pop(node_id, None)
             self._active_tasks.pop(node_id, None)
             self._check_completion()
+
+    # -- ADR-032: Metadata persistence helpers --------------------------------
+
+    def _persist_output_metadata(
+        self,
+        node_id: str,
+        result: dict[str, Any] | Any,
+        workflow_id: str,
+    ) -> None:
+        """Persist DataObject wire-format metadata to the project MetadataStore.
+
+        Called in the engine process after receiving wire-format outputs from
+        a worker subprocess (ADR-032 Addendum 1).  Iterates the result dict
+        and calls ``put_wire()`` for each DataObject-shaped entry.
+
+        This method is **non-fatal**: any exception is logged as a warning
+        and does not crash the workflow.
+        """
+        try:
+            from scieasy.core.metadata_store import get_metadata_store
+
+            store = get_metadata_store()
+            if store is None:
+                return
+            if not isinstance(result, dict):
+                return
+            for port_name, value in result.items():
+                self._persist_single_output(store, value, workflow_id, node_id, port_name)
+        except Exception:
+            logger.warning(
+                "ADR-032: metadata persist failed for node %s (non-fatal)",
+                node_id,
+                exc_info=True,
+            )
+
+    def _persist_single_output(
+        self,
+        store: Any,
+        value: Any,
+        workflow_id: str,
+        node_id: str,
+        port_name: str,
+    ) -> None:
+        """Persist a single output value (scalar or collection) to the store."""
+        if not isinstance(value, dict):
+            return
+        # Collection: {"_collection": True, "items": [...], "item_type": "..."}
+        if value.get("_collection"):
+            for item in value.get("items", []):
+                if isinstance(item, dict) and "metadata" in item:
+                    try:
+                        store.put_wire(item, workflow_id=workflow_id, block_id=node_id, port_name=port_name)
+                    except Exception:
+                        logger.warning(
+                            "ADR-032: metadata persist failed for item in %s/%s (non-fatal)",
+                            node_id,
+                            port_name,
+                        )
+        elif "metadata" in value:
+            try:
+                store.put_wire(value, workflow_id=workflow_id, block_id=node_id, port_name=port_name)
+            except Exception:
+                logger.warning(
+                    "ADR-032: metadata persist failed for %s/%s (non-fatal)",
+                    node_id,
+                    port_name,
+                )
+
+    def _sync_checkpoint_to_store(self) -> None:
+        """Backfill metadata store from checkpoint data (ADR-032 Phase 2a).
+
+        Called after loading checkpoint data into ``_block_outputs`` during
+        ``execute_from()``.  Only inserts entries that are not already in the
+        store (no overwrites).  Gracefully degrades when the store is
+        unavailable.
+        """
+        try:
+            from scieasy.core.metadata_store import get_metadata_store
+
+            store = get_metadata_store()
+            if store is None:
+                return
+            for node_id, outputs in self._block_outputs.items():
+                if not isinstance(outputs, dict):
+                    continue
+                for port_name, value in outputs.items():
+                    if not isinstance(value, dict):
+                        continue
+                    if value.get("_collection"):
+                        for item in value.get("items", []):
+                            if isinstance(item, dict) and "metadata" in item:
+                                try:
+                                    store.put_wire_if_missing(
+                                        item,
+                                        workflow_id=self._workflow.id,
+                                        block_id=node_id,
+                                        port_name=port_name,
+                                    )
+                                except Exception:
+                                    logger.warning(
+                                        "ADR-032: checkpoint sync failed for item in %s/%s (non-fatal)",
+                                        node_id,
+                                        port_name,
+                                    )
+                    elif "metadata" in value:
+                        try:
+                            store.put_wire_if_missing(
+                                value,
+                                workflow_id=self._workflow.id,
+                                block_id=node_id,
+                                port_name=port_name,
+                            )
+                        except Exception:
+                            logger.warning(
+                                "ADR-032: checkpoint sync failed for %s/%s (non-fatal)",
+                                node_id,
+                                port_name,
+                            )
+        except Exception:
+            logger.warning(
+                "ADR-032: checkpoint-to-store sync failed (non-fatal)",
+                exc_info=True,
+            )
 
     async def _on_interactive_complete(self, event: EngineEvent) -> None:
         """Handle an interactive_complete event from the frontend.
@@ -1175,6 +1302,10 @@ class DAGScheduler:
                 self._block_states[node_id] = BlockState(checkpoint.block_states.get(node_id, "idle"))
                 if node_id in checkpoint.intermediate_refs:
                     self._block_outputs[node_id] = checkpoint.intermediate_refs[node_id]
+
+        # ADR-032 Phase 2a: backfill metadata store from checkpoint data.
+        # Only inserts missing entries (no overwrites).
+        self._sync_checkpoint_to_store()
 
         await self._event_bus.emit(
             EngineEvent(
