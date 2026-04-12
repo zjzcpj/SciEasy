@@ -1598,12 +1598,63 @@ IDLE -> SKIPPED -> IDLE (upstream input unavailable)
 | Mode | Meaning |
 |------|---------|
 | `AUTO` | Engine schedules and runs the block automatically (default). |
-| `INTERACTIVE` | Block requires user interaction (manual review blocks). |
+| `INTERACTIVE` | Block pauses and presents a UI for user interaction (#591/#594). |
 | `EXTERNAL` | Block delegates to an external application (AppBlock). |
 
 ---
 
-## Appendix B: Execution Environment
+## Appendix B: Interactive Blocks (#591, #594)
+
+Interactive blocks use `execution_mode = ExecutionMode.INTERACTIVE` and run
+**in-process** (not in a subprocess) because they need bidirectional WebSocket
+communication with the frontend. The execution flow is:
+
+1. Scheduler detects `INTERACTIVE` mode on the block.
+2. Block transitions to `PAUSED` and emits `BLOCK_PAUSED`.
+3. Scheduler calls `block.prepare_prompt(inputs, config)` to build UI data.
+4. Scheduler emits `INTERACTIVE_PROMPT` event with the prepared data.
+5. Frontend receives the prompt and opens a modal dialog.
+6. User interacts (e.g. drag-and-drop routing, reordering) and clicks Confirm.
+7. Frontend sends `interactive_complete` WebSocket message.
+8. Scheduler receives the response, merges it into config as
+   `config["interactive_response"]`, and calls `block.run(inputs, config)`.
+9. Block produces outputs and transitions to `DONE`.
+
+### Authoring an interactive block
+
+```python
+class MyInteractiveBlock(ProcessBlock):
+    execution_mode = ExecutionMode.INTERACTIVE
+    variadic_inputs = True
+    variadic_outputs = True
+
+    def prepare_prompt(self, inputs, config):
+        """Return data for the frontend modal.
+
+        This data is sent as the INTERACTIVE_PROMPT event payload.
+        """
+        return {"items": [...], "options": [...]}
+
+    def run(self, inputs, config):
+        """Process the user's response.
+
+        The user's response is available in config["interactive_response"].
+        """
+        response = config.get("interactive_response", {})
+        # ... use response to produce outputs
+        return {"output_port": collection}
+```
+
+### Built-in interactive blocks
+
+| Block | Purpose |
+|-------|---------|
+| `DataRouter` | N-input to M-output item routing via drag-and-drop |
+| `PairEditor` | Reorder items within Collections for index-based pairing |
+
+---
+
+## Appendix C: Execution Environment
 
 Blocks run in **isolated subprocesses**, not in the main engine process. This
 means:
@@ -1632,7 +1683,7 @@ produce corrupt files.
 
 ---
 
-## Appendix C: Custom Data Types
+## Appendix D: Custom Data Types
 
 External developers define domain-specific types by subclassing **core** types
 (`Array`, `Series`, `DataFrame`, `Text`, `Artifact`, `CompositeData`). **Core
@@ -1741,7 +1792,7 @@ inputs from serialised `type_chain` metadata.
 
 ---
 
-## Appendix D: Quick Reference
+## Appendix E: Quick Reference
 
 ### Minimal ProcessBlock (Tier 1)
 
