@@ -376,6 +376,11 @@ class DataObject:
         """Backward-compat bridge: writes ``_transient_data``."""
         self._transient_data = value
 
+    @_data.deleter
+    def _data(self) -> None:
+        """Backward-compat bridge: clears ``_transient_data``."""
+        self._transient_data = None
+
     @property
     def _arrow_table(self) -> Any:
         """Backward-compat bridge for DataFrame/Series: reads ``_transient_data``."""
@@ -385,6 +390,11 @@ class DataObject:
     def _arrow_table(self, value: Any) -> None:
         """Backward-compat bridge for DataFrame/Series: writes ``_transient_data``."""
         self._transient_data = value
+
+    @_arrow_table.deleter
+    def _arrow_table(self) -> None:
+        """Backward-compat bridge for DataFrame/Series: clears ``_transient_data``."""
+        self._transient_data = None
 
     # -- data access (ADR-031 D1/D2/D6: methods moved from ViewProxy) --------
 
