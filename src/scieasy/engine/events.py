@@ -34,6 +34,8 @@ PROCESS_EXITED = "process_exited"  # ADR-017/019
 WORKFLOW_STARTED = "workflow_started"  # ADR-018
 WORKFLOW_COMPLETED = "workflow_completed"  # ADR-018
 CHECKPOINT_SAVED = "checkpoint_saved"  # ADR-018
+INTERACTIVE_PROMPT = "interactive_prompt"  # #591/#594: backend -> frontend interactive data
+INTERACTIVE_COMPLETE = "interactive_complete"  # #591/#594: frontend -> backend interactive response
 
 
 @dataclass

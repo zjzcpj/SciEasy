@@ -3,9 +3,11 @@ import { startTransition, useCallback, useEffect, useMemo, useRef, useState } fr
 
 import { api } from "./lib/api";
 import { useLogStream } from "./hooks/useSSE";
-import { useWorkflowWebSocket } from "./hooks/useWebSocket";
+import { useWorkflowWebSocket, sendWebSocketMessage } from "./hooks/useWebSocket";
 import { useAppStore } from "./store";
 import type { ChatMessage, ProjectResponse, WorkflowResponse } from "./types/api";
+import { DataRouterModal } from "./components/DataRouterModal";
+import { PairEditorModal } from "./components/PairEditorModal";
 import { BlockPalette } from "./components/BlockPalette";
 import { BottomPanel } from "./components/BottomPanel";
 import { DataPreview } from "./components/DataPreview";
@@ -69,6 +71,8 @@ export default function App() {
   const logEntries = useAppStore((state) => state.logEntries);
   const isRunning = useAppStore((state) => state.isRunning);
   const resetExecution = useAppStore((state) => state.resetExecution);
+  const interactivePrompt = useAppStore((state) => state.interactivePrompt);
+  const setInteractivePrompt = useAppStore((state) => state.setInteractivePrompt);
 
   const selectedNodeId = useAppStore((state) => state.selectedNodeId);
   const activeBottomTab = useAppStore((state) => state.activeBottomTab);
@@ -869,6 +873,66 @@ export default function App() {
             path={projectDialog.path}
             recentProjects={recentProjects}
           />
+
+          {/* #591/#594: Interactive block modals */}
+          {interactivePrompt?.blockType === "DataRouter" && (
+            <DataRouterModal
+              blockId={interactivePrompt.blockId}
+              inputPorts={(interactivePrompt.data.input_ports as string[]) ?? []}
+              outputPorts={(interactivePrompt.data.output_ports as string[]) ?? []}
+              itemsPerPort={
+                (interactivePrompt.data.items_per_port as Record<
+                  string,
+                  Array<{ index: number; port: string; ref: string; name: string; type: string }>
+                >) ?? {}
+              }
+              onConfirm={(assignments) => {
+                sendWebSocketMessage({
+                  type: "interactive_complete",
+                  block_id: interactivePrompt.blockId,
+                  data: { assignments },
+                });
+                setInteractivePrompt(null);
+              }}
+              onCancel={() => {
+                sendWebSocketMessage({
+                  type: "cancel_block",
+                  block_id: interactivePrompt.blockId,
+                  workflow_id: workflowId,
+                });
+                setInteractivePrompt(null);
+              }}
+            />
+          )}
+          {interactivePrompt?.blockType === "PairEditor" && (
+            <PairEditorModal
+              blockId={interactivePrompt.blockId}
+              ports={(interactivePrompt.data.ports as string[]) ?? []}
+              itemsPerPort={
+                (interactivePrompt.data.items_per_port as Record<
+                  string,
+                  Array<{ index: number; name: string; type: string }>
+                >) ?? {}
+              }
+              collectionLength={(interactivePrompt.data.collection_length as number) ?? 0}
+              onConfirm={(reorder) => {
+                sendWebSocketMessage({
+                  type: "interactive_complete",
+                  block_id: interactivePrompt.blockId,
+                  data: { reorder },
+                });
+                setInteractivePrompt(null);
+              }}
+              onCancel={() => {
+                sendWebSocketMessage({
+                  type: "cancel_block",
+                  block_id: interactivePrompt.blockId,
+                  workflow_id: workflowId,
+                });
+                setInteractivePrompt(null);
+              }}
+            />
+          )}
 
           {busy ? (
             <div className="fixed bottom-4 right-4 rounded-full bg-ink px-4 py-2 text-sm text-white">Working…</div>

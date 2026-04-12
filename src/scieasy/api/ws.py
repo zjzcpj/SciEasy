@@ -23,6 +23,8 @@ from scieasy.engine.events import (
     BLOCK_SKIPPED,
     CANCEL_BLOCK_REQUEST,
     CANCEL_WORKFLOW_REQUEST,
+    INTERACTIVE_COMPLETE,
+    INTERACTIVE_PROMPT,
     WORKFLOW_COMPLETED,
     WORKFLOW_STARTED,
     EngineEvent,
@@ -43,6 +45,7 @@ _OUTBOUND_EVENTS = frozenset(
         BLOCK_SKIPPED,
         WORKFLOW_COMPLETED,
         WORKFLOW_STARTED,
+        INTERACTIVE_PROMPT,
     }
 )
 
@@ -112,7 +115,7 @@ async def websocket_handler(websocket: WebSocket, event_bus: EventBus) -> None:
                 elif msg_type == "interactive_complete":
                     await event_bus.emit(
                         EngineEvent(
-                            event_type=BLOCK_DONE,
+                            event_type=INTERACTIVE_COMPLETE,
                             block_id=data.get("block_id"),
                             data=data.get("data", {}),
                         )

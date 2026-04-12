@@ -53,6 +53,13 @@ export interface WorkflowSlice {
   redoWorkflow: () => void;
 }
 
+/** #591/#594: Data for an interactive block prompt (DataRouter, PairEditor). */
+export interface InteractivePrompt {
+  blockId: string;
+  blockType: string;
+  data: Record<string, unknown>;
+}
+
 export interface ExecutionSlice {
   blockStates: Record<string, string>;
   blockOutputs: Record<string, Record<string, unknown>>;
@@ -62,9 +69,12 @@ export interface ExecutionSlice {
   logEntries: LogEntry[];
   /** True while a workflow execution is in progress. */
   isRunning: boolean;
+  /** #591/#594: Active interactive prompt from a PAUSED block (DataRouter/PairEditor). */
+  interactivePrompt: InteractivePrompt | null;
   consumeEvent: (event: WorkflowEventMessage) => void;
   appendLog: (entry: LogEntry) => void;
   resetExecution: () => void;
+  setInteractivePrompt: (prompt: InteractivePrompt | null) => void;
 }
 
 export interface UISlice {
