@@ -1,6 +1,6 @@
 ## ADR-031: Data Object Reference-Only Contract, ViewProxy Elimination, and Lazy Loading Enforcement
 
-**Status**: draft
+**Status**: accepted (Phase 1+2 implemented; Phase 3 pending)
 **Date**: 2026-04-11
 **Supersedes**: ADR-027 Addendum 1 (~~proposed~~ → **deprecated**)
 **Amends**: ADR-007 (implementation alignment), ADR-017 (transport contract), ADR-028 (IOBlock contract)
