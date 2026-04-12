@@ -889,6 +889,11 @@ export function BlockNode({ id: nodeId, data, selected }: NodeProps<Node<BlockNo
         {data.status === "paused" && data.category === "app" && (
           <PausedToast outputDir={String(data.config?.output_dir ?? "")} />
         )}
+        {data.status === "paused" && data.category !== "app" && (
+          <div className="mt-1 flex items-center gap-1 rounded border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] text-blue-700">
+            Waiting for user input...
+          </div>
+        )}
       </div>
     </div>
   );

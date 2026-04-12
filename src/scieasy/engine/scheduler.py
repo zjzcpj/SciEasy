@@ -8,16 +8,19 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from scieasy.blocks.base.state import BlockState
+from scieasy.blocks.base.state import BlockState, ExecutionMode
 from scieasy.engine.dag import build_dag, get_downstream_blocks, topological_sort
 from scieasy.engine.events import (
     BLOCK_CANCELLED,
     BLOCK_DONE,
     BLOCK_ERROR,
+    BLOCK_PAUSED,
     BLOCK_RUNNING,
     BLOCK_SKIPPED,
     CANCEL_BLOCK_REQUEST,
     CANCEL_WORKFLOW_REQUEST,
+    INTERACTIVE_COMPLETE,
+    INTERACTIVE_PROMPT,
     PROCESS_EXITED,
     WORKFLOW_COMPLETED,
     WORKFLOW_STARTED,
@@ -125,11 +128,17 @@ class DAGScheduler:
         self._paused = False
         self._reset_lock = asyncio.Lock()
 
+        # #591/#594: Pending interactive responses. Maps block_id to an
+        # asyncio.Future that is resolved when the frontend sends an
+        # interactive_complete message for that block.
+        self._interactive_futures: dict[str, asyncio.Future[dict[str, Any]]] = {}
+
         self._event_bus.subscribe(BLOCK_DONE, self._on_block_done)
         self._event_bus.subscribe(BLOCK_ERROR, self._on_block_error)
         self._event_bus.subscribe(CANCEL_BLOCK_REQUEST, self._on_cancel_block)
         self._event_bus.subscribe(CANCEL_WORKFLOW_REQUEST, self._on_cancel_workflow)
         self._event_bus.subscribe(PROCESS_EXITED, self._on_process_exited)
+        self._event_bus.subscribe(INTERACTIVE_COMPLETE, self._on_interactive_complete)
 
     async def execute(self) -> None:
         """Begin executing the workflow from its current state.
@@ -239,10 +248,22 @@ class DAGScheduler:
         if self._project_dir:
             enriched_config["project_dir"] = self._project_dir
 
-        task = asyncio.create_task(
-            self._run_and_finalize(node_id, block, inputs, enriched_config),
-            name=f"dispatch:{node_id}",
-        )
+        # #591/#594: Interactive blocks run in-process (no subprocess) because
+        # they need bidirectional communication with the frontend. The block
+        # pauses, sends data to the frontend, waits for user response, then
+        # produces outputs.
+        is_interactive = getattr(block, "execution_mode", None) == ExecutionMode.INTERACTIVE
+
+        if is_interactive:
+            task = asyncio.create_task(
+                self._run_interactive(node_id, block, inputs, enriched_config),
+                name=f"dispatch-interactive:{node_id}",
+            )
+        else:
+            task = asyncio.create_task(
+                self._run_and_finalize(node_id, block, inputs, enriched_config),
+                name=f"dispatch:{node_id}",
+            )
         self._active_tasks[node_id] = task
 
     async def _run_and_finalize(
@@ -304,6 +325,146 @@ class DAGScheduler:
             # "no active tasks" once the final block finalises.
             self._active_tasks.pop(node_id, None)
             self._check_completion()
+
+    async def _run_interactive(
+        self,
+        node_id: str,
+        block: Any,
+        inputs: dict[str, Any],
+        config: dict[str, Any],
+    ) -> None:
+        """Execute an interactive block: PAUSE, prompt frontend, await response, run.
+
+        #591/#594: Interactive blocks (DataRouter, PairEditor) run in-process
+        because they need bidirectional WebSocket communication. The flow is:
+
+        1. Transition to PAUSED, emit BLOCK_PAUSED
+        2. Call ``block.prepare_prompt(inputs, config)`` to get data for the UI
+        3. Emit INTERACTIVE_PROMPT with the prepared data
+        4. Await the user's response via an asyncio.Future
+        5. Call ``block.run(inputs, config)`` with the response merged into config
+        6. Transition to DONE, emit BLOCK_DONE with outputs
+        """
+        try:
+            try:
+                # Step 1: Transition to PAUSED.
+                self._block_states[node_id] = BlockState.PAUSED
+                await self._event_bus.emit(
+                    EngineEvent(
+                        event_type=BLOCK_PAUSED,
+                        block_id=node_id,
+                        data={"workflow_id": self._workflow.id},
+                    )
+                )
+
+                # Step 2: Prepare the interactive prompt data.
+                prompt_data = {}
+                if hasattr(block, "prepare_prompt"):
+                    from scieasy.blocks.base.config import BlockConfig
+
+                    prompt_data = block.prepare_prompt(inputs, BlockConfig(**config))
+
+                # Step 3: Emit INTERACTIVE_PROMPT for the frontend.
+                await self._event_bus.emit(
+                    EngineEvent(
+                        event_type=INTERACTIVE_PROMPT,
+                        block_id=node_id,
+                        data={
+                            "workflow_id": self._workflow.id,
+                            "block_type": config.get("block_type", type(block).__name__),
+                            **prompt_data,
+                        },
+                    )
+                )
+
+                # Step 4: Create a future and wait for interactive_complete.
+                loop = asyncio.get_running_loop()
+                future: asyncio.Future[dict[str, Any]] = loop.create_future()
+                self._interactive_futures[node_id] = future
+
+                response_data = await future
+
+                # Step 5: Run the block with the user's response.
+                # Check for cancellation before running.
+                if self._block_states.get(node_id) == BlockState.CANCELLED:
+                    logger.info("Interactive block %s was cancelled while paused", node_id)
+                    return
+
+                self._block_states[node_id] = BlockState.RUNNING
+                await self._event_bus.emit(
+                    EngineEvent(
+                        event_type=BLOCK_RUNNING,
+                        block_id=node_id,
+                        data={"workflow_id": self._workflow.id},
+                    )
+                )
+
+                # Merge the user response into config for the block's run().
+                enriched_config = dict(config)
+                enriched_config["interactive_response"] = response_data
+
+                from scieasy.blocks.base.config import BlockConfig
+
+                result = block.run(inputs, BlockConfig(**enriched_config))
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                if self._block_states.get(node_id) == BlockState.CANCELLED:
+                    logger.info("Interactive block %s exited after cancellation", node_id)
+                    self.save_checkpoint(self._checkpoint_manager)
+                    return
+                logger.exception("Interactive block %s failed with exception", node_id)
+                self._block_states[node_id] = BlockState.ERROR
+                error_str = str(exc)
+                await self._event_bus.emit(
+                    EngineEvent(
+                        event_type=BLOCK_ERROR,
+                        block_id=node_id,
+                        data={
+                            "workflow_id": self._workflow.id,
+                            "error": error_str,
+                            "error_summary": _extract_error_summary(error_str),
+                        },
+                    )
+                )
+                self.save_checkpoint(self._checkpoint_manager)
+                return
+
+            # Step 6: Transition to DONE.
+            self._block_outputs[node_id] = result
+            self._block_states[node_id] = BlockState.DONE
+            await self._event_bus.emit(
+                EngineEvent(
+                    event_type=BLOCK_DONE,
+                    block_id=node_id,
+                    data={"workflow_id": self._workflow.id, "outputs": result},
+                )
+            )
+            self.save_checkpoint(self._checkpoint_manager)
+        finally:
+            self._interactive_futures.pop(node_id, None)
+            self._active_tasks.pop(node_id, None)
+            self._check_completion()
+
+    async def _on_interactive_complete(self, event: EngineEvent) -> None:
+        """Handle an interactive_complete event from the frontend.
+
+        Resolves the pending future for the block so that
+        ``_run_interactive`` can proceed with the user's response.
+        """
+        block_id = event.block_id
+        if block_id is None:
+            return
+
+        future = self._interactive_futures.get(block_id)
+        if future is not None and not future.done():
+            future.set_result(event.data)
+        else:
+            logger.warning(
+                "Received interactive_complete for block %s but no pending future found",
+                block_id,
+            )
 
     def _instantiate_block(self, node_id: str) -> Any:
         """Instantiate the concrete block for a DAG node.
@@ -419,6 +580,12 @@ class DAGScheduler:
         # _run_and_finalize's exception path sees the CANCELLED state
         # and does not re-emit BLOCK_ERROR.
         self._block_states[block_id] = BlockState.CANCELLED
+
+        # #591/#594: Cancel pending interactive future so _run_interactive
+        # receives CancelledError and unwinds.
+        interactive_future = self._interactive_futures.pop(block_id, None)
+        if interactive_future is not None and not interactive_future.done():
+            interactive_future.cancel()
 
         if handle is not None:
             # Authoritative path per ADR-019 — SIGTERM/SIGKILL the worker.

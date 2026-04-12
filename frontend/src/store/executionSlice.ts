@@ -10,6 +10,7 @@ export const createExecutionSlice: StateCreator<AppStore, [], [], ExecutionSlice
   executionMessages: [],
   logEntries: [],
   isRunning: false,
+  interactivePrompt: null,
   consumeEvent: (event) =>
     set((state) => {
       const nextStates = event.block_id
@@ -81,5 +82,6 @@ export const createExecutionSlice: StateCreator<AppStore, [], [], ExecutionSlice
     set((state) => ({
       logEntries: [...state.logEntries, entry].slice(-400),
     })),
-  resetExecution: () => set({ blockStates: {}, blockOutputs: {}, blockErrors: {}, blockErrorSummaries: {}, executionMessages: [], logEntries: [], isRunning: false }),
+  resetExecution: () => set({ blockStates: {}, blockOutputs: {}, blockErrors: {}, blockErrorSummaries: {}, executionMessages: [], logEntries: [], isRunning: false, interactivePrompt: null }),
+  setInteractivePrompt: (prompt) => set({ interactivePrompt: prompt }),
 });
