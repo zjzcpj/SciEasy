@@ -14,6 +14,7 @@ blocks for the SciEasy workflow runtime.
 5. [Testing](#5-testing)
 6. [Port System](#6-port-system)
 7. [Configuration](#7-configuration)
+8. [Working with Large Data](#8-working-with-large-data)
 
 ---
 
@@ -1841,3 +1842,100 @@ def get_blocks():
     from .my_block import MyBlock
     return PackageInfo(name="My Package"), [MyBlock]
 ```
+
+---
+
+## 8. Working with Large Data
+
+Scientific workflows often involve datasets that are too large to hold in memory
+at once (multi-GB images, large spectral cubes, high-throughput tabular data).
+SciEasy's storage-backed DataObject model (ADR-031) provides several mechanisms
+to process such data efficiently without full materialisation.
+
+### 8.1 Prefer `sel()` and `iter_chunks()` over `to_memory()`
+
+The `to_memory()` method loads the **entire** dataset into RAM. For large data
+this can cause out-of-memory errors. The framework emits a `ResourceWarning`
+when `to_memory()` would load more than 2 GB.
+
+**Preferred alternatives:**
+
+| Method | Use when | Memory cost |
+|--------|----------|-------------|
+| `item.sel(z=5, c=0)` | You need a named-axis sub-selection (e.g. one z-plane, one channel) | O(slice size) |
+| `item.iter_chunks(chunk_size)` | You need to process the data in fixed-size batches along axis 0 | O(chunk size) |
+| `item.slice(idx0, idx1, ...)` | You need raw positional indexing (no named axes) | O(slice size) |
+| `item.to_memory()` | You genuinely need the full array in RAM (small data, or unavoidable) | O(full data) |
+
+**Example: processing an image z-stack one plane at a time**
+
+```python
+def process_item(self, item: Array, config: BlockConfig, state=None) -> Array:
+    # BAD: loads entire 3D stack into memory
+    # data = item.to_memory()
+
+    # GOOD: process one z-plane at a time via iter_over
+    results = []
+    for z_slice in item.iter_over("z"):
+        plane = z_slice.to_memory()  # only one 2D plane in memory
+        processed = my_algorithm(plane)
+        results.append(processed)
+    # ... combine results
+```
+
+**Example: chunked processing of a large DataFrame**
+
+```python
+def process_item(self, item: DataFrame, config: BlockConfig, state=None) -> DataFrame:
+    # Process 10000 rows at a time instead of the full table
+    for chunk in item.iter_chunks(10000):
+        # chunk is a pyarrow.Table with at most 10000 rows
+        process_batch(chunk)
+```
+
+### 8.2 Array.sel() uses Zarr-native partial reads
+
+When an `Array` is backed by a Zarr store (the default internal storage
+format), `sel()` uses Zarr's native slicing to read only the requested
+sub-array from disk. This means `img.sel(z=5)` reads a single z-plane
+directly from the Zarr chunks, rather than loading the full 3D volume and
+slicing it in numpy.
+
+For non-Zarr backends, `sel()` falls back to full materialisation followed by
+numpy indexing.
+
+### 8.3 SaveData streaming export
+
+The `SaveData` block uses streaming export paths for formats that support
+chunked writes:
+
+| Source backend | Target format | Strategy | Memory cost |
+|----------------|---------------|----------|-------------|
+| Zarr | `.zarr` | Direct zarr-to-zarr copy (chunk-by-chunk) | O(one chunk) |
+| Arrow | `.parquet` | Row-group-by-row-group write | O(one row group) |
+| Arrow | `.csv` / `.tsv` | Batch-by-batch append | O(one batch) |
+| Zarr | `.tiff` (imaging plugin) | Page-by-page write along axis 0 | O(one page) |
+| Any | `.npy` / `.npz` | Full materialisation (format limitation) | O(full data) |
+
+Block authors who write custom savers should follow the same pattern: check
+whether the source object has a `storage_ref` with a known backend type, and
+use the backend's `iter_chunks()` or `slice()` methods for incremental writes
+when the target format supports it.
+
+### 8.4 Guidelines for block authors
+
+1. **Do not call `to_memory()` unless necessary.** If your algorithm can work
+   on slices or chunks, use `sel()`, `iter_over()`, or `iter_chunks()`.
+
+2. **Trust the ResourceWarning.** If you see a `ResourceWarning` about loading
+   more than 2 GB, refactor your block to use incremental access.
+
+3. **Use `storage_ref.backend` to choose the optimal path.** When writing
+   custom export or processing logic, check the backend type to enable
+   format-specific optimizations (e.g., Zarr native slicing, Arrow batch
+   iteration).
+
+4. **Let the framework handle persistence.** Do not set `_data` attributes
+   directly on DataObject instances. Return objects from `process_item()` and
+   let the framework's `_auto_flush()` persist them to storage. See ADR-031
+   for the full rationale.
