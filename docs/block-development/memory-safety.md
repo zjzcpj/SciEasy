@@ -215,10 +215,13 @@ for chunk in item.iter_chunks(chunk_size=1024*1024):
 
 ---
 
-## IOBlock Streaming Writes
+## Streaming Writes with persist_array / persist_table
 
-For IOBlock loaders that handle large files, use the persist helpers
-instead of loading everything into memory:
+Available on **all block types** (defined on the `Block` base class).
+These helpers persist data directly to project-local storage without
+relying on auto-flush. IOBlock loaders MUST use these helpers (ADR-031
+Addendum 1, A1-D3). ProcessBlocks and other block types may also use
+them for explicit persistence.
 
 ### `persist_array(data_or_iterator, shape, dtype, output_dir, chunks=None)`
 
@@ -249,7 +252,9 @@ def load(self, config, output_dir=""):
 
 Memory: O(one page) regardless of total file size.
 
-### `persist_table(table, output_dir)`
+### `persist_table(table, output_dir)` {#persist-table}
+
+Available on **all block types** (Block base class).
 
 ```python
 def load(self, config, output_dir=""):
@@ -294,6 +299,6 @@ not enforce hard limits.
 | Per-item with ML model | Tier 1: `process_item` + `setup`/`teardown` |
 | Custom iteration logic | Tier 2: `map_items` in `run()` |
 | Multi-port output | Tier 3: `pack`/`unpack` in `run()` |
-| Large file loading | IOBlock: `persist_array` streaming |
-| Table loading | IOBlock: `persist_table` |
+| Large file loading | All blocks: `persist_array` streaming |
+| Table loading | All blocks: `persist_table` |
 | Selective data access | `sel()`, `iter_over()`, `iter_chunks()` |

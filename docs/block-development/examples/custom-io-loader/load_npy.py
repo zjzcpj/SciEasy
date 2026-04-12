@@ -1,8 +1,13 @@
-"""IOBlock example: load .npy files with streaming persistence.
+"""IOBlock example: load .npy files with direct persistence.
 
 This block demonstrates the IOBlock pattern with persist_array() for
-constant-memory loading. For small files, the simple path (return
-in-memory, let auto-flush handle it) also works.
+direct zarr persistence. Two paths are shown:
+
+1. Simple path: one-shot persist_array(ndarray) — loads fully then persists.
+2. Streaming path: persist_array(chunk_iter()) — constant-memory writes.
+
+Both paths persist directly. IOBlock loaders MUST NOT rely on auto-flush
+(ADR-031 Addendum 1, A1-D3).
 
 Usage:
     Include in a Tier 2 package with scieasy.blocks entry-point.
@@ -27,13 +32,18 @@ from scieasy.core.types.collection import Collection
 class LoadNpy(IOBlock):
     """Load a .npy file into an Array data object.
 
-    Demonstrates two loading paths:
+    Demonstrates two loading paths — both persist directly via
+    ``persist_array()`` (ADR-031 Addendum 1, A1-D3):
 
-    1. **Simple path** (small files): Load into memory, return Array.
-       The base class auto-flushes to zarr storage (ADR-031 D4 safety net).
-    2. **Streaming path** (large files): Use memory-mapped read +
-       ``persist_array()`` with chunk iteration to write to zarr with
-       constant memory. Returns a reference-only Array.
+    1. **Simple path** (small/medium files): One-shot
+       ``persist_array(ndarray)`` — loads the full array into memory,
+       then persists to zarr in one call.
+    2. **Streaming path** (large files): Iterator
+       ``persist_array(chunk_iter())`` — memory-mapped read + chunked
+       zarr write with constant memory.
+
+    IOBlock loaders MUST persist directly. Do NOT use ``_data`` assignment
+    or rely on auto-flush in IOBlock loaders.
     """
 
     direction: ClassVar[str] = "input"
@@ -93,28 +103,34 @@ class LoadNpy(IOBlock):
 
         if streaming and output_dir:
             return self._load_streaming(path, config, output_dir)
-        return self._load_simple(path, config)
+        return self._load_simple(path, config, output_dir)
 
-    def _load_simple(self, path: Path, config: BlockConfig) -> Array:
-        """Simple path: load into memory, let auto-flush handle persistence.
+    def _load_simple(self, path: Path, config: BlockConfig, output_dir: str = "") -> Array:
+        """Simple path: one-shot load + persist.
 
-        Suitable for small files (< 1 GB). The returned Array has no
-        storage_ref; the IOBlock base class auto-flushes it to zarr
-        before it crosses the block boundary (ADR-031 D4 safety net).
+        Loads the full array into memory, then persists to zarr via
+        persist_array(). Suitable for small/medium files. For files
+        larger than available RAM, use the streaming path instead.
         """
         data = np.load(str(path))
         axes = self._resolve_axes(config, data.ndim)
 
-        # Return in-memory Array — base class handles persistence.
-        # Do NOT set _data directly; pass data through the constructor
-        # or let auto-flush write it from get_in_memory_data().
+        if output_dir:
+            ref = self.persist_array(data, tuple(data.shape), data.dtype, output_dir)
+            return Array(
+                axes=axes,
+                shape=tuple(data.shape),
+                dtype=str(data.dtype),
+                framework=FrameworkMeta(source=str(path)),
+                storage_ref=ref,
+            )
+        # Fallback for direct calls outside workflow context
         arr = Array(
             axes=axes,
             shape=tuple(data.shape),
             dtype=str(data.dtype),
             framework=FrameworkMeta(source=str(path)),
         )
-        # Attach data for auto-flush to persist (transient, within block only).
         arr._data = data  # type: ignore[attr-defined]
         return arr
 

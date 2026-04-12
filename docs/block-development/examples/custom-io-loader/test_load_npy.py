@@ -26,12 +26,14 @@ class TestLoadNpyLogic:
 
         block = LoadNpy()
         config = BlockConfig(path=str(path))
-        result = block._load_simple(path, config)
+        output_dir = str(tmp_path / "zarr_out")
+        result = block._load_simple(path, config, output_dir)
 
         assert isinstance(result, Array)
         assert result.axes == ["y", "x"]
         assert result.shape == (64, 64)
-        np.testing.assert_array_equal(result._data, data)  # type: ignore[attr-defined]
+        assert result.storage_ref is not None
+        np.testing.assert_array_equal(result.to_memory(), data)
 
     def test_load_3d_with_axes_override(self, tmp_path):
         data = np.random.rand(3, 64, 64).astype(np.float32)
@@ -40,9 +42,11 @@ class TestLoadNpyLogic:
 
         block = LoadNpy()
         config = BlockConfig(path=str(path), axes="cyx")
-        result = block._load_simple(path, config)
+        output_dir = str(tmp_path / "zarr_out")
+        result = block._load_simple(path, config, output_dir)
 
         assert result.axes == ["c", "y", "x"]
+        assert result.storage_ref is not None
 
     def test_file_not_found(self, tmp_path):
         block = LoadNpy()
