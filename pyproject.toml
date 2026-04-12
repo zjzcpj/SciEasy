@@ -61,6 +61,8 @@ merge_collection = "scieasy.blocks.process.builtins.merge_collection:MergeCollec
 split_collection = "scieasy.blocks.process.builtins.split_collection:SplitCollection"
 filter_collection = "scieasy.blocks.process.builtins.filter_collection:FilterCollection"
 slice_collection = "scieasy.blocks.process.builtins.slice_collection:SliceCollection"
+data_router = "scieasy.blocks.process.builtins.data_router:DataRouter"
+pair_editor = "scieasy.blocks.process.builtins.pair_editor:PairEditor"
 
 # T-TRK-004 / ADR-028 §D4: the ``scieasy.adapters`` entry-point group
 # has been removed. Plugin-owned IO blocks now register via the
