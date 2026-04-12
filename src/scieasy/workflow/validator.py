@@ -84,6 +84,10 @@ def validate_workflow(
        *registry* is provided).
     6. **Dangling required input ports** -- required ``InputPort`` instances
        without an incoming edge (only when *registry* is provided).
+    7. **Variadic port cardinality** -- effective port count within
+       ``min_input_ports`` / ``max_input_ports`` / ``min_output_ports`` /
+       ``max_output_ports`` limits declared on the ``BlockSpec`` (only when
+       *registry* is provided).
 
     Parameters
     ----------
@@ -247,5 +251,40 @@ def validate_workflow(
         for port in node_input_ports:
             if isinstance(port, InputPort) and port.required and port.name not in connected_inputs[node.id]:
                 errors.append(f"Node '{node.id}': required input port '{port.name}' has no incoming connection")
+
+    # ------------------------------------------------------------------
+    # Check 7: Variadic port cardinality limits (ADR-029 Addendum 1)
+    # ------------------------------------------------------------------
+    # For blocks with variadic_inputs or variadic_outputs, verify that
+    # the number of effective ports respects min/max ClassVar limits
+    # exposed on BlockSpec.
+    for node in workflow.nodes:
+        spec = registry.get_spec(node.block_type)
+        if spec is None:
+            continue
+
+        if spec.variadic_inputs:
+            input_ports, _ = _ports_for(node, spec)
+            n_in = len(input_ports)
+            if spec.min_input_ports is not None and n_in < spec.min_input_ports:
+                errors.append(
+                    f"Node '{node.id}': variadic input port count {n_in} is below minimum {spec.min_input_ports}"
+                )
+            if spec.max_input_ports is not None and n_in > spec.max_input_ports:
+                errors.append(
+                    f"Node '{node.id}': variadic input port count {n_in} exceeds maximum {spec.max_input_ports}"
+                )
+
+        if spec.variadic_outputs:
+            _, output_ports = _ports_for(node, spec)
+            n_out = len(output_ports)
+            if spec.min_output_ports is not None and n_out < spec.min_output_ports:
+                errors.append(
+                    f"Node '{node.id}': variadic output port count {n_out} is below minimum {spec.min_output_ports}"
+                )
+            if spec.max_output_ports is not None and n_out > spec.max_output_ports:
+                errors.append(
+                    f"Node '{node.id}': variadic output port count {n_out} exceeds maximum {spec.max_output_ports}"
+                )
 
     return errors

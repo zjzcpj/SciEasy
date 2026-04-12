@@ -506,7 +506,7 @@ class ApiRuntime:
         )
         from scieasy.workflow.validator import validate_workflow
 
-        errors = validate_workflow(definition)
+        errors = validate_workflow(definition, registry=self.block_registry)
         if errors:
             raise ValueError(f"Workflow validation failed: {'; '.join(str(e) for e in errors)}")
 
