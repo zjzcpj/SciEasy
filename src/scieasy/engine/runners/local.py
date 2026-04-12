@@ -20,6 +20,51 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _win_junction(target: str) -> str:
+    """Create an NTFS junction from a short path to *target* (Windows only).
+
+    Data physically lives at *target* (inside the project directory) so
+    it survives restarts, syncs with cloud storage, and preserves lineage.
+    The junction is just a short alias that keeps the total path under
+    Windows MAX_PATH (260) for zarr's internal pathlib operations.
+
+    Junction root: ``%LOCALAPPDATA%/scieasy-stores/`` (override via
+    ``SCIEASY_STORE`` env var).  No admin privileges required.
+    """
+    import hashlib
+    import os
+    import subprocess as sp
+
+    store_root_env = os.environ.get("SCIEASY_STORE", "")
+    if store_root_env:
+        store_root = Path(store_root_env)
+    else:
+        local_app = os.environ.get("LOCALAPPDATA", "")
+        store_root = Path(local_app) / "scieasy-stores" if local_app else Path("C:/scieasy-stores")
+
+    hash_id = hashlib.sha256(target.encode()).hexdigest()[:8]
+    junction = store_root / hash_id
+
+    if junction.exists():
+        return str(junction)
+
+    Path(target).mkdir(parents=True, exist_ok=True)
+    junction.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        sp.run(
+            ["cmd", "/c", "mklink", "/J", str(junction), target],
+            check=True,
+            capture_output=True,
+        )
+    except (sp.CalledProcessError, FileNotFoundError) as exc:
+        logger.warning("Failed to create junction %s -> %s: %s", junction, target, exc)
+        return target
+
+    logger.info("Created junction %s -> %s", junction, target)
+    return str(junction)
+
+
 def _derive_output_dir(block: Any, config: dict[str, Any]) -> str:
     """Return a persistence directory for worker auto-flush outputs."""
     explicit_output_dir = config.get("output_dir")
@@ -32,14 +77,15 @@ def _derive_output_dir(block: Any, config: dict[str, Any]) -> str:
     block_id = str(config.get("block_id") or getattr(block, "id", "block"))
     workflow_id = str(config.get("workflow_id") or "adhoc")
     if isinstance(project_dir, str) and project_dir:
-        # Truncate block_id to avoid Windows MAX_PATH (260) overflow.
         short_block_id = block_id[:40] if len(block_id) > 40 else block_id
-        path = Path(project_dir) / "data" / "zarr" / workflow_id / short_block_id
-        from scieasy.blocks.base.block import _win_long_path
-
-        result = _win_long_path(str(path))
-        Path(result).mkdir(parents=True, exist_ok=True)
-        return result
+        candidate = str(Path(project_dir) / "data" / "zarr" / workflow_id / short_block_id)
+        # zarr creates internal subfiles adding ~60 chars. If total would
+        # exceed Windows MAX_PATH (260), create an NTFS junction from a
+        # short path to the real project directory.
+        if sys.platform == "win32" and len(candidate) > 180:
+            return _win_junction(candidate)
+        Path(candidate).mkdir(parents=True, exist_ok=True)
+        return candidate
 
     return tempfile.mkdtemp(prefix="scieasy-worker-")
 
