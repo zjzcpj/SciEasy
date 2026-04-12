@@ -1,7 +1,7 @@
 ## ADR-031: Data Object Reference-Only Contract, ViewProxy Elimination, and Lazy Loading Enforcement
 
-**Status**: accepted (Phase 1+2+3 implemented; Addendum 1 in progress)
-**Date**: 2026-04-11 (Addendum 1: 2026-04-12)
+**Status**: accepted (Phase 1+2+3 implemented; Addendum 1+2 in progress)
+**Date**: 2026-04-11 (Addendum 1: 2026-04-12, Addendum 2: 2026-04-12)
 **Supersedes**: ADR-027 Addendum 1 (~~proposed~~ → **deprecated**)
 **Amends**: ADR-007 (implementation alignment), ADR-017 (transport contract), ADR-028 (IOBlock contract)
 
@@ -894,6 +894,34 @@ ADR-027 Addendum 1 ("Worker subprocess type reconstruction returns typed DataObj
 | PhysicalQuantity Pydantic integration via `__get_pydantic_core_schema__` | **Retained** — unchanged, not in scope of ADR-031 |
 
 References to ADR-027 Addendum 1 in code comments should be updated to cite ADR-031 D7 for reconstruction contract and ADR-031 D2 for ViewProxy elimination.
+
+---
+
+### Addendum 2: Declared `_transient_data` Slot + Typed `data=` Constructor
+
+**Date**: 2026-04-12
+**Status**: Accepted
+
+#### Context
+
+After Addendum 1 enforced the hard gate (no `_data`/`_arrow_table` on objects crossing block boundaries), the remaining problem is that loaders and the `_auto_flush` transition still monkey-patch `_data` or `_arrow_table` onto DataObject instances. These are not declared fields — they are set via `obj._data = arr` without any class-level declaration, making them invisible to static analysis, serialization guards, and documentation.
+
+#### Decisions
+
+**A2-D1**: Add a declared `_transient_data: Any = None` field on `DataObject.__init__`. This is the single canonical slot for in-memory data that has not yet been persisted. It is never serialised.
+
+**A2-D2**: Add backward-compatible property bridges `_data` and `_arrow_table` on `DataObject` that read/write `_transient_data`. This preserves backward compatibility with existing code that uses `obj._data = arr` or `obj._arrow_table = table`.
+
+**A2-D3**: Simplify `get_in_memory_data()` and `Array.to_memory()` to check `self._transient_data is not None` instead of `hasattr(self, "_data")` / `hasattr(self, "_arrow_table")`.
+
+**A2-D4**: Add a typed `data=` constructor parameter to `Array`, `DataFrame`, and `Series`. When provided, it sets `_transient_data` in the constructor body.
+
+#### Consequences
+
+- All transient in-memory data is now stored in a declared, documented field.
+- Static analysis tools can see the field and reason about its lifecycle.
+- The `_serialise_one` / `_reconstruct_one` round-trip naturally excludes `_transient_data` because it is not part of `_serialise_extra_metadata`.
+- The property bridges will be removed in a future phase once all callers migrate to the `data=` constructor.
 
 ---
 

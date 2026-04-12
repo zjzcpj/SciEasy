@@ -210,6 +210,11 @@ class DataObject:
         self._user: dict[str, Any] = dict(user) if user is not None else {}
         self._validate_user(self._user)
         self._storage_ref: StorageReference | None = storage_ref
+        # ADR-031 Addendum 2: declared transient in-memory data slot.
+        # Never serialised; used by loaders during the _auto_flush
+        # transition and by the typed ``data=`` constructor parameter on
+        # concrete subclasses (Array, DataFrame, Series).
+        self._transient_data: Any = None
 
     @staticmethod
     def _validate_user(user: dict[str, Any]) -> None:
@@ -355,6 +360,42 @@ class DataObject:
         """Set the storage reference."""
         self._storage_ref = ref
 
+    # -- ADR-031 Addendum 2: backward-compat property bridges ----------------
+    # These properties let legacy code that writes ``obj._data = arr`` or
+    # ``obj._arrow_table = table`` transparently use the declared
+    # ``_transient_data`` slot. They will be removed once all callers are
+    # migrated to the ``data=`` constructor parameter.
+
+    @property
+    def _data(self) -> Any:
+        """Backward-compat bridge: reads ``_transient_data``."""
+        return self._transient_data
+
+    @_data.setter
+    def _data(self, value: Any) -> None:
+        """Backward-compat bridge: writes ``_transient_data``."""
+        self._transient_data = value
+
+    @_data.deleter
+    def _data(self) -> None:
+        """Backward-compat bridge: clears ``_transient_data``."""
+        self._transient_data = None
+
+    @property
+    def _arrow_table(self) -> Any:
+        """Backward-compat bridge for DataFrame/Series: reads ``_transient_data``."""
+        return self._transient_data
+
+    @_arrow_table.setter
+    def _arrow_table(self, value: Any) -> None:
+        """Backward-compat bridge for DataFrame/Series: writes ``_transient_data``."""
+        self._transient_data = value
+
+    @_arrow_table.deleter
+    def _arrow_table(self) -> None:
+        """Backward-compat bridge for DataFrame/Series: clears ``_transient_data``."""
+        self._transient_data = None
+
     # -- data access (ADR-031 D1/D2/D6: methods moved from ViewProxy) --------
 
     def to_memory(self) -> Any:
@@ -425,12 +466,10 @@ class DataObject:
         """
         if self._storage_ref is not None:
             return self.to_memory()
-        # Backward-compat: transient in-memory data set by loaders
-        # before _auto_flush persists to storage (ADR-031 D3 transition).
-        if hasattr(self, "_data") and self._data is not None:  # type: ignore[has-type]
-            return self._data  # type: ignore[has-type]
-        if hasattr(self, "_arrow_table") and self._arrow_table is not None:  # type: ignore[has-type]
-            return self._arrow_table  # type: ignore[has-type]
+        # ADR-031 Addendum 2: use the declared _transient_data slot
+        # instead of hasattr probing for _data / _arrow_table.
+        if self._transient_data is not None:
+            return self._transient_data
         raise ValueError(f"{type(self).__name__} has no in-memory data to persist.")
 
     def save(self, path: str | Path) -> StorageReference:

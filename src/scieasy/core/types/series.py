@@ -31,6 +31,7 @@ class Series(DataObject):
         index_name: str | None = None,
         value_name: str | None = None,
         length: int | None = None,
+        data: Any = None,
         **kwargs: Any,
     ) -> None:
         """Construct a Series with optional axis labels and length.
@@ -38,11 +39,18 @@ class Series(DataObject):
         Standard :class:`DataObject` slots (``framework``, ``meta``,
         ``user``, ``storage_ref``) are passed through ``**kwargs`` to
         :meth:`DataObject.__init__`.
+
+        Args:
+            data: Optional in-memory series data (e.g. Arrow table).
+                Stored in ``_transient_data``; never serialised.
+                ADR-031 Addendum 2.
         """
         super().__init__(**kwargs)
         self.index_name = index_name
         self.value_name = value_name
         self.length = length
+        if data is not None:
+            self._transient_data = data
 
     # -- with_meta override (T-005's base only handles standard slots) ----
 

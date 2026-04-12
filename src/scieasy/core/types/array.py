@@ -72,6 +72,7 @@ class Array(DataObject):
         shape: tuple[int, ...] | None = None,
         dtype: Any = None,
         chunk_shape: tuple[int, ...] | None = None,
+        data: Any = None,
         **kwargs: Any,
     ) -> None:
         """Construct an Array with explicit axes and shape.
@@ -80,6 +81,11 @@ class Array(DataObject):
         slots (``framework``, ``meta``, ``user``, ``storage_ref``) are
         passed through ``**kwargs`` to
         :meth:`DataObject.__init__`.
+
+        Args:
+            data: Optional in-memory array data (e.g. numpy ndarray).
+                Stored in ``_transient_data``; never serialised.
+                ADR-031 Addendum 2.
 
         Raises:
             ValueError: if ``axes`` fails :meth:`_validate_axes` (missing
@@ -90,6 +96,8 @@ class Array(DataObject):
         self.shape: tuple[int, ...] | None = tuple(shape) if shape is not None else None
         self.dtype: Any = dtype
         self.chunk_shape: tuple[int, ...] | None = tuple(chunk_shape) if chunk_shape is not None else None
+        if data is not None:
+            self._transient_data = data
         self._validate_axes()
 
     def _validate_axes(self) -> None:
@@ -369,8 +377,9 @@ class Array(DataObject):
         """
         if self._storage_ref is not None:
             return super().to_memory()
-        if hasattr(self, "_data") and getattr(self, "_data", None) is not None:
-            return self._data  # type: ignore[attr-defined]
+        # ADR-031 Addendum 2: use the declared _transient_data slot.
+        if self._transient_data is not None:
+            return self._transient_data
         raise ValueError("Cannot load data: no storage reference set.")
 
     # -- worker subprocess reconstruction hooks (ADR-027 Addendum 1 §2) -----
