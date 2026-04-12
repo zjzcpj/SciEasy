@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- [#651] Implement ADR-032 MetadataStore — SQLite persistent mirror of DataObject metadata with engine-side writes, checkpoint restore sync, and 30 unit tests (@claude, 2026-04-12, branch: feat/issue-651/adr-032-metadata-store, session: 20260412-003142-implement-adr-032-metadatastore-639-640)
 - [#644] Implement DataRouter + PairEditor interactive variadic blocks — first consumers of ADR-029 variadic ports, with interactive PAUSED execution mode, drag-and-drop routing modal, sortable pairing modal, and scheduler interactive flow (@claude, 2026-04-11, branch: feat/issue-644/data-router-pair-editor, session: 20260411-225938-implement-datarouter-paireditor-interact)
 - [#595] Implement variadic port count min/max limits (ADR-029 Addendum 1) (@claude, 2026-04-11, branch: feat/issue-595/variadic-port-min-max-limits, session: 20260411-101739-implement-adr-029-addendum-1-variadic-po)
 
