@@ -29,6 +29,7 @@ class DataFrame(DataObject):
         columns: list[str] | None = None,
         row_count: int | None = None,
         schema: dict[str, Any] | None = None,
+        data: Any = None,
         **kwargs: Any,
     ) -> None:
         """Construct a DataFrame with optional column/schema information.
@@ -36,11 +37,18 @@ class DataFrame(DataObject):
         Standard :class:`DataObject` slots (``framework``, ``meta``,
         ``user``, ``storage_ref``) are passed through ``**kwargs`` to
         :meth:`DataObject.__init__`.
+
+        Args:
+            data: Optional in-memory tabular data (e.g. Arrow table).
+                Stored in ``_transient_data``; never serialised.
+                ADR-031 Addendum 2.
         """
         super().__init__(**kwargs)
         self.columns = columns
         self.row_count = row_count
         self.schema = schema
+        if data is not None:
+            self._transient_data = data
 
     # -- with_meta override (T-005's base only handles standard slots) ----
 
