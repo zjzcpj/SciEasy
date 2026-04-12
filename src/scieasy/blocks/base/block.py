@@ -431,7 +431,9 @@ class Block(ABC):
         """Write in-memory DataObject to storage, return with StorageReference set.
 
         If the object already has a ``StorageReference``, return as-is (no-op).
-        If no flush context output directory is configured, raise RuntimeError.
+        If no flush context output directory is configured, return as-is
+        (the object stays in-memory — valid for in-process execution paths
+        like SmokeHarness, interactive blocks, and unit tests).
         Called internally by ``map_items``, ``parallel_map``, ``pack``, and
         the ``process_item`` default ``run()``.
 
@@ -467,7 +469,7 @@ class Block(ABC):
 
         output_dir = get_output_dir()
         if output_dir is None:
-            raise RuntimeError(f"Cannot auto-flush {type(obj).__name__}: no output_dir configured in worker context.")
+            return obj
 
         import uuid
         from pathlib import Path
