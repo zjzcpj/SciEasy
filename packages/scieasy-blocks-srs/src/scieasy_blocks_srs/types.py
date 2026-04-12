@@ -42,7 +42,7 @@ class SRSImage(Image):  # type: ignore[misc,valid-type]
     field table and acceptance criteria.
     """
 
-    required_axes: ClassVar[frozenset[str]] = frozenset({"y", "x", "lambda"})
+    required_axes: ClassVar[frozenset[str]] = frozenset({"y", "x"})
     canonical_order: ClassVar[tuple[str, ...]] = ("t", "z", "c", "lambda", "y", "x")
 
     class Meta(Image.Meta):
