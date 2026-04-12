@@ -262,7 +262,8 @@ class LoadImage(IOBlock):
         if axes_cfg is None:
             axes_override = None
         elif isinstance(axes_cfg, str):
-            axes_override = [ch for ch in axes_cfg]
+            # Support both single-char ("cyx") and comma-separated ("lambda,y,x")
+            axes_override = [a.strip() for a in axes_cfg.split(",")] if "," in axes_cfg else [ch for ch in axes_cfg]
         else:
             raise ValueError(f"LoadImage: config['axes'] must be a string or omitted, got {type(axes_cfg).__name__}")
 

@@ -368,8 +368,16 @@ class Block(ABC):
         if not output_dir:
             raise RuntimeError("persist_array requires output_dir but none is configured.")
 
+        import sys
+        import tempfile as _tempfile
+
         store_name = f"{uuid.uuid4().hex[:12]}.zarr"
         store_path = str(Path(output_dir) / store_name)
+        # Windows MAX_PATH: zarr internal subfiles add ~60 chars.
+        # If total exceeds limit, redirect to a short temp dir.
+        if sys.platform == "win32" and len(store_path) > 200:
+            short_dir = _tempfile.mkdtemp(prefix="scieasy-zarr-")
+            store_path = str(Path(short_dir) / store_name)
         Path(store_path).parent.mkdir(parents=True, exist_ok=True)
 
         np_dtype = np.dtype(dtype)
@@ -483,8 +491,15 @@ class Block(ABC):
             # DataObject used in tests).  Return as-is — the object stays
             # in-memory.
             return obj
-        filename = f"{uuid.uuid4()}{ext}"
+        import sys
+        import tempfile as _tempfile
+
+        filename = f"{uuid.uuid4().hex[:12]}{ext}"
         target_path = str(Path(output_dir) / filename)
+        # Windows MAX_PATH workaround (same as persist_array)
+        if sys.platform == "win32" and len(target_path) > 200:
+            short_dir = _tempfile.mkdtemp(prefix="scieasy-flush-")
+            target_path = str(Path(short_dir) / filename)
 
         try:
             obj.save(target_path)

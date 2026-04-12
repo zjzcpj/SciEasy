@@ -147,6 +147,14 @@ async def validate_connection_route(
 
     source_port = next((port for port in source.output_ports if port.name == body.source_port), None)
     target_port = next((port for port in target.input_ports if port.name == body.target_port), None)
+    # ADR-029: variadic blocks define ports in config, not in static spec.
+    # If lookup fails on a variadic block, synthesize a permissive port.
+    from scieasy.core.types.base import DataObject
+
+    if source_port is None and getattr(source, "variadic_outputs", False):
+        source_port = OutputPort(name=body.source_port, accepted_types=[DataObject])
+    if target_port is None and getattr(target, "variadic_inputs", False):
+        target_port = InputPort(name=body.target_port, accepted_types=[DataObject])
     if not isinstance(source_port, OutputPort) or not isinstance(target_port, InputPort):
         raise HTTPException(status_code=404, detail="Unknown source or target port.")
 

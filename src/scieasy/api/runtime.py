@@ -532,7 +532,12 @@ class ApiRuntime:
 
         errors = validate_workflow(definition, registry=self.block_registry)
         if errors:
-            raise ValueError(f"Workflow validation failed: {'; '.join(str(e) for e in errors)}")
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Workflow validation warnings: %s",
+                "; ".join(str(e) for e in errors),
+            )
 
         save_yaml(definition, self.workflow_path(definition.id))
         return definition
