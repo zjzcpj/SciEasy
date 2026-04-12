@@ -46,7 +46,7 @@ TASK_ID=$(echo "$ACTIVE" | awk '{print $1}')
 STATUS=$(python .workflow/gate.py status "$TASK_ID" 2>/dev/null || echo "")
 
 # Check that create_branch is at least DONE (minimum for pushing)
-if echo "$STATUS" | grep -q "Create Branch.*DONE"; then
+if echo "$STATUS" | grep -q "\[DONE\].*Create Branch"; then
   echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}'
   exit 0
 fi

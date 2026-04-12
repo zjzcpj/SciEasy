@@ -38,15 +38,15 @@ TASK_ID=$(echo "$ACTIVE" | awk '{print $1}')
 STATUS=$(python .workflow/gate.py status "$TASK_ID" 2>/dev/null || echo "")
 
 # Check that update_changelog is DONE (gate 5 of 6, right before submit_pr)
-if echo "$STATUS" | grep -q "Update Changelog.*DONE"; then
+if echo "$STATUS" | grep -q "\[DONE\].*Update Changelog"; then
   echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}'
   exit 0
 fi
 
 # Check which gates are missing
 MISSING=""
-echo "$STATUS" | grep -q "Update Documentation.*DONE" || MISSING="update_docs "
-echo "$STATUS" | grep -q "Update Changelog.*DONE" || MISSING="${MISSING}update_changelog"
+echo "$STATUS" | grep -q "\[DONE\].*Update Documentation" || MISSING="update_docs "
+echo "$STATUS" | grep -q "\[DONE\].*Update Changelog" || MISSING="${MISSING}update_changelog"
 
 echo "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"WORKFLOW GATE: Missing stages before PR: ${MISSING}. Run: python .workflow/gate.py status $TASK_ID\"}}"
 exit 0
