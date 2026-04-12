@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- [#627] ADR-031 Phase 3: Array.sel() zarr partial-read, SaveData streaming export (zarr-to-zarr copy, arrow-to-CSV/TSV/Parquet streaming), SaveImage streaming TIFF write, block-sdk.md "Working with Large Data" section (@claude, 2026-04-12, branch: refactor/issue-627/adr-031-phase3-streaming-optimization, session: 20260412-010609-adr-031-phase-3-process-side-streaming-o)
 - [#626] ADR-031 Phase 2: Eliminate ViewProxy class, move data access methods to DataObject, remove _data/_arrow_table backdoors from framework code, update checkpoint deserialization to construct typed DataObject instances (@claude, 2026-04-11, branch: refactor/issue-626/adr-031-phase2-viewproxy-elimination, session: 20260411-223446-adr-031-phase-2-viewproxy-elimination-an)
 - [#629] Update architecture documentation to align with ADR-031 DataObject reference-only contract (@claude, 2026-04-11, branch: docs/issue-629/architecture-docs-adr-031-alignment, session: 20260411-130410-docs-update-architecture-docs-to-align-w)
 - [#625] ADR-031 Phase 1: IOBlock loader rewrite — persist data to storage, return reference-only objects; fix Series payload loss; streaming TIFF load; reference-only Zarr; remove pandas from LCMS user dicts; Artifact auto-flush exemption (@claude, 2026-04-11, branch: refactor/issue-625/adr-031-phase1-loader-rewrite, session: 20260411-130407-adr-031-phase-1-ioblock-loader-rewrite-c)
