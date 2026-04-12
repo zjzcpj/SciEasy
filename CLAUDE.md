@@ -81,7 +81,7 @@ Human review, editing, annotation, approval, or GUI-based intervention are not h
 They are part of the formal workflow model.
 
 In practice, manual review is implemented as an `AppBlock` (see
-`docs/guides/block-sdk.md` §3.4.1) that opens a GUI tool such as Fiji,
+`docs/block-development/block-contract.md`) that opens a GUI tool such as Fiji,
 Napari, or QuPath, pauses the workflow until the user produces an output
 file, and then resumes. There is no dedicated manual-review block class —
 the `AppBlock` pattern with `app_command="fiji"` (or similar) covers the
