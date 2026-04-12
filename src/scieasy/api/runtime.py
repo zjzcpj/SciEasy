@@ -312,6 +312,29 @@ class ApiRuntime:
         registry.scan(include_monorepo=os.environ.get("SCIEASY_DEV") == "1")
         self.block_registry = registry
 
+    def _init_metadata_store(self, project_path: Path) -> None:
+        """Initialize the project-level MetadataStore (ADR-032).
+
+        Creates or opens the SQLite database at ``<project>/metadata.db``
+        and sets the module-level singleton so that the engine scheduler
+        can persist DataObject metadata after block execution.
+
+        Non-fatal: if initialization fails the store is set to None and
+        the system degrades to pre-ADR-032 behaviour (no metadata persistence).
+        """
+        try:
+            from scieasy.core.metadata_store import MetadataStore, set_metadata_store
+
+            db_path = project_path / "metadata.db"
+            store = MetadataStore(db_path)
+            set_metadata_store(store)
+            logger.info("ADR-032: MetadataStore opened at %s", db_path)
+        except Exception:
+            logger.warning("ADR-032: Failed to initialize MetadataStore (non-fatal)", exc_info=True)
+            from scieasy.core.metadata_store import set_metadata_store
+
+            set_metadata_store(None)
+
     def create_project(self, name: str, description: str = "", parent_path: str | None = None) -> KnownProject:
         parent_dir = _safe_parent_dir(parent_path)
         project_path = parent_dir / _slugify(name)
@@ -406,6 +429,7 @@ class ApiRuntime:
         self.active_project = candidate
         self.data_catalog = {}
         self.refresh_block_registry()
+        self._init_metadata_store(Path(candidate.path))
         return candidate
 
     def update_project(

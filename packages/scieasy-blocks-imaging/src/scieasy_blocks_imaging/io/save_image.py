@@ -38,13 +38,10 @@ _EXT_TO_FORMAT: dict[str, str] = {
 def _materialise(image: Image) -> np.ndarray:
     """Return the underlying ``numpy`` array backing *image*.
 
-    Lazy / storage-backed images are materialised through
-    :meth:`DataObject.to_memory`. Eager images populated via the
-    skeleton convention (``image._data``) are returned directly.
+    ADR-031 Phase 3: always routes through :meth:`DataObject.to_memory`
+    which reads from storage via the backend. The former ``_data``
+    backdoor is removed per ADR-031 D3.
     """
-    data_attr = getattr(image, "_data", None)
-    if data_attr is not None:
-        return np.asarray(data_attr)
     return np.asarray(image.to_memory())
 
 
@@ -87,10 +84,34 @@ def _resolve_format(path: Path, explicit: str | None) -> str:
 
 
 def _write_tiff(image: Image, path: Path) -> None:
+    """Write an Image to TIFF.
+
+    ADR-031 Phase 3 (Task 18): for zarr-backed images with a leading
+    z/t axis, writes page-by-page from zarr to avoid full
+    materialisation. Falls back to full materialisation for non-zarr
+    backends or 2D images.
+    """
     import tifffile
 
-    data = _materialise(image)
+    ref = getattr(image, "_storage_ref", None)
     axes_str = "".join(image.axes).upper()
+
+    # Streaming path: zarr-backed images with 3+ dimensions.
+    # Read one plane at a time from zarr and write as TIFF pages.
+    if ref is not None and ref.backend == "zarr" and image.shape is not None and len(image.shape) >= 3:
+        import zarr as zarr_lib
+
+        arr = zarr_lib.open_array(ref.path, mode="r")
+        with tifffile.TiffWriter(str(path)) as tw:
+            # Iterate over the first axis (typically z or t), writing
+            # each 2D+ plane as a separate TIFF page.
+            for i in range(arr.shape[0]):
+                plane = np.asarray(arr[i])
+                tw.write(plane, metadata={"axes": axes_str} if i == 0 else None)
+        return
+
+    # Fallback: full materialisation for non-zarr or 2D images.
+    data = _materialise(image)
     tifffile.imwrite(str(path), data, metadata={"axes": axes_str})
 
 

@@ -105,6 +105,90 @@ def _check_pickle_gate(path: Path, config: BlockConfig) -> bool:
     return True
 
 
+# ---------------------------------------------------------------------------
+# ADR-031 Phase 3 (Task 18): Streaming export helpers
+# ---------------------------------------------------------------------------
+
+
+def _zarr_store_copy(src_path: str, dst_path: str) -> None:
+    """Copy a zarr store from *src_path* to *dst_path* without materialisation.
+
+    Uses ``shutil.copytree`` for a file-level copy of the zarr directory
+    store. This copies the compressed chunks directly, avoiding any
+    decompression/recompression round-trip.
+    """
+    dst = Path(dst_path)
+    if dst.exists():
+        shutil.rmtree(dst)
+    shutil.copytree(src_path, dst_path)
+
+
+def _streaming_save_dataframe_csv(obj: DataObject, path: Path, delimiter: str = ",") -> None:
+    """Stream a storage-backed DataFrame to CSV/TSV via row-group batches.
+
+    Reads from the arrow backend in chunks and writes each batch to the
+    output file, avoiding full materialisation of the entire table.
+    """
+    import pyarrow.csv as pcsv
+
+    ref = getattr(obj, "_storage_ref", None)
+    if ref is None or ref.backend != "arrow":
+        # Fallback: full materialisation
+        table = _dataframe_to_arrow_table(obj)  # type: ignore[arg-type]
+        pcsv.write_csv(
+            table,
+            str(path),
+            write_options=pcsv.WriteOptions(delimiter=delimiter),
+        )
+        return
+
+    from scieasy.core.storage.arrow_backend import ArrowBackend
+
+    backend = ArrowBackend()
+    # Write header from first chunk, then append remaining chunks
+    first_chunk = True
+    with open(str(path), "wb") as fh:
+        for chunk_table in backend.iter_chunks(ref, chunk_size=65536):
+            pcsv.write_csv(
+                chunk_table,
+                fh,
+                write_options=pcsv.WriteOptions(
+                    delimiter=delimiter,
+                    include_header=first_chunk,
+                ),
+            )
+            first_chunk = False
+
+
+def _streaming_save_dataframe_parquet(obj: DataObject, path: Path) -> None:
+    """Stream a storage-backed DataFrame to Parquet via row-group batches.
+
+    Reads from the arrow backend in chunks and writes each batch as a
+    separate row group, avoiding full materialisation.
+    """
+    import pyarrow.parquet as pq
+
+    ref = getattr(obj, "_storage_ref", None)
+    if ref is None or ref.backend != "arrow":
+        # Fallback: full materialisation
+        table = _dataframe_to_arrow_table(obj)  # type: ignore[arg-type]
+        pq.write_table(table, str(path))
+        return
+
+    from scieasy.core.storage.arrow_backend import ArrowBackend
+
+    backend = ArrowBackend()
+    writer = None
+    try:
+        for chunk_table in backend.iter_chunks(ref, chunk_size=65536):
+            if writer is None:
+                writer = pq.ParquetWriter(str(path), chunk_table.schema)
+            writer.write_table(chunk_table)
+    finally:
+        if writer is not None:
+            writer.close()
+
+
 class SaveData(IOBlock):
     """Dynamic-port core IO **output** block (ADR-028 Addendum 1 §C5/§C9).
 
@@ -280,6 +364,12 @@ def _unwrap_for_save(
 def _save_array(obj: DataObject, config: BlockConfig) -> None:
     """Save :class:`Array` to ``.npy`` / ``.npz`` / ``.zarr`` / ``.parquet`` / ``.pkl``.
 
+    ADR-031 Phase 3 (Task 18): streaming export paths are used when the
+    source Array is storage-backed by zarr and the target format supports
+    chunked writes. For zarr-to-zarr, ``shutil.copytree`` is used for
+    zero-materialization copy. For formats that do not support chunked
+    writes (``.npy``, ``.npz``), full materialization is still required.
+
     Pickle gating: ``.pkl`` / ``.pickle`` requires
     ``allow_pickle=True`` in the block config.
     """
@@ -287,9 +377,8 @@ def _save_array(obj: DataObject, config: BlockConfig) -> None:
     path = _require_path(config)
     suffix = path.suffix.lower()
 
-    data = obj.get_in_memory_data()
-
     if _check_pickle_gate(path, config):
+        data = obj.get_in_memory_data()
         with path.open("wb") as fh:
             pickle.dump(data, fh)
         return
@@ -297,12 +386,14 @@ def _save_array(obj: DataObject, config: BlockConfig) -> None:
     if suffix == ".npy":
         import numpy as np
 
+        data = obj.get_in_memory_data()
         np.save(str(path), np.asarray(data))
         return
 
     if suffix == ".npz":
         import numpy as np
 
+        data = obj.get_in_memory_data()
         np.savez(str(path), data=np.asarray(data))
         return
 
@@ -313,14 +404,18 @@ def _save_array(obj: DataObject, config: BlockConfig) -> None:
             raise ValueError(
                 "Saving Array to .zarr requires the 'zarr' package; install it via `pip install zarr`."
             ) from exc
+
+        # ADR-031 Phase 3: zarr-to-zarr streaming copy via store copy
+        # when the source is zarr-backed. Zero materialization.
+        ref = getattr(obj, "_storage_ref", None)
+        if ref is not None and ref.backend == "zarr":
+            _zarr_store_copy(ref.path, str(path))
+            return
+
         import numpy as np
 
+        data = obj.get_in_memory_data()
         arr = np.asarray(data)
-        # Use the modern zarr.save API which writes a single array store.
-        # Zarr's stub for ``save`` declares the second argument as
-        # ``NDArrayLike``, which mypy does not recognise as a numpy
-        # ndarray supertype. The runtime contract accepts any array-like
-        # input; suppress the false positive.
         zarr.save(str(path), arr)  # type: ignore[arg-type]
         return
 
@@ -332,6 +427,7 @@ def _save_array(obj: DataObject, config: BlockConfig) -> None:
         import pyarrow as pa
         import pyarrow.parquet as pq
 
+        data = obj.get_in_memory_data()
         arr = np.asarray(data)
         if arr.ndim != 1:
             raise ValueError(
@@ -349,7 +445,14 @@ def _save_array(obj: DataObject, config: BlockConfig) -> None:
 
 
 def _save_dataframe(obj: DataObject, config: BlockConfig) -> None:
-    """Save :class:`DataFrame` to ``.csv`` / ``.tsv`` / ``.parquet`` / ``.json`` / ``.pkl``."""
+    """Save :class:`DataFrame` to ``.csv`` / ``.tsv`` / ``.parquet`` / ``.json`` / ``.pkl``.
+
+    ADR-031 Phase 3 (Task 18): for CSV, TSV, and Parquet formats, uses
+    streaming export paths when the source DataFrame is storage-backed
+    by the arrow backend. This avoids full materialisation for large
+    tables. JSON export still requires full materialisation because
+    ``json.dump`` needs the complete record list.
+    """
     assert isinstance(obj, DataFrame), f"Expected DataFrame, got {type(obj).__name__}"
     path = _require_path(config)
     suffix = path.suffix.lower()
@@ -360,33 +463,24 @@ def _save_dataframe(obj: DataObject, config: BlockConfig) -> None:
             pickle.dump(data, fh)
         return
 
-    table = _dataframe_to_arrow_table(obj)
-
+    # ADR-031 Phase 3: streaming paths for CSV/TSV/Parquet when
+    # the source is arrow-backed.
     if suffix == ".csv":
-        import pyarrow.csv as pcsv
-
-        pcsv.write_csv(table, str(path))
+        _streaming_save_dataframe_csv(obj, path, delimiter=",")
         return
 
     if suffix == ".tsv":
-        import pyarrow.csv as pcsv
-
-        pcsv.write_csv(
-            table,
-            str(path),
-            write_options=pcsv.WriteOptions(delimiter="\t"),
-        )
+        _streaming_save_dataframe_csv(obj, path, delimiter="\t")
         return
 
     if suffix in (".parquet", ".pq"):
-        import pyarrow.parquet as pq
-
-        pq.write_table(table, str(path))
+        _streaming_save_dataframe_parquet(obj, path)
         return
 
     if suffix == ".json":
-        # Convert through pylist for stable, JSON-clean output. Arrow's
-        # native to_pylist preserves column order and column names.
+        # JSON export requires full materialisation — json.dump needs
+        # the complete record list.
+        table = _dataframe_to_arrow_table(obj)
         records = table.to_pylist()
         with path.open("w", encoding="utf-8") as fh:
             json.dump(records, fh, ensure_ascii=False, indent=2)
