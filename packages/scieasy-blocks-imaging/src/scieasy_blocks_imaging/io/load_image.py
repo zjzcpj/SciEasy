@@ -106,14 +106,23 @@ def _load_tiff(path: Path, axes_override: list[str] | None, block: Any = None, o
         if len(axes) != ndim:
             raise ValueError(f"LoadImage: axes override {axes!r} does not match array ndim={ndim} for {path}")
 
-        # ADR-031 D4: streaming path — write pages to zarr one at a time.
-        if block is not None and output_dir and n_pages > 1:
+        # ADR-031 D4: persist to zarr, return reference-only Image.
+        # Multi-page: stream page-by-page. Single-page: one-shot write.
+        # Never set _data — all data goes through storage_ref.
+        if block is not None and output_dir:
+            if n_pages > 1:
 
-            def page_chunks() -> Any:
-                for i, page in enumerate(tf.pages):
-                    yield (i, page.asarray())
+                def page_chunks() -> Any:
+                    for i, page in enumerate(tf.pages):
+                        yield (i, page.asarray())
 
-            ref = block.persist_array(page_chunks(), shape, page_dtype, output_dir)
+                ref = block.persist_array(page_chunks(), shape, page_dtype, output_dir)
+            else:
+                # Single page: one-shot persist (not streaming, but still
+                # returns storage_ref instead of _data).
+                data: np.ndarray = tf.asarray()
+                ref = block.persist_array(data, shape, page_dtype, output_dir)
+
             return Image(
                 axes=axes,
                 shape=shape,
@@ -123,8 +132,9 @@ def _load_tiff(path: Path, axes_override: list[str] | None, block: Any = None, o
                 storage_ref=ref,
             )
         else:
-            # Single-page or no block: read into memory (simple path).
-            data: np.ndarray = tf.asarray()
+            # Fallback: no block or output_dir (e.g., direct call outside
+            # workflow). Read into memory, rely on IOBlock auto-flush.
+            data = tf.asarray()
             img = Image(
                 axes=axes,
                 shape=tuple(data.shape),
