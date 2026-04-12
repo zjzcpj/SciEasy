@@ -341,13 +341,13 @@ class TestDataObjectMetadata:
 # ---------------------------------------------------------------------------
 
 
-class TestDataObjectView:
-    """Verify view() requires a storage reference."""
+class TestDataObjectToMemory:
+    """ADR-031 D2: Verify to_memory() requires a storage reference (view() deleted)."""
 
-    def test_view_without_ref_raises(self) -> None:
+    def test_to_memory_without_ref_raises(self) -> None:
         obj = DataObject()
-        with pytest.raises(ValueError, match="storage reference"):
-            obj.view()
+        with pytest.raises(ValueError, match="no storage reference"):
+            obj.to_memory()
 
 
 # ---------------------------------------------------------------------------
