@@ -413,7 +413,14 @@ def test_composite_reconstruct_empty_slots_short_circuits() -> None:
 
 def test_composite_serialise_delegates_to_serialization_helpers() -> None:
     """Composite serialisation recursively invokes :func:`_serialise_one`."""
-    inner = Array(axes=["y", "x"], shape=(4, 4), dtype="uint8")
+    from scieasy.core.storage.ref import StorageReference
+
+    inner = Array(
+        axes=["y", "x"],
+        shape=(4, 4),
+        dtype="uint8",
+        storage_ref=StorageReference(backend="zarr", path="/tmp/slot.zarr"),
+    )
     composite = CompositeData(slots={"img": inner})
 
     md = CompositeData._serialise_extra_metadata(composite)
@@ -442,9 +449,25 @@ def test_composite_hook_round_trip() -> None:
     round-trip a composite with multiple slot types (Array + Series +
     DataFrame) into an equivalent composite on the receiving side.
     """
-    image = Array(axes=["y", "x"], shape=(8, 8), dtype="uint8")
-    trace = Series(index_name="time", value_name="voltage", length=100)
-    peaks = DataFrame(columns=["mz", "intensity"], row_count=50)
+    from scieasy.core.storage.ref import StorageReference
+
+    image = Array(
+        axes=["y", "x"],
+        shape=(8, 8),
+        dtype="uint8",
+        storage_ref=StorageReference(backend="zarr", path="/tmp/img.zarr"),
+    )
+    trace = Series(
+        index_name="time",
+        value_name="voltage",
+        length=100,
+        storage_ref=StorageReference(backend="arrow", path="/tmp/trace.arrow"),
+    )
+    peaks = DataFrame(
+        columns=["mz", "intensity"],
+        row_count=50,
+        storage_ref=StorageReference(backend="arrow", path="/tmp/peaks.arrow"),
+    )
     composite = CompositeData(slots={"image": image, "trace": trace, "peaks": peaks})
 
     md = CompositeData._serialise_extra_metadata(composite)
@@ -508,13 +531,24 @@ def test_serialization_serialise_round_trips_bare_dataobject() -> None:
     """Positive smoke test for the real :func:`_serialise_one` body.
 
     Replaces the T-013 ``test_serialization_stub_serialise_raises``.
+    ADR-031 Addendum 1: storage_ref is required for serialisation.
     """
+    from scieasy.core.storage.ref import StorageReference
     from scieasy.core.types.serialization import _serialise_one
 
-    payload = _serialise_one(DataObject())
+    obj = DataObject(storage_ref=StorageReference(backend="zarr", path="/tmp/test.zarr"))
+    payload = _serialise_one(obj)
     assert payload["metadata"]["type_chain"] == ["DataObject"]
     assert payload["metadata"]["meta"] is None
     assert payload["metadata"]["user"] == {}
+
+
+def test_serialization_serialise_rejects_none_storage_ref() -> None:
+    """ADR-031 Addendum 1: _serialise_one rejects DataObject without storage_ref."""
+    from scieasy.core.types.serialization import _serialise_one
+
+    with pytest.raises(ValueError, match="storage_ref is None"):
+        _serialise_one(DataObject())
 
 
 # ---------------------------------------------------------------------------

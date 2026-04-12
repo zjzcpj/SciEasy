@@ -12,11 +12,20 @@ from typing import Any, ClassVar
 
 import pytest
 
+from scieasy.core.storage.flush_context import clear, set_output_dir
 from scieasy.core.storage.ref import StorageReference
 from scieasy.core.types.array import Array
 from scieasy.core.types.base import DataObject
 from scieasy.core.types.collection import Collection
 from scieasy.core.types.dataframe import DataFrame
+
+
+@pytest.fixture(autouse=True)
+def _flush_context(tmp_path):
+    """ADR-031 Addendum 1: auto_flush now hard-gates on output_dir."""
+    set_output_dir(str(tmp_path))
+    yield
+    clear()
 
 
 class Image(Array):
@@ -241,13 +250,14 @@ class TestBlockCollectionUtilities:
         result = Block._auto_flush(obj)
         assert result is obj
 
-    def test_auto_flush_no_ref(self) -> None:
-        """_auto_flush returns object as-is when no storage backend available."""
+    def test_auto_flush_no_ref_raises_without_context(self) -> None:
+        """ADR-031 Addendum 1: _auto_flush raises when output_dir not set."""
         from scieasy.blocks.base.block import Block
 
+        clear()  # Remove the autouse fixture's output_dir
         obj = DataObject()
-        result = Block._auto_flush(obj)
-        assert result is obj  # No storage backend configured, returns as-is
+        with pytest.raises(RuntimeError, match="no output_dir configured"):
+            Block._auto_flush(obj)
 
 
 # -- Port Collection transparency ----------------------------------------------

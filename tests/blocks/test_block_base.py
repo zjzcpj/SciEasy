@@ -11,8 +11,18 @@ from scieasy.blocks.base.block import Block
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.ports import InputPort, OutputPort
 from scieasy.blocks.base.state import BlockState
+from scieasy.core.storage.flush_context import clear, set_output_dir
 from scieasy.core.types.array import Array
 from scieasy.core.types.dataframe import DataFrame
+
+
+@pytest.fixture(autouse=True)
+def _flush_context(tmp_path):
+    """ADR-031 Addendum 1: auto_flush now hard-gates on output_dir."""
+    set_output_dir(str(tmp_path))
+    yield
+    clear()
+
 
 # ---------------------------------------------------------------------------
 # Local test fixture subclass.

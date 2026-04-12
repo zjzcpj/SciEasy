@@ -9,10 +9,21 @@ side-effect-free Process block in a workflow.
 
 from __future__ import annotations
 
+import pytest
+
 from scieasy.blocks.base.config import BlockConfig
+from scieasy.core.storage.flush_context import clear, set_output_dir
 from scieasy.core.types.base import DataObject
 from scieasy.core.types.collection import Collection
 from tests.fixtures.noop_block import NoopBlock
+
+
+@pytest.fixture(autouse=True)
+def _flush_context(tmp_path):
+    """ADR-031 Addendum 1: auto_flush now hard-gates on output_dir."""
+    set_output_dir(str(tmp_path))
+    yield
+    clear()
 
 
 def test_noop_instantiates() -> None:

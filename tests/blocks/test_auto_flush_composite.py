@@ -29,6 +29,12 @@ class _StubComposite(CompositeData):
 
     expected_slots: ClassVar[dict[str, type]] = {"raster": _StubDataObject}
 
+    def save(self, path: str) -> None:
+        """Minimal save that sets storage_ref (test stub)."""
+        from scieasy.core.storage.ref import StorageReference
+
+        self.storage_ref = StorageReference(backend="local", path=path, format="stub")
+
 
 def test_auto_flush_recurses_into_composite_slots() -> None:
     """_auto_flush should flush unflushed slots inside CompositeData (#436)."""

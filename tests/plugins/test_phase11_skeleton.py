@@ -26,6 +26,17 @@ from pathlib import Path
 
 import pytest
 
+from scieasy.core.storage.flush_context import clear, set_output_dir
+
+
+@pytest.fixture(autouse=True)
+def _flush_context(tmp_path):
+    """ADR-031 Addendum 1: auto_flush now hard-gates on output_dir."""
+    set_output_dir(str(tmp_path))
+    yield
+    clear()
+
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PLUGIN_SRC_DIRS = [
     _REPO_ROOT / "packages" / "scieasy-blocks-imaging" / "src",
@@ -376,7 +387,7 @@ def test_imaging_preprocess_a_impl_smoke() -> None:
 
     # Normalize minmax.
     n_out = Normalize().process_item(_img(base), BlockConfig(params={"method": "minmax"}))
-    n_arr = np.asarray(n_out._data)
+    n_arr = np.asarray(n_out.to_memory())
     assert float(n_arr.min()) == 0.0
     assert float(n_arr.max()) == 1.0
 
