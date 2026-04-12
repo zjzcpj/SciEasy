@@ -1,5 +1,5 @@
 import { type Node, Handle, Position, type NodeProps, useEdges, useReactFlow } from "@xyflow/react";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useLayoutEffect } from "react";
 
 import { resolveTypeColor, resolveRingColor, isAnyType, primaryTypeName } from "../../config/typeColorMap";
 import { api } from "../../lib/api";
@@ -653,6 +653,23 @@ export function BlockNode({ id: nodeId, data, selected }: NodeProps<Node<BlockNo
     "output",
   );
 
+  // Measure the header + config section height to position port handles
+  // below the variable-height content instead of using a hardcoded offset.
+  const configSectionRef = useRef<HTMLDivElement>(null);
+  const [portStartY, setPortStartY] = useState(80);
+  useLayoutEffect(() => {
+    if (configSectionRef.current) {
+      // The config section's bottom edge relative to the node's top gives us
+      // the Y coordinate where port handles should begin.
+      const rect = configSectionRef.current.getBoundingClientRect();
+      const parentRect = configSectionRef.current.closest(".react-flow__node")?.getBoundingClientRect();
+      if (parentRect) {
+        const offset = rect.bottom - parentRect.top + 8; // 8px padding
+        setPortStartY(offset);
+      }
+    }
+  });
+
   const handleConfigChange = (key: string, value: unknown) => {
     data.onUpdateConfig?.({ [key]: value });
   };
@@ -756,7 +773,7 @@ export function BlockNode({ id: nodeId, data, selected }: NodeProps<Node<BlockNo
       {/* ----------------------------------------------------------------- */}
       {/* Inline config                                                     */}
       {/* ----------------------------------------------------------------- */}
-      <div className="nodrag nowheel space-y-2 overflow-hidden border-b border-stone-100 px-3 py-2">
+      <div ref={configSectionRef} className="nodrag nowheel space-y-2 overflow-hidden border-b border-stone-100 px-3 py-2">
         {configProps.length > 0 ? (
           configProps.map((prop) => (
             <InlineConfigField
@@ -785,7 +802,7 @@ export function BlockNode({ id: nodeId, data, selected }: NodeProps<Node<BlockNo
         const anyType = isAnyType(port.accepted_types);
         const typeName = primaryTypeName(port.accepted_types);
         const borderColor = ringColor ?? (anyType ? "#d1d5db" : fillColor);
-        const portTop = 80 + index * 20;
+        const portTop = portStartY + index * 20;
         return (
           <span key={port.name} className="group">
             <Handle
@@ -821,7 +838,7 @@ export function BlockNode({ id: nodeId, data, selected }: NodeProps<Node<BlockNo
           type="button"
           className="nodrag absolute flex h-3.5 w-3.5 items-center justify-center rounded-full bg-stone-100 text-[9px] text-stone-500 transition-colors hover:bg-ember hover:text-white"
           title="Add input port"
-          style={{ left: 6, top: 80 + effectiveInputPorts.length * 20 - 1 }}
+          style={{ left: 6, top: portStartY + effectiveInputPorts.length * 20 - 1 }}
           onClick={() => handleAddPort("input")}
         >
           +
@@ -833,7 +850,7 @@ export function BlockNode({ id: nodeId, data, selected }: NodeProps<Node<BlockNo
         const anyType = isAnyType(port.accepted_types);
         const typeName = primaryTypeName(port.accepted_types);
         const borderColor = ringColor ?? (anyType ? "#d1d5db" : fillColor);
-        const portTop = 80 + index * 20;
+        const portTop = portStartY + index * 20;
         return (
           <span key={port.name} className="group">
             <Handle
@@ -869,7 +886,7 @@ export function BlockNode({ id: nodeId, data, selected }: NodeProps<Node<BlockNo
           type="button"
           className="nodrag absolute flex h-3.5 w-3.5 items-center justify-center rounded-full bg-stone-100 text-[9px] text-stone-500 transition-colors hover:bg-ember hover:text-white"
           title="Add output port"
-          style={{ right: 6, top: 80 + effectiveOutputPorts.length * 20 - 1 }}
+          style={{ right: 6, top: portStartY + effectiveOutputPorts.length * 20 - 1 }}
           onClick={() => handleAddPort("output")}
         >
           +

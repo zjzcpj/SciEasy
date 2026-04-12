@@ -16,7 +16,6 @@ from typing import Any, ClassVar
 from scieasy.blocks.base.config import BlockConfig
 from scieasy.blocks.base.state import ExecutionMode
 from scieasy.blocks.process.process_block import ProcessBlock
-from scieasy.core.types.base import DataObject
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +47,8 @@ class PairEditor(ProcessBlock):
 
     variadic_inputs: ClassVar[bool] = True
     variadic_outputs: ClassVar[bool] = True
-    allowed_input_types: ClassVar[list[type]] = [DataObject]
-    allowed_output_types: ClassVar[list[type]] = [DataObject]
+    allowed_input_types: ClassVar[list[type]] = []
+    allowed_output_types: ClassVar[list[type]] = []
     min_input_ports: ClassVar[int | None] = 2
     max_input_ports: ClassVar[int | None] = 8
 

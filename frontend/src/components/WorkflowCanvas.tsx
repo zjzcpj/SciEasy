@@ -13,7 +13,7 @@ import "@xyflow/react/dist/style.css";
 import { useCallback, useMemo, useState } from "react";
 
 import { resolveTypeColor } from "../config/typeColorMap";
-import type { BlockSchemaResponse, BlockSummary, WorkflowEdge, WorkflowNode } from "../types/api";
+import type { BlockPortResponse, BlockSchemaResponse, BlockSummary, WorkflowEdge, WorkflowNode } from "../types/api";
 import type { BlockNodeData } from "../types/ui";
 import { AnnotationNode } from "./nodes/AnnotationNode";
 import { BlockNode } from "./nodes/BlockNode";
@@ -27,6 +27,40 @@ const nodeTypes = {
   _group: GroupNode,
 };
 const edgeTypes = { typed: TypedEdge };
+
+/**
+ * For variadic blocks, merge config-driven ports with schema-level ports.
+ * Schema-level ports are empty ([]) for variadic blocks like DataRouter/PairEditor.
+ * The actual ports are stored in config.input_ports / config.output_ports as
+ * arrays of {name: string, types: string[]}.
+ */
+function resolveVariadicPorts(
+  schemaPorts: BlockPortResponse[],
+  config: Record<string, unknown>,
+  direction: "input" | "output",
+  schema?: BlockSchemaResponse,
+): BlockPortResponse[] {
+  const isVariadic =
+    direction === "input"
+      ? schema?.variadic_inputs === true
+      : schema?.variadic_outputs === true;
+  if (!isVariadic) return schemaPorts;
+
+  const configKey = direction === "input" ? "input_ports" : "output_ports";
+  const configPorts = config[configKey];
+  if (!Array.isArray(configPorts) || configPorts.length === 0) return schemaPorts;
+
+  // Convert config port dicts to BlockPortResponse shape.
+  return (configPorts as Array<{ name: string; types?: string[] }>).map((cp) => ({
+    name: cp.name,
+    direction,
+    accepted_types: cp.types ?? [],
+    required: false,
+    description: "",
+    constraint_description: "",
+    is_collection: false,
+  }));
+}
 
 function parsePortRef(ref: string): { nodeId: string; portName: string } {
   const [nodeId, portName] = ref.split(":");
@@ -184,8 +218,8 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
           summary,
           schema,
           config: params,
-          inputPorts: schema?.input_ports ?? summary?.input_ports ?? [],
-          outputPorts: schema?.output_ports ?? summary?.output_ports ?? [],
+          inputPorts: resolveVariadicPorts(schema?.input_ports ?? summary?.input_ports ?? [], params, "input", schema),
+          outputPorts: resolveVariadicPorts(schema?.output_ports ?? summary?.output_ports ?? [], params, "output", schema),
           status: blockStates[node.id] ?? "idle",
           errorMessage: blockErrors[node.id],
           errorSummary: blockErrorSummaries[node.id],
