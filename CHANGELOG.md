@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#665] Fix variadic port rendering: config-driven handles, dynamic layout, type dropdown (@claude, 2026-04-12, branch: fix/issue-665/variadic-port-frontend, session: 20260412-052953-fix-variadic-port-frontend-missing-handl)
 - [#630] Pass block registry to validate_workflow() in API save path so type compatibility and dangling port checks run (@claude, 2026-04-11, branch: fix/issue-638/validator-batch-improvements, session: 20260411-224417-batch-validator-improvements-registry-pa)
 - [#631] Add variadic port cardinality validation (Check 7) to workflow validator (@claude, 2026-04-11, branch: fix/issue-638/validator-batch-improvements, session: 20260411-224417-batch-validator-improvements-registry-pa)
 - [#632] Validate block config required fields before dispatch to catch misconfiguration before subprocess creation (@claude, 2026-04-11, branch: fix/issue-638/validator-batch-improvements, session: 20260411-224417-batch-validator-improvements-registry-pa)
