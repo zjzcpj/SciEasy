@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -19,7 +20,21 @@ from scieasy.blocks.base.ports import (
 )
 from scieasy.blocks.base.state import BlockState, ExecutionMode
 
+
 # Valid state transitions (ADR-018: added CANCELLED, SKIPPED).
+def _win_long_path(path: str) -> str:
+    """Prepend Windows extended-length prefix when path risks exceeding MAX_PATH.
+
+    Regular paths:  ``C:\\foo``  → ``\\\\?\\C:\\foo``
+    UNC paths:      ``\\\\server\\share``  → ``\\\\?\\UNC\\server\\share``
+    """
+    if sys.platform != "win32" or len(path) <= 259 or path.startswith("\\\\?\\"):
+        return path
+    if path.startswith("\\\\"):
+        return "\\\\?\\UNC\\" + path[2:]
+    return "\\\\?\\" + path
+
+
 _VALID_TRANSITIONS: dict[BlockState, set[BlockState]] = {
     BlockState.IDLE: {BlockState.READY, BlockState.SKIPPED, BlockState.ERROR},
     BlockState.READY: {BlockState.RUNNING, BlockState.SKIPPED, BlockState.ERROR},
@@ -369,8 +384,8 @@ class Block(ABC):
         if not output_dir:
             raise RuntimeError("persist_array requires output_dir but none is configured.")
 
-        store_name = f"{uuid.uuid4()}.zarr"
-        store_path = str(Path(output_dir) / store_name)
+        store_name = f"{uuid.uuid4().hex[:12]}.zarr"
+        store_path = _win_long_path(str(Path(output_dir) / store_name))
         Path(store_path).parent.mkdir(parents=True, exist_ok=True)
 
         np_dtype = np.dtype(dtype)
@@ -417,8 +432,8 @@ class Block(ABC):
         if not output_dir:
             raise RuntimeError("persist_table requires output_dir but none is configured.")
 
-        file_name = f"{uuid.uuid4()}.parquet"
-        file_path = str(Path(output_dir) / file_name)
+        file_name = f"{uuid.uuid4().hex[:12]}.parquet"
+        file_path = _win_long_path(str(Path(output_dir) / file_name))
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 
         backend = ArrowBackend()
