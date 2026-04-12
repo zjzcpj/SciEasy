@@ -87,6 +87,8 @@ class SRSImage(Image):  # type: ignore[misc,valid-type]
         if self.shape is None:
             return
 
+        if "lambda" not in self.axes:
+            return  # no lambda axis — single-wavelength image, skip check
         lambda_axis = self.axes.index("lambda")
         lambda_size = self.shape[lambda_axis]
         if len(self.meta.wavenumbers_cm1) != lambda_size:
