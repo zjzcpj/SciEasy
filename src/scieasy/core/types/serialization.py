@@ -290,14 +290,23 @@ def _serialise_one(obj: DataObject) -> dict[str, Any]:
     if hasattr(cls, "_serialise_extra_metadata"):
         md.update(cls._serialise_extra_metadata(obj))
 
-    # Storage reference envelope. When auto-flush was a no-op (no flush
-    # context, or in-memory object), obj.storage_ref is None — we emit
-    # None for backend/path/format so _reconstruct_one round-trips
-    # cleanly without a storage_ref.
+    # Storage reference envelope. ADR-031 Addendum 1: reject None
+    # storage_ref unless this is an Artifact with file_path (path-only transport).
     ref = obj.storage_ref
-    backend = ref.backend if ref is not None else None
-    path = ref.path if ref is not None else None
-    format_ = ref.format if ref is not None else None
+    if ref is None:
+        from scieasy.core.types.artifact import Artifact
+
+        if not (isinstance(obj, Artifact) and getattr(obj, "file_path", None) is not None):
+            raise ValueError(
+                f"Cannot serialise {type(obj).__name__}: storage_ref is None. "
+                f"Object must be persisted to storage before serialisation."
+            )
+        # Artifact with file_path: emit None backend/path (path-only transport)
+        backend, path, format_ = None, None, None
+    else:
+        backend = ref.backend
+        path = ref.path
+        format_ = ref.format
 
     return {
         "backend": backend,

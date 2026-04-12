@@ -106,14 +106,19 @@ def _load_tiff(path: Path, axes_override: list[str] | None, block: Any = None, o
         if len(axes) != ndim:
             raise ValueError(f"LoadImage: axes override {axes!r} does not match array ndim={ndim} for {path}")
 
-        # ADR-031 D4: streaming path — write pages to zarr one at a time.
-        if block is not None and output_dir and n_pages > 1:
+        # ADR-031 D4 + Addendum 1: persist path for both multi-page and single-page.
+        if block is not None and output_dir:
+            if n_pages > 1:
+                # Streaming path — write pages to zarr one at a time.
+                def page_chunks() -> Any:
+                    for i, page in enumerate(tf.pages):
+                        yield (i, page.asarray())
 
-            def page_chunks() -> Any:
-                for i, page in enumerate(tf.pages):
-                    yield (i, page.asarray())
-
-            ref = block.persist_array(page_chunks(), shape, page_dtype, output_dir)
+                ref = block.persist_array(page_chunks(), shape, page_dtype, output_dir)
+            else:
+                # Single page: one-shot persist.
+                data = tf.asarray()
+                ref = block.persist_array(data, shape, page_dtype, output_dir)
             return Image(
                 axes=axes,
                 shape=shape,
@@ -123,16 +128,16 @@ def _load_tiff(path: Path, axes_override: list[str] | None, block: Any = None, o
                 storage_ref=ref,
             )
         else:
-            # Single-page or no block: read into memory (simple path).
-            data: np.ndarray = tf.asarray()
+            # Fallback: no block context (direct call outside workflow).
+            data_arr: np.ndarray = tf.asarray()
             img = Image(
                 axes=axes,
-                shape=tuple(data.shape),
-                dtype=str(data.dtype),
+                shape=tuple(data_arr.shape),
+                dtype=str(data_arr.dtype),
                 framework=FrameworkMeta(source=str(path)),
                 meta=Image.Meta(source_file=str(path)),
             )
-            img._data = data  # type: ignore[attr-defined]
+            img._data = data_arr  # type: ignore[attr-defined]
             return img
 
 
