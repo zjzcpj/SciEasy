@@ -140,7 +140,7 @@ class ResourceManager:
         self,
         gpu_slots: int | None = None,
         cpu_workers: int = 4,
-        memory_high_watermark: float = 0.80,
+        memory_high_watermark: float = 0.90,
         memory_critical: float = 0.95,
         event_bus: Any | None = None,
     ) -> None:

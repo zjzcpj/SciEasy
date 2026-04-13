@@ -113,8 +113,8 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
     selectedNodeId,
   } = props;
 
-  // Collect the set of type names present across all ports in the workflow
-  // for the TypeLegend component.
+  // Collect the set of type names and merged type hierarchy present across
+  // all ports in the workflow for the TypeLegend component.
   const activeTypes = useMemo<Set<string>>(() => {
     const types = new Set<string>();
     for (const node of nodes) {
@@ -132,6 +132,13 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
     }
     return types;
   }, [nodes, schemas]);
+
+  const mergedTypeHierarchy = useMemo(() => {
+    for (const schema of Object.values(schemas)) {
+      if (schema?.type_hierarchy?.length) return schema.type_hierarchy;
+    }
+    return undefined;
+  }, [schemas]);
 
   // Track positions locally during drag so nodes follow the cursor smoothly.
   // ReactFlow is in controlled mode (nodes prop), so without this the node
@@ -355,7 +362,7 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
         <Controls />
         <Background color="#d8d2c4" gap={20} size={1.2} />
       </ReactFlow>
-      <TypeLegend activeTypes={activeTypes} />
+      <TypeLegend activeTypes={activeTypes} typeHierarchy={mergedTypeHierarchy} />
     </div>
   );
 }
