@@ -251,9 +251,14 @@ class DAGScheduler:
         config_schema = getattr(block, "config_schema", None)
         if isinstance(config_schema, dict) and config_schema.get("required"):
             required_fields = config_schema["required"]
+            properties = config_schema.get("properties", {})
             params = node.config.get("params", {}) if isinstance(node.config.get("params"), dict) else {}
             top_level = node.config if isinstance(node.config, dict) else {}
-            missing = [f for f in required_fields if (params.get(f) is None and top_level.get(f) is None)]
+            missing = [
+                f
+                for f in required_fields
+                if (params.get(f) is None and top_level.get(f) is None and "default" not in properties.get(f, {}))
+            ]
             if missing:
                 error_str = f"Block '{node_id}' config is missing required field(s): {', '.join(sorted(missing))}"
                 logger.error("Pre-dispatch config validation failed for %s: %s", node_id, error_str)

@@ -59,7 +59,14 @@ def _win_junction(target: str) -> str:
         )
     except (sp.CalledProcessError, FileNotFoundError) as exc:
         logger.warning("Failed to create junction %s -> %s: %s", junction, target, exc)
-        return target
+        # Fallback: use the short path as a real directory instead of a
+        # junction.  This avoids MAX_PATH failures when the target lives
+        # on a virtual filesystem (e.g. Box) that rejects junctions.
+        # Data will be written to the short path; it will NOT sync with
+        # cloud storage, but zarr operations will succeed.
+        junction.mkdir(parents=True, exist_ok=True)
+        logger.info("Fallback: using short path %s as real directory", junction)
+        return str(junction)
 
     logger.info("Created junction %s -> %s", junction, target)
     return str(junction)
@@ -179,6 +186,12 @@ class LocalRunner:
         )
 
         stdout, stderr = await proc.communicate(input=payload_bytes)
+
+        # Forward worker stderr so block-level diagnostics are visible.
+        if stderr:
+            for line in stderr.decode(errors="replace").splitlines():
+                if line.strip():
+                    logger.info("worker[%s] %s", block_id, line)
 
         if proc.returncode != 0:
             error_msg = stderr.decode(errors="replace") if stderr else "unknown error"

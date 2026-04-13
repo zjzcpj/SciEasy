@@ -131,17 +131,12 @@ export function resolveRingColor(
       }
     }
   }
-  // Auto-derive ring color for hash-palette types (#543)
-  // Only apply if the type is not in the manual maps (i.e. it would get a hash color)
+  // Auto-derive ring color for types not in the manual maps (#543)
   if (typeNames.length > 0 && !typeColorMap[typeNames[0]]) {
-    const isKnownViaHierarchy = typeHierarchy?.some((t) => {
-      if (t.name !== typeNames[0]) return false;
-      return t.base_type && typeColorMap[t.base_type];
-    });
-    if (!isKnownViaHierarchy) {
-      const idx = hashTypeName(typeNames[0]) % HASH_PALETTE.length;
-      return darkenHex(HASH_PALETTE[idx], 0.3);
-    }
+    // Plugin subtypes that inherit a base color get a hash-derived ring
+    // to visually distinguish them from the base type.
+    const idx = hashTypeName(typeNames[0]) % HASH_PALETTE.length;
+    return darkenHex(HASH_PALETTE[idx], 0.3);
   }
   return undefined;
 }
