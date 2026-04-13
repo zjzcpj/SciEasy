@@ -68,7 +68,7 @@ class TestResourceManagerInit:
         rm = ResourceManager(gpu_slots=0)
         assert rm.gpu_slots == 0
         assert rm.max_cpu_workers == 4
-        assert rm.memory_high_watermark == 0.80
+        assert rm.memory_high_watermark == 0.90
         assert rm.memory_critical == 0.95
         assert rm._gpu_in_use == 0
         assert rm._cpu_in_use == 0

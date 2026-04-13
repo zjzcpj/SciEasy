@@ -53,10 +53,15 @@ class NapariBlock(AppBlock):
     def run(self, inputs: dict[str, Collection], config: BlockConfig) -> dict[str, Collection]:
         images = _input_images(inputs, "image", "NapariBlock")
         exchange_dir = _resolve_exchange_dir(config, prefix="scieasy_napari_")
-        _prepare_image_exchange(images, exchange_dir, tool_name=self.type_name, config=config)
+        staged_paths = _prepare_image_exchange(images, exchange_dir, tool_name=self.type_name, config=config)
         command = _resolve_command(config, app_command=self.app_command, override_key="napari_path")
         output_files = _run_external_app(
-            self, command=command, exchange_dir=exchange_dir, patterns=self.output_patterns, config=config
+            self,
+            command=command,
+            exchange_dir=exchange_dir,
+            patterns=self.output_patterns,
+            config=config,
+            launch_args=[str(p) for p in staged_paths],
         )
         return _collect_outputs(
             output_files, template_image=images[0] if images else None, allowed_ports={"image", "mask", "label"}

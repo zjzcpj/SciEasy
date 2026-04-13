@@ -659,16 +659,16 @@ export function BlockNode({ id: nodeId, data, selected }: NodeProps<Node<BlockNo
   const [portStartY, setPortStartY] = useState(80);
   useLayoutEffect(() => {
     if (configSectionRef.current) {
-      // The config section's bottom edge relative to the node's top gives us
-      // the Y coordinate where port handles should begin.
-      const rect = configSectionRef.current.getBoundingClientRect();
-      const parentRect = configSectionRef.current.closest(".react-flow__node")?.getBoundingClientRect();
-      if (parentRect) {
-        const offset = rect.bottom - parentRect.top + 8; // 8px padding
-        setPortStartY(offset);
-      }
+      // Use offsetTop + offsetHeight instead of getBoundingClientRect()
+      // because offset* properties are in the node's local coordinate
+      // system, unaffected by ReactFlow's CSS zoom transform.
+      const offset = configSectionRef.current.offsetTop + configSectionRef.current.offsetHeight + 8;
+      setPortStartY(offset);
     }
-  });
+    // Re-measure only when config properties or port lists change, not on
+    // every render (which causes port jitter during edge dragging).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [configProps.length, effectiveInputPorts.length, effectiveOutputPorts.length]);
 
   const handleConfigChange = (key: string, value: unknown) => {
     data.onUpdateConfig?.({ [key]: value });
