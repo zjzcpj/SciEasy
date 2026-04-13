@@ -57,20 +57,32 @@ export const createWorkflowSlice: StateCreator<AppStore, [], [], WorkflowSlice> 
     }),
   setWorkflowName: (name) => set({ workflowName: name }),
   addNode: (block, position, defaultParams) =>
-    set((state) => ({
-      ...pushHistory(state),
-      workflowDirty: true,
-      workflowId: state.workflowId ?? "main",
-      workflowNodes: [
-        ...state.workflowNodes,
-        {
-          id: `${block.type_name}-${Date.now()}`,
-          block_type: block.type_name,
-          config: { params: defaultParams ?? {} },
-          layout: position,
-        },
-      ],
-    })),
+    set((state) => {
+      const nodeId = `${block.type_name}-${Date.now()}`;
+      const params: Record<string, unknown> = { ...(defaultParams ?? {}) };
+
+      // Auto-fill output_dir for AppBlock-category blocks with the
+      // project exchange directory so users see the default path.
+      const projectPath = (state as AppStore).currentProject?.path;
+      if (projectPath && block.base_category === "app" && !params.output_dir) {
+        params.output_dir = `${projectPath}/data/exchange/${nodeId}/outputs`;
+      }
+
+      return {
+        ...pushHistory(state),
+        workflowDirty: true,
+        workflowId: state.workflowId ?? "main",
+        workflowNodes: [
+          ...state.workflowNodes,
+          {
+            id: nodeId,
+            block_type: block.type_name,
+            config: { params },
+            layout: position,
+          },
+        ],
+      };
+    }),
   addAnnotationNode: (position) =>
     set((state) => ({
       ...pushHistory(state),
