@@ -88,17 +88,30 @@ class ExtractSpectrum(ProcessBlock):
         n_lambda = first.shape[lambda_axis] if first.shape else 0
         wavenumbers = _get_wavenumbers(first, n_lambda)
 
+        # Validate that all images have compatible lambda axes.
+        for idx, image in enumerate(images):
+            if "lambda" not in image.axes:
+                raise ValueError(f"ExtractSpectrum: image[{idx}] is missing the 'lambda' axis")
+            img_lambda = image.axes.index("lambda")
+            img_n = image.shape[img_lambda] if image.shape else 0
+            if img_n != n_lambda:
+                raise ValueError(
+                    f"ExtractSpectrum: image[{idx}] lambda size {img_n} != image[0] lambda size {n_lambda}"
+                )
+
         # Build columns: wavenumber + one per image-region.
         columns: dict[str, pa.Array] = {
             "wavenumber_cm1": pa.array(wavenumbers, type=pa.float64()),
         }
+        used_names: set[str] = set()
 
         for idx, image in enumerate(images):
             label = labels_list[idx]
             img_name = _derive_image_name(image, idx)
             spectra = _extract_spectra(image, label)
             for col_suffix, spectrum in spectra:
-                col_name = f"{img_name}_{col_suffix}"
+                col_name = _unique_column_name(f"{img_name}_{col_suffix}", used_names)
+                used_names.add(col_name)
                 columns[col_name] = pa.array(spectrum, type=pa.float64())
 
         table = pa.table(columns)
@@ -166,6 +179,16 @@ def _get_wavenumbers(image: Image, n_lambda: int) -> list[float]:
         if wn is not None:
             return list(wn)
     return [float(i) for i in range(n_lambda)]
+
+
+def _unique_column_name(candidate: str, used: set[str]) -> str:
+    """Return *candidate* if unused, otherwise append _2, _3, ... until unique."""
+    if candidate not in used:
+        return candidate
+    counter = 2
+    while f"{candidate}_{counter}" in used:
+        counter += 1
+    return f"{candidate}_{counter}"
 
 
 def _derive_image_name(image: Image, index: int) -> str:
