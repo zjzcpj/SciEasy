@@ -1,4 +1,5 @@
 import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReactFlowProvider } from "@xyflow/react";
 
@@ -11,11 +12,28 @@ import type {
 import type { BlockNodeData } from "../../types/ui";
 
 // api module mock — browse endpoints removed (#467), stub for remaining tests.
+// `openNativeDialog` is a `vi.fn()` so individual tests can stub it per-case.
+const openNativeDialogMock = vi.fn();
 vi.mock("../../lib/api", () => ({
-  api: {},
+  api: {
+    get openNativeDialog() {
+      return openNativeDialogMock;
+    },
+  },
+  ApiError: class ApiError extends Error {
+    status: number;
+    constructor(message: string, status: number) {
+      super(message);
+      this.name = "ApiError";
+      this.status = status;
+    }
+  },
 }));
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  openNativeDialogMock.mockReset();
+});
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -441,3 +459,77 @@ describe("BlockNode — sanity smoke", () => {
   });
 });
 
+
+// ---------------------------------------------------------------------------
+// Native dialog fallback behavior (#678)
+// ---------------------------------------------------------------------------
+
+describe("BlockNode - native dialog status-aware fallback (#678)", () => {
+  // A non-io block with a file_browser config field renders a Browse "..." button.
+  function renderBrowseField() {
+    return renderNode({
+      category: "process",
+      blockType: "test_block",
+      schema: makeSchema({
+        base_category: "process",
+        type_name: "test_block",
+        config_schema: {
+          type: "object",
+          properties: {
+            path: { type: "string", ui_widget: "file_browser", ui_priority: 0 },
+          },
+        },
+      }),
+    });
+  }
+
+  function findBrowseButton(): HTMLElement {
+    const btn = screen.getByTitle("Browse filesystem");
+    expect(btn).toBeInTheDocument();
+    return btn;
+  }
+
+  function getFileBrowserHeading(): HTMLElement | null {
+    return screen.queryByText("Select File");
+  }
+
+  it("falls back to in-app FileBrowserModal when native dialog returns HTTP 500", async () => {
+    const { ApiError } = await import("../../lib/api");
+    openNativeDialogMock.mockRejectedValueOnce(
+      new ApiError("Native dialog command not available on this platform (Linux)", 500),
+    );
+
+    renderBrowseField();
+    expect(getFileBrowserHeading()).toBeNull();
+    await userEvent.click(findBrowseButton());
+
+    // Modal opens (heading "Select File" is the modal's title).
+    expect(getFileBrowserHeading()).toBeInTheDocument();
+  });
+
+  it("does NOT open in-app FileBrowserModal when native dialog returns HTTP 504", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { ApiError } = await import("../../lib/api");
+    openNativeDialogMock.mockRejectedValueOnce(
+      new ApiError("Dialog timed out", 504),
+    );
+
+    renderBrowseField();
+    await userEvent.click(findBrowseButton());
+
+    // Modal must NOT open on a 504 - that is the deprecated picker we
+    // are explicitly avoiding (#678).
+    expect(getFileBrowserHeading()).toBeNull();
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it("falls back to in-app FileBrowserModal on a non-ApiError network failure", async () => {
+    openNativeDialogMock.mockRejectedValueOnce(new Error("network down"));
+
+    renderBrowseField();
+    await userEvent.click(findBrowseButton());
+
+    expect(getFileBrowserHeading()).toBeInTheDocument();
+  });
+});

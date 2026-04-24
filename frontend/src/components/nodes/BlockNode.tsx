@@ -2,7 +2,7 @@ import { type Node, Handle, Position, type NodeProps, useEdges, useReactFlow } f
 import { useState, useEffect, useCallback, useRef, useLayoutEffect } from "react";
 
 import { resolveTypeColor, resolveRingColor, isAnyType, primaryTypeName } from "../../config/typeColorMap";
-import { api } from "../../lib/api";
+import { api, ApiError } from "../../lib/api";
 import type { FilesystemEntry } from "../../types/api";
 import type { BlockNodeData } from "../../types/ui";
 import { computeEffectivePorts } from "../../utils/computeEffectivePorts";
@@ -464,8 +464,30 @@ function InlineConfigField({
         }
       }
       // If paths is empty, user cancelled — do nothing
-    } catch {
-      // Native dialog failed — fall back to in-app FileBrowserModal
+    } catch (err) {
+      // Status-aware fallback (#678):
+      //  - HTTP 500 = native dialog tool not installed on this platform → fall
+      //    back to the deprecated in-app FileBrowserModal so the user can still
+      //    pick a path.
+      //  - HTTP 504 = dialog timed out. Backend no longer enforces a timeout
+      //    so this should not happen in practice; if it does, do NOT fall back
+      //    silently — surface the error so we notice. Just log; the deprecated
+      //    in-app picker is a worse experience than a no-op.
+      //  - Any other error (network failure, unknown) → fall back defensively.
+      if (err instanceof ApiError) {
+        if (err.status === 504) {
+          // eslint-disable-next-line no-console
+          console.error(
+            "Native file dialog timed out (HTTP 504); not falling back to in-app picker.",
+            err,
+          );
+          return;
+        }
+        // 500 and any other HTTP error: fall back to in-app picker.
+        setBrowseOpen(true);
+        return;
+      }
+      // Non-ApiError (network failure, etc.): fall back defensively.
       setBrowseOpen(true);
     }
   };
