@@ -1112,6 +1112,16 @@ The `AppBlock` config includes:
 - `watch_patterns`: glob patterns for detecting completed output.
 - `timeout`: optional max wait time before error.
 
+**macOS `.app` bundles** (issue #677): when `app_command` resolves to a path
+ending in `.app`, `FileExchangeBridge.launch()` rewrites the invocation to
+`open -W -n -a <App.app> --args ...`. The `-W` flag is required so `open`
+blocks until the launched .app exits — without it, the returned `Popen`
+handle tracks only the short-lived `open` launcher (which exits within
+~100 ms) instead of the .app itself, causing the watcher to immediately
+believe the process died and to abort the run. The `-n` flag forces a
+fresh instance so the watcher is keyed to the new process and does not
+accidentally wait on an unrelated already-open window.
+
 #### AIBlock
 
 LLM-powered processing for tasks that benefit from natural-language reasoning:
