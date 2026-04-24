@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- [#682] Align variadic-port + button with port-handle column (@claude, 2026-04-24, branch: fix/issue-682/variadic-add-port-alignment, session: 20260424-145113-fix-682-button-css-alignment)
 <<<<<<< fix/issue-678/native-dialog-no-timeout
 - [#678] Remove 120s timeout from native file dialog; status-aware frontend fallback (only fall back to in-app picker on HTTP 500, not 504) (@claude, 2026-04-24, branch: fix/issue-678/native-dialog-no-timeout, session: 20260424-130419-fix-678-remove-native-dialog-timeout)
 =======
