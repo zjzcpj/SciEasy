@@ -361,7 +361,15 @@ class TestBridgeMacOSAppBundle:
     """#483: .app bundle launch rewriting on macOS."""
 
     def test_launch_rewrites_app_bundle_on_darwin(self, tmp_path: Path) -> None:
-        """On macOS, .app bundles should be launched via 'open -a'."""
+        """On macOS, .app bundles should be launched via ``open -W -n -a`` (#677).
+
+        ``-W`` is required so ``open`` blocks until the launched .app exits —
+        without it, ``Popen`` only tracks the short-lived launcher and the
+        watcher immediately raises ``ProcessExitedWithoutOutputError`` (#677
+        was a regression of #483 once the lifetime mismatch was detected).
+        ``-n`` forces a fresh instance so the watcher is keyed to the new
+        process.
+        """
         from unittest.mock import patch
 
         bridge = FileExchangeBridge()
@@ -387,9 +395,14 @@ class TestBridgeMacOSAppBundle:
             call_args = mock_popen.call_args
             cmd = call_args[0][0]
             assert cmd[0] == "open"
-            assert cmd[1] == "-a"
-            assert cmd[2] == str(app_bundle)
-            assert cmd[3] == "--args"
+            # -W and -n must both be present before the -a <app> pair so
+            # open blocks on a fresh .app instance.
+            assert "-W" in cmd, f"expected -W flag in argv: {cmd}"
+            assert "-n" in cmd, f"expected -n flag in argv: {cmd}"
+            assert "-a" in cmd
+            a_index = cmd.index("-a")
+            assert cmd[a_index + 1] == str(app_bundle)
+            assert "--args" in cmd
 
     def test_launch_does_not_rewrite_on_non_darwin(self, tmp_path: Path) -> None:
         """On non-macOS, .app paths should NOT be rewritten."""
